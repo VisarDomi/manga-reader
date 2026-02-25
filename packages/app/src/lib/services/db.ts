@@ -1,14 +1,16 @@
+import type { Manga } from '../types.js';
+
 const DB_NAME = 'comix-reader';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 interface ProgressEntry {
     mangaSlug: string;
-    chapterId: number;
+    chapterId: string;
     chapterNumber: number;
     pageIndex?: number;
 }
 
-export type ProgressData = { chapterId: number; chapterNumber: number; pageIndex?: number };
+export type ProgressData = { chapterId: string; chapterNumber: number; pageIndex?: number };
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -23,7 +25,9 @@ function openDB(): Promise<IDBDatabase> {
             if (!db.objectStoreNames.contains('progress')) {
                 db.createObjectStore('progress', { keyPath: 'mangaSlug' });
             }
-            // savedSearches store kept for DB version compat (unused)
+            if (!db.objectStoreNames.contains('favorites')) {
+                db.createObjectStore('favorites', { keyPath: 'id' });
+            }
         };
 
         request.onsuccess = () => resolve(request.result);
@@ -33,7 +37,8 @@ function openDB(): Promise<IDBDatabase> {
     return dbPromise;
 }
 
-// Progress — keyed by mangaSlug, stores { chapterId, chapterNumber }
+// --- Progress --- keyed by mangaSlug, stores { chapterId, chapterNumber }
+
 export async function getProgress(mangaSlug: string): Promise<ProgressData | null> {
     const db = await openDB();
     return new Promise((resolve) => {
@@ -42,7 +47,7 @@ export async function getProgress(mangaSlug: string): Promise<ProgressData | nul
         req.onsuccess = () => {
             const entry = req.result as ProgressEntry | undefined;
             if (!entry) return resolve(null);
-            const data: ProgressData = { chapterId: entry.chapterId, chapterNumber: entry.chapterNumber };
+            const data: ProgressData = { chapterId: String(entry.chapterId), chapterNumber: entry.chapterNumber };
             if (entry.pageIndex != null) data.pageIndex = entry.pageIndex;
             resolve(data);
         };
@@ -68,7 +73,7 @@ export async function getAllProgress(): Promise<Record<string, ProgressData>> {
         req.onsuccess = () => {
             const map: Record<string, ProgressData> = {};
             for (const entry of req.result as ProgressEntry[]) {
-                const data: ProgressData = { chapterId: entry.chapterId, chapterNumber: entry.chapterNumber };
+                const data: ProgressData = { chapterId: String(entry.chapterId), chapterNumber: entry.chapterNumber };
                 if (entry.pageIndex != null) data.pageIndex = entry.pageIndex;
                 map[entry.mangaSlug] = data;
             }
@@ -78,3 +83,34 @@ export async function getAllProgress(): Promise<Record<string, ProgressData>> {
     });
 }
 
+// --- Favorites --- keyed by manga id
+
+export async function getAllFavorites(): Promise<Manga[]> {
+    const db = await openDB();
+    return new Promise((resolve) => {
+        const tx = db.transaction('favorites', 'readonly');
+        const req = tx.objectStore('favorites').getAll();
+        req.onsuccess = () => resolve(req.result as Manga[]);
+        req.onerror = () => { console.error('[db] getAllFavorites failed:', req.error); resolve([]); };
+    });
+}
+
+export async function addFavorite(manga: Manga): Promise<void> {
+    const db = await openDB();
+    return new Promise((resolve) => {
+        const tx = db.transaction('favorites', 'readwrite');
+        tx.objectStore('favorites').put(manga);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => { console.error('[db] addFavorite failed:', tx.error); resolve(); };
+    });
+}
+
+export async function removeFavorite(id: string): Promise<void> {
+    const db = await openDB();
+    return new Promise((resolve) => {
+        const tx = db.transaction('favorites', 'readwrite');
+        tx.objectStore('favorites').delete(id);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => { console.error('[db] removeFavorite failed:', tx.error); resolve(); };
+    });
+}

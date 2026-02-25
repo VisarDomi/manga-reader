@@ -6,42 +6,43 @@
 
     let { chapters }: { chapters: ChapterMeta[] } = $props();
 
-    const slug = $derived(appState.manga.activeManga?.slug ?? '');
+    const mangaId = $derived(appState.manga.activeManga?.id ?? '');
 
     // Restore saved group selections for this manga
-    let selectedGroups = $state<Set<number>>(new Set());
+    let selectedGroups = $state<Set<string>>(new Set());
     $effect(() => {
-        selectedGroups = new Set(storage.getJson<number[]>(`group:${slug}`, []));
+        selectedGroups = new Set(storage.getJson<string[]>(`group:${mangaId}`, []));
     });
 
-    function toggleGroup(id: number) {
+    function toggleGroup(id: string) {
         const next = new Set(selectedGroups);
         if (next.has(id)) next.delete(id);
         else next.add(id);
         selectedGroups = next;
         if (next.size === 0) {
-            storage.remove(`group:${slug}`);
+            storage.remove(`group:${mangaId}`);
         } else {
-            storage.setJson(`group:${slug}`, [...next]);
+            storage.setJson(`group:${mangaId}`, [...next]);
         }
     }
 
     function selectAll() {
         selectedGroups = new Set();
-        storage.remove(`group:${slug}`);
+        storage.remove(`group:${mangaId}`);
     }
 
     // Collect unique groups sorted by chapter count (most chapters first)
     const groups = $derived.by(() => {
-        const map = new Map<number, { id: number; name: string; count: number }>();
+        const map = new Map<string, { id: string; name: string; count: number }>();
         for (const ch of chapters) {
-            const existing = map.get(ch.scanlationGroupId);
+            const gid = ch.groupId ?? '';
+            const existing = map.get(gid);
             if (existing) {
                 existing.count++;
             } else {
-                map.set(ch.scanlationGroupId, {
-                    id: ch.scanlationGroupId,
-                    name: ch.scanlationGroupName || 'No Group',
+                map.set(gid, {
+                    id: gid,
+                    name: ch.groupName || 'No Group',
                     count: 1,
                 });
             }
@@ -54,7 +55,7 @@
         if (selectedGroups.size === 0) {
             return [...chapters].sort((a, b) => b.number - a.number);
         }
-        const byGroup = chapters.filter(ch => selectedGroups.has(ch.scanlationGroupId));
+        const byGroup = chapters.filter(ch => selectedGroups.has(ch.groupId ?? ''));
         const best = new Map<number, ChapterMeta>();
         for (const ch of byGroup) {
             const existing = best.get(ch.number);
@@ -65,7 +66,7 @@
         return [...best.values()].sort((a, b) => b.number - a.number);
     });
 
-    const currentChapterId = $derived(appState.progress.get(slug)?.chapterId ?? null);
+    const currentChapterId = $derived(appState.progress.get(mangaId)?.chapterId ?? null);
 
     function handleClick(chapter: ChapterMeta) {
         const manga = appState.manga.activeManga;
@@ -117,15 +118,12 @@
 {/if}
 
 <div class="chapter-list">
-    {#each filtered as chapter (chapter.chapterId)}
-        <button class="chapter-item" class:chapter-current={chapter.chapterId === currentChapterId} use:scrollIfCurrent={chapter.chapterId === currentChapterId} onclick={() => handleClick(chapter)}>
+    {#each filtered as chapter (chapter.id)}
+        <button class="chapter-item" class:chapter-current={chapter.id === currentChapterId} use:scrollIfCurrent={chapter.id === currentChapterId} onclick={() => handleClick(chapter)}>
             <span class="chapter-number">Ch. {chapter.number}</span>
-            <span class="chapter-group">{chapter.scanlationGroupName || 'No Group'}</span>
+            <span class="chapter-group">{chapter.groupName || 'No Group'}</span>
             {#if chapter.uploadedAt}
                 <span class="chapter-date">{formatDate(chapter.uploadedAt)}</span>
-            {/if}
-            {#if chapter.votes > 0}
-                <span class="chapter-votes">{chapter.votes}</span>
             {/if}
         </button>
     {/each}
@@ -189,12 +187,5 @@
     font-size: 11px;
     color: #666;
     white-space: nowrap;
-}
-
-.chapter-votes {
-    font-size: 12px;
-    color: #4af626;
-    min-width: 30px;
-    text-align: right;
 }
 </style>

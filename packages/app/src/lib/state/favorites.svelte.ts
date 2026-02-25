@@ -1,4 +1,4 @@
-import { fetchFavorites, addFavorite, removeFavorite } from '../services/api.js';
+import * as db from '../services/db.js';
 import type { Manga } from '../types.js';
 import type { ToastState } from './toast.svelte.js';
 
@@ -11,30 +11,30 @@ export class FavoritesState {
 
     async init() {
         try {
-            this.items = await fetchFavorites();
+            this.items = await db.getAllFavorites();
         } catch {
             // silent — favorites are non-critical
         }
     }
 
-    isFavorited(slug: string): boolean {
-        return this.items.some(m => m.slug === slug);
+    isFavorited(id: string): boolean {
+        return this.items.some(m => m.id === id);
     }
 
     async toggle(manga: Manga) {
-        const was = this.isFavorited(manga.slug);
+        const was = this.isFavorited(manga.id);
         // Optimistic update
         if (was) {
-            this.items = this.items.filter(m => m.slug !== manga.slug);
+            this.items = this.items.filter(m => m.id !== manga.id);
         } else {
             this.items = [...this.items, manga];
         }
         try {
             if (was) {
-                await removeFavorite(manga.slug);
+                await db.removeFavorite(manga.id);
                 this.toast.show('Removed from favorites');
             } else {
-                await addFavorite(manga);
+                await db.addFavorite(manga);
                 this.toast.show('Added to favorites');
             }
         } catch {
@@ -42,7 +42,7 @@ export class FavoritesState {
             if (was) {
                 this.items = [...this.items, manga];
             } else {
-                this.items = this.items.filter(m => m.slug !== manga.slug);
+                this.items = this.items.filter(m => m.id !== manga.id);
             }
             this.toast.show('Failed to update favorites');
         }
@@ -52,7 +52,7 @@ export class FavoritesState {
         this.isActive = true;
         this.isLoading = true;
         try {
-            this.items = await fetchFavorites();
+            this.items = await db.getAllFavorites();
         } catch {
             this.toast.show('Failed to load favorites');
         } finally {

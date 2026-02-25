@@ -1,5 +1,7 @@
 import { ConnectionMonitor } from '../services/ConnectionMonitor.svelte.js';
 import { watchdog } from '../services/WatchdogService.js';
+import { initProvider, getProvider } from '../services/provider.js';
+import { setNsfwGenreIds } from './filter.svelte.js';
 import { UIState } from './ui.svelte.js';
 import { SearchState } from './search.svelte.js';
 import { MangaState } from './manga.svelte.js';
@@ -10,6 +12,8 @@ import { FavoritesState } from './favorites.svelte.js';
 import { RESUME_RECOVERY_MS, DEEP_SLEEP_MS } from '../constants.js';
 
 export type AppStatus = 'BOOTING' | 'READY' | 'BACKGROUND' | 'RECONNECTING' | 'OFFLINE';
+
+const NSFW_NAMES = new Set(['Adult', 'Ecchi', 'Hentai', 'Mature', 'Smut']);
 
 class AppState {
     ui = new UIState();
@@ -55,6 +59,17 @@ class AppState {
     }
 
     async init() {
+        // Initialize provider first — filters and API depend on it
+        await initProvider();
+
+        // Derive NSFW genre IDs from provider's filter definition
+        const filters = getProvider().getFilters();
+        const nsfwIds = new Set<string>();
+        for (const g of filters.genres) {
+            if (NSFW_NAMES.has(g.name)) nsfwIds.add(g.id);
+        }
+        setNsfwGenreIds(nsfwIds);
+
         await Promise.all([this.progress.init(), this.favorites.init()]);
         await this.searchState.search(this.searchState.inputQuery);
 

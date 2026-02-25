@@ -95,8 +95,8 @@ export class SearchState {
                 this.filters.buildFilters(), controller.signal, true,
             );
             if (controller.signal.aborted) return;
-            const seen = new Set(this.results.map(m => m.slug));
-            const deduped = data.manga.filter(m => !seen.has(m.slug));
+            const seen = new Set(this.results.map(m => m.id));
+            const deduped = data.manga.filter(m => !seen.has(m.id));
             this.results = [...this.results, ...deduped];
             this.hasMore = data.hasMore;
         } catch (e) {

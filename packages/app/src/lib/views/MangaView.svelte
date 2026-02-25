@@ -1,22 +1,12 @@
 <script lang="ts">
     import { appState } from '$lib/state/index.svelte.js';
     import { swipeBack } from '$lib/actions/swipeBack.js';
-    import { TERMS } from '$lib/data/terms.js';
     import ChapterList from '$lib/components/ChapterList.svelte';
 
     const manga = $derived(appState.manga.activeManga);
-
-    const TERM_MAP = new Map(TERMS.map(t => [t.id, t]));
-
-    const tags = $derived.by(() => {
-        if (!manga?.termIds) return [];
-        return manga.termIds
-            .map(id => TERM_MAP.get(id))
-            .filter((t): t is NonNullable<typeof t> => t != null);
-    });
     const chapters = $derived(appState.manga.chapters);
     const isLoading = $derived(appState.manga.isLoading);
-    const isFav = $derived(manga ? appState.favorites.isFavorited(manga.slug) : false);
+    const isFav = $derived(manga ? appState.favorites.isFavorited(manga.id) : false);
 
     // Reset scroll to top when a new manga opens (before chapters load)
     $effect(() => {
@@ -42,13 +32,6 @@
             </div>
             {#if manga.author}
                 <p class="manga-view-author">{manga.author}</p>
-            {/if}
-            {#if tags.length > 0}
-                <div class="manga-tags">
-                    {#each tags as tag (tag.id)}
-                        <span class="manga-tag">{tag.name}</span>
-                    {/each}
-                </div>
             {/if}
         </div>
 
@@ -104,21 +87,5 @@
     margin: 4px 0 0;
     font-size: 14px;
     color: #888;
-}
-
-.manga-tags {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 5px;
-    margin-top: 8px;
-}
-
-.manga-tag {
-    font-size: 11px;
-    padding: 2px 8px;
-    border-radius: 4px;
-    background: #222;
-    color: #aaa;
-    border: 1px solid #333;
 }
 </style>

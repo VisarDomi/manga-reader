@@ -1,7 +1,6 @@
 import type { Manga, ChapterMeta, LoadedChapter } from '../types.js';
 import * as api from '../services/api.js';
 import * as db from '../services/db.js';
-import { API } from '../config.js';
 import { PageTracker } from '../services/PageTracker.js';
 import type { UIState } from './ui.svelte.js';
 import type { MangaState } from './manga.svelte.js';
@@ -10,11 +9,11 @@ import type { ToastState } from './toast.svelte.js';
 
 export class ReaderState {
     loadedChapters = $state<LoadedChapter[]>([]);
-    currentChapterId = $state<number | null>(null);
+    currentChapterId = $state<string | null>(null);
     isLoadingNext = $state(false);
     isLoadingPrev = $state(false);
     pendingPageRestore = $state<number | null>(null);
-    private activeMangaSlug = '';
+    private activeMangaId = '';
     /** The filtered+deduped+sorted chapter list from manga details. Reader navigates only within this list. */
     private chapterList: ChapterMeta[] = [];
     readonly pageTracker = new PageTracker();
@@ -32,8 +31,8 @@ export class ReaderState {
     }
 
     async openReader(manga: Manga, chapter: ChapterMeta, filteredChapters: ChapterMeta[]) {
-        this.activeMangaSlug = manga.slug;
-        this.currentChapterId = chapter.chapterId;
+        this.activeMangaId = manga.id;
+        this.currentChapterId = chapter.id;
         this.loadedChapters = [];
         this.isLoadingNext = false;
         this.isLoadingPrev = false;
@@ -41,8 +40,8 @@ export class ReaderState {
         this.chapterList = [...filteredChapters].sort((a, b) => a.number - b.number);
 
         // Check if reopening the same chapter — restore page position
-        const saved = this.progress.get(manga.slug);
-        if (saved && saved.chapterId === chapter.chapterId && saved.pageIndex != null) {
+        const saved = this.progress.get(manga.id);
+        if (saved && saved.chapterId === chapter.id && saved.pageIndex != null) {
             this.pendingPageRestore = saved.pageIndex;
         } else {
             this.pendingPageRestore = null;
@@ -51,23 +50,23 @@ export class ReaderState {
         this.ui.setView('reader');
 
         try {
-            const pages = await api.fetchChapterImages(manga.slug, chapter.chapterId, chapter.number);
+            const pages = await api.fetchChapterImages(manga.id, chapter.id, chapter.number);
             // Proxy all image URLs through our backend to avoid CORS issues
             const proxiedPages = pages.map(p => ({
                 ...p,
-                url: API.IMAGE_PROXY(p.url),
+                url: api.imageProxyUrl(p.url),
             }));
             this.loadedChapters = [{
-                chapterId: chapter.chapterId,
+                id: chapter.id,
                 number: chapter.number,
                 pages: proxiedPages,
-                groupName: chapter.scanlationGroupName,
+                groupName: chapter.groupName,
             }];
 
             // Save progress (local + in-memory)
-            const progressData = { chapterId: chapter.chapterId, chapterNumber: chapter.number };
-            db.setProgress(manga.slug, progressData);
-            this.progress.update(manga.slug, progressData);
+            const progressData = { chapterId: chapter.id, chapterNumber: chapter.number };
+            db.setProgress(manga.id, progressData);
+            this.progress.update(manga.id, progressData);
         } catch (e) {
             console.error('Failed to open chapter:', e);
             this.toast.show('Failed to load chapter');
@@ -75,25 +74,21 @@ export class ReaderState {
     }
 
     /** Tracks the currently visible page in-memory. Called from scroll handler. */
-    trackVisiblePage(chapterId: number, pageIndex: number): void {
+    trackVisiblePage(chapterId: string, pageIndex: number): void {
         this.pageTracker.track(chapterId, pageIndex);
     }
 
-    /** Called when the visible chapter changes. Updates state + debounced sync to local DB & remote API. */
-    syncChapterProgress(chapterId: number): void {
+    /** Called when the visible chapter changes. Updates state + debounced sync to local DB. */
+    syncChapterProgress(chapterId: string): void {
         this.currentChapterId = chapterId;
         this.pageTracker.scheduleSync(chapterId, (cId, pageIndex) => {
             const manga = this.manga.activeManga;
             if (!manga) return;
-            const ch = this.manga.chapters.find(c => c.chapterId === cId);
+            const ch = this.manga.chapters.find(c => c.id === cId);
             if (ch) {
                 const progressData = { chapterId: cId, chapterNumber: ch.number, pageIndex };
-                db.setProgress(manga.slug, progressData);
-                this.progress.update(manga.slug, progressData);
-                const numId = this.manga.numericMangaId;
-                if (numId) {
-                    api.updateHistory(numId, cId).catch(() => {});
-                }
+                db.setProgress(manga.id, progressData);
+                this.progress.update(manga.id, progressData);
             }
         });
     }
@@ -111,12 +106,12 @@ export class ReaderState {
 
     closeReader() {
         this.pageTracker.flush((chapterId, pageIndex) => {
-            if (!this.activeMangaSlug) return;
-            const ch = this.manga.chapters.find(c => c.chapterId === chapterId);
+            if (!this.activeMangaId) return;
+            const ch = this.manga.chapters.find(c => c.id === chapterId);
             if (ch) {
                 const progressData = { chapterId, chapterNumber: ch.number, pageIndex };
-                db.setProgress(this.activeMangaSlug, progressData);
-                this.progress.update(this.activeMangaSlug, progressData);
+                db.setProgress(this.activeMangaId, progressData);
+                this.progress.update(this.activeMangaId, progressData);
             }
         });
         this.pageTracker.destroy();
@@ -126,8 +121,8 @@ export class ReaderState {
     }
 
     /** Find the next/prev chapter by index in the filtered list. */
-    private getAdjacent(chapterId: number, direction: 'next' | 'prev'): ChapterMeta | null {
-        const idx = this.chapterList.findIndex(c => c.chapterId === chapterId);
+    private getAdjacent(chapterId: string, direction: 'next' | 'prev'): ChapterMeta | null {
+        const idx = this.chapterList.findIndex(c => c.id === chapterId);
         if (idx === -1) return null;
         const targetIdx = direction === 'next' ? idx + 1 : idx - 1;
         return this.chapterList[targetIdx] ?? null;
@@ -141,22 +136,22 @@ export class ReaderState {
         const lastLoaded = this.loadedChapters[this.loadedChapters.length - 1];
         if (!lastLoaded) return false;
 
-        const next = this.getAdjacent(lastLoaded.chapterId, 'next');
+        const next = this.getAdjacent(lastLoaded.id, 'next');
         if (!next) return false;
-        if (this.loadedChapters.some(c => c.chapterId === next.chapterId)) return false;
+        if (this.loadedChapters.some(c => c.id === next.id)) return false;
 
         this.isLoadingNext = true;
         try {
-            const pages = await api.fetchChapterImages(manga.slug, next.chapterId, next.number);
+            const pages = await api.fetchChapterImages(manga.id, next.id, next.number);
             const proxiedPages = pages.map(p => ({
                 ...p,
-                url: API.IMAGE_PROXY(p.url),
+                url: api.imageProxyUrl(p.url),
             }));
             this.loadedChapters = [...this.loadedChapters, {
-                chapterId: next.chapterId,
+                id: next.id,
                 number: next.number,
                 pages: proxiedPages,
-                groupName: next.scanlationGroupName,
+                groupName: next.groupName,
             }];
             return true;
         } catch (e) {
@@ -176,22 +171,22 @@ export class ReaderState {
         const firstLoaded = this.loadedChapters[0];
         if (!firstLoaded) return null;
 
-        const prev = this.getAdjacent(firstLoaded.chapterId, 'prev');
+        const prev = this.getAdjacent(firstLoaded.id, 'prev');
         if (!prev) return null;
-        if (this.loadedChapters.some(c => c.chapterId === prev.chapterId)) return null;
+        if (this.loadedChapters.some(c => c.id === prev.id)) return null;
 
         this.isLoadingPrev = true;
         try {
-            const pages = await api.fetchChapterImages(manga.slug, prev.chapterId, prev.number);
+            const pages = await api.fetchChapterImages(manga.id, prev.id, prev.number);
             const proxiedPages = pages.map(p => ({
                 ...p,
-                url: API.IMAGE_PROXY(p.url),
+                url: api.imageProxyUrl(p.url),
             }));
             const chapter: LoadedChapter = {
-                chapterId: prev.chapterId,
+                id: prev.id,
                 number: prev.number,
                 pages: proxiedPages,
-                groupName: prev.scanlationGroupName,
+                groupName: prev.groupName,
             };
             this.loadedChapters = [chapter, ...this.loadedChapters];
             return chapter;

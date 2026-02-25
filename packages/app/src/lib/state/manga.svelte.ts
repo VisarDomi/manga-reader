@@ -6,7 +6,6 @@ import type { ToastState } from './toast.svelte.js';
 export class MangaState {
     activeManga = $state<Manga | null>(null);
     chapters = $state<ChapterMeta[]>([]);
-    numericMangaId = $state<number | null>(null);
     isLoading = $state(false);
 
     private ui: UIState;
@@ -20,16 +19,12 @@ export class MangaState {
     async openManga(manga: Manga) {
         this.activeManga = manga;
         this.chapters = [];
-        this.numericMangaId = null;
         this.isLoading = true;
         this.ui.setView('manga');
 
         try {
-            const chapters = await api.fetchChapterList(manga.slug);
+            const chapters = await api.fetchChapterList(manga.id);
             this.chapters = chapters;
-            if (chapters.length > 0 && chapters[0].mangaId) {
-                this.numericMangaId = chapters[0].mangaId;
-            }
         } catch (e) {
             this.toast.show('Failed to load chapters');
         } finally {

@@ -5,11 +5,11 @@
 
 interface ChapterBoundaryParams {
     getRoot: () => HTMLElement | null;
-    onChapterChange: (chapterId: number) => void;
+    onChapterChange: (chapterId: string) => void;
 }
 
 let sharedObserver: IntersectionObserver | null = null;
-let sharedCallback: ((chapterId: number) => void) | null = null;
+let sharedCallback: ((chapterId: string) => void) | null = null;
 let sharedRoot: HTMLElement | null = null;
 let observedNodes: Set<HTMLElement> = new Set();
 
@@ -35,7 +35,7 @@ function ensureObserver(params: ChapterBoundaryParams): void {
         (entries) => {
             for (const entry of entries) {
                 if (entry.isIntersecting && entry.intersectionRatio >= 0.5) {
-                    const chId = Number((entry.target as HTMLElement).dataset.chapterId);
+                    const chId = (entry.target as HTMLElement).dataset.chapterId;
                     if (chId) sharedCallback?.(chId);
                 }
             }

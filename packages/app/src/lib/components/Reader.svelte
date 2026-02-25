@@ -97,15 +97,15 @@
     });
 
     // Chapter change: memory management + state sync
-    function handleChapterChange(chapterId: number) {
+    function handleChapterChange(chapterId: string) {
         if (chapterId === appState.reader.currentChapterId) return;
         const root = getReaderRoot();
         if (!root) return;
-        const pages = root.querySelectorAll('.reader-page');
+        const pages = root.querySelectorAll<HTMLElement>('.reader-page');
         memory.cleanupDistantChapters(chapterId, chapters, pages);
-        const curIdx = chapters.findIndex(c => c.chapterId === chapterId);
+        const curIdx = chapters.findIndex(c => c.id === chapterId);
         for (let i = Math.max(0, curIdx - MAX_CHAPTER_DISTANCE); i <= Math.min(chapters.length - 1, curIdx + MAX_CHAPTER_DISTANCE); i++) {
-            memory.reloadChapterImages(chapters[i].chapterId, pages);
+            memory.reloadChapterImages(chapters[i].id, pages);
         }
         appState.reader.syncChapterProgress(chapterId);
     }
@@ -161,10 +161,10 @@
         <!-- Prepend sentinel at very top -->
         <div class="sentinel" use:sentinel={{ getRoot: getReaderRoot, rootMargin: '500% 0px', onIntersect: handlePrepend, disabled: !sentinelsReady }}></div>
 
-        {#each chapters as chapter (chapter.chapterId)}
+        {#each chapters as chapter (chapter.id)}
             <div
                 class="chapter-separator"
-                data-chapter-id={chapter.chapterId}
+                data-chapter-id={chapter.id}
                 use:observeChapterBoundary={{ getRoot: getReaderRoot, onChapterChange: handleChapterChange }}
             >
                 Chapter {chapter.number} ({chapter.groupName})
@@ -173,7 +173,7 @@
                 {@const aspectRatio = page.width && page.height ? `${page.width}/${page.height}` : '2/3'}
                 <div
                     class="reader-page"
-                    use:observePageImages={() => ({ memory, getRoot: getReaderRoot, chapterId: chapter.chapterId, pageIndex: i, url: page.url })}
+                    use:observePageImages={() => ({ memory, getRoot: getReaderRoot, chapterId: chapter.id, pageIndex: i, url: page.url })}
                     style="aspect-ratio:{aspectRatio}"
                 >
                     <img alt="Ch.{chapter.number} P.{i + 1}" decoding="async" />

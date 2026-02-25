@@ -8,7 +8,7 @@ import type { ReaderMemoryManager } from '$lib/services/ReaderMemoryManager.js';
 interface PageImageParams {
     memory: ReaderMemoryManager;
     getRoot: () => HTMLElement | null;
-    chapterId: number;
+    chapterId: string;
     pageIndex: number;
     url: string;
 }

@@ -24,7 +24,8 @@ router.get('/image', asyncHandler(async (req, res) => {
     return;
   }
 
-  await streamImage(imageUrl, res);
+  const referer = req.query.referer as string | undefined;
+  await streamImage(imageUrl, res, referer);
 }));
 
 export default router;

@@ -6,7 +6,7 @@
 </script>
 
 <div class="manga-grid">
-    {#each manga as m (m.slug)}
+    {#each manga as m (m.id)}
         <MangaCoverCard manga={m} />
     {/each}
 </div>

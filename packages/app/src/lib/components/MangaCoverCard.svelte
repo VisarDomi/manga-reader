@@ -1,12 +1,12 @@
 <script lang="ts">
     import { appState } from '$lib/state/index.svelte.js';
-    import { API } from '$lib/config.js';
+    import * as api from '$lib/services/api.js';
     import type { Manga } from '$lib/types.js';
 
     let { manga }: { manga: Manga } = $props();
 
-    const coverUrl = $derived(manga.cover ? API.IMAGE_PROXY(manga.cover) : '');
-    const progress = $derived(appState.progress.get(manga.slug));
+    const coverUrl = $derived(manga.cover ? api.imageProxyUrl(manga.cover) : '');
+    const progress = $derived(appState.progress.get(manga.id));
     const hasProgress = $derived(progress != null && manga.latestChapter != null);
 </script>
 

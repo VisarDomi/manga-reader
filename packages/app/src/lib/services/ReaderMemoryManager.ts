@@ -8,7 +8,7 @@ export class ReaderMemoryManager {
     readonly pageDataMap = new Map<HTMLElement, ReaderPageData>();
     root: HTMLElement | null = null;
 
-    private pageKey(chapterId: number, pageIndex: number): string {
+    private pageKey(chapterId: string, pageIndex: number): string {
         return `${chapterId}-${pageIndex}`;
     }
 
@@ -29,7 +29,7 @@ export class ReaderMemoryManager {
         return this.abortController?.signal;
     }
 
-    registerPage(node: HTMLElement, chapterId: number, pageIndex: number, url: string): void {
+    registerPage(node: HTMLElement, chapterId: string, pageIndex: number, url: string): void {
         this.pageDataMap.set(node, { key: this.pageKey(chapterId, pageIndex), url });
     }
 
@@ -64,28 +64,28 @@ export class ReaderMemoryManager {
      * exceeds MAX_CHAPTER_DISTANCE. Clears `src` on the provided page elements.
      */
     cleanupDistantChapters(
-        currentChapterId: number,
+        currentChapterId: string,
         chapters: LoadedChapter[],
         pageElements: Iterable<HTMLElement>,
     ): void {
-        const currentIndex = chapters.findIndex(c => c.chapterId === currentChapterId);
+        const currentIndex = chapters.findIndex(c => c.id === currentChapterId);
         if (currentIndex < 0) return;
 
         // Collect chapter IDs that should be unloaded
-        const unloadIds = new Set<number>();
+        const unloadIds = new Set<string>();
         for (let i = 0; i < chapters.length; i++) {
             if (Math.abs(i - currentIndex) > MAX_CHAPTER_DISTANCE) {
                 const ch = chapters[i];
                 // Revoke blob URLs for every page in this chapter
                 for (let p = 0; p < ch.pages.length; p++) {
-                    const key = this.pageKey(ch.chapterId, p);
+                    const key = this.pageKey(ch.id, p);
                     const blobUrl = this.blobUrls.get(key);
                     if (blobUrl) {
                         URL.revokeObjectURL(blobUrl);
                         this.blobUrls.delete(key);
                     }
                 }
-                unloadIds.add(ch.chapterId);
+                unloadIds.add(ch.id);
             }
         }
 
@@ -95,7 +95,7 @@ export class ReaderMemoryManager {
         for (const wrapper of pageElements) {
             const data = this.pageDataMap.get(wrapper);
             if (!data) continue;
-            const chId = Number(data.key.split('-')[0]);
+            const chId = data.key.split('-')[0];
             if (unloadIds.has(chId)) {
                 const img = wrapper.querySelector('img');
                 if (img && img.src) {
@@ -110,7 +110,7 @@ export class ReaderMemoryManager {
      * Caller passes the page wrapper elements so the manager doesn't query the DOM.
      */
     reloadChapterImages(
-        chapterId: number,
+        chapterId: string,
         pageElements: Iterable<HTMLElement>,
     ): void {
         if (!this.abortController) return;

@@ -1,17 +1,26 @@
-import type { SearchFilters } from '../services/api.js';
+import type { SearchFilters } from '@manga-reader/provider-types';
 import * as storage from '../services/storage.js';
-import { NSFW_TERM_IDS } from '../data/terms.js';
 
 const STORAGE_KEY = 'filters';
 
 interface PersistedFilters {
-    terms: [number, 'include' | 'exclude'][];
+    terms: [string, 'include' | 'exclude'][];
     types: string[];
     statuses: string[];
 }
 
+let nsfwGenreIds = new Set<string>();
+
+export function setNsfwGenreIds(ids: Set<string>): void {
+    nsfwGenreIds = ids;
+}
+
+export function getNsfwGenreIds(): Set<string> {
+    return nsfwGenreIds;
+}
+
 export class FilterState {
-    termStates = $state<Map<number, 'include' | 'exclude'>>(new Map());
+    termStates = $state<Map<string, 'include' | 'exclude'>>(new Map());
     selectedTypes = $state<Set<string>>(new Set());
     selectedStatuses = $state<Set<string>>(new Set());
     contentMode = $state<'sfw' | 'all'>(
@@ -47,7 +56,8 @@ export class FilterState {
         const data = storage.getJson<PersistedFilters | null>(STORAGE_KEY, null);
         if (!data) return;
         if (Array.isArray(data.terms) && data.terms.length > 0) {
-            this.termStates = new Map(data.terms);
+            // Backward compat: coerce numeric IDs to strings
+            this.termStates = new Map(data.terms.map(([id, state]) => [String(id), state]));
         }
         if (Array.isArray(data.types) && data.types.length > 0) {
             this.selectedTypes = new Set(data.types);
@@ -62,28 +72,28 @@ export class FilterState {
     }
 
     buildFilters(): SearchFilters | undefined {
-        const includeTerms: number[] = [];
-        const excludeTerms: number[] = [];
+        const includeGenres: string[] = [];
+        const excludeGenres: string[] = [];
         for (const [id, state] of this.termStates) {
-            if (state === 'include') includeTerms.push(id);
-            else excludeTerms.push(id);
+            if (state === 'include') includeGenres.push(id);
+            else excludeGenres.push(id);
         }
 
         if (this.contentMode === 'sfw') {
-            for (const id of NSFW_TERM_IDS) {
-                if (!includeTerms.includes(id) && !excludeTerms.includes(id)) {
-                    excludeTerms.push(id);
+            for (const id of nsfwGenreIds) {
+                if (!includeGenres.includes(id) && !excludeGenres.includes(id)) {
+                    excludeGenres.push(id);
                 }
             }
         }
 
-        const hasFilters = includeTerms.length > 0 || excludeTerms.length > 0
+        const hasFilters = includeGenres.length > 0 || excludeGenres.length > 0
             || this.selectedTypes.size > 0 || this.selectedStatuses.size > 0;
         if (!hasFilters) return undefined;
 
         return {
-            includeTerms,
-            excludeTerms,
+            includeGenres,
+            excludeGenres,
             types: [...this.selectedTypes],
             statuses: [...this.selectedStatuses],
         };
@@ -95,7 +105,7 @@ export class FilterState {
         this.debouncedOnChange();
     }
 
-    toggleTerm(id: number) {
+    toggleTerm(id: string) {
         const current = this.termStates.get(id);
         const next = new Map(this.termStates);
         if (!current) {

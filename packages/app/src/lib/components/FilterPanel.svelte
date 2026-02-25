@@ -1,28 +1,44 @@
 <script lang="ts">
     import { appState } from '$lib/state/index.svelte.js';
-    import { TERMS, TERM_CATEGORIES, TYPES, STATUSES, STATUS_LABELS, TYPE_LABELS, NSFW_TERM_IDS } from '$lib/data/terms.js';
+    import { getProvider } from '$lib/services/provider.js';
+    import { getNsfwGenreIds } from '$lib/state/filter.svelte.js';
     import FilterChip from './FilterChip.svelte';
 
-    const NSFW_IDS = new Set<number>(NSFW_TERM_IDS);
+    const filterDef = getProvider().getFilters();
+    const nsfwIds = getNsfwGenreIds();
 
-    const termsByCategory = TERM_CATEGORIES.map(cat => ({
-        ...cat,
-        terms: TERMS.filter(t => t.category === cat.key),
-    }));
+    // Group genres by their group field (demographic, genre, theme, format)
+    const genresByGroup = $derived.by(() => {
+        const map = new Map<string, typeof filterDef.genres>();
+        for (const g of filterDef.genres) {
+            const group = g.group ?? 'other';
+            const arr = map.get(group);
+            if (arr) arr.push(g);
+            else map.set(group, [g]);
+        }
+        return map;
+    });
+
+    const GROUP_LABELS: Record<string, string> = {
+        demographic: 'Demographics',
+        genre: 'Genres',
+        theme: 'Themes',
+        format: 'Formats',
+    };
 
     const effectiveStates = $derived.by(() => {
-        const map = new Map<number, 'include' | 'exclude'>();
-        for (const term of TERMS) {
-            const explicit = appState.searchState.filters.termStates.get(term.id);
-            if (explicit) { map.set(term.id, explicit); continue; }
-            if (appState.searchState.filters.contentMode === 'sfw' && NSFW_IDS.has(term.id))
-                map.set(term.id, 'exclude');
+        const map = new Map<string, 'include' | 'exclude'>();
+        for (const g of filterDef.genres) {
+            const explicit = appState.searchState.filters.termStates.get(g.id);
+            if (explicit) { map.set(g.id, explicit); continue; }
+            if (appState.searchState.filters.contentMode === 'sfw' && nsfwIds.has(g.id))
+                map.set(g.id, 'exclude');
         }
         return map;
     });
 
     const prefixes = $derived.by(() => {
-        const map = new Map<number, string>();
+        const map = new Map<string, string>();
         for (const [id, state] of effectiveStates) {
             map.set(id, state === 'include' ? '+' : '\u2212');
         }
@@ -44,44 +60,48 @@
     </div>
 
     <!-- Type -->
-    <div class="filter-section">
-        <span class="filter-label">Type</span>
-        <div class="filter-chips">
-            {#each TYPES as t}
-                <FilterChip
-                    label={TYPE_LABELS[t]}
-                    active={appState.searchState.filters.selectedTypes.has(t)}
-                    onclick={() => appState.searchState.filters.toggleType(t)}
-                />
-            {/each}
+    {#if filterDef.types && filterDef.types.length > 0}
+        <div class="filter-section">
+            <span class="filter-label">Type</span>
+            <div class="filter-chips">
+                {#each filterDef.types as t (t.id)}
+                    <FilterChip
+                        label={t.name}
+                        active={appState.searchState.filters.selectedTypes.has(t.id)}
+                        onclick={() => appState.searchState.filters.toggleType(t.id)}
+                    />
+                {/each}
+            </div>
         </div>
-    </div>
+    {/if}
 
     <!-- Status -->
-    <div class="filter-section">
-        <span class="filter-label">Status</span>
-        <div class="filter-chips">
-            {#each STATUSES as s}
-                <FilterChip
-                    label={STATUS_LABELS[s]}
-                    active={appState.searchState.filters.selectedStatuses.has(s)}
-                    onclick={() => appState.searchState.filters.toggleStatus(s)}
-                />
-            {/each}
-        </div>
-    </div>
-
-    <!-- Term categories: Demographics, Genres, Themes, Formats -->
-    {#each termsByCategory as cat}
+    {#if filterDef.statuses && filterDef.statuses.length > 0}
         <div class="filter-section">
-            <span class="filter-label">{cat.label}</span>
+            <span class="filter-label">Status</span>
             <div class="filter-chips">
-                {#each cat.terms as term}
+                {#each filterDef.statuses as s (s.id)}
                     <FilterChip
-                        label={`${(prefixes.get(term.id) ?? '')}${term.name}`}
-                        included={effectiveStates.get(term.id) === 'include'}
-                        excluded={effectiveStates.get(term.id) === 'exclude'}
-                        onclick={() => appState.searchState.filters.toggleTerm(term.id)}
+                        label={s.name}
+                        active={appState.searchState.filters.selectedStatuses.has(s.id)}
+                        onclick={() => appState.searchState.filters.toggleStatus(s.id)}
+                    />
+                {/each}
+            </div>
+        </div>
+    {/if}
+
+    <!-- Genre categories -->
+    {#each [...genresByGroup] as [groupKey, genres] (groupKey)}
+        <div class="filter-section">
+            <span class="filter-label">{GROUP_LABELS[groupKey] ?? groupKey}</span>
+            <div class="filter-chips">
+                {#each genres as genre (genre.id)}
+                    <FilterChip
+                        label={`${(prefixes.get(genre.id) ?? '')}${genre.name}`}
+                        included={effectiveStates.get(genre.id) === 'include'}
+                        excluded={effectiveStates.get(genre.id) === 'exclude'}
+                        onclick={() => appState.searchState.filters.toggleTerm(genre.id)}
                     />
                 {/each}
             </div>
