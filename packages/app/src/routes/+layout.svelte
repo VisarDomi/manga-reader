@@ -12,7 +12,7 @@
 </script>
 
 <svelte:head>
-    <title>Comix Reader</title>
+    <title>Manga Reader</title>
 </svelte:head>
 
 <div class="safe-area">

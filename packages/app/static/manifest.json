@@ -1,6 +1,6 @@
 {
-    "name": "Comix Reader",
-    "short_name": "Comix",
+    "name": "Manga Reader",
+    "short_name": "Manga Reader",
     "start_url": "/",
     "display": "standalone",
     "background_color": "#000000",
