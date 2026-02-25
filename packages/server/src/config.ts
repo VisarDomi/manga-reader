@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-export const PORT = parseInt(process.env.PORT || '29760', 10);
+export const PORT = parseInt(process.env.PORT || '11555', 10);
 export const SSL_DIR = process.env.SSL_DIR || path.join(os.homedir(), '.local/share/mkcert/pwa');
 export const FRONTEND_BUILD_DIR = process.env.FRONTEND_BUILD_DIR || path.join(__dirname, '..', '..', 'app', 'build');
 export const CACHE_MAX_AGE = parseInt(process.env.CACHE_MAX_AGE || '86400', 10);
