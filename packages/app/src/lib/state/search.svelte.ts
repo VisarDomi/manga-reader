@@ -1,0 +1,121 @@
+import { LOADING_TIMEOUT_MS } from '../constants.js';
+import type { Manga } from '../types.js';
+import * as api from '../services/api.js';
+import * as storage from '../services/storage.js';
+import type { ToastState } from './toast.svelte.js';
+import { FilterState } from './filter.svelte.js';
+
+export class SearchState {
+    results = $state<Manga[]>([]);
+    currentQuery = $state('');
+    inputQuery = $state(''); // live value of the search input field
+    currentPage = $state(1);
+    isLoading = $state(false);
+    hasMore = $state(false);
+
+    readonly filters: FilterState;
+
+    private toast: ToastState;
+    private searchController: AbortController | null = null;
+    private pageController: AbortController | null = null;
+    private loadingWatchdog: ReturnType<typeof setTimeout> | null = null;
+    private onStuck: (() => void) | null = null;
+
+    constructor(toast: ToastState, onStuck?: () => void) {
+        this.toast = toast;
+        this.onStuck = onStuck ?? null;
+        this.inputQuery = storage.getString('lastQuery', '');
+        this.filters = new FilterState(() => this.search(this.inputQuery));
+    }
+
+    private startWatchdog() {
+        this.clearWatchdog();
+        this.loadingWatchdog = setTimeout(() => {
+            if (this.isLoading) {
+                this.searchController?.abort();
+                this.pageController?.abort();
+                this.isLoading = false;
+                this.toast.show('Loading timed out — scroll to retry');
+                this.onStuck?.();
+            }
+        }, LOADING_TIMEOUT_MS);
+    }
+
+    private clearWatchdog() {
+        if (this.loadingWatchdog != null) {
+            clearTimeout(this.loadingWatchdog);
+            this.loadingWatchdog = null;
+        }
+    }
+
+    async search(query: string) {
+        this.searchController?.abort();
+        this.pageController?.abort();
+        const controller = new AbortController();
+        this.searchController = controller;
+
+        this.isLoading = true;
+        this.startWatchdog();
+        this.currentQuery = query;
+        this.currentPage = 1;
+        storage.setString('lastQuery', query);
+
+        try {
+            const data = await api.searchManga(query, 1, this.filters.buildFilters(), controller.signal);
+            if (controller.signal.aborted) return;
+            this.results = data.manga;
+            this.hasMore = data.hasMore;
+        } catch (e) {
+            if (controller.signal.aborted) return;
+            this.results = [];
+            this.hasMore = false;
+            this.toast.show('Search failed');
+        } finally {
+            this.clearWatchdog();
+            if (!controller.signal.aborted) {
+                this.isLoading = false;
+            }
+        }
+    }
+
+    async loadNextPage() {
+        if (this.isLoading || !this.hasMore) return;
+
+        this.isLoading = true;
+        this.startWatchdog();
+        this.currentPage++;
+
+        this.pageController?.abort();
+        const controller = new AbortController();
+        this.pageController = controller;
+
+        try {
+            const data = await api.searchManga(
+                this.currentQuery, this.currentPage,
+                this.filters.buildFilters(), controller.signal, true,
+            );
+            if (controller.signal.aborted) return;
+            const seen = new Set(this.results.map(m => m.slug));
+            const deduped = data.manga.filter(m => !seen.has(m.slug));
+            this.results = [...this.results, ...deduped];
+            this.hasMore = data.hasMore;
+        } catch (e) {
+            if (controller.signal.aborted) return;
+            const isTransient = e instanceof api.ApiError &&
+                (e.kind === 'timeout' || e.kind === 'network' ||
+                 (e.kind === 'http' && [408, 429, 500, 502, 503, 504].includes(e.status ?? 0)));
+            this.currentPage--;
+            if (isTransient) {
+                this.toast.show('Slow connection, scroll to retry');
+            } else {
+                this.hasMore = false;
+                this.toast.show('Failed to load more results');
+            }
+        } finally {
+            this.clearWatchdog();
+            if (!controller.signal.aborted) {
+                this.isLoading = false;
+            }
+        }
+    }
+}

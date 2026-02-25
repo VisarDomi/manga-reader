@@ -1,0 +1,19 @@
+// Swipe gesture
+export const EDGE_ZONE = 30;              // px from left edge to start swipe-back
+export const SWIPE_THRESHOLD = 0.3;       // fraction of screen width to complete gesture
+
+// Resume / background
+export const RESUME_RECOVERY_MS = 5_000;        // background time before full view refresh
+export const DEEP_SLEEP_MS = 10 * 60 * 1000;    // background time before "Session restored" toast
+
+// Reader
+export const VISIBLE_PAGE_RATIO = 1 / 3;        // fraction down viewport to probe for current page
+export const MAX_CHAPTER_DISTANCE = 2;           // chapters kept loaded around current (±2)
+export const SCROLL_DEBOUNCE_MS = 500;           // debounce for scroll-based page tracking
+export const HISTORY_SYNC_MS = 3_000;            // debounce for progress sync to DB + API
+
+// ListView
+export const SENTINEL_ROOT_MARGIN = '500% 0px'; // preload trigger zone for infinite scroll
+
+// Loading watchdog
+export const LOADING_TIMEOUT_MS = 15_000;       // max time isLoading can stay true before force-reset

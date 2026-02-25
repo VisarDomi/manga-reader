@@ -1,0 +1,9 @@
+node_modules/
+build/
+dist/
+.svelte-kit/
+.vite/
+.idea/
+.claude/
+.env
+package-lock.json
