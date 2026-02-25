@@ -4,6 +4,7 @@
   "private": true,
   "workspaces": [
     "packages/provider-types",
+    "packages/extensions",
     "packages/server",
     "packages/app"
   ]

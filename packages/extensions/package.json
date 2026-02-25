@@ -1,0 +1,14 @@
+{
+  "name": "@manga-reader/extensions",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build-all.js",
+    "build:comix": "cd providers/comix && npx vite build"
+  },
+  "devDependencies": {
+    "vite": "^7.3.1",
+    "typescript": "^5.9.3"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "@manga-reader-ext/comix",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@manga-reader/provider-types": "file:../../../provider-types"
+  },
+  "devDependencies": {
+    "vite": "^7.3.1",
+    "typescript": "^5.9.3"
+  }
+}
