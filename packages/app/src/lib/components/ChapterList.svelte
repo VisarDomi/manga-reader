@@ -82,6 +82,14 @@
                 }
             }
         }
+        // Base case: if the last (lowest) chapter is > 1, show gap from chapter 1
+        if (filtered.length > 0) {
+            const lowest = Math.floor(filtered[filtered.length - 1].number);
+            if (lowest > 1) {
+                const missing = lowest - 1;
+                result.push({ type: 'gap', missing, from: 1, to: lowest - 1 });
+            }
+        }
         return result;
     });
 
@@ -218,7 +226,7 @@
 .chapter-gap {
     padding: 8px 12px;
     text-align: center;
-    font-size: 12px;
+    font-size: 16px;
     color: #f59e0b;
     background: rgba(245, 158, 11, 0.08);
     border-radius: 6px;
