@@ -7,6 +7,7 @@ export interface Manga {
   latestChapter: number | null;
   author?: string;
   status?: string;
+  tags?: string[];
 }
 
 export interface ChapterMeta {

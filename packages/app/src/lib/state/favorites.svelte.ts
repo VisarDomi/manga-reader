@@ -34,10 +34,11 @@ export class FavoritesState {
                 await db.removeFavorite(manga.id);
                 this.toast.show('Removed from favorites');
             } else {
-                await db.addFavorite(manga);
+                await db.addFavorite($state.snapshot(manga));
                 this.toast.show('Added to favorites');
             }
-        } catch {
+        } catch (e) {
+            console.error('[favorites] toggle failed:', e);
             // Revert optimistic update
             if (was) {
                 this.items = [...this.items, manga];

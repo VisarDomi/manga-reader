@@ -22,6 +22,21 @@
     const memory = new ReaderMemoryManager();
     const { pageTracker } = appState.reader;
 
+    // Slow connection detection: 3+ failures within 10s → toast once per session
+    let failureTimestamps: number[] = [];
+    let slowToastShown = false;
+
+    memory.onLoadFailure = () => {
+        if (slowToastShown) return;
+        const now = Date.now();
+        failureTimestamps.push(now);
+        failureTimestamps = failureTimestamps.filter(t => now - t < 10_000);
+        if (failureTimestamps.length >= 3) {
+            slowToastShown = true;
+            appState.toast.show('Slow connection — images may not load');
+        }
+    };
+
     // Session lifecycle
     let initialized = false;
     let sentinelsReady = $state(false);
@@ -71,6 +86,8 @@
                 pageTracker.clearScroll();
                 sentinelsReady = false;
                 initialized = false;
+                failureTimestamps = [];
+                slowToastShown = false;
 
                 // Remove scroll listener
                 const root = getReaderRoot();

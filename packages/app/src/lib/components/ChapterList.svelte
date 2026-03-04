@@ -66,6 +66,25 @@
         return [...best.values()].sort((a, b) => b.number - a.number);
     });
 
+    type GapIndicator = { type: 'gap'; missing: number; from: number; to: number };
+    type ListItem = { type: 'chapter'; chapter: ChapterMeta } | GapIndicator;
+
+    const listItems = $derived.by((): ListItem[] => {
+        const result: ListItem[] = [];
+        for (let i = 0; i < filtered.length; i++) {
+            result.push({ type: 'chapter', chapter: filtered[i] });
+            if (i < filtered.length - 1) {
+                const cur = Math.floor(filtered[i].number);
+                const next = Math.floor(filtered[i + 1].number);
+                const missing = cur - next - 1;
+                if (missing > 0) {
+                    result.push({ type: 'gap', missing, from: next + 1, to: cur - 1 });
+                }
+            }
+        }
+        return result;
+    });
+
     const currentChapterId = $derived(appState.progress.get(mangaId)?.chapterId ?? null);
 
     function handleClick(chapter: ChapterMeta) {
@@ -118,14 +137,21 @@
 {/if}
 
 <div class="chapter-list">
-    {#each filtered as chapter (chapter.id)}
-        <button class="chapter-item" class:chapter-current={chapter.id === currentChapterId} use:scrollIfCurrent={chapter.id === currentChapterId} onclick={() => handleClick(chapter)}>
-            <span class="chapter-number">Ch. {chapter.number}</span>
-            <span class="chapter-group">{chapter.groupName || 'No Group'}</span>
-            {#if chapter.uploadedAt}
-                <span class="chapter-date">{formatDate(chapter.uploadedAt)}</span>
-            {/if}
-        </button>
+    {#each listItems as item (item.type === 'chapter' ? item.chapter.id : `gap-${item.from}-${item.to}`)}
+        {#if item.type === 'gap'}
+            <div class="chapter-gap">
+                {item.missing} chapter{item.missing > 1 ? 's' : ''} missing (Ch. {item.from}{item.from !== item.to ? ` – ${item.to}` : ''})
+            </div>
+        {:else}
+            {@const chapter = item.chapter}
+            <button class="chapter-item" class:chapter-current={chapter.id === currentChapterId} use:scrollIfCurrent={chapter.id === currentChapterId} onclick={() => handleClick(chapter)}>
+                <span class="chapter-number">Ch. {chapter.number}</span>
+                <span class="chapter-group">{chapter.groupName || 'No Group'}</span>
+                {#if chapter.uploadedAt}
+                    <span class="chapter-date">{formatDate(chapter.uploadedAt)}</span>
+                {/if}
+            </button>
+        {/if}
     {/each}
 </div>
 
@@ -187,5 +213,15 @@
     font-size: 11px;
     color: #666;
     white-space: nowrap;
+}
+
+.chapter-gap {
+    padding: 8px 12px;
+    text-align: center;
+    font-size: 12px;
+    color: #f59e0b;
+    background: rgba(245, 158, 11, 0.08);
+    border-radius: 6px;
+    margin-bottom: 4px;
 }
 </style>

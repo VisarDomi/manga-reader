@@ -33,6 +33,13 @@
             {#if manga.author}
                 <p class="manga-view-author">{manga.author}</p>
             {/if}
+            {#if manga.tags?.length}
+                <div class="manga-view-tags">
+                    {#each manga.tags as tag}
+                        <span class="manga-tag">{tag}</span>
+                    {/each}
+                </div>
+            {/if}
         </div>
 
         {#if isLoading}
@@ -87,5 +94,20 @@
     margin: 4px 0 0;
     font-size: 14px;
     color: #888;
+}
+
+.manga-view-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 8px;
+}
+
+.manga-tag {
+    font-size: 16px;
+    padding: 2px 8px;
+    background: #2a2a2a;
+    color: #aaa;
+    border-radius: 4px;
 }
 </style>

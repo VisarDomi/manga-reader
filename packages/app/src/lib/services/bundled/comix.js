@@ -83,123 +83,126 @@ const y = [
   { id: 93170, name: "Long Strip", category: "format" },
   { id: 93171, name: "Web Comic", category: "format" },
   { id: 93172, name: "Full Color", category: "format" }
-], u = ["manga", "manhwa", "manhua", "other"], l = ["releasing", "finished", "on_hiatus", "discontinued", "not_yet_released"], p = {
+], p = ["manga", "manhwa", "manhua", "other"], S = ["releasing", "finished", "on_hiatus", "discontinued", "not_yet_released"], f = {
   releasing: "Releasing",
   finished: "Finished",
   on_hiatus: "On Hiatus",
   discontinued: "Discontinued",
   not_yet_released: "Not Yet Released"
-}, S = {
+}, _ = {
   manga: "Manga",
   manhwa: "Manhwa",
   manhua: "Manhua",
   other: "Other"
 };
-function f(n, r) {
-  const e = r.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), a = [
-    [`\\"${e}\\"`, !0],
-    [`"${e}"`, !1]
+function M(n, o) {
+  const a = o.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), e = [
+    [`\\"${a}\\"`, !0],
+    [`"${a}"`, !1]
   ];
-  for (const [t, o] of a) {
-    const i = n.indexOf(t);
-    if (i === -1) continue;
-    const s = n.slice(i + t.length).match(/^\s*:\s*(\[[\s\S]*?\])/);
-    if (!s) continue;
-    let c = s[1];
-    o && (c = c.replace(/\\"/g, '"').replace(/\\\//g, "/"));
+  for (const [t, i] of e) {
+    const r = n.indexOf(t);
+    if (r === -1) continue;
+    const m = n.slice(r + t.length).match(/^\s*:\s*(\[[\s\S]*?\])/);
+    if (!m) continue;
+    let s = m[1];
+    i && (s = s.replace(/\\"/g, '"').replace(/\\\//g, "/"));
     try {
-      JSON.parse(c);
+      JSON.parse(s);
     } catch {
       continue;
     }
-    return c;
+    return s;
   }
-  throw new Error(`Key "${r}" not found in HTML (tried both escaped and unescaped patterns)`);
+  throw new Error(`Key "${o}" not found in HTML (tried both escaped and unescaped patterns)`);
 }
-const m = "https://comix.to", d = `${m}/api/v2`, h = 30, _ = {
+const g = "https://comix.to", u = `${g}/api/v2`, l = 30, A = {
   id: "comix",
   name: "Comix",
-  baseUrl: m,
+  baseUrl: g,
   language: "en",
   version: "1.0.0",
   nsfw: !0,
   chapterImagesResponseType: "html",
   getFilters() {
-    const n = y.map((a) => ({
-      id: String(a.id),
-      name: a.name,
-      group: a.category
-    })), r = u.map((a) => ({
-      id: a,
-      name: S[a] ?? a
-    })), e = l.map((a) => ({
-      id: a,
-      name: p[a] ?? a
+    const n = y.map((e) => ({
+      id: String(e.id),
+      name: e.name,
+      group: e.category
+    })), o = p.map((e) => ({
+      id: e,
+      name: _[e] ?? e
+    })), a = S.map((e) => ({
+      id: e,
+      name: f[e] ?? e
     }));
-    return { genres: n, types: r, statuses: e };
+    return { genres: n, types: o, statuses: a };
   },
   // --- Search ---
-  searchRequest(n, r, e) {
-    const a = new URLSearchParams();
-    if (a.set("page", String(r)), a.set("limit", String(h)), a.set("order[chapter_updated_at]", "desc"), n && a.set("keyword", n), e) {
-      if (e.includeGenres)
-        for (const t of e.includeGenres) a.append("genres[]", t);
-      if (e.excludeGenres)
-        for (const t of e.excludeGenres) a.append("genres[]", `-${t}`);
-      if (((e.includeGenres?.length ?? 0) > 0 || (e.excludeGenres?.length ?? 0) > 0) && a.set("genres_mode", "and"), e.types)
-        for (const t of e.types) a.append("types[]", t);
-      if (e.statuses)
-        for (const t of e.statuses) a.append("statuses[]", t);
+  searchRequest(n, o, a) {
+    const e = new URLSearchParams();
+    if (e.set("page", String(o)), e.set("limit", String(l)), e.set("order[chapter_updated_at]", "desc"), n && e.set("keyword", n), a) {
+      if (a.includeGenres)
+        for (const t of a.includeGenres) e.append("genres[]", t);
+      if (a.excludeGenres)
+        for (const t of a.excludeGenres) e.append("genres[]", `-${t}`);
+      if (((a.includeGenres?.length ?? 0) > 0 || (a.excludeGenres?.length ?? 0) > 0) && e.set("genres_mode", "and"), a.types)
+        for (const t of a.types) e.append("types[]", t);
+      if (a.statuses)
+        for (const t of a.statuses) e.append("statuses[]", t);
     }
-    return { url: `${d}/manga?${a}` };
+    return { url: `${u}/manga?${e}` };
   },
   parseSearchResponse(n) {
-    const r = n, t = (r.result?.items ?? r.items ?? []).map((o) => {
-      const i = o.poster, g = String(o.hash_id ?? ""), s = String(o.slug ?? "");
+    const o = n, e = o.result?.items ?? o.items ?? [], t = /* @__PURE__ */ new Map();
+    for (const r of y) t.set(r.id, r.name);
+    const i = e.map((r) => {
+      const c = r.poster, m = String(r.hash_id ?? ""), s = String(r.slug ?? ""), h = r.term_ids?.map((d) => t.get(d)).filter((d) => d != null);
       return {
-        id: g || s,
-        title: String(o.title ?? ""),
-        cover: i?.medium ?? i?.large ?? i?.small ?? "",
-        latestChapter: o.latest_chapter != null ? Number(o.latest_chapter) : null,
-        author: o.author ? String(o.author) : void 0,
-        status: o.status ? String(o.status) : void 0
+        id: m || s,
+        title: String(r.title ?? ""),
+        cover: c?.medium ?? c?.large ?? c?.small ?? "",
+        latestChapter: r.latest_chapter != null ? Number(r.latest_chapter) : null,
+        author: r.author ? String(r.author) : void 0,
+        status: r.status ? String(r.status) : void 0,
+        tags: h?.length ? h : void 0
       };
     });
-    return { items: t, hasMore: t.length >= h };
+    return { items: i, hasMore: i.length >= l };
   },
   // --- Chapters ---
-  chapterListRequest(n, r) {
-    const e = new URLSearchParams();
-    return e.set("limit", "100"), e.set("page", String(r)), e.set("order[number]", "desc"), { url: `${d}/manga/${n}/chapters?${e}` };
+  chapterListRequest(n, o) {
+    const a = new URLSearchParams();
+    return a.set("limit", "100"), a.set("page", String(o)), a.set("order[number]", "desc"), { url: `${u}/manga/${n}/chapters?${a}` };
   },
   parseChapterListResponse(n) {
     return (n.result?.items ?? []).map((t) => {
-      const o = t.scanlation_group;
+      const i = t.scanlation_group;
       return {
         id: String(t.chapter_id ?? ""),
         number: parseFloat(String(t.number)),
         groupId: t.scanlation_group_id != null ? String(t.scanlation_group_id) : void 0,
-        groupName: o?.name ?? "Unknown",
+        groupName: i?.name ?? "Unknown",
         uploadedAt: t.created_at != null ? Number(t.created_at) : void 0
       };
     });
   },
   // --- Chapter Images ---
-  chapterImagesRequest(n, r, e) {
-    return { url: `${m}/title/${n}/${r}-chapter-${e}` };
+  chapterImagesRequest(n, o, a) {
+    return { url: `${g}/title/${n}/${o}-chapter-${a}` };
   },
   parseChapterImagesResponse(n) {
-    const e = f(n, "images");
-    return JSON.parse(e).map((t) => ({
+    const a = M(n, "images");
+    return JSON.parse(a).map((t) => ({
       url: String(t.url ?? ""),
       width: Number(t.width ?? 0),
       height: Number(t.height ?? 0)
     }));
   },
   imageHeaders() {
-    return { Referer: m };
+    return { Referer: g };
   }
 };
 export {
-  _ as default
+  A as default
 };

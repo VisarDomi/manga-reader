@@ -24,7 +24,7 @@
                 <span>{manga.latestChapter}</span>
             </div>
         {:else if manga.latestChapter != null}
-            <div class="manga-card-chapters no-progress">
+            <div class="manga-card-chapters unread">
                 <span>Ch. {manga.latestChapter}</span>
             </div>
         {/if}
@@ -76,11 +76,9 @@
     gap: 4px;
 }
 
-.manga-card-chapters.no-progress {
-    background: none;
+.manga-card-chapters.unread {
+    background: rgba(239, 68, 68, 0.9);
     color: #fff;
-    padding: 0;
-    text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.3);
 }
 
 .chapter-divider {

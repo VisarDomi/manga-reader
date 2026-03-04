@@ -67,10 +67,15 @@ const provider: MangaProvider = {
     const result = d.result as Record<string, unknown> | undefined;
     const items = (result?.items ?? (d as Record<string, unknown>).items ?? []) as Record<string, unknown>[];
 
+    const termMap = new Map<number, string>();
+    for (const t of TERMS) termMap.set(t.id, t.name);
+
     const manga: Manga[] = items.map(item => {
       const poster = item.poster as Record<string, string> | null;
       const hashId = String(item.hash_id ?? '');
       const slug = String(item.slug ?? '');
+      const termIds = item.term_ids as number[] | undefined;
+      const tags = termIds?.map(id => termMap.get(id)).filter((n): n is string => n != null);
       return {
         id: hashId || slug,
         title: String(item.title ?? ''),
@@ -78,6 +83,7 @@ const provider: MangaProvider = {
         latestChapter: item.latest_chapter != null ? Number(item.latest_chapter) : null,
         author: item.author ? String(item.author) : undefined,
         status: item.status ? String(item.status) : undefined,
+        tags: tags?.length ? tags : undefined,
       };
     });
 

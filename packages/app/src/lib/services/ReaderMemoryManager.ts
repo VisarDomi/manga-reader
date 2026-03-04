@@ -7,6 +7,7 @@ export class ReaderMemoryManager {
     private abortController: AbortController | undefined;
     readonly pageDataMap = new Map<HTMLElement, ReaderPageData>();
     root: HTMLElement | null = null;
+    onLoadFailure: ((key: string) => void) | undefined;
 
     private pageKey(chapterId: string, pageIndex: number): string {
         return `${chapterId}-${pageIndex}`;
@@ -55,7 +56,11 @@ export class ReaderMemoryManager {
                 this.blobUrls.set(key, blobUrl);
                 img.src = blobUrl;
             })
-            .catch(() => {})
+            .catch((err) => {
+                if (err?.name !== 'AbortError') {
+                    this.onLoadFailure?.(key);
+                }
+            })
             .finally(() => this.loadingKeys.delete(key));
     }
 
