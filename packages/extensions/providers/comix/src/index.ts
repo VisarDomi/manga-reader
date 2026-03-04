@@ -38,8 +38,11 @@ const provider: MangaProvider = {
     const params = new URLSearchParams();
     params.set('page', String(page));
     params.set('limit', String(SEARCH_LIMIT));
-    params.set('order[chapter_updated_at]', 'desc');
-    if (query) params.set('keyword', query);
+    if (query) {
+      params.set('keyword', query);
+    } else {
+      params.set('order[chapter_updated_at]', 'desc');
+    }
 
     if (filters) {
       if (filters.includeGenres) {

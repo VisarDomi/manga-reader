@@ -141,7 +141,7 @@ const g = "https://comix.to", u = `${g}/api/v2`, l = 30, A = {
   // --- Search ---
   searchRequest(n, o, a) {
     const e = new URLSearchParams();
-    if (e.set("page", String(o)), e.set("limit", String(l)), e.set("order[chapter_updated_at]", "desc"), n && e.set("keyword", n), a) {
+    if (e.set("page", String(o)), e.set("limit", String(l)), n ? e.set("keyword", n) : e.set("order[chapter_updated_at]", "desc"), a) {
       if (a.includeGenres)
         for (const t of a.includeGenres) e.append("genres[]", t);
       if (a.excludeGenres)
