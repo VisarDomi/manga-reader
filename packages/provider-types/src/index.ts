@@ -53,6 +53,7 @@ export interface HttpRequest {
   method?: 'GET' | 'POST';
   headers?: Record<string, string>;
   body?: string;
+  cloudflareProtected?: boolean;
 }
 
 // The interface each provider implements

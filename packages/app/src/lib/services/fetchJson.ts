@@ -1,4 +1,4 @@
-type ApiErrorKind = 'network' | 'timeout' | 'http' | 'parse';
+type ApiErrorKind = 'network' | 'timeout' | 'http' | 'parse' | 'cloudflare';
 
 export class ApiError extends Error {
     constructor(
@@ -41,6 +41,9 @@ async function doFetch(url: string, opts: FetchOptions, parseResponse: (res: Res
             : timeoutSignal;
         try {
             const res = await fetch(url, { signal, method, headers, body });
+            if (res.status === 503 && res.headers.get('X-Cloudflare-Solving') === 'true') {
+                throw new ApiError('cloudflare', 503);
+            }
             if (!res.ok) {
                 const err = new ApiError('http', res.status);
                 if (retry && TRANSIENT_CODES.has(res.status) && attempt < maxAttempts - 1) {

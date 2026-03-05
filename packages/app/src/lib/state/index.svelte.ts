@@ -1,6 +1,7 @@
 import { ConnectionMonitor } from '../services/ConnectionMonitor.svelte.js';
 import { watchdog } from '../services/WatchdogService.js';
 import { initProvider, getProvider } from '../services/provider.js';
+import { setCloudflareCallback } from '../services/api.js';
 import { setNsfwGenreIds } from './filter.svelte.js';
 import { UIState } from './ui.svelte.js';
 import { SearchState } from './search.svelte.js';
@@ -59,6 +60,9 @@ class AppState {
     }
 
     async init() {
+        // Wire up Cloudflare solving toast
+        setCloudflareCallback(() => this.toast.show('Solving Cloudflare...', 15000));
+
         // Initialize provider first — filters and API depend on it
         await initProvider();
 

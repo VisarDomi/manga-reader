@@ -6,6 +6,14 @@ import type { SearchFilters, HttpRequest } from '@manga-reader/provider-types';
 
 export { ApiError } from './fetchJson.js';
 
+// --- Cloudflare callback ---
+
+let onCloudflare: (() => void) | null = null;
+
+export function setCloudflareCallback(cb: () => void): void {
+    onCloudflare = cb;
+}
+
 // --- Proxy helper ---
 
 interface ProxyOptions {
@@ -20,6 +28,7 @@ async function proxyRequest<T>(req: HttpRequest, responseType: 'json' | 'text', 
         headers: req.headers,
         body: req.body,
         responseType,
+        cloudflareProtected: req.cloudflareProtected,
     });
 
     const fetchOpts = {
@@ -30,10 +39,36 @@ async function proxyRequest<T>(req: HttpRequest, responseType: 'json' | 'text', 
         retry: opts.retry,
     };
 
-    if (responseType === 'text') {
-        return fetchRaw(PROXY_URL, fetchOpts) as T;
+    const doRequest = () => {
+        if (responseType === 'text') {
+            return fetchRaw(PROXY_URL, fetchOpts) as Promise<T>;
+        }
+        return fetchJson<T>(PROXY_URL, fetchOpts);
+    };
+
+    try {
+        return await doRequest();
+    } catch (e) {
+        if (e instanceof ApiError && e.kind === 'cloudflare') {
+            onCloudflare?.();
+
+            // Retry loop: wait 5s, retry, up to 6 attempts (30s total)
+            for (let attempt = 0; attempt < 6; attempt++) {
+                await new Promise(r => setTimeout(r, 5000));
+                if (opts.signal?.aborted) throw e;
+                try {
+                    return await doRequest();
+                } catch (retryErr) {
+                    if (retryErr instanceof ApiError && retryErr.kind === 'cloudflare') {
+                        continue;
+                    }
+                    throw retryErr;
+                }
+            }
+            throw e;
+        }
+        throw e;
     }
-    return fetchJson<T>(PROXY_URL, fetchOpts);
 }
 
 // --- Image proxy URL ---

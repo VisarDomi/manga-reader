@@ -62,7 +62,7 @@ const provider: MangaProvider = {
       }
     }
 
-    return { url: `${API_URL}/manga?${params}` };
+    return { url: `${API_URL}/manga?${params}`, cloudflareProtected: true };
   },
 
   parseSearchResponse(data: unknown): PagedResult<Manga> {
@@ -100,7 +100,7 @@ const provider: MangaProvider = {
     params.set('limit', '100');
     params.set('page', String(page));
     params.set('order[number]', 'desc');
-    return { url: `${API_URL}/manga/${mangaId}/chapters?${params}` };
+    return { url: `${API_URL}/manga/${mangaId}/chapters?${params}`, cloudflareProtected: true };
   },
 
   parseChapterListResponse(data: unknown): ChapterMeta[] {
@@ -123,7 +123,7 @@ const provider: MangaProvider = {
   // --- Chapter Images ---
 
   chapterImagesRequest(mangaId: string, chapterId: string, chapterNumber: number): HttpRequest {
-    return { url: `${BASE_URL}/title/${mangaId}/${chapterId}-chapter-${chapterNumber}` };
+    return { url: `${BASE_URL}/title/${mangaId}/${chapterId}-chapter-${chapterNumber}`, cloudflareProtected: true };
   },
 
   parseChapterImagesResponse(data: unknown): ChapterPage[] {
