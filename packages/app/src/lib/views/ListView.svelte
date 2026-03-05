@@ -5,9 +5,6 @@
     import SearchBar from '$lib/components/SearchBar.svelte';
     import MangaList from '$lib/components/MangaList.svelte';
 
-    const favsActive = $derived(appState.favorites.isActive);
-    const favsItems = $derived(appState.favorites.items);
-    const favsLoading = $derived(appState.favorites.isLoading);
     const results = $derived(appState.searchState.results);
     const total = $derived(results.length);
     const query = $derived(appState.searchState.currentQuery);
@@ -18,47 +15,33 @@
 <SearchBar />
 
 <div class="content-wrapper">
-    {#if favsActive}
+    {#if total > 0 || query}
         <div class="results-info">
-            <span class="count">{favsItems.length}</span> favorites
+            <span class="count">{total}</span> results
+            {#if query}
+                <span class="query">{query}</span>
+            {/if}
         </div>
+    {/if}
 
-        {#if favsLoading}
-            <div class="empty">Loading...</div>
-        {:else if favsItems.length === 0}
-            <div class="empty">No favorites yet</div>
-        {:else}
-            <MangaList manga={favsItems} />
-        {/if}
+    <MangaList manga={results} />
+
+    {#if hasMore}
+        <div class="sentinel" use:sentinel={{
+            getRoot: () => document.getElementById('view-list'),
+            rootMargin: SENTINEL_ROOT_MARGIN,
+            onIntersect: () => { appState.searchState.loadNextPage(); },
+            disabled: isLoading,
+            generation: appState.ui.listViewGeneration
+        }}></div>
     {:else}
-        {#if total > 0 || query}
-            <div class="results-info">
-                <span class="count">{total}</span> results
-                {#if query}
-                    <span class="query">{query}</span>
-                {/if}
-            </div>
-        {/if}
+        <!-- [DBG] sentinel hidden: hasMore=false -->
+    {/if}
 
-        <MangaList manga={results} />
-
-        {#if hasMore}
-            <div class="sentinel" use:sentinel={{
-                getRoot: () => document.getElementById('view-list'),
-                rootMargin: SENTINEL_ROOT_MARGIN,
-                onIntersect: () => { appState.searchState.loadNextPage(); },
-                disabled: isLoading,
-                generation: appState.ui.listViewGeneration
-            }}></div>
-        {:else}
-            <!-- [DBG] sentinel hidden: hasMore=false -->
-        {/if}
-
-        {#if isLoading}
-            <div class="empty">Loading...</div>
-        {:else if total === 0}
-            <div class="empty">No results</div>
-        {/if}
+    {#if isLoading}
+        <div class="empty">Loading...</div>
+    {:else if total === 0}
+        <div class="empty">No results</div>
     {/if}
 </div>
 

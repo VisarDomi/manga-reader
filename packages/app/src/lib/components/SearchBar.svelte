@@ -2,22 +2,30 @@
     import { appState } from '$lib/state/index.svelte.js';
     import FilterPanel from './FilterPanel.svelte';
 
-    const favsActive = $derived(appState.favorites.isActive);
+    interface Props {
+        favoritesMode?: boolean;
+    }
+
+    let { favoritesMode = false }: Props = $props();
 
     function handleSubmit(e: Event) {
         e.preventDefault();
-        if (favsActive) appState.favorites.deactivate();
-        appState.ui.setView('list');
+        if (favoritesMode) {
+            appState.favorites.deactivate();
+            appState.ui.popView();
+        }
+        appState.ui.resetTo('list');
         appState.searchState.search(appState.searchState.inputQuery);
     }
 
-    function toggleFavs() {
-        if (favsActive) {
-            appState.favorites.deactivate();
-        } else {
-            appState.favorites.activate();
-            appState.ui.setView('list');
-        }
+    function activateFavs() {
+        appState.favorites.activate();
+        appState.ui.pushView('favorites');
+    }
+
+    function deactivateFavs() {
+        appState.favorites.deactivate();
+        appState.ui.popView();
     }
 
     $effect(() => {
@@ -31,17 +39,17 @@
     <div class="action-row">
         <button
             class="action-btn"
-            class:active={!favsActive}
-            onclick={() => { if (favsActive) appState.favorites.deactivate(); }}
+            class:active={!favoritesMode}
+            onclick={() => { if (favoritesMode) deactivateFavs(); }}
         >Search</button>
         <button
             class="action-btn"
-            class:fav-active={favsActive}
-            onclick={() => { if (!favsActive) { appState.favorites.activate(); appState.ui.setView('list'); } }}
+            class:fav-active={favoritesMode}
+            onclick={() => { if (!favoritesMode) activateFavs(); }}
         >Favs</button>
     </div>
 
-    {#if !favsActive}
+    {#if !favoritesMode}
         <form class="input-container" onsubmit={handleSubmit}>
             <input
                 type="text"

@@ -9,7 +9,7 @@ export interface LoadedChapter {
     unloaded?: boolean;
 }
 
-export type ViewMode = 'list' | 'manga' | 'reader';
+export type ViewMode = 'list' | 'favorites' | 'manga' | 'reader';
 
 export interface ReaderPageData {
     key: string;

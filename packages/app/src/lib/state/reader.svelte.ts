@@ -47,7 +47,7 @@ export class ReaderState {
             this.pendingPageRestore = null;
         }
 
-        this.ui.setView('reader');
+        this.ui.pushView('reader');
 
         try {
             const pages = await api.fetchChapterImages(manga.id, chapter.id, chapter.number);
@@ -117,7 +117,7 @@ export class ReaderState {
         this.pageTracker.destroy();
         this.loadedChapters = [];
         this.currentChapterId = null;
-        this.ui.setView(this.ui.previousViewMode);
+        this.ui.popView();
     }
 
     /** Find the next/prev chapter by index in the filtered list. */

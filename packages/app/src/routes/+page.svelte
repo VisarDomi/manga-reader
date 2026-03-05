@@ -2,6 +2,7 @@
     import { onMount, setContext } from 'svelte';
     import { appState } from '$lib/state/index.svelte.js';
     import ListView from '$lib/views/ListView.svelte';
+    import FavoritesView from '$lib/views/FavoritesView.svelte';
     import MangaView from '$lib/views/MangaView.svelte';
     import ReaderView from '$lib/views/ReaderView.svelte';
     import Toast from '$lib/components/Toast.svelte';
@@ -14,39 +15,46 @@
     });
 
     const viewMode = $derived(appState.ui.viewMode);
-    const prevMode = $derived(appState.ui.previousViewMode);
     const isSwiping = $derived(appState.ui.isSwiping);
     const swipeAnimating = $derived(appState.ui.swipeAnimating);
     const swipeProgress = $derived(appState.ui.swipeProgress);
 
-    // Swipe-back targets: reader→manga, manga→list
+    // The view that would be revealed behind the current view during swipe
+    const backView = $derived(isSwiping ? appState.ui.peekBack() : null);
+
     const inReader = $derived(viewMode === 'reader');
     const inManga = $derived(viewMode === 'manga');
-
-    // Show manga behind reader during swipe
-    const mangaIsBack = $derived(inReader && prevMode === 'manga' && isSwiping);
-    // Show list behind manga during swipe
-    const listIsBack = $derived(inManga && prevMode === 'list' && isSwiping);
-    // Show list behind reader if reader was opened from list
-    const listIsBackFromReader = $derived(inReader && prevMode === 'list' && isSwiping);
+    const inFavorites = $derived(viewMode === 'favorites');
 </script>
 
 <div
     id="view-list"
     class="view-layer"
-    class:view-hidden={viewMode !== 'list' && !listIsBack && !listIsBackFromReader}
-    class:swipe-back={listIsBack || listIsBackFromReader}
-    class:swipe-animating={(listIsBack || listIsBackFromReader) && swipeAnimating}
+    class:view-hidden={viewMode !== 'list' && backView !== 'list'}
+    class:swipe-back={backView === 'list'}
+    class:swipe-animating={backView === 'list' && swipeAnimating}
 >
     <ListView />
 </div>
 
 <div
+    id="view-favorites"
+    class="view-layer"
+    class:view-hidden={viewMode !== 'favorites' && backView !== 'favorites'}
+    class:swipe-back={backView === 'favorites'}
+    class:swipe-animating={backView === 'favorites' && swipeAnimating}
+    class:swipe-active={inFavorites && isSwiping}
+    style="{inFavorites && isSwiping ? `transform:translateX(${swipeProgress * 100}%)` : ''}"
+>
+    <FavoritesView />
+</div>
+
+<div
     id="view-manga"
     class="view-layer"
-    class:view-hidden={viewMode !== 'manga' && !mangaIsBack}
-    class:swipe-back={mangaIsBack}
-    class:swipe-animating={mangaIsBack && swipeAnimating}
+    class:view-hidden={viewMode !== 'manga' && backView !== 'manga'}
+    class:swipe-back={backView === 'manga'}
+    class:swipe-animating={backView === 'manga' && swipeAnimating}
     class:swipe-active={inManga && isSwiping}
     style="{inManga && isSwiping ? `transform:translateX(${swipeProgress * 100}%)` : ''}"
 >

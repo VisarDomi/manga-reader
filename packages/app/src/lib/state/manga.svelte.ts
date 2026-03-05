@@ -20,7 +20,7 @@ export class MangaState {
         this.activeManga = manga;
         this.chapters = [];
         this.isLoading = true;
-        this.ui.setView('manga');
+        this.ui.pushView('manga');
 
         try {
             const chapters = await api.fetchChapterList(manga.id);
@@ -35,6 +35,6 @@ export class MangaState {
     closeManga() {
         this.activeManga = null;
         this.chapters = [];
-        this.ui.setView('list');
+        this.ui.popView();
     }
 }
