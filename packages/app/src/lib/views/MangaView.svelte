@@ -7,6 +7,12 @@
     const chapters = $derived(appState.manga.chapters);
     const isLoading = $derived(appState.manga.isLoading);
     const isFav = $derived(manga ? appState.favorites.isFavorited(manga.id) : false);
+    const gf = appState.groupFilter;
+
+    const allFiltered = $derived(
+        !isLoading && chapters.length > 0 &&
+        chapters.every(ch => gf.isFiltered(ch.groupId ?? ''))
+    );
 
     // Reset scroll to top when a new manga opens (before chapters load)
     $effect(() => {
@@ -46,6 +52,11 @@
             <div class="empty">Loading chapters...</div>
         {:else if chapters.length === 0}
             <div class="empty">No chapters found</div>
+        {:else if allFiltered && !gf.showFiltered}
+            <div class="empty">
+                <p>All chapters hidden by group filter</p>
+                <button class="show-filtered-action" onclick={() => gf.showFiltered = true}>Show filtered chapters</button>
+            </div>
         {:else}
             <ChapterList {chapters} />
         {/if}
@@ -109,5 +120,15 @@
     background: #2a2a2a;
     color: #aaa;
     border-radius: 4px;
+}
+
+.show-filtered-action {
+    margin-top: 12px;
+    padding: 8px 16px;
+    background: #2a1a2a;
+    color: #c084fc;
+    border: 1px solid #5a2d5a;
+    border-radius: 8px;
+    font-size: 14px;
 }
 </style>

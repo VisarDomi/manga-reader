@@ -5,13 +5,43 @@
         included = false,
         excluded = false,
         onclick,
+        onlongpress,
     }: {
         label: string;
         active?: boolean;
         included?: boolean;
         excluded?: boolean;
         onclick: () => void;
+        onlongpress?: () => void;
     } = $props();
+
+    let longPressTimer: ReturnType<typeof setTimeout> | null = null;
+    let didLongPress = false;
+
+    function handleTouchStart() {
+        if (!onlongpress) return;
+        didLongPress = false;
+        longPressTimer = setTimeout(() => {
+            didLongPress = true;
+            onlongpress!();
+        }, 500);
+    }
+
+    function clearTimer() {
+        if (longPressTimer) {
+            clearTimeout(longPressTimer);
+            longPressTimer = null;
+        }
+    }
+
+    function handleClick(e: MouseEvent) {
+        if (didLongPress) {
+            didLongPress = false;
+            e.preventDefault();
+            return;
+        }
+        onclick();
+    }
 </script>
 
 <button
@@ -19,7 +49,11 @@
     class:active
     class:include={included}
     class:exclude={excluded}
-    {onclick}
+    onclick={handleClick}
+    ontouchstart={handleTouchStart}
+    ontouchend={clearTimer}
+    ontouchcancel={clearTimer}
+    ontouchmove={clearTimer}
 >{label}</button>
 
 <style>

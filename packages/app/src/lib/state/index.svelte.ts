@@ -10,6 +10,7 @@ import { ReaderState } from './reader.svelte.js';
 import { ProgressState } from './progress.svelte.js';
 import { ToastState } from './toast.svelte.js';
 import { FavoritesState } from './favorites.svelte.js';
+import { GroupFilterState } from './groupFilter.svelte.js';
 import { RESUME_RECOVERY_MS, DEEP_SLEEP_MS } from '../constants.js';
 
 export type AppStatus = 'BOOTING' | 'READY' | 'BACKGROUND' | 'RECONNECTING' | 'OFFLINE';
@@ -24,6 +25,7 @@ class AppState {
     reader: ReaderState;
     progress = new ProgressState();
     favorites: FavoritesState;
+    groupFilter = new GroupFilterState();
 
     // Lifecycle
     status = $state<AppStatus>('BOOTING');

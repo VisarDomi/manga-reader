@@ -8,6 +8,8 @@
 
     let { favoritesMode = false }: Props = $props();
 
+    let showGroupFilter = $state(false);
+
     function handleSubmit(e: Event) {
         e.preventDefault();
         if (favoritesMode) {
@@ -33,6 +35,8 @@
             appState.searchState.inputQuery = appState.searchState.currentQuery;
         }
     });
+
+    const gf = appState.groupFilter;
 </script>
 
 <div class="search-bar-wrapper">
@@ -47,7 +51,31 @@
             class:fav-active={favoritesMode}
             onclick={() => { if (!favoritesMode) activateFavs(); }}
         >Favs</button>
+        {#if gf.count > 0}
+            <button
+                class="action-btn"
+                class:filter-active={showGroupFilter}
+                onclick={() => showGroupFilter = !showGroupFilter}
+            >Filtered ({gf.count})</button>
+        {/if}
     </div>
+
+    {#if showGroupFilter}
+        <div class="group-filter-panel">
+            <div class="group-filter-header">
+                <span class="group-filter-title">Blocked Groups</span>
+                <button class="group-filter-clear" onclick={() => { gf.clear(); showGroupFilter = false; }}>Clear All</button>
+            </div>
+            <div class="group-filter-list">
+                {#each gf.groups as group (group.groupId)}
+                    <div class="group-filter-item">
+                        <span class="group-filter-name">{group.groupName}</span>
+                        <button class="group-filter-remove" onclick={() => gf.remove(group.groupId)}>&times;</button>
+                    </div>
+                {/each}
+            </div>
+        </div>
+    {/if}
 
     {#if !favoritesMode}
         <form class="input-container" onsubmit={handleSubmit}>
@@ -185,6 +213,12 @@
     color: #f87171;
 }
 
+.action-btn.filter-active {
+    background: #3a1a1a;
+    border-color: #f87171;
+    color: #f87171;
+}
+
 .action-btn.sfw {
     background: #1a2a3a;
     border-color: #3b82f6;
@@ -201,5 +235,75 @@
     background: #1a3a1a;
     border-color: #4ade80;
     color: #4ade80;
+}
+
+.group-filter-panel {
+    background: #1a1a1a;
+    border-radius: 8px;
+    border: 1px solid #333;
+    overflow: hidden;
+}
+
+.group-filter-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    border-bottom: 1px solid #333;
+}
+
+.group-filter-title {
+    font-size: 13px;
+    color: #999;
+    font-weight: 500;
+}
+
+.group-filter-clear {
+    font-size: 12px;
+    color: #f87171;
+    padding: 2px 8px;
+    border-radius: 4px;
+}
+
+.group-filter-clear:active {
+    background: #3a1a1a;
+}
+
+.group-filter-list {
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.group-filter-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    border-bottom: 1px solid #222;
+}
+
+.group-filter-item:last-child {
+    border-bottom: none;
+}
+
+.group-filter-name {
+    font-size: 14px;
+    color: #ccc;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    margin-right: 8px;
+}
+
+.group-filter-remove {
+    font-size: 18px;
+    color: #666;
+    padding: 0 4px;
+    line-height: 1;
+}
+
+.group-filter-remove:active {
+    color: #f87171;
 }
 </style>

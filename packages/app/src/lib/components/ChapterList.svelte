@@ -7,6 +7,24 @@
     let { chapters }: { chapters: ChapterMeta[] } = $props();
 
     const mangaId = $derived(appState.manga.activeManga?.id ?? '');
+    const gf = appState.groupFilter;
+
+    // Reset showFiltered when manga changes
+    $effect(() => {
+        mangaId;
+        gf.showFiltered = false;
+    });
+
+    // Chapters after applying global group filter
+    const effectiveChapters = $derived.by(() => {
+        if (gf.showFiltered || gf.count === 0) return chapters;
+        return chapters.filter(ch => !gf.isFiltered(ch.groupId ?? ''));
+    });
+
+    // Whether this manga has chapters hidden by the global filter
+    const hasFilteredChapters = $derived(
+        gf.count > 0 && chapters.some(ch => gf.isFiltered(ch.groupId ?? ''))
+    );
 
     // Restore saved group selections for this manga
     let selectedGroups = $state<Set<string>>(new Set());
@@ -31,7 +49,32 @@
         storage.remove(`group:${mangaId}`);
     }
 
-    // Collect unique groups sorted by chapter count (most chapters first)
+    // Long-press inline confirm state
+    let pendingGroup = $state<{ id: string; name: string } | null>(null);
+
+    function handleLongPressGroup(groupId: string, groupName: string) {
+        // Toggle off if same group tapped again
+        if (pendingGroup?.id === groupId) {
+            pendingGroup = null;
+        } else {
+            pendingGroup = { id: groupId, name: groupName };
+        }
+    }
+
+    function confirmFilter() {
+        if (!pendingGroup) return;
+        const { id, name } = pendingGroup;
+        if (gf.isFiltered(id)) {
+            gf.remove(id);
+            appState.toast.show(`Unblocked "${name}"`);
+        } else {
+            gf.add(id, name);
+            appState.toast.show(`Blocked "${name}"`);
+        }
+        pendingGroup = null;
+    }
+
+    // Collect unique groups from ALL chapters (not effectiveChapters) so filtered groups stay visible
     const groups = $derived.by(() => {
         const map = new Map<string, { id: string; name: string; count: number }>();
         for (const ch of chapters) {
@@ -53,9 +96,9 @@
     // Filter by group, deduplicate only when a group is selected, sort descending
     const filtered = $derived.by(() => {
         if (selectedGroups.size === 0) {
-            return [...chapters].sort((a, b) => b.number - a.number);
+            return [...effectiveChapters].sort((a, b) => b.number - a.number);
         }
-        const byGroup = chapters.filter(ch => selectedGroups.has(ch.groupId ?? ''));
+        const byGroup = effectiveChapters.filter(ch => selectedGroups.has(ch.groupId ?? ''));
         const best = new Map<number, ChapterMeta>();
         for (const ch of byGroup) {
             const existing = best.get(ch.number);
@@ -125,24 +168,48 @@
         if (months < 12) return `${months}mo ago`;
         return `${Math.floor(months / 12)}y ago`;
     }
+
+    /** Check if a chapter belongs to a globally filtered group */
+    function isChapterFiltered(ch: ChapterMeta): boolean {
+        return gf.isFiltered(ch.groupId ?? '');
+    }
 </script>
 
-{#if groups.length > 1}
-    <div class="chapter-filter">
+<div class="chapter-filter">
+    <FilterChip
+        label={`All (${effectiveChapters.length})`}
+        active={selectedGroups.size === 0}
+        onclick={selectAll}
+    />
+    {#each groups as group (group.id)}
         <FilterChip
-            label={`All (${chapters.length})`}
-            active={selectedGroups.size === 0}
-            onclick={selectAll}
+            label={`${group.name} (${group.count})`}
+            active={selectedGroups.has(group.id)}
+            excluded={gf.isFiltered(group.id)}
+            onclick={() => toggleGroup(group.id)}
+            onlongpress={() => handleLongPressGroup(group.id, group.name)}
         />
-        {#each groups as group (group.id)}
-            <FilterChip
-                label={`${group.name} (${group.count})`}
-                active={selectedGroups.has(group.id)}
-                onclick={() => toggleGroup(group.id)}
-            />
-        {/each}
-    </div>
-{/if}
+    {/each}
+    {#if hasFilteredChapters}
+        <button
+            class="show-filtered-btn"
+            class:active={gf.showFiltered}
+            onclick={() => gf.showFiltered = !gf.showFiltered}
+        >{gf.showFiltered ? 'Hide filtered' : 'Show filtered'}</button>
+    {/if}
+    {#if pendingGroup}
+        <div class="inline-confirm">
+            <span class="inline-confirm-name">{pendingGroup.name}</span>
+            <button class="inline-confirm-btn cancel" onclick={() => pendingGroup = null}>Cancel</button>
+            <button
+                class="inline-confirm-btn"
+                class:block-btn={!gf.isFiltered(pendingGroup.id)}
+                class:unblock-btn={gf.isFiltered(pendingGroup.id)}
+                onclick={confirmFilter}
+            >{gf.isFiltered(pendingGroup.id) ? 'Unblock' : 'Block'}</button>
+        </div>
+    {/if}
+</div>
 
 <div class="chapter-list">
     {#each listItems as item (item.type === 'chapter' ? item.chapter.id : `gap-${item.from}-${item.to}`)}
@@ -152,7 +219,13 @@
             </div>
         {:else}
             {@const chapter = item.chapter}
-            <button class="chapter-item" class:chapter-current={chapter.id === currentChapterId} use:scrollIfCurrent={chapter.id === currentChapterId} onclick={() => handleClick(chapter)}>
+            <button
+                class="chapter-item"
+                class:chapter-current={chapter.id === currentChapterId}
+                class:chapter-filtered={gf.showFiltered && isChapterFiltered(chapter)}
+                use:scrollIfCurrent={chapter.id === currentChapterId}
+                onclick={() => handleClick(chapter)}
+            >
                 <span class="chapter-number">Ch. {chapter.number}</span>
                 <span class="chapter-group">{chapter.groupName || 'No Group'}</span>
                 {#if chapter.uploadedAt}
@@ -163,6 +236,7 @@
     {/each}
 </div>
 
+
 <style>
 .chapter-filter {
     display: flex;
@@ -170,6 +244,7 @@
     gap: 6px;
     padding: 8px 12px;
     border-bottom: 1px solid #222;
+    align-items: center;
 }
 
 .chapter-list {
@@ -199,6 +274,10 @@
 .chapter-item.chapter-current .chapter-number {
     color: #4af626;
     font-weight: 700;
+}
+
+.chapter-item.chapter-filtered {
+    opacity: 0.35;
 }
 
 .chapter-number {
@@ -231,5 +310,65 @@
     background: rgba(245, 158, 11, 0.08);
     border-radius: 6px;
     margin-bottom: 4px;
+}
+
+.show-filtered-btn {
+    padding: 5px 12px;
+    border-radius: 16px;
+    font-size: 14px;
+    background: #1a1a1a;
+    color: #999;
+    border: 1px solid transparent;
+    white-space: nowrap;
+}
+
+.show-filtered-btn.active {
+    background: #2a1a2a;
+    color: #c084fc;
+    border-color: #5a2d5a;
+}
+
+/* Inline confirm */
+.inline-confirm {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 6px 0 0;
+}
+
+.inline-confirm-name {
+    flex: 1;
+    font-size: 14px;
+    color: #ccc;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.inline-confirm-btn {
+    padding: 5px 14px;
+    border-radius: 16px;
+    font-size: 14px;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.inline-confirm-btn.cancel {
+    background: #333;
+    color: #999;
+    border: 1px solid #444;
+}
+
+.inline-confirm-btn.block-btn {
+    background: #3a1a1a;
+    color: #f87171;
+    border: 1px solid #5a2d2d;
+}
+
+.inline-confirm-btn.unblock-btn {
+    background: #1a3a1a;
+    color: #4ade80;
+    border: 1px solid #2d5a2d;
 }
 </style>
