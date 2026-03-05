@@ -20,6 +20,8 @@ export class SearchState {
     private pageController: AbortController | null = null;
     private loadingWatchdog: ReturnType<typeof setTimeout> | null = null;
     private onStuck: (() => void) | null = null;
+    /** Set externally by AppState before background pagination begins, to block sentinel-driven loadNextPage. */
+    paginatingToTarget = false;
 
     constructor(toast: ToastState, onStuck?: () => void) {
         this.toast = toast;
@@ -78,8 +80,25 @@ export class SearchState {
         }
     }
 
+    /**
+     * Core pagination: fetch a specific page, append deduplicated results.
+     * Returns the new manga entries added (after dedup).
+     */
+    private async fetchAndAppendPage(page: number, signal?: AbortSignal): Promise<Manga[]> {
+        const data = await api.searchManga(
+            this.currentQuery, page,
+            this.filters.buildFilters(), signal, true,
+        );
+        if (signal?.aborted) return [];
+        const seen = new Set(this.results.map(m => m.id));
+        const deduped = data.manga.filter(m => !seen.has(m.id));
+        this.results = [...this.results, ...deduped];
+        this.hasMore = data.hasMore;
+        return deduped;
+    }
+
     async loadNextPage() {
-        if (this.isLoading || !this.hasMore) return;
+        if (this.isLoading || !this.hasMore || this.paginatingToTarget) return;
 
         this.isLoading = true;
         this.startWatchdog();
@@ -90,15 +109,7 @@ export class SearchState {
         this.pageController = controller;
 
         try {
-            const data = await api.searchManga(
-                this.currentQuery, this.currentPage,
-                this.filters.buildFilters(), controller.signal, true,
-            );
-            if (controller.signal.aborted) return;
-            const seen = new Set(this.results.map(m => m.id));
-            const deduped = data.manga.filter(m => !seen.has(m.id));
-            this.results = [...this.results, ...deduped];
-            this.hasMore = data.hasMore;
+            await this.fetchAndAppendPage(this.currentPage, controller.signal);
         } catch (e) {
             if (controller.signal.aborted) return;
             const isTransient = e instanceof api.ApiError &&
@@ -117,5 +128,32 @@ export class SearchState {
                 this.isLoading = false;
             }
         }
+    }
+
+    /**
+     * Background pagination: load pages sequentially until targetId is found
+     * in results, or all pages are exhausted. Returns true if target was found.
+     */
+    async paginateToTarget(targetId: string, signal?: AbortSignal): Promise<boolean> {
+        // Check if target is already in current results
+        if (this.results.some(m => m.id === targetId)) return true;
+
+        // paginatingToTarget flag is set by the caller (AppState.bgPaginateToTarget)
+        // before any async work, to block sentinel-driven loadNextPage from racing.
+        while (this.hasMore) {
+            if (signal?.aborted) return false;
+
+            this.currentPage++;
+            try {
+                const added = await this.fetchAndAppendPage(this.currentPage, signal);
+                if (signal?.aborted) return false;
+                if (added.some(m => m.id === targetId)) return true;
+            } catch {
+                if (signal?.aborted) return false;
+                this.currentPage--;
+                return false;
+            }
+        }
+        return false;
     }
 }

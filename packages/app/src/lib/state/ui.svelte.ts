@@ -15,10 +15,14 @@ export class UIState {
     // Filter panel toggle (UI concern, not search logic)
     filtersExpanded = $state(false);
 
+    /** Callback invoked after every view transition so AppState can persist the session. */
+    onViewChange: (() => void) | null = null;
+
     pushView(mode: ViewMode) {
         this.viewStack = [...this.viewStack, this.viewMode];
         this.viewMode = mode;
         if (mode === 'list') this.listViewGeneration++;
+        this.onViewChange?.();
     }
 
     popView() {
@@ -28,6 +32,7 @@ export class UIState {
         this.viewStack = stack.slice(0, -1);
         this.viewMode = prev;
         if (prev === 'list') this.listViewGeneration++;
+        this.onViewChange?.();
     }
 
     peekBack(): ViewMode {
@@ -40,6 +45,14 @@ export class UIState {
 
     resetTo(mode: ViewMode) {
         this.viewStack = [];
+        this.viewMode = mode;
+        if (mode === 'list') this.listViewGeneration++;
+        this.onViewChange?.();
+    }
+
+    /** Set view state directly without triggering session save (used by restore). */
+    setViewDirect(mode: ViewMode, stack: ViewMode[]) {
+        this.viewStack = stack;
         this.viewMode = mode;
         if (mode === 'list') this.listViewGeneration++;
     }

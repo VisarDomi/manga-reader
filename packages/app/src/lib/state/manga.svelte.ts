@@ -32,6 +32,24 @@ export class MangaState {
         }
     }
 
+    /** Restore manga state without pushing view (used by session restore). */
+    async restoreManga(manga: Manga): Promise<boolean> {
+        this.activeManga = manga;
+        this.chapters = [];
+        this.isLoading = true;
+
+        try {
+            const chapters = await api.fetchChapterList(manga.id);
+            this.chapters = chapters;
+            return true;
+        } catch (e) {
+            this.toast.show('Failed to load chapters');
+            return false;
+        } finally {
+            this.isLoading = false;
+        }
+    }
+
     closeManga() {
         this.activeManga = null;
         this.chapters = [];

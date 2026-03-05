@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { onMount } from 'svelte';
     import { appState } from '$lib/state/index.svelte.js';
     import { sentinel } from '$lib/actions/sentinel.js';
     import { SENTINEL_ROOT_MARGIN } from '$lib/constants.js';
@@ -10,6 +11,33 @@
     const query = $derived(appState.searchState.currentQuery);
     const isLoading = $derived(appState.searchState.isLoading);
     const hasMore = $derived(appState.searchState.hasMore);
+
+    onMount(() => {
+        const listEl = document.getElementById('view-list');
+        if (!listEl) return;
+
+        let ticking = false;
+        function onScroll() {
+            if (ticking) return;
+            ticking = true;
+            requestAnimationFrame(() => {
+                ticking = false;
+                // Find the manga card at the center of the viewport
+                const centerY = window.innerHeight / 2;
+                const centerX = window.innerWidth / 2;
+                const el = document.elementFromPoint(centerX, centerY);
+                if (!el) return;
+                const card = el.closest('[data-manga-id]');
+                if (card) {
+                    const id = card.getAttribute('data-manga-id');
+                    if (id) appState.trackVisibleManga(id);
+                }
+            });
+        }
+
+        listEl.addEventListener('scroll', onScroll, { passive: true });
+        return () => listEl.removeEventListener('scroll', onScroll);
+    });
 </script>
 
 <SearchBar />

@@ -73,6 +73,51 @@ export class ReaderState {
         }
     }
 
+    /**
+     * Restore reader state without pushing view (used by session restore).
+     * Uses saved progress from IDB to determine which chapter/page to load.
+     * Returns true if restoration succeeded.
+     */
+    async restoreReader(manga: Manga, chapters: ChapterMeta[]): Promise<boolean> {
+        const saved = this.progress.get(manga.id);
+        if (!saved) return false;
+
+        const chapter = chapters.find(c => c.id === saved.chapterId);
+        if (!chapter) return false;
+
+        this.activeMangaId = manga.id;
+        this.currentChapterId = chapter.id;
+        this.loadedChapters = [];
+        this.isLoadingNext = false;
+        this.isLoadingPrev = false;
+        this.chapterList = [...chapters].sort((a, b) => a.number - b.number);
+
+        if (saved.pageIndex != null) {
+            this.pendingPageRestore = saved.pageIndex;
+        } else {
+            this.pendingPageRestore = null;
+        }
+
+        try {
+            const pages = await api.fetchChapterImages(manga.id, chapter.id, chapter.number);
+            const proxiedPages = pages.map(p => ({
+                ...p,
+                url: api.imageProxyUrl(p.url),
+            }));
+            this.loadedChapters = [{
+                id: chapter.id,
+                number: chapter.number,
+                pages: proxiedPages,
+                groupName: chapter.groupName,
+            }];
+            return true;
+        } catch (e) {
+            console.error('Failed to restore reader:', e);
+            this.toast.show('Failed to load chapter');
+            return false;
+        }
+    }
+
     /** Tracks the currently visible page in-memory. Called from scroll handler. */
     trackVisiblePage(chapterId: string, pageIndex: number): void {
         this.pageTracker.track(chapterId, pageIndex);

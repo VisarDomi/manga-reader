@@ -5,7 +5,14 @@
 {#if appState.toast.items.length > 0}
     <div class="toast-container">
         {#each appState.toast.items as toast (toast.id)}
-            <div class="toast">{toast.message}</div>
+            {#if toast.onClick}
+                <button
+                    class="toast toast-clickable"
+                    onclick={() => { toast.onClick?.(); appState.toast.dismiss(toast.id); }}
+                >{toast.message} ▸</button>
+            {:else}
+                <div class="toast">{toast.message}</div>
+            {/if}
         {/each}
     </div>
 {/if}
@@ -31,6 +38,16 @@
     font-size: 14px;
     animation: toast-in 0.3s ease-out;
     pointer-events: auto;
+}
+
+.toast-clickable {
+    cursor: pointer;
+    border: 1px solid #4af626;
+    font: inherit;
+}
+
+.toast-clickable:active {
+    background: #444;
 }
 
 @keyframes toast-in {

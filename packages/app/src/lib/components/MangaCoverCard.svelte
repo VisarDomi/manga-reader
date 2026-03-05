@@ -10,7 +10,7 @@
     const hasProgress = $derived(progress != null && manga.latestChapter != null);
 </script>
 
-<button class="manga-card" onclick={() => appState.manga.openManga(manga)}>
+<button class="manga-card" data-manga-id={manga.id} onclick={() => appState.manga.openManga(manga)}>
     <div class="manga-card-cover">
         {#if coverUrl}
             <img src={coverUrl} alt={manga.title} loading="lazy" decoding="async" />
