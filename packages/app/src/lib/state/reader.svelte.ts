@@ -30,14 +30,14 @@ export class ReaderState {
         this.toast = toast;
     }
 
-    async openReader(manga: Manga, chapter: ChapterMeta, filteredChapters: ChapterMeta[]) {
+    async openReader(manga: Manga, chapter: ChapterMeta) {
         this.activeMangaId = manga.id;
         this.currentChapterId = chapter.id;
         this.loadedChapters = [];
         this.isLoadingNext = false;
         this.isLoadingPrev = false;
         // Store sorted ascending (ch1, ch2, ch3, ...) for index-based navigation
-        this.chapterList = [...filteredChapters].sort((a, b) => a.number - b.number);
+        this.chapterList = [...this.manga.filteredChapters].sort((a, b) => a.number - b.number);
 
         // Check if reopening the same chapter — restore page position
         const saved = this.progress.get(manga.id);
@@ -78,11 +78,12 @@ export class ReaderState {
      * Uses saved progress from IDB to determine which chapter/page to load.
      * Returns true if restoration succeeded.
      */
-    async restoreReader(manga: Manga, chapters: ChapterMeta[]): Promise<boolean> {
+    async restoreReader(manga: Manga): Promise<boolean> {
         const saved = this.progress.get(manga.id);
         if (!saved) return false;
 
-        const chapter = chapters.find(c => c.id === saved.chapterId);
+        const filtered = this.manga.filteredChapters;
+        const chapter = filtered.find(c => c.id === saved.chapterId);
         if (!chapter) return false;
 
         this.activeMangaId = manga.id;
@@ -90,7 +91,7 @@ export class ReaderState {
         this.loadedChapters = [];
         this.isLoadingNext = false;
         this.isLoadingPrev = false;
-        this.chapterList = [...chapters].sort((a, b) => a.number - b.number);
+        this.chapterList = [...filtered].sort((a, b) => a.number - b.number);
 
         if (saved.pageIndex != null) {
             this.pendingPageRestore = saved.pageIndex;

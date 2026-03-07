@@ -1,30 +1,84 @@
 import type { Manga, ChapterMeta } from '../types.js';
 import * as api from '../services/api.js';
+import * as storage from '../services/storage.js';
 import type { UIState } from './ui.svelte.js';
 import type { ToastState } from './toast.svelte.js';
+import type { GroupFilterState } from './groupFilter.svelte.js';
 
 export class MangaState {
     activeManga = $state<Manga | null>(null);
     chapters = $state<ChapterMeta[]>([]);
     isLoading = $state(false);
+    selectedGroups = $state<Set<string>>(new Set());
 
     private ui: UIState;
     private toast: ToastState;
+    private gf: GroupFilterState;
 
-    constructor(ui: UIState, toast: ToastState) {
+    constructor(ui: UIState, toast: ToastState, gf: GroupFilterState) {
         this.ui = ui;
         this.toast = toast;
+        this.gf = gf;
+    }
+
+    get filteredChapters(): ChapterMeta[] {
+        let chs = this.gf.showFiltered || this.gf.count === 0
+            ? this.chapters
+            : this.chapters.filter(ch => !this.gf.isFiltered(ch.groupId ?? ''));
+
+        if (this.selectedGroups.size === 0) {
+            return [...chs].sort((a, b) => b.number - a.number);
+        }
+        const byGroup = chs.filter(ch => this.selectedGroups.has(ch.groupId ?? ''));
+        const best = new Map<number, ChapterMeta>();
+        for (const ch of byGroup) {
+            const existing = best.get(ch.number);
+            if (!existing || (ch.uploadedAt ?? 0) > (existing.uploadedAt ?? 0))
+                best.set(ch.number, ch);
+        }
+        return [...best.values()].sort((a, b) => b.number - a.number);
+    }
+
+    private loadGroupSelection() {
+        const mangaId = this.activeManga?.id;
+        if (!mangaId) {
+            this.selectedGroups = new Set();
+            return;
+        }
+        this.selectedGroups = new Set(storage.getJson<string[]>(`group:${mangaId}`, []));
+    }
+
+    toggleGroup(id: string) {
+        const next = new Set(this.selectedGroups);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        this.selectedGroups = next;
+        const mangaId = this.activeManga?.id;
+        if (!mangaId) return;
+        if (next.size === 0) {
+            storage.remove(`group:${mangaId}`);
+        } else {
+            storage.setJson(`group:${mangaId}`, [...next]);
+        }
+    }
+
+    selectAllGroups() {
+        this.selectedGroups = new Set();
+        const mangaId = this.activeManga?.id;
+        if (mangaId) storage.remove(`group:${mangaId}`);
     }
 
     async openManga(manga: Manga) {
         this.activeManga = manga;
         this.chapters = [];
+        this.selectedGroups = new Set();
         this.isLoading = true;
         this.ui.pushView('manga');
 
         try {
             const chapters = await api.fetchChapterList(manga.id);
             this.chapters = chapters;
+            this.loadGroupSelection();
         } catch (e) {
             this.toast.show('Failed to load chapters');
         } finally {
@@ -36,11 +90,13 @@ export class MangaState {
     async restoreManga(manga: Manga): Promise<boolean> {
         this.activeManga = manga;
         this.chapters = [];
+        this.selectedGroups = new Set();
         this.isLoading = true;
 
         try {
             const chapters = await api.fetchChapterList(manga.id);
             this.chapters = chapters;
+            this.loadGroupSelection();
             return true;
         } catch (e) {
             this.toast.show('Failed to load chapters');
@@ -53,6 +109,7 @@ export class MangaState {
     closeManga() {
         this.activeManga = null;
         this.chapters = [];
+        this.selectedGroups = new Set();
         this.ui.popView();
     }
 }

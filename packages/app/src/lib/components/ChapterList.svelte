@@ -1,6 +1,5 @@
 <script lang="ts">
     import { appState } from '$lib/state/index.svelte.js';
-    import * as storage from '$lib/services/storage.js';
     import type { ChapterMeta } from '$lib/types.js';
     import FilterChip from './FilterChip.svelte';
 
@@ -8,6 +7,7 @@
 
     const mangaId = $derived(appState.manga.activeManga?.id ?? '');
     const gf = appState.groupFilter;
+    const selectedGroups = $derived(appState.manga.selectedGroups);
 
     // Reset showFiltered when manga changes
     $effect(() => {
@@ -15,39 +15,16 @@
         gf.showFiltered = false;
     });
 
-    // Chapters after applying global group filter
-    const effectiveChapters = $derived.by(() => {
-        if (gf.showFiltered || gf.count === 0) return chapters;
-        return chapters.filter(ch => !gf.isFiltered(ch.groupId ?? ''));
-    });
-
     // Whether this manga has chapters hidden by the global filter
     const hasFilteredChapters = $derived(
         gf.count > 0 && chapters.some(ch => gf.isFiltered(ch.groupId ?? ''))
     );
 
-    // Restore saved group selections for this manga
-    let selectedGroups = $state<Set<string>>(new Set());
-    $effect(() => {
-        selectedGroups = new Set(storage.getJson<string[]>(`group:${mangaId}`, []));
+    // Chapters after applying global group filter (used only for "All" count display)
+    const effectiveCount = $derived.by(() => {
+        if (gf.showFiltered || gf.count === 0) return chapters.length;
+        return chapters.filter(ch => !gf.isFiltered(ch.groupId ?? '')).length;
     });
-
-    function toggleGroup(id: string) {
-        const next = new Set(selectedGroups);
-        if (next.has(id)) next.delete(id);
-        else next.add(id);
-        selectedGroups = next;
-        if (next.size === 0) {
-            storage.remove(`group:${mangaId}`);
-        } else {
-            storage.setJson(`group:${mangaId}`, [...next]);
-        }
-    }
-
-    function selectAll() {
-        selectedGroups = new Set();
-        storage.remove(`group:${mangaId}`);
-    }
 
     // Long-press inline confirm state
     let pendingGroup = $state<{ id: string; name: string } | null>(null);
@@ -93,21 +70,7 @@
         return [...map.values()].sort((a, b) => b.count - a.count);
     });
 
-    // Filter by group, deduplicate only when a group is selected, sort descending
-    const filtered = $derived.by(() => {
-        if (selectedGroups.size === 0) {
-            return [...effectiveChapters].sort((a, b) => b.number - a.number);
-        }
-        const byGroup = effectiveChapters.filter(ch => selectedGroups.has(ch.groupId ?? ''));
-        const best = new Map<number, ChapterMeta>();
-        for (const ch of byGroup) {
-            const existing = best.get(ch.number);
-            if (!existing || (ch.uploadedAt ?? 0) > (existing.uploadedAt ?? 0)) {
-                best.set(ch.number, ch);
-            }
-        }
-        return [...best.values()].sort((a, b) => b.number - a.number);
-    });
+    const filtered = $derived(appState.manga.filteredChapters);
 
     type GapIndicator = { type: 'gap'; missing: number; from: number; to: number };
     type ListItem = { type: 'chapter'; chapter: ChapterMeta } | GapIndicator;
@@ -141,7 +104,7 @@
     function handleClick(chapter: ChapterMeta) {
         const manga = appState.manga.activeManga;
         if (!manga) return;
-        appState.reader.openReader(manga, chapter, filtered);
+        appState.reader.openReader(manga, chapter);
     }
 
     /** Scrolls the current chapter into view on mount. */
@@ -177,16 +140,16 @@
 
 <div class="chapter-filter">
     <FilterChip
-        label={`All (${effectiveChapters.length})`}
+        label={`All (${effectiveCount})`}
         active={selectedGroups.size === 0}
-        onclick={selectAll}
+        onclick={() => appState.manga.selectAllGroups()}
     />
     {#each groups as group (group.id)}
         <FilterChip
             label={`${group.name} (${group.count})`}
             active={selectedGroups.has(group.id)}
             excluded={gf.isFiltered(group.id)}
-            onclick={() => toggleGroup(group.id)}
+            onclick={() => appState.manga.toggleGroup(group.id)}
             onlongpress={() => handleLongPressGroup(group.id, group.name)}
         />
     {/each}

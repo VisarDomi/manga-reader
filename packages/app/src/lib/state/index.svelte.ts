@@ -52,7 +52,7 @@ class AppState {
 
     constructor() {
         this.searchState = new SearchState(this.toast, () => this.recoverScrollContainers());
-        this.manga = new MangaState(this.ui, this.toast);
+        this.manga = new MangaState(this.ui, this.toast, this.groupFilter);
         this.reader = new ReaderState(this.ui, this.manga, this.progress, this.toast);
         this.favorites = new FavoritesState(this.toast);
 
@@ -167,9 +167,7 @@ class AppState {
             }
 
             // Now restore reader with the chapter list we just loaded
-            const readerOk = await this.reader.restoreReader(
-                snapshot.activeManga, this.manga.chapters
-            );
+            const readerOk = await this.reader.restoreReader(snapshot.activeManga);
             if (!readerOk) {
                 // Chapter failed — fall back to manga details
                 this.ui.setViewDirect('manga', ['list']);
