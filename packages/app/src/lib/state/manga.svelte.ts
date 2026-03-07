@@ -11,6 +11,10 @@ export class MangaState {
     isLoading = $state(false);
     selectedGroups = $state<Set<string>>(new Set());
 
+    // Scroll sync: captured when entering reader, consumed by ChapterList
+    private scrollAnchorRatio = 0;
+    scrollTarget = $state<{ chapterId: string; ratio: number } | null>(null);
+
     private ui: UIState;
     private toast: ToastState;
     private gf: GroupFilterState;
@@ -62,6 +66,15 @@ export class MangaState {
         }
     }
 
+    captureScrollAnchor(ratio: number) {
+        this.scrollAnchorRatio = ratio;
+        this.scrollTarget = null;
+    }
+
+    updateScrollTarget(chapterId: string) {
+        this.scrollTarget = { chapterId, ratio: this.scrollAnchorRatio };
+    }
+
     selectAllGroups() {
         this.selectedGroups = new Set();
         const mangaId = this.activeManga?.id;
@@ -110,6 +123,8 @@ export class MangaState {
         this.activeManga = null;
         this.chapters = [];
         this.selectedGroups = new Set();
+        this.scrollTarget = null;
+        this.scrollAnchorRatio = 0;
         this.ui.popView();
     }
 }

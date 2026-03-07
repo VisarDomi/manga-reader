@@ -15,6 +15,18 @@
         gf.showFiltered = false;
     });
 
+    // Scroll sync: when reader updates scrollTarget, scroll the chapter into position
+    $effect(() => {
+        const target = appState.manga.scrollTarget;
+        if (!target) return;
+        const container = document.getElementById('view-manga');
+        const el = container?.querySelector(`[data-chapter-id="${CSS.escape(target.chapterId)}"]`);
+        if (!container || !el) return;
+        const elTop = (el as HTMLElement).offsetTop;
+        const desiredScrollTop = elTop - target.ratio * container.clientHeight;
+        container.scrollTop = Math.max(0, desiredScrollTop);
+    });
+
     // Whether this manga has chapters hidden by the global filter
     const hasFilteredChapters = $derived(
         gf.count > 0 && chapters.some(ch => gf.isFiltered(ch.groupId ?? ''))
@@ -104,6 +116,18 @@
     function handleClick(chapter: ChapterMeta) {
         const manga = appState.manga.activeManga;
         if (!manga) return;
+
+        // Capture viewport-relative position of clicked chapter
+        const container = document.getElementById('view-manga');
+        const el = container?.querySelector(`[data-chapter-id="${CSS.escape(chapter.id)}"]`);
+        if (container && el) {
+            const containerRect = container.getBoundingClientRect();
+            const elRect = el.getBoundingClientRect();
+            appState.manga.captureScrollAnchor(
+                (elRect.top - containerRect.top) / containerRect.height
+            );
+        }
+
         appState.reader.openReader(manga, chapter);
     }
 
@@ -186,6 +210,7 @@
                 class="chapter-item"
                 class:chapter-current={chapter.id === currentChapterId}
                 class:chapter-filtered={gf.showFiltered && isChapterFiltered(chapter)}
+                data-chapter-id={chapter.id}
                 use:scrollIfCurrent={chapter.id === currentChapterId}
                 onclick={() => handleClick(chapter)}
             >

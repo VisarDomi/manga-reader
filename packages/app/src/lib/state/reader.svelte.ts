@@ -127,6 +127,7 @@ export class ReaderState {
     /** Called when the visible chapter changes. Updates state + debounced sync to local DB. */
     syncChapterProgress(chapterId: string): void {
         this.currentChapterId = chapterId;
+        this.manga.updateScrollTarget(chapterId);
         this.pageTracker.scheduleSync(chapterId, (cId, pageIndex) => {
             const manga = this.manga.activeManga;
             if (!manga) return;
