@@ -21,6 +21,47 @@ const NSFW_NAMES = new Set(['Adult', 'Ecchi', 'Hentai', 'Mature', 'Smut']);
 const SESSION_TOAST_DURATION = 4000;
 const VISIBLE_MANGA_DEBOUNCE_MS = 1000;
 
+// --- Restore State Machine ---
+
+type RestoreState = 'idle' | 'replaying-search' | 'paginating-to-target' | 'scrolling';
+
+class RestoreMachine {
+    state = $state<RestoreState>('idle');
+    private controller: AbortController | null = null;
+    targetMangaId: string | null = null;
+
+    get isActive() { return this.state !== 'idle'; }
+    get signal() { return this.controller?.signal; }
+
+    start(targetId: string) {
+        this.cancel();
+        this.targetMangaId = targetId;
+        this.controller = new AbortController();
+        this.state = 'replaying-search';
+    }
+
+    transition(next: 'paginating-to-target' | 'scrolling') {
+        if (!this.isActive) return;
+        this.state = next;
+    }
+
+    cancel() {
+        if (!this.isActive) return;
+        this.controller?.abort();
+        this.controller = null;
+        this.targetMangaId = null;
+        this.state = 'idle';
+    }
+
+    done() {
+        this.controller = null;
+        this.targetMangaId = null;
+        this.state = 'idle';
+    }
+}
+
+// --- App State ---
+
 class AppState {
     ui = new UIState();
     toast = new ToastState();
@@ -38,21 +79,26 @@ class AppState {
     private bgSentinelId: ReturnType<typeof setInterval> | null = null;
     private bgSentinelTick = 0;
 
-    // Session restore: background search pagination
-    private bgSearchController: AbortController | null = null;
-    // Track the target manga ID for scroll-to in list view
-    private targetMangaId: string | null = null;
-    private targetFound = false;
-    // Pending toast for when target is found after user is already on list view
-    private pendingScrollToast = false;
+    // Session restore
+    private restore = new RestoreMachine();
 
     // Visible manga tracking (for session snapshot "just scrolled" case)
     private visibleMangaDebounce: ReturnType<typeof setTimeout> | null = null;
     private lastVisibleMangaId: string | null = null;
 
     constructor() {
-        this.searchState = new SearchState(this.toast, () => this.recoverScrollContainers());
-        this.manga = new MangaState(this.ui, this.toast, this.groupFilter);
+        this.searchState = new SearchState(
+            this.toast,
+            () => this.recoverScrollContainers(),
+            () => this.restore.state === 'paginating-to-target',
+        );
+        this.searchState.onNewSearch = () => {
+            // Cancel restore on user-initiated searches, but not during restore's own search replay
+            if (this.restore.state !== 'replaying-search') {
+                this.restore.cancel();
+            }
+        };
+        this.manga = new MangaState(this.ui, this.toast, this.groupFilter, () => this.restore.cancel());
         this.reader = new ReaderState(this.ui, this.manga, this.progress, this.toast);
         this.favorites = new FavoritesState(this.toast);
 
@@ -123,12 +169,12 @@ class AppState {
         if (!snapshot) return false;
 
         clearSession();
-        this.targetMangaId = snapshot.targetMangaId ?? null;
+        const targetId = snapshot.targetMangaId ?? null;
 
         if (snapshot.viewMode === 'list') {
-            // Run default search, then paginate to target if set
+            if (targetId) this.restore.start(targetId);
             await this.searchState.search(this.searchState.inputQuery);
-            if (this.targetMangaId) {
+            if (targetId && this.restore.isActive) {
                 this.bgPaginateToTarget();
             }
             return true;
@@ -136,21 +182,19 @@ class AppState {
 
         if (snapshot.viewMode === 'favorites') {
             this.ui.setViewDirect('favorites', ['list']);
-            // Background: replay search for swipe-back readiness
+            if (targetId) this.restore.start(targetId);
             this.bgReplaySearch();
             return true;
         }
 
         if (snapshot.viewMode === 'manga' && snapshot.activeManga) {
             this.ui.setViewDirect('manga', ['list']);
-            // Foreground: restore manga details
             const ok = await this.manga.restoreManga(snapshot.activeManga);
             if (!ok) {
-                // Manga failed to load — fall back to list
                 this.ui.setViewDirect('list', []);
                 return false;
             }
-            // Background: replay search for swipe-back
+            if (targetId) this.restore.start(targetId);
             this.bgReplaySearch();
             return true;
         }
@@ -158,24 +202,21 @@ class AppState {
         if (snapshot.viewMode === 'reader' && snapshot.activeManga) {
             this.ui.setViewDirect('reader', ['list', 'manga']);
 
-            // First check if manga still exists by fetching chapters
             const ok = await this.manga.restoreManga(snapshot.activeManga);
             if (!ok) {
-                // Manga gone — fall back to list
                 this.ui.setViewDirect('list', []);
                 return false;
             }
 
-            // Now restore reader with the chapter list we just loaded
             const readerOk = await this.reader.restoreReader(snapshot.activeManga);
             if (!readerOk) {
-                // Chapter failed — fall back to manga details
                 this.ui.setViewDirect('manga', ['list']);
+                if (targetId) this.restore.start(targetId);
                 this.bgReplaySearch();
                 return true;
             }
 
-            // Background: replay search for swipe-back
+            if (targetId) this.restore.start(targetId);
             this.bgReplaySearch();
             return true;
         }
@@ -184,85 +225,80 @@ class AppState {
     }
 
     /**
-     * Background: replay last search query and paginate to find targetMangaId.
+     * Background: replay last search query and paginate to find target.
      * Scrolls the list view to the target card when found.
      */
     private async bgReplaySearch() {
-        // Run the initial search first
         await this.searchState.search(this.searchState.inputQuery);
-
-        if (this.targetMangaId) {
-            await this.bgPaginateToTarget();
-        }
+        if (!this.restore.isActive) return; // cancelled during search
+        await this.bgPaginateToTarget();
     }
 
     /**
-     * Background: paginate search results until targetMangaId is found.
+     * Background: paginate search results until target is found.
      * Assumes search has already been executed and results are loaded.
      */
     private async bgPaginateToTarget() {
-        if (!this.targetMangaId) return;
-
-        // Block sentinel-driven loadNextPage immediately, before any async work
-        this.searchState.paginatingToTarget = true;
+        const targetId = this.restore.targetMangaId;
+        if (!targetId || !this.restore.isActive) {
+            this.restore.done();
+            return;
+        }
 
         try {
             // Verify the manga still exists before paginating
             try {
-                await api.fetchChapterList(this.targetMangaId);
+                await api.fetchChapterList(targetId);
             } catch {
-                // Manga no longer exists — skip pagination
-                this.targetMangaId = null;
+                this.restore.done();
                 return;
             }
 
+            if (!this.restore.isActive) return; // cancelled during verify
+
             // If already found on first page
-            if (this.searchState.results.some(m => m.id === this.targetMangaId)) {
-                this.onTargetFound();
+            if (this.searchState.results.some(m => m.id === targetId)) {
+                this.restore.transition('scrolling');
+                await this.onTargetFound(targetId);
                 return;
             }
 
             // Paginate in background
-            this.bgSearchController?.abort();
-            const controller = new AbortController();
-            this.bgSearchController = controller;
+            this.restore.transition('paginating-to-target');
+            const found = await this.searchState.paginateToTarget(targetId, this.restore.signal);
 
-            const found = await this.searchState.paginateToTarget(
-                this.targetMangaId, controller.signal
-            );
+            if (!this.restore.isActive) return; // cancelled during pagination
 
-            if (found && !controller.signal.aborted) {
-                this.onTargetFound();
+            if (found) {
+                this.restore.transition('scrolling');
+                await this.onTargetFound(targetId);
+            } else {
+                this.restore.done();
             }
-        } finally {
-            this.searchState.paginatingToTarget = false;
+        } catch {
+            this.restore.done();
         }
     }
 
-    private async onTargetFound() {
-        this.targetFound = true;
+    private async onTargetFound(targetId: string) {
+        const scrolled = await this.scrollListToTarget(targetId);
 
-        // Scroll the list view to the target (works even when hidden via visibility:hidden)
-        const scrolled = await this.scrollListToTarget();
-
-        // Only show toast if auto-scroll failed (card not in DOM yet)
         if (!scrolled) {
             if (this.ui.viewMode === 'list') {
-                this.showScrollToast();
-            } else {
-                this.pendingScrollToast = true;
+                this.showScrollToast(targetId);
+                this.restore.done();
             }
+            // else: machine stays in 'scrolling' — handleViewChanged will show toast
+        } else {
+            this.restore.done();
         }
     }
 
     /** Scrolls list view to target card. Returns true if card was found in DOM. */
-    private scrollListToTarget(): Promise<boolean> {
-        if (!this.targetMangaId) return Promise.resolve(false);
+    private scrollListToTarget(targetId: string): Promise<boolean> {
         return new Promise(resolve => {
-            // Wait for Svelte to render the new results into the DOM
             requestAnimationFrame(() => {
-                if (!this.targetMangaId) return resolve(false);
-                const card = document.querySelector(`[data-manga-id="${CSS.escape(this.targetMangaId)}"]`);
+                const card = document.querySelector(`[data-manga-id="${CSS.escape(targetId)}"]`);
                 if (card) {
                     card.scrollIntoView({ block: 'center' });
                     resolve(true);
@@ -273,16 +309,13 @@ class AppState {
         });
     }
 
-    private showScrollToast() {
-        if (!this.targetMangaId) return;
-        const targetId = this.targetMangaId;
+    private showScrollToast(targetId: string) {
         this.toast.show('Tap to scroll to last position', SESSION_TOAST_DURATION, () => {
             const card = document.querySelector(`[data-manga-id="${CSS.escape(targetId)}"]`);
             if (card) {
                 card.scrollIntoView({ block: 'center', behavior: 'smooth' });
             }
         });
-        this.pendingScrollToast = false;
     }
 
     // --- Init ---
@@ -335,11 +368,10 @@ class AppState {
 
     /** Called on every view transition to handle pending scroll-to notifications. */
     private handleViewChanged() {
-        if (this.ui.viewMode === 'list' && this.pendingScrollToast && this.targetFound) {
-            // User navigated back to list and target was already found
-            this.showScrollToast();
-        } else if (this.ui.viewMode === 'list' && this.pendingScrollToast && !this.targetFound) {
-            // User navigated back but target not found yet — onTargetFound will show it
+        if (this.ui.viewMode === 'list' && this.restore.state === 'scrolling') {
+            const targetId = this.restore.targetMangaId;
+            if (targetId) this.showScrollToast(targetId);
+            this.restore.done();
         }
     }
 
@@ -446,7 +478,7 @@ class AppState {
         this.monitor.destroy();
         watchdog.stop();
         this.stopBackgroundSentinel();
-        this.bgSearchController?.abort();
+        this.restore.cancel();
         if (this.visibleMangaDebounce) clearTimeout(this.visibleMangaDebounce);
     }
 }

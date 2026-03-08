@@ -18,11 +18,13 @@ export class MangaState {
     private ui: UIState;
     private toast: ToastState;
     private gf: GroupFilterState;
+    private onOpen: (() => void) | null;
 
-    constructor(ui: UIState, toast: ToastState, gf: GroupFilterState) {
+    constructor(ui: UIState, toast: ToastState, gf: GroupFilterState, onOpen?: () => void) {
         this.ui = ui;
         this.toast = toast;
         this.gf = gf;
+        this.onOpen = onOpen ?? null;
     }
 
     get filteredChapters(): ChapterMeta[] {
@@ -82,6 +84,7 @@ export class MangaState {
     }
 
     async openManga(manga: Manga) {
+        this.onOpen?.();
         this.activeManga = manga;
         this.chapters = [];
         this.selectedGroups = new Set();

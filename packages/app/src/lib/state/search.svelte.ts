@@ -5,27 +5,56 @@ import * as storage from '../services/storage.js';
 import type { ToastState } from './toast.svelte.js';
 import { FilterState } from './filter.svelte.js';
 
+type SearchMachineState = 'idle' | 'searching' | 'loading-page';
+
+class SearchMachine {
+    state = $state<SearchMachineState>('idle');
+    private controller: AbortController | null = null;
+
+    get isActive() { return this.state !== 'idle'; }
+    get signal() { return this.controller?.signal; }
+
+    enter(next: 'searching' | 'loading-page') {
+        this.controller?.abort();
+        this.controller = new AbortController();
+        this.state = next;
+    }
+
+    done() {
+        this.controller = null;
+        this.state = 'idle';
+    }
+
+    abort() {
+        this.controller?.abort();
+        this.controller = null;
+        this.state = 'idle';
+    }
+}
+
 export class SearchState {
     results = $state<Manga[]>([]);
     currentQuery = $state('');
     inputQuery = $state(''); // live value of the search input field
     currentPage = $state(1);
-    isLoading = $state(false);
     hasMore = $state(false);
 
     readonly filters: FilterState;
 
     private toast: ToastState;
-    private searchController: AbortController | null = null;
-    private pageController: AbortController | null = null;
+    private machine = new SearchMachine();
     private loadingWatchdog: ReturnType<typeof setTimeout> | null = null;
     private onStuck: (() => void) | null = null;
-    /** Set externally by AppState before background pagination begins, to block sentinel-driven loadNextPage. */
-    paginatingToTarget = false;
+    private isRestoring: () => boolean;
+    /** Fired at the start of every search(). AppState uses this to cancel restore on user-initiated searches. */
+    onNewSearch: (() => void) | null = null;
 
-    constructor(toast: ToastState, onStuck?: () => void) {
+    get isLoading() { return this.machine.isActive; }
+
+    constructor(toast: ToastState, onStuck?: () => void, isRestoring?: () => boolean) {
         this.toast = toast;
         this.onStuck = onStuck ?? null;
+        this.isRestoring = isRestoring ?? (() => false);
         this.inputQuery = storage.getString('lastQuery', '');
         this.filters = new FilterState(() => this.search(this.inputQuery));
     }
@@ -33,10 +62,8 @@ export class SearchState {
     private startWatchdog() {
         this.clearWatchdog();
         this.loadingWatchdog = setTimeout(() => {
-            if (this.isLoading) {
-                this.searchController?.abort();
-                this.pageController?.abort();
-                this.isLoading = false;
+            if (this.machine.isActive) {
+                this.machine.abort();
                 this.toast.show('Loading timed out — scroll to retry');
                 this.onStuck?.();
             }
@@ -51,31 +78,29 @@ export class SearchState {
     }
 
     async search(query: string) {
-        this.searchController?.abort();
-        this.pageController?.abort();
-        const controller = new AbortController();
-        this.searchController = controller;
+        this.onNewSearch?.();
+        this.machine.enter('searching');
+        const signal = this.machine.signal!;
 
-        this.isLoading = true;
         this.startWatchdog();
         this.currentQuery = query;
         this.currentPage = 1;
         storage.setString('lastQuery', query);
 
         try {
-            const data = await api.searchManga(query, 1, this.filters.buildFilters(), controller.signal);
-            if (controller.signal.aborted) return;
+            const data = await api.searchManga(query, 1, this.filters.buildFilters(), signal);
+            if (signal.aborted) return;
             this.results = data.manga;
             this.hasMore = data.hasMore;
         } catch (e) {
-            if (controller.signal.aborted) return;
+            if (signal.aborted) return;
             this.results = [];
             this.hasMore = false;
             this.toast.show('Search failed');
         } finally {
             this.clearWatchdog();
-            if (!controller.signal.aborted) {
-                this.isLoading = false;
+            if (!signal.aborted) {
+                this.machine.done();
             }
         }
     }
@@ -98,20 +123,18 @@ export class SearchState {
     }
 
     async loadNextPage() {
-        if (this.isLoading || !this.hasMore || this.paginatingToTarget) return;
+        if (this.machine.isActive || !this.hasMore || this.isRestoring()) return;
 
-        this.isLoading = true;
+        this.machine.enter('loading-page');
+        const signal = this.machine.signal!;
+
         this.startWatchdog();
         this.currentPage++;
 
-        this.pageController?.abort();
-        const controller = new AbortController();
-        this.pageController = controller;
-
         try {
-            await this.fetchAndAppendPage(this.currentPage, controller.signal);
+            await this.fetchAndAppendPage(this.currentPage, signal);
         } catch (e) {
-            if (controller.signal.aborted) return;
+            if (signal.aborted) return;
             const isTransient = e instanceof api.ApiError &&
                 (e.kind === 'timeout' || e.kind === 'network' ||
                  (e.kind === 'http' && [408, 429, 500, 502, 503, 504].includes(e.status ?? 0)));
@@ -124,8 +147,8 @@ export class SearchState {
             }
         } finally {
             this.clearWatchdog();
-            if (!controller.signal.aborted) {
-                this.isLoading = false;
+            if (!signal.aborted) {
+                this.machine.done();
             }
         }
     }
@@ -135,11 +158,8 @@ export class SearchState {
      * in results, or all pages are exhausted. Returns true if target was found.
      */
     async paginateToTarget(targetId: string, signal?: AbortSignal): Promise<boolean> {
-        // Check if target is already in current results
         if (this.results.some(m => m.id === targetId)) return true;
 
-        // paginatingToTarget flag is set by the caller (AppState.bgPaginateToTarget)
-        // before any async work, to block sentinel-driven loadNextPage from racing.
         while (this.hasMore) {
             if (signal?.aborted) return false;
 
