@@ -1,5 +1,4 @@
 // Swipe gesture
-export const EDGE_ZONE = 30;              // px from left edge to start swipe-back
 export const SWIPE_THRESHOLD = 0.3;       // fraction of screen width to complete gesture
 
 // Resume / background

@@ -1,6 +1,7 @@
 <script lang="ts">
     import { onMount, setContext } from 'svelte';
     import { appState } from '$lib/state/index.svelte.js';
+    import { initAppDimensions } from '$lib/state/appDimensions.js';
     import ListView from '$lib/views/ListView.svelte';
     import FavoritesView from '$lib/views/FavoritesView.svelte';
     import MangaView from '$lib/views/MangaView.svelte';
@@ -11,6 +12,7 @@
     setContext('readerRoot', () => readerRoot);
 
     onMount(() => {
+        initAppDimensions();
         appState.init();
     });
 

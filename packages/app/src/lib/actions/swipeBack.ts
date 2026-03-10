@@ -1,9 +1,13 @@
-import { EDGE_ZONE, SWIPE_THRESHOLD } from '../constants.js';
+import { appDimensions } from '$lib/state/appDimensions.js';
+import { SWIPE_THRESHOLD } from '../constants.js';
 
 interface SwipeBackOptions {
     onClose: () => void;
     ui: { swipeProgress: number; isSwiping: boolean; swipeAnimating: boolean };
 }
+
+const EDGE_ZONE_RATIO = 0.077;
+const DEADZONE_RATIO = 0.026;
 
 export function swipeBack(node: HTMLElement, options: SwipeBackOptions) {
     let tracking = false;
@@ -11,14 +15,17 @@ export function swipeBack(node: HTMLElement, options: SwipeBackOptions) {
     let startY = 0;
     let locked = false;
     let rejected = false;
+    let lockDx = 0;
     let opts = options;
 
     function onStart(e: TouchEvent) {
         const touch = e.touches[0];
-        if (touch.clientX <= EDGE_ZONE) {
+        const edgeZone = appDimensions.width * EDGE_ZONE_RATIO;
+        if (touch.clientX <= edgeZone) {
             tracking = true;
             locked = false;
             rejected = false;
+            lockDx = 0;
             startX = touch.clientX;
             startY = touch.clientY;
         }
@@ -30,22 +37,28 @@ export function swipeBack(node: HTMLElement, options: SwipeBackOptions) {
         const touch = e.touches[0];
         const dx = touch.clientX - startX;
         const dy = touch.clientY - startY;
+        const appWidth = appDimensions.width;
 
         if (!locked) {
             const absDx = Math.abs(dx);
             const absDy = Math.abs(dy);
-            if (absDx < 10 && absDy < 10) return;
+            const deadzone = appWidth * DEADZONE_RATIO;
+            if (absDx < deadzone && absDy < deadzone) return;
             if (absDy > absDx) {
                 rejected = true;
                 tracking = false;
                 return;
             }
             locked = true;
+            lockDx = dx;
             opts.ui.isSwiping = true;
         }
 
         e.preventDefault();
-        opts.ui.swipeProgress = Math.max(0, Math.min(1, dx / window.innerWidth));
+
+        const travel = dx - lockDx;
+        const maxTravel = appWidth - lockDx;
+        opts.ui.swipeProgress = Math.max(0, Math.min(1, travel / maxTravel));
     }
 
     function onEnd() {
