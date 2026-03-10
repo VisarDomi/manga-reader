@@ -4,6 +4,7 @@ import * as api from '../services/api.js';
 import * as storage from '../services/storage.js';
 import type { ToastState } from './toast.svelte.js';
 import { FilterState } from './filter.svelte.js';
+import type { SearchContext } from './session.js';
 
 type SearchMachineState = 'idle' | 'searching' | 'loading-page';
 
@@ -40,6 +41,7 @@ export class SearchState {
     hasMore = $state(false);
 
     readonly filters: FilterState;
+    context: SearchContext | null = null;
 
     private toast: ToastState;
     private machine = new SearchMachine();
@@ -81,14 +83,49 @@ export class SearchState {
         this.onNewSearch?.();
         this.machine.enter('searching');
         const signal = this.machine.signal!;
-
         this.startWatchdog();
+
+        const ctx: SearchContext = {
+            query,
+            filters: this.filters.buildFilters(),
+        };
+        this.context = ctx;
         this.currentQuery = query;
         this.currentPage = 1;
         storage.setString('lastQuery', query);
 
         try {
-            const data = await api.searchManga(query, 1, this.filters.buildFilters(), signal);
+            const data = await api.searchManga(query, 1, ctx.filters, signal);
+            if (signal.aborted) return;
+            this.results = data.manga;
+            this.hasMore = data.hasMore;
+        } catch (e) {
+            if (signal.aborted) return;
+            this.results = [];
+            this.hasMore = false;
+            this.toast.show('Search failed');
+        } finally {
+            this.clearWatchdog();
+            if (!signal.aborted) {
+                this.machine.done();
+            }
+        }
+    }
+
+    async replayFromContext(ctx: SearchContext) {
+        this.onNewSearch?.();
+        this.machine.enter('searching');
+        const signal = this.machine.signal!;
+        this.startWatchdog();
+
+        this.context = ctx;
+        this.currentQuery = ctx.query;
+        this.inputQuery = ctx.query;
+        this.currentPage = 1;
+        storage.setString('lastQuery', ctx.query);
+
+        try {
+            const data = await api.searchManga(ctx.query, 1, ctx.filters, signal);
             if (signal.aborted) return;
             this.results = data.manga;
             this.hasMore = data.hasMore;
@@ -112,7 +149,7 @@ export class SearchState {
     private async fetchAndAppendPage(page: number, signal?: AbortSignal): Promise<Manga[]> {
         const data = await api.searchManga(
             this.currentQuery, page,
-            this.filters.buildFilters(), signal, true,
+            this.context!.filters, signal, true,
         );
         if (signal?.aborted) return [];
         const seen = new Set(this.results.map(m => m.id));

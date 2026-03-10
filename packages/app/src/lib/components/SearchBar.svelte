@@ -30,12 +30,6 @@
         appState.ui.popView();
     }
 
-    $effect(() => {
-        if (!appState.searchState.isLoading) {
-            appState.searchState.inputQuery = appState.searchState.currentQuery;
-        }
-    });
-
     const gf = appState.groupFilter;
 </script>
 

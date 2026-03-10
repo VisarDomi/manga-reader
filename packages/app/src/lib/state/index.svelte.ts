@@ -12,7 +12,7 @@ import { ProgressState } from './progress.svelte.js';
 import { ToastState } from './toast.svelte.js';
 import { FavoritesState } from './favorites.svelte.js';
 import { GroupFilterState } from './groupFilter.svelte.js';
-import { saveSession, loadSession, clearSession, type SessionSnapshot } from './session.js';
+import { saveSession, loadSession, clearSession, type SessionSnapshot, type SearchContext } from './session.js';
 import { RESUME_RECOVERY_MS, DEEP_SLEEP_MS } from '../constants.js';
 
 export type AppStatus = 'BOOTING' | 'READY' | 'BACKGROUND' | 'RECONNECTING' | 'OFFLINE';
@@ -144,6 +144,10 @@ class AppState {
             snapshot.targetMangaId = target;
         }
 
+        if (this.searchState.context) {
+            snapshot.searchContext = this.searchState.context;
+        }
+
         saveSession(snapshot);
     }
 
@@ -173,7 +177,12 @@ class AppState {
 
         if (snapshot.viewMode === 'list') {
             if (targetId) this.restore.start(targetId);
-            await this.searchState.search(this.searchState.inputQuery);
+            if (snapshot.searchContext) {
+                this.searchState.filters.restoreFromContext(snapshot.searchContext.filters);
+                await this.searchState.replayFromContext(snapshot.searchContext);
+            } else {
+                await this.searchState.search(this.searchState.inputQuery);
+            }
             if (targetId && this.restore.isActive) {
                 this.bgPaginateToTarget();
             }
@@ -183,7 +192,7 @@ class AppState {
         if (snapshot.viewMode === 'favorites') {
             this.ui.setViewDirect('favorites', ['list']);
             if (targetId) this.restore.start(targetId);
-            this.bgReplaySearch();
+            this.bgReplaySearch(snapshot.searchContext);
             return true;
         }
 
@@ -195,7 +204,7 @@ class AppState {
                 return false;
             }
             if (targetId) this.restore.start(targetId);
-            this.bgReplaySearch();
+            this.bgReplaySearch(snapshot.searchContext);
             return true;
         }
 
@@ -212,12 +221,12 @@ class AppState {
             if (!readerOk) {
                 this.ui.setViewDirect('manga', ['list']);
                 if (targetId) this.restore.start(targetId);
-                this.bgReplaySearch();
+                this.bgReplaySearch(snapshot.searchContext);
                 return true;
             }
 
             if (targetId) this.restore.start(targetId);
-            this.bgReplaySearch();
+            this.bgReplaySearch(snapshot.searchContext);
             return true;
         }
 
@@ -228,8 +237,13 @@ class AppState {
      * Background: replay last search query and paginate to find target.
      * Scrolls the list view to the target card when found.
      */
-    private async bgReplaySearch() {
-        await this.searchState.search(this.searchState.inputQuery);
+    private async bgReplaySearch(searchContext?: SearchContext) {
+        if (searchContext) {
+            this.searchState.filters.restoreFromContext(searchContext.filters);
+            await this.searchState.replayFromContext(searchContext);
+        } else {
+            await this.searchState.search(this.searchState.inputQuery);
+        }
         if (!this.restore.isActive) return; // cancelled during search
         await this.bgPaginateToTarget();
     }

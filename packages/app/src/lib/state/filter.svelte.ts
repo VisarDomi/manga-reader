@@ -138,6 +138,24 @@ export class FilterState {
         this.debouncedOnChange();
     }
 
+    restoreFromContext(filters: SearchFilters | undefined): void {
+        if (!filters) {
+            this.termStates = new Map();
+            this.selectedTypes = new Set();
+            this.selectedStatuses = new Set();
+        } else {
+            const terms = new Map<string, 'include' | 'exclude'>();
+            for (const id of filters.includeGenres ?? []) terms.set(id, 'include');
+            for (const id of filters.excludeGenres ?? []) {
+                if (!nsfwGenreIds.has(id)) terms.set(id, 'exclude');
+            }
+            this.termStates = terms;
+            this.selectedTypes = new Set(filters.types ?? []);
+            this.selectedStatuses = new Set(filters.statuses ?? []);
+        }
+        this.persist();
+    }
+
     clear() {
         this.termStates = new Map();
         this.selectedTypes = new Set();
