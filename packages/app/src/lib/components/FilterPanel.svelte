@@ -1,11 +1,9 @@
 <script lang="ts">
     import { appState } from '$lib/state/index.svelte.js';
     import { getProvider } from '$lib/services/provider.js';
-    import { getNsfwGenreIds } from '$lib/state/filter.svelte.js';
     import FilterChip from './FilterChip.svelte';
 
     const filterDef = getProvider().getFilters();
-    const nsfwIds = getNsfwGenreIds();
 
     // Group genres by their group field (demographic, genre, theme, format)
     const genresByGroup = $derived.by(() => {
@@ -26,16 +24,7 @@
         format: 'Formats',
     };
 
-    const effectiveStates = $derived.by(() => {
-        const map = new Map<string, 'include' | 'exclude'>();
-        for (const g of filterDef.genres) {
-            const explicit = appState.searchState.filters.termStates.get(g.id);
-            if (explicit) { map.set(g.id, explicit); continue; }
-            if (appState.searchState.filters.contentMode === 'sfw' && nsfwIds.has(g.id))
-                map.set(g.id, 'exclude');
-        }
-        return map;
-    });
+    const effectiveStates = $derived(appState.searchState.filters.termStates);
 
     const prefixes = $derived.by(() => {
         const map = new Map<string, string>();

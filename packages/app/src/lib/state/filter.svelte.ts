@@ -9,26 +9,14 @@ interface PersistedFilters {
     statuses: string[];
 }
 
-let nsfwGenreIds = new Set<string>();
-
-export function setNsfwGenreIds(ids: Set<string>): void {
-    nsfwGenreIds = ids;
-}
-
-export function getNsfwGenreIds(): Set<string> {
-    return nsfwGenreIds;
-}
-
 export class FilterState {
     termStates = $state<Map<string, 'include' | 'exclude'>>(new Map());
     selectedTypes = $state<Set<string>>(new Set());
     selectedStatuses = $state<Set<string>>(new Set());
-    contentMode = $state<'sfw' | 'all'>(
-        storage.getString('contentMode', 'sfw') as 'sfw' | 'all'
-    );
 
     private onChange: () => void;
     private debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    private initialized = false;
 
     constructor(onChange: () => void) {
         this.onChange = onChange;
@@ -53,8 +41,12 @@ export class FilterState {
     }
 
     private restore(): void {
+        // Clean up orphaned key from previous contentMode toggle
+        storage.remove('contentMode');
+
         const data = storage.getJson<PersistedFilters | null>(STORAGE_KEY, null);
         if (!data) return;
+        this.initialized = true;
         if (Array.isArray(data.terms) && data.terms.length > 0) {
             // Backward compat: coerce numeric IDs to strings
             this.termStates = new Map(data.terms.map(([id, state]) => [String(id), state]));
@@ -65,6 +57,18 @@ export class FilterState {
         if (Array.isArray(data.statuses) && data.statuses.length > 0) {
             this.selectedStatuses = new Set(data.statuses);
         }
+    }
+
+    /** Seed NSFW genres as excluded on first install. No-op if already initialized. */
+    seedDefaults(nsfwIds: Set<string>): void {
+        if (this.initialized) return;
+        this.initialized = true;
+        const terms = new Map(this.termStates);
+        for (const id of nsfwIds) {
+            terms.set(id, 'exclude');
+        }
+        this.termStates = terms;
+        this.persist();
     }
 
     get activeFilterCount(): number {
@@ -79,14 +83,6 @@ export class FilterState {
             else excludeGenres.push(id);
         }
 
-        if (this.contentMode === 'sfw') {
-            for (const id of nsfwGenreIds) {
-                if (!includeGenres.includes(id) && !excludeGenres.includes(id)) {
-                    excludeGenres.push(id);
-                }
-            }
-        }
-
         const hasFilters = includeGenres.length > 0 || excludeGenres.length > 0
             || this.selectedTypes.size > 0 || this.selectedStatuses.size > 0;
         if (!hasFilters) return undefined;
@@ -97,12 +93,6 @@ export class FilterState {
             types: [...this.selectedTypes],
             statuses: [...this.selectedStatuses],
         };
-    }
-
-    setContentMode(mode: 'sfw' | 'all') {
-        this.contentMode = mode;
-        storage.setString('contentMode', mode);
-        this.debouncedOnChange();
     }
 
     toggleTerm(id: string) {
@@ -147,7 +137,7 @@ export class FilterState {
             const terms = new Map<string, 'include' | 'exclude'>();
             for (const id of filters.includeGenres ?? []) terms.set(id, 'include');
             for (const id of filters.excludeGenres ?? []) {
-                if (!nsfwGenreIds.has(id)) terms.set(id, 'exclude');
+                terms.set(id, 'exclude');
             }
             this.termStates = terms;
             this.selectedTypes = new Set(filters.types ?? []);

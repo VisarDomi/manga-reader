@@ -84,23 +84,13 @@
             {/if}
         </form>
 
-        <div class="action-row">
+        {#if !appState.ui.filtersExpanded}
             <button
                 class="action-btn"
-                class:sfw={appState.searchState.filters.contentMode === 'sfw'}
-                class:nsfw={appState.searchState.filters.contentMode === 'all'}
-                onclick={() => appState.searchState.filters.setContentMode(
-                    appState.searchState.filters.contentMode === 'sfw' ? 'all' : 'sfw'
-                )}
-            >{appState.searchState.filters.contentMode === 'sfw' ? 'SFW' : 'All'}</button>
-            {#if !appState.ui.filtersExpanded}
-                <button
-                    class="action-btn"
-                    class:has-filters={appState.searchState.filters.activeFilterCount > 0}
-                    onclick={() => appState.ui.filtersExpanded = true}
-                >Filters{appState.searchState.filters.activeFilterCount > 0 ? ` (${appState.searchState.filters.activeFilterCount})` : ''}</button>
-            {/if}
-        </div>
+                class:has-filters={appState.searchState.filters.activeFilterCount > 0}
+                onclick={() => appState.ui.filtersExpanded = true}
+            >Filters{appState.searchState.filters.activeFilterCount > 0 ? ` (${appState.searchState.filters.activeFilterCount})` : ''}</button>
+        {/if}
 
         {#if appState.ui.filtersExpanded}
             <FilterPanel />
@@ -208,18 +198,6 @@
 }
 
 .action-btn.filter-active {
-    background: #3a1a1a;
-    border-color: #f87171;
-    color: #f87171;
-}
-
-.action-btn.sfw {
-    background: #1a2a3a;
-    border-color: #3b82f6;
-    color: #3b82f6;
-}
-
-.action-btn.nsfw {
     background: #3a1a1a;
     border-color: #f87171;
     color: #f87171;

@@ -3,7 +3,6 @@ import { watchdog } from '../services/WatchdogService.js';
 import { initProvider, getProvider } from '../services/provider.js';
 import { setCloudflareCallback } from '../services/api.js';
 import * as api from '../services/api.js';
-import { setNsfwGenreIds } from './filter.svelte.js';
 import { UIState } from './ui.svelte.js';
 import { SearchState } from './search.svelte.js';
 import { MangaState } from './manga.svelte.js';
@@ -347,7 +346,7 @@ class AppState {
         for (const g of filters.genres) {
             if (NSFW_NAMES.has(g.name)) nsfwIds.add(g.id);
         }
-        setNsfwGenreIds(nsfwIds);
+        this.searchState.filters.seedDefaults(nsfwIds);
 
         await Promise.all([this.progress.init(), this.favorites.init()]);
 
