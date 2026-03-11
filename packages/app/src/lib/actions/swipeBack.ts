@@ -1,13 +1,10 @@
 import { appDimensions } from '$lib/state/appDimensions.js';
-import { SWIPE_THRESHOLD } from '../constants.js';
+import { SWIPE_THRESHOLD, DEADZONE_RATIO, EDGE_ZONE_RATIO } from '../constants.js';
 
 interface SwipeBackOptions {
     onClose: () => void;
     ui: { swipeProgress: number; isSwiping: boolean; swipeAnimating: boolean };
 }
-
-const EDGE_ZONE_RATIO = 0.077;
-const DEADZONE_RATIO = 0.026;
 
 export function swipeBack(node: HTMLElement, options: SwipeBackOptions) {
     let tracking = false;
