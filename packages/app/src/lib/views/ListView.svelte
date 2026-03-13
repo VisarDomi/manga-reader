@@ -1,6 +1,7 @@
 <script lang="ts">
     import { onMount } from 'svelte';
     import { appState } from '$lib/state/index.svelte.js';
+    import { searchErrorMessage } from '$lib/state/search.svelte.js';
     import { sentinel } from '$lib/actions/sentinel.js';
     import { SENTINEL_ROOT_MARGIN } from '$lib/constants.js';
     import SearchBar from '$lib/components/SearchBar.svelte';
@@ -11,6 +12,7 @@
     const query = $derived(appState.searchState.currentQuery);
     const isLoading = $derived(appState.searchState.isLoading);
     const hasMore = $derived(appState.searchState.hasMore);
+    const error = $derived(appState.searchState.error);
 
     onMount(() => {
         const listEl = document.getElementById('view-list');
@@ -68,6 +70,8 @@
 
     {#if isLoading}
         <div class="empty">Loading...</div>
+    {:else if error}
+        <div class="empty error">{searchErrorMessage(error)}</div>
     {:else if total === 0}
         <div class="empty">No results</div>
     {/if}
@@ -100,5 +104,9 @@
     font-family: monospace;
     color: #4af626;
     font-size: 16px;
+}
+
+.error {
+    color: #ff6b6b;
 }
 </style>
