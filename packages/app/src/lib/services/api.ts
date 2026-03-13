@@ -100,12 +100,14 @@ export async function fetchChapterList(mangaId: string, signal?: AbortSignal): P
     const provider = getProvider();
     // Fetch pages 1-5 in parallel (100 per page = 500 max chapters)
     const pages = [1, 2, 3, 4, 5];
+    let firstError: unknown = null;
     const results = await Promise.all(
         pages.map(page => {
             const req = provider.chapterListRequest(mangaId, page);
             return proxyRequest(req, 'json', { signal })
                 .catch((e) => {
                     if (signal?.aborted) throw e;
+                    if (!firstError) firstError = e;
                     return null;
                 });
         })
@@ -123,6 +125,8 @@ export async function fetchChapterList(mangaId: string, signal?: AbortSignal): P
             allItems.push(ch);
         }
     }
+
+    if (allItems.length === 0 && firstError) throw firstError;
 
     return allItems;
 }

@@ -4,11 +4,13 @@ import * as storage from '../services/storage.js';
 import type { UIState } from './ui.svelte.js';
 import type { ToastState } from './toast.svelte.js';
 import type { GroupFilterState } from './groupFilter.svelte.js';
+import { type LoadError, toLoadError } from './errors.js';
 
 export class MangaState {
     activeManga = $state<Manga | null>(null);
     chapters = $state<ChapterMeta[]>([]);
     isLoading = $state(false);
+    error = $state<LoadError | null>(null);
     selectedGroups = $state<Set<string>>(new Set());
 
     // Scroll sync: captured when entering reader, consumed by ChapterList
@@ -93,10 +95,11 @@ export class MangaState {
 
         try {
             const chapters = await api.fetchChapterList(manga.id);
+            this.error = null;
             this.chapters = chapters;
             this.loadGroupSelection();
         } catch (e) {
-            this.toast.show('Failed to load chapters');
+            this.error = toLoadError(e);
         } finally {
             this.isLoading = false;
         }
@@ -111,11 +114,12 @@ export class MangaState {
 
         try {
             const chapters = await api.fetchChapterList(manga.id);
+            this.error = null;
             this.chapters = chapters;
             this.loadGroupSelection();
             return true;
         } catch (e) {
-            this.toast.show('Failed to load chapters');
+            this.error = toLoadError(e);
             return false;
         } finally {
             this.isLoading = false;
@@ -125,6 +129,7 @@ export class MangaState {
     closeManga() {
         this.activeManga = null;
         this.chapters = [];
+        this.error = null;
         this.selectedGroups = new Set();
         this.scrollTarget = null;
         this.scrollAnchorRatio = 0;

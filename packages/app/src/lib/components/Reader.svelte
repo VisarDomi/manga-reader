@@ -1,6 +1,7 @@
 <script lang="ts">
     import { tick, getContext } from 'svelte';
     import { appState } from '$lib/state/index.svelte.js';
+    import { loadErrorMessage } from '$lib/state/errors.js';
     import { swipeBack } from '$lib/actions/swipeBack.js';
     import { sentinel } from '$lib/actions/sentinel.js';
     import { ReaderMemoryManager } from '$lib/services/ReaderMemoryManager.js';
@@ -204,6 +205,10 @@
         {#if appState.reader.isLoadingNext}
             <div class="empty" style="padding:20px">Loading next chapter...</div>
         {/if}
+    </div>
+{:else}
+    <div class="empty" style="padding:20px; color: {appState.reader.error ? '#ff6b6b' : '#888'}">
+        {appState.reader.error ? loadErrorMessage(appState.reader.error) : 'Loading...'}
     </div>
 {/if}
 

@@ -6,10 +6,12 @@ import type { UIState } from './ui.svelte.js';
 import type { MangaState } from './manga.svelte.js';
 import type { ProgressState } from './progress.svelte.js';
 import type { ToastState } from './toast.svelte.js';
+import { type LoadError, toLoadError } from './errors.js';
 
 export class ReaderState {
     loadedChapters = $state<LoadedChapter[]>([]);
     currentChapterId = $state<string | null>(null);
+    error = $state<LoadError | null>(null);
     isLoadingNext = $state(false);
     isLoadingPrev = $state(false);
     pendingPageRestore = $state<number | null>(null);
@@ -56,6 +58,7 @@ export class ReaderState {
                 ...p,
                 url: api.imageProxyUrl(p.url),
             }));
+            this.error = null;
             this.loadedChapters = [{
                 id: chapter.id,
                 number: chapter.number,
@@ -68,8 +71,7 @@ export class ReaderState {
             db.setProgress(manga.id, progressData);
             this.progress.update(manga.id, progressData);
         } catch (e) {
-            console.error('Failed to open chapter:', e);
-            this.toast.show('Failed to load chapter');
+            this.error = toLoadError(e);
         }
     }
 
@@ -105,6 +107,7 @@ export class ReaderState {
                 ...p,
                 url: api.imageProxyUrl(p.url),
             }));
+            this.error = null;
             this.loadedChapters = [{
                 id: chapter.id,
                 number: chapter.number,
@@ -113,8 +116,7 @@ export class ReaderState {
             }];
             return true;
         } catch (e) {
-            console.error('Failed to restore reader:', e);
-            this.toast.show('Failed to load chapter');
+            this.error = toLoadError(e);
             return false;
         }
     }
@@ -164,6 +166,7 @@ export class ReaderState {
         this.pageTracker.destroy();
         this.loadedChapters = [];
         this.currentChapterId = null;
+        this.error = null;
         this.ui.popView();
     }
 

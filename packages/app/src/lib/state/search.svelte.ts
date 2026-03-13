@@ -5,32 +5,9 @@ import * as storage from '../services/storage.js';
 import type { ToastState } from './toast.svelte.js';
 import { FilterState } from './filter.svelte.js';
 import type { SearchContext } from './session.js';
+import { type LoadError, toLoadError, loadErrorMessage } from './errors.js';
 
-// Rust-style: SearchError is a tagged union — each variant carries only its relevant data.
-// The UI pattern-matches on `kind` to render the right message.
-export type SearchError =
-    | { kind: 'upstream'; status: number }
-    | { kind: 'timeout' }
-    | { kind: 'network' }
-    | { kind: 'cloudflare' };
-
-function toSearchError(e: unknown): SearchError {
-    if (e instanceof api.ApiError) {
-        if (e.kind === 'cloudflare') return { kind: 'cloudflare' };
-        if (e.kind === 'timeout') return { kind: 'timeout' };
-        if (e.kind === 'http') return { kind: 'upstream', status: e.status ?? 0 };
-    }
-    return { kind: 'network' };
-}
-
-export function searchErrorMessage(err: SearchError): string {
-    switch (err.kind) {
-        case 'upstream': return `Server error (${err.status}) — try again later`;
-        case 'timeout': return 'Request timed out — try again later';
-        case 'cloudflare': return 'Blocked by Cloudflare — retrying...';
-        case 'network': return 'Network error — check your connection';
-    }
-}
+export { type LoadError as SearchError, loadErrorMessage as searchErrorMessage };
 
 type SearchMachineState = 'idle' | 'searching' | 'loading-page';
 
@@ -61,7 +38,7 @@ class SearchMachine {
 
 export class SearchState {
     results = $state<Manga[]>([]);
-    error = $state<SearchError | null>(null); // non-null ↔ last search failed (results is meaningless)
+    error = $state<LoadError | null>(null); // non-null ↔ last search failed (results is meaningless)
     currentQuery = $state('');
     inputQuery = $state(''); // live value of the search input field
     currentPage = $state(1);
@@ -129,7 +106,7 @@ export class SearchState {
             this.hasMore = data.hasMore;
         } catch (e) {
             if (signal.aborted) return;
-            this.error = toSearchError(e);
+            this.error = toLoadError(e);
             this.results = [];
             this.hasMore = false;
         } finally {
@@ -160,7 +137,7 @@ export class SearchState {
             this.hasMore = data.hasMore;
         } catch (e) {
             if (signal.aborted) return;
-            this.error = toSearchError(e);
+            this.error = toLoadError(e);
             this.results = [];
             this.hasMore = false;
         } finally {

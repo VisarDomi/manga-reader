@@ -22,40 +22,37 @@ const VISIBLE_MANGA_DEBOUNCE_MS = 1000;
 
 // --- Restore State Machine ---
 
-type RestoreState = 'idle' | 'replaying-search' | 'paginating-to-target' | 'scrolling';
+type RestorePhase = 'replaying-search' | 'paginating-to-target' | 'scrolling';
+type RestoreInner =
+    | { kind: 'idle' }
+    | { kind: 'active'; phase: RestorePhase; controller: AbortController; targetId: string };
 
 class RestoreMachine {
-    state = $state<RestoreState>('idle');
-    private controller: AbortController | null = null;
-    targetMangaId: string | null = null;
+    private inner = $state<RestoreInner>({ kind: 'idle' });
 
-    get isActive() { return this.state !== 'idle'; }
-    get signal() { return this.controller?.signal; }
+    get isActive() { return this.inner.kind === 'active'; }
+    get signal() { return this.inner.kind === 'active' ? this.inner.controller.signal : undefined; }
+    get targetMangaId() { return this.inner.kind === 'active' ? this.inner.targetId : null; }
+    get phase() { return this.inner.kind === 'active' ? this.inner.phase : null; }
 
     start(targetId: string) {
         this.cancel();
-        this.targetMangaId = targetId;
-        this.controller = new AbortController();
-        this.state = 'replaying-search';
+        this.inner = { kind: 'active', phase: 'replaying-search', controller: new AbortController(), targetId };
     }
 
     transition(next: 'paginating-to-target' | 'scrolling') {
-        if (!this.isActive) return;
-        this.state = next;
+        if (this.inner.kind !== 'active') return;
+        this.inner = { ...this.inner, phase: next };
     }
 
     cancel() {
-        if (!this.isActive) return;
-        this.controller?.abort();
-        this.controller = null;
-        this.targetMangaId = null;
-        this.state = 'idle';
+        if (this.inner.kind !== 'active') return;
+        this.inner.controller.abort();
+        this.inner = { kind: 'idle' };
     }
 
     done() {
-        this.controller = null;
-        this.targetMangaId = null;
-        this.state = 'idle';
+        this.inner = { kind: 'idle' };
     }
 }
 
@@ -89,11 +86,11 @@ class AppState {
         this.searchState = new SearchState(
             this.toast,
             () => this.recoverScrollContainers(),
-            () => this.restore.state === 'paginating-to-target',
+            () => this.restore.phase === 'paginating-to-target',
         );
         this.searchState.onNewSearch = () => {
             // Cancel restore on user-initiated searches, but not during restore's own search replay
-            if (this.restore.state !== 'replaying-search') {
+            if (this.restore.phase !== 'replaying-search') {
                 this.restore.cancel();
             }
         };
@@ -381,7 +378,7 @@ class AppState {
 
     /** Called on every view transition to handle pending scroll-to notifications. */
     private handleViewChanged() {
-        if (this.ui.viewMode === 'list' && this.restore.state === 'scrolling') {
+        if (this.ui.viewMode === 'list' && this.restore.phase === 'scrolling') {
             const targetId = this.restore.targetMangaId;
             if (targetId) this.showScrollToast(targetId);
             this.restore.done();

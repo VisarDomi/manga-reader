@@ -1,11 +1,13 @@
 <script lang="ts">
     import { appState } from '$lib/state/index.svelte.js';
+    import { loadErrorMessage } from '$lib/state/errors.js';
     import { swipeBack } from '$lib/actions/swipeBack.js';
     import ChapterList from '$lib/components/ChapterList.svelte';
 
     const manga = $derived(appState.manga.activeManga);
     const chapters = $derived(appState.manga.chapters);
     const isLoading = $derived(appState.manga.isLoading);
+    const error = $derived(appState.manga.error);
     const isFav = $derived(manga ? appState.favorites.isFavorited(manga.id) : false);
     const gf = appState.groupFilter;
 
@@ -50,6 +52,8 @@
 
         {#if isLoading}
             <div class="empty">Loading chapters...</div>
+        {:else if error}
+            <div class="empty error">{loadErrorMessage(error)}</div>
         {:else if chapters.length === 0}
             <div class="empty">No chapters found</div>
         {:else if allFiltered && !gf.showFiltered}
@@ -120,6 +124,10 @@
     background: #2a2a2a;
     color: #aaa;
     border-radius: 4px;
+}
+
+.error {
+    color: #ff6b6b;
 }
 
 .show-filtered-action {
