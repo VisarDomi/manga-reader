@@ -33,3 +33,10 @@ Do NOT:
 - Mock at the wrong seam — use the real `ApiError` class from `fetchJson.js` so `instanceof` checks in `toLoadError` work (Seemann: composition root owns the dependency graph)
 - Batch many tests in one pass — small batches allow the user to audit
 
+## Known-Failing Tests (blocked on BH — repo/provider scoping)
+
+These tests are written to the spec but fail because the multi-repo/provider infrastructure doesn't exist yet. All BH-scoped data (progress, favorites, filters, group blacklist, response times) currently uses flat keys (e.g. `manga.id`) instead of composite keys (`repoUrl:providerId:mangaId`). Do NOT "fix" these tests to match current code — fix the code when the repo feature is built.
+
+- **T-AH-1** (`reader.test.ts`): Progress key must be `repoUrl:providerId:mangaId`, not bare `manga.id`
+- **T-AA-3** (not yet written): FilterState NSFW seeding must be per-provider, not global `'filters'` key
+

@@ -352,6 +352,14 @@ If some chapter list pages fail but others succeed, the app shows what it got.
 Tests rule AH.
 Progress stores chapterId, chapterNumber, pageIndex, and scrollOffset, keyed by `repoUrl:providerId:mangaId`.
 
+```contract
+class: ReaderState
+setup: active provider has repoUrl='https://repo.com' and id='comix'
+action: openReader(manga { id: 'one-piece' }, chapter)
+assert: db.setProgress called with key 'https://repo.com:comix:one-piece'
+assert: key is NOT just 'one-piece' (manga.id alone)
+```
+
 **T-AH-2: Only one position per manga per provider**
 Tests rule AH.
 Opening a different chapter overwrites the previous progress — no per-chapter history.
