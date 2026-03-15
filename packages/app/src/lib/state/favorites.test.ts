@@ -107,3 +107,27 @@ describe('T-AN-2: Write failures reject for caller handling', () => {
     expect(toast.items.some(t => t.message === 'Failed to update favorites')).toBe(true);
   });
 });
+
+describe('T-AN-3: DB init failure shows error state without crash', () => {
+  it('init with all db operations failing does not crash', async () => {
+    const toast = new ToastState();
+    const favs = new FavoritesState(toast);
+
+    dbShouldFail = true;
+    // Should not throw — resolves with empty data
+    await favs.init();
+
+    expect(favs.items).toEqual([]);
+  });
+
+  it('app remains usable after db init failure', async () => {
+    const toast = new ToastState();
+    const favs = new FavoritesState(toast);
+
+    dbShouldFail = true;
+    await favs.init();
+
+    // Can still check favorites without crashing
+    expect(favs.isFavorited('one-piece')).toBe(false);
+  });
+});
