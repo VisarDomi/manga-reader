@@ -14,13 +14,13 @@ import { ToastState } from './toast.svelte.js';
 import { FavoritesState } from './favorites.svelte.js';
 import { GroupFilterState } from './groupFilter.svelte.js';
 import { saveSession, loadSession, clearSession, type SessionSnapshot, type SearchContext } from './session.js';
-import { RESUME_RECOVERY_MS, DEEP_SLEEP_MS } from '../constants.js';
+import { RESUME_RECOVERY_MS, DEEP_SLEEP_MS, VISIBLE_MANGA_DEBOUNCE_MS } from '../constants.js';
 
 export type AppStatus = 'BOOTING' | 'READY' | 'BACKGROUND' | 'RECONNECTING' | 'OFFLINE';
 
 const NSFW_NAMES = new Set(['Adult', 'Ecchi', 'Hentai', 'Mature', 'Smut']);
 const SESSION_TOAST_DURATION = 4000;
-const VISIBLE_MANGA_DEBOUNCE_MS = 1000;
+// VISIBLE_MANGA_DEBOUNCE_MS imported from constants.ts
 
 // --- Restore State Machine ---
 

@@ -1,5 +1,6 @@
 import type { SearchFilters } from '@manga-reader/provider-types';
 import { Filter } from '../logic.js';
+import { SEARCH_DEBOUNCE_MS } from '../constants.js';
 import * as storage from '../services/storage.js';
 
 const STORAGE_KEY = 'filters';
@@ -29,7 +30,7 @@ export class FilterState {
         this.debounceTimer = setTimeout(() => {
             this.debounceTimer = null;
             this.onChange();
-        }, 3000);
+        }, SEARCH_DEBOUNCE_MS);
     }
 
     private persist(): void {

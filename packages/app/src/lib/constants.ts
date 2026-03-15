@@ -7,6 +7,12 @@ export const EDGE_ZONE_RATIO = 0.077;     // fraction of screen width for edge d
 export const RESUME_RECOVERY_MS = 5_000;        // background time before full view refresh
 export const DEEP_SLEEP_MS = 10 * 60 * 1000;    // background time before "Session restored" toast
 
+// Search
+export const SEARCH_DEBOUNCE_MS = 500;            // debounce for search inputs (text + filters)
+
+// Scroll tracking
+export const VISIBLE_MANGA_DEBOUNCE_MS = 1_000;   // debounce for visible manga card tracking
+
 // Reader
 export const VISIBLE_PAGE_RATIO = 1 / 3;        // fraction down viewport to probe for current page
 export const MAX_CHAPTER_DISTANCE = 2;           // chapters kept loaded around current (±2)

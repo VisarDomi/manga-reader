@@ -121,10 +121,17 @@ Given any change (keystroke or filter toggle),
 when the user stops changing for 500ms,
 then a search fires with the current text + current filters combined from page 1, replacing results entirely.
 
+```contract
+constant: SEARCH_DEBOUNCE_MS
+assert: value === 500
+```
+
 **T-AC-2: Each change restarts the debounce**
 Tests rule AC.
 Given a keystroke at t=0 and another at t=300ms,
 then no search fires at t=500ms. A search fires at t=800ms (500ms after the last change).
+
+_Behavioral: needs fake timers to verify restart._
 
 **T-AC-3: Changes abort in-flight requests**
 Tests rule AC.
@@ -136,6 +143,8 @@ then the in-flight request is aborted.
 Tests rule AC.
 Given the user types and immediately presses enter,
 then the search fires immediately without waiting 500ms.
+
+_Behavioral: needs fake timers to verify immediate fire._
 
 **T-AC-5: Search is non-blocking**
 Tests rule AC.
@@ -533,6 +542,11 @@ Any view change (push or pop) immediately saves viewMode, viewStack, activeProvi
 **T-AP-2: Scroll tracking debounced at 1s**
 Tests rule AP.
 While on list view, the app tracks the center manga card and updates listTargetMangaId (debounced 1s). While on favorites, it updates favoritesTargetMangaId. These are separate fields.
+
+```contract
+constant: VISIBLE_MANGA_DEBOUNCE_MS
+assert: value === 1_000
+```
 
 **T-AP-3: In-session pixel-perfect, cross-session card-level**
 Tests rule AP.

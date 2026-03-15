@@ -8,6 +8,8 @@ import {
   SENTINEL_ROOT_MARGIN,
   LOADING_TIMEOUT_MS,
   HISTORY_SYNC_MS,
+  SEARCH_DEBOUNCE_MS,
+  VISIBLE_MANGA_DEBOUNCE_MS,
 } from './constants.js';
 import {
   View,
@@ -74,6 +76,18 @@ describe('T-AX-1: Watchdog Timeout', () => {
 describe('T-AI-1: Progress Debounce Time', () => {
   it('PROGRESS_DEBOUNCE_MS === 3_000', () => {
     expect(HISTORY_SYNC_MS).toBe(3_000);
+  });
+});
+
+describe('T-AC-1: All search inputs share 500ms debounce', () => {
+  it('SEARCH_DEBOUNCE_MS === 500', () => {
+    expect(SEARCH_DEBOUNCE_MS).toBe(500);
+  });
+});
+
+describe('T-AP-2: Scroll tracking debounced at 1s', () => {
+  it('VISIBLE_MANGA_DEBOUNCE_MS === 1_000', () => {
+    expect(VISIBLE_MANGA_DEBOUNCE_MS).toBe(1_000);
   });
 });
 
