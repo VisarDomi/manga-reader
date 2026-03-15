@@ -40,6 +40,7 @@ export interface FilterOption {
   id: string;
   name: string;
   group?: string;
+  nsfw?: boolean;
 }
 
 export interface FilterDefinition {

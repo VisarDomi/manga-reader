@@ -1,10 +1,10 @@
 import type { MangaProvider, Manga, ChapterMeta, ChapterPage, SearchFilters, PagedResult, FilterDefinition, HttpRequest } from '@manga-reader/provider-types';
-import { TERMS, TYPES, STATUSES, TYPE_LABELS, STATUS_LABELS } from './terms.js';
+import { TERMS, TYPES, STATUSES, TYPE_LABELS, STATUS_LABELS, NSFW_TERM_IDS } from './terms.js';
 import { extractJsonArray } from './parse.js';
 
 const BASE_URL = 'https://comix.to';
 const API_URL = `${BASE_URL}/api/v2`;
-const SEARCH_LIMIT = 30;
+const SEARCH_LIMIT = 100;
 
 const provider: MangaProvider = {
   id: 'comix',
@@ -16,10 +16,12 @@ const provider: MangaProvider = {
   chapterImagesResponseType: 'html',
 
   getFilters(): FilterDefinition {
+    const nsfwIds = new Set(NSFW_TERM_IDS.map(Number));
     const genres = TERMS.map(t => ({
       id: String(t.id),
       name: t.name,
       group: t.category,
+      ...(nsfwIds.has(t.id) ? { nsfw: true as const } : {}),
     }));
     const types = TYPES.map(t => ({
       id: t,
