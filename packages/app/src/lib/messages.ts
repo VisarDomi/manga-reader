@@ -9,4 +9,6 @@ export const Msg = {
     SESSION_RESTORED: 'Session restored',
     SOLVING_CLOUDFLARE: 'Solving Cloudflare...',
     SCROLL_TO_LAST: 'Tap to scroll to last position',
+    FAVORITE_FAILED: 'Failed to update favorites',
+    STORAGE_UNAVAILABLE: 'Storage unavailable',
 } as const;

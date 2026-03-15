@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { Msg } from '../messages.js';
 import type { Manga } from '../types.js';
 
 // In-memory db fake — same async interface, no IDB
@@ -76,7 +77,7 @@ describe('T-AM-1: Optimistic toggle with revert on failure', () => {
 
     // Should revert — not favorited
     expect(favs.isFavorited('one-piece')).toBe(false);
-    expect(toast.items.some(t => t.message === 'Failed to update favorites')).toBe(true);
+    expect(toast.items.some(t => t.message === Msg.FAVORITE_FAILED)).toBe(true);
   });
 });
 
@@ -104,7 +105,7 @@ describe('T-AN-2: Write failures reject for caller handling', () => {
 
     // Reverted — not in items
     expect(favs.isFavorited('one-piece')).toBe(false);
-    expect(toast.items.some(t => t.message === 'Failed to update favorites')).toBe(true);
+    expect(toast.items.some(t => t.message === Msg.FAVORITE_FAILED)).toBe(true);
   });
 });
 
@@ -136,7 +137,7 @@ describe('T-AN-3: DB init failure shows error state without crash', () => {
     await favs.init();
 
     expect(favs.items).toEqual([]);
-    expect(toast.items.some(t => t.message === 'Storage unavailable')).toBe(true);
+    expect(toast.items.some(t => t.message === Msg.STORAGE_UNAVAILABLE)).toBe(true);
   });
 
   it('app remains usable after init failure', async () => {

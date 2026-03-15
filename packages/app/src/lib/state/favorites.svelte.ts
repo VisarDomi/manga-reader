@@ -1,4 +1,5 @@
 import * as db from '../services/db.js';
+import { Msg } from '../messages.js';
 import type { Manga } from '../types.js';
 import type { ToastState } from './toast.svelte.js';
 
@@ -13,7 +14,7 @@ export class FavoritesState {
         try {
             this.items = await db.getAllFavorites();
         } catch {
-            this.toast.show('Storage unavailable');
+            this.toast.show(Msg.STORAGE_UNAVAILABLE);
         }
     }
 
@@ -45,7 +46,7 @@ export class FavoritesState {
             } else {
                 this.items = this.items.filter(m => m.id !== manga.id);
             }
-            this.toast.show('Failed to update favorites');
+            this.toast.show(Msg.FAVORITE_FAILED);
         }
     }
 

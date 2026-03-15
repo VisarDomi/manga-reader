@@ -1,30 +1,17 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { ApiError, ApiErrKind } from '../services/fetchJson.js';
+import { ErrorKind } from '../logic.js';
 import { Msg } from '../messages.js';
+import { createStorageFake } from '../test-helpers/storage-fake.js';
 import type { Manga } from '../types.js';
 
-// Storage fake
-const store = new Map<string, string>();
+const { store, fake: storageFake } = createStorageFake();
 
-vi.mock('../services/storage.js', () => ({
-  getJson: <T>(key: string, fallback: T): T => {
-    const raw = store.get(key);
-    if (raw === undefined) return fallback;
-    try { return JSON.parse(raw) as T; }
-    catch { return fallback; }
-  },
-  setJson: (key: string, value: unknown) => {
-    store.set(key, JSON.stringify(value));
-  },
-  getString: (key: string, fallback: string) => store.get(key) ?? fallback,
-  setString: (key: string, value: string) => store.set(key, value),
-  remove: (key: string) => { store.delete(key); },
-}));
+vi.mock('../services/storage.js', () => storageFake);
 
 // Api fake — queued pending calls for resolve/reject control
 interface PendingCall {
   resolve: (value: { manga: Manga[]; hasMore: boolean }) => void;
-  reject: (error: Error) => void;
+  reject: (error: unknown) => void;
   signal?: AbortSignal;
 }
 const pendingCalls: PendingCall[] = [];
@@ -35,8 +22,6 @@ vi.mock('../services/api.js', () => ({
       pendingCalls.push({ resolve, reject, signal });
     });
   },
-  ApiError,
-  ApiErrKind,
 }));
 
 const { SearchState } = await import('./search.svelte.js');
@@ -71,11 +56,11 @@ describe('T-BD-1: First search failure shows persistent error', () => {
     const search = new SearchState(toast);
 
     const p = search.search('naruto');
-    lastPending().reject(new ApiError(ApiErrKind.NETWORK));
+    lastPending().reject({ kind: ErrorKind.NETWORK });
     await p;
 
     expect(search.error).not.toBeNull();
-    expect(search.error!.kind).toBe('network');
+    expect(search.error!.kind).toBe(ErrorKind.NETWORK);
     expect(search.results).toEqual([]);
     expect(search.hasMore).toBe(false);
     expect(search.isLoading).toBe(false);
@@ -86,11 +71,11 @@ describe('T-BD-1: First search failure shows persistent error', () => {
     const search = new SearchState(toast);
 
     const p = search.search('naruto');
-    lastPending().reject(new ApiError(ApiErrKind.TIMEOUT));
+    lastPending().reject({ kind: ErrorKind.TIMEOUT });
     await p;
 
     expect(search.error).not.toBeNull();
-    expect(search.error!.kind).toBe('timeout');
+    expect(search.error!.kind).toBe(ErrorKind.TIMEOUT);
   });
 
   it('HTTP 500 → error.kind === upstream', async () => {
@@ -98,11 +83,11 @@ describe('T-BD-1: First search failure shows persistent error', () => {
     const search = new SearchState(toast);
 
     const p = search.search('naruto');
-    lastPending().reject(new ApiError(ApiErrKind.HTTP, 500));
+    lastPending().reject({ kind: ErrorKind.UPSTREAM, status: 500 });
     await p;
 
     expect(search.error).not.toBeNull();
-    expect(search.error!.kind).toBe('upstream');
+    expect(search.error!.kind).toBe(ErrorKind.UPSTREAM);
   });
 
   it('successful retry clears error state', async () => {
@@ -111,7 +96,7 @@ describe('T-BD-1: First search failure shows persistent error', () => {
 
     // First search fails
     let p = search.search('naruto');
-    lastPending().reject(new ApiError(ApiErrKind.NETWORK));
+    lastPending().reject({ kind: ErrorKind.NETWORK });
     await p;
     expect(search.error).not.toBeNull();
 
@@ -142,7 +127,7 @@ describe('T-BB-2: Pagination failure shows toast', () => {
     const search = await searchWithResults(toast);
 
     const p = search.loadNextPage();
-    lastPending().reject(new ApiError(ApiErrKind.TIMEOUT));
+    lastPending().reject({ kind: ErrorKind.TIMEOUT });
     await p;
 
     expect(search.currentPage).toBe(1);
@@ -156,7 +141,7 @@ describe('T-BB-2: Pagination failure shows toast', () => {
     const search = await searchWithResults(toast);
 
     const p = search.loadNextPage();
-    lastPending().reject(new ApiError(ApiErrKind.HTTP, 404));
+    lastPending().reject({ kind: ErrorKind.UPSTREAM, status: 404 });
     await p;
 
     expect(search.hasMore).toBe(false);
@@ -169,7 +154,7 @@ describe('T-BB-2: Pagination failure shows toast', () => {
     const search = await searchWithResults(toast);
 
     const p = search.loadNextPage();
-    lastPending().reject(new ApiError(ApiErrKind.HTTP, 429));
+    lastPending().reject({ kind: ErrorKind.UPSTREAM, status: 429 });
     await p;
 
     expect(search.currentPage).toBe(1);

@@ -1,22 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Filter } from '../logic.js';
+import { createStorageFake } from '../test-helpers/storage-fake.js';
 
-const store = new Map<string, string>();
+const { store, fake: storageFake } = createStorageFake();
 
-vi.mock('../services/storage.js', () => ({
-  getJson: <T>(key: string, fallback: T): T => {
-    const raw = store.get(key);
-    if (raw === undefined) return fallback;
-    try { return JSON.parse(raw) as T; }
-    catch { return fallback; }
-  },
-  setJson: (key: string, value: unknown) => {
-    store.set(key, JSON.stringify(value));
-  },
-  getString: (key: string, fallback: string) => store.get(key) ?? fallback,
-  setString: (key: string, value: string) => store.set(key, value),
-  remove: (key: string) => { store.delete(key); },
-}));
+vi.mock('../services/storage.js', () => storageFake);
 
 const { FilterState } = await import('./filter.svelte.js');
 
@@ -44,10 +32,10 @@ describe('T-AA-1: NSFW genres auto-excluded on first install', () => {
 
     fs.seedDefaults(nsfwIds);
 
-    const saved = JSON.parse(store.get('filters')!);
-    const savedTermIds = saved.terms.map((t: [string, string]) => t[0]);
-    expect(savedTermIds).toContain('87264');
-    expect(savedTermIds).toContain('87265');
+    // Verify through reload — new instance reads persisted state
+    const fs2 = new FilterState(onChange);
+    expect(fs2.termStates.get('87264')).toBe(Filter.EXCLUDE);
+    expect(fs2.termStates.get('87265')).toBe(Filter.EXCLUDE);
   });
 });
 

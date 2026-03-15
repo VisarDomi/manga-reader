@@ -2,11 +2,24 @@
 
 Monorepo (npm workspaces). 4 packages: provider-types, extensions, server (port 29760), app (SvelteKit PWA, Svelte 5).
 
-## Spec Files
+## First Thing: Read Both business.md Files
 
-Two `business.md` files — both are sources of truth:
+Before writing any code or tests, read BOTH business.md files — they are the source of truth:
 - `business.md` (root) — app-level product rules (AA through BK)
 - `packages/extensions/providers/comix/business.md` — comix provider rules (1–9)
+
+## Spec Hierarchy
+
+The hierarchy is strict and one-directional:
+
+1. **`business.md`** — the goal. What the product should do. Never references code.
+2. **`tests/*.md`** — contracts derived from business.md. Describes inputs, outputs, and assertions without naming implementation classes or functions.
+3. **Test files** — how the app should look. Written to match contracts. If tests are red, the app code is wrong.
+4. **App code** — the implementation. Shaped by tests, not the other way around.
+
+If a test fails, fix the code. Never modify business.md or contracts to match code. Never treat existing code as sacred.
+
+## Test Spec Files
 
 Test specs in `tests/` folder — split by domain:
 - `tests/_types.md` — domain types (shared reference)
@@ -21,8 +34,6 @@ Test specs in `tests/` folder — split by domain:
 - `tests/server.md` — proxy, TLS (BJ, BK)
 - `tests/comix.md` — comix provider (C1–C9)
 
-Root `test.md` has been removed — use `tests/` folder.
-
 Reference books in `resources/` — Kent Beck (TDD), Freeman & Pryce (GOOS), Feathers (Legacy Code), Khorikov (Unit Testing), Seemann & van Deursen (DI).
 
 ## Testing Rules
@@ -34,27 +45,30 @@ Workflow per test — do ONE at a time, get approval before the next:
 2. Read the test description in the relevant `tests/*.md` file
 3. Write the `contract` block in `tests/*.md` FIRST — this drives the test
 4. Write the test to match the contract
-5. `npx vitest run` — must pass clean
+5. `npx vitest run` — red tests are expected and valuable
 6. Commit referencing the T-XX-N ID
 
 Do NOT:
-- Write tests without a contract in test.md first (Beck: Red before Green)
+- Write tests without a contract in `tests/*.md` first (Beck: Red before Green)
 - Test implementation details — only test observable behavior that business rules demand (Khorikov: observable behavior vs implementation details)
-- Create test files for utility classes (ToastState, UIState, etc.) unless a business rule in test.md specifically requires it
+- Create test files for utility classes (ToastState, UIState, etc.) unless a business rule specifically requires it
 - Inflate test count with trivial assertions (e.g. "show() adds an item" is testing assignment, not behavior)
 - Write contracts after tests — that's rubber-stamping, not driving design (GOOS: outside-in)
-- Mock at the wrong seam — use the real `ApiError` class from `fetchJson.js` so `instanceof` checks in `toLoadError` work (Seemann: composition root owns the dependency graph)
+- Treat existing code as sacred — if business.md says X and the code does Y, the code is wrong
 - Batch many tests in one pass — small batches allow the user to audit
+- Use string literals when a constant exists — use `ErrorKind.NETWORK` not `'network'`, `ApiErrKind.HTTP` not `'http'`. This applies to test data, assertions, object construction — everywhere
 
-## Known-Failing Tests (blocked on BH — repo/provider scoping)
+## Three Phases
 
-These tests are written to the spec but fail because the multi-repo/provider infrastructure doesn't exist yet. All BH-scoped data (progress, favorites, filters, group blacklist, response times) currently uses flat keys (e.g. `manga.id`) instead of composite keys (`repoUrl:providerId:mangaId`). Do NOT "fix" these tests to match current code — fix the code when the repo feature is built.
+The app is being rewritten. The phases are strict — finish each before starting the next:
 
-- **T-AH-1** (`reader.test.ts`): Progress key must be `repoUrl:providerId:mangaId`, not bare `manga.id`
-- **T-AA-3** (not yet written): FilterState NSFW seeding must be per-provider, not global `'filters'` key
+1. **Pin (current phase):** Write unit tests for every contract in `tests/*.md`. Red tests are expected — they document what the code must do. Do NOT touch app code to make tests pass. Do NOT implement features. Constants and types are OK to add/modify.
+2. **Rewrite:** Make all tests green by rewriting app code. Implement missing features (BH data isolation, BG repos, BA dynamic timeout, etc.). This is where code changes happen.
+3. **Integration & E2E:** After the rewrite, add tests that need real infrastructure:
+   - **Integration tests** (real HTTP, real server): T-BJ proxy, T-BK TLS, T-BQ cache headers.
+   - **E2E tests** (real browser/DOM): T-AS cover-only cards, T-AT-4 gesture snap, T-AO-4 swipe animation, T-AC-5 non-blocking UI.
 
-## Tech Debt
+## Test Helpers
 
-- **logic.ts is an orphan grab-bag**: Pure functions (`cycleGenreFilter`, `filteredChapters`, `isTransient`, etc.), constants (`VALID_STACKS`, `READER_ROOT_MARGIN`), and types (`AppError`, `ViewStack`) are all in one file. Some functions are duplicated in state classes (e.g. `filteredChapters` in logic.ts vs `MangaState.filteredChapters`). Needs refactoring when the app is restructured — move functions closer to their consumers or into domain modules.
-- **T-AG-2/3 blocked on extraction** (`api.test.ts`): Dedup + partial-failure logic is inside `fetchChapterList` in `api.ts`. Tests target `mergeChapterPages` — a pure function that should be extracted to `logic.ts` (same pattern as `filteredChapters`). Tests are `it.fails` until the extraction happens.
-
+Shared test infrastructure in `packages/app/src/lib/test-helpers/`:
+- `storage-fake.ts` — in-memory Map-based storage fake, used by search, filter, and reader tests
