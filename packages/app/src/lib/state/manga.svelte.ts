@@ -1,4 +1,5 @@
 import type { Manga, ChapterMeta } from '../types.js';
+import { View } from '../logic.js';
 import * as api from '../services/api.js';
 import * as storage from '../services/storage.js';
 import type { UIState } from './ui.svelte.js';
@@ -91,7 +92,7 @@ export class MangaState {
         this.chapters = [];
         this.selectedGroups = new Set();
         this.isLoading = true;
-        this.ui.pushView('manga');
+        this.ui.pushView(View.MANGA);
 
         try {
             const chapters = await api.fetchChapterList(manga.id);

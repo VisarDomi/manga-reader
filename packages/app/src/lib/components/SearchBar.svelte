@@ -1,5 +1,6 @@
 <script lang="ts">
     import { appState } from '$lib/state/index.svelte.js';
+    import { View } from '$lib/logic.js';
     import FilterPanel from './FilterPanel.svelte';
 
     interface Props {
@@ -16,13 +17,13 @@
             appState.favorites.deactivate();
             appState.ui.popView();
         }
-        appState.ui.resetTo('list');
+        appState.ui.resetTo(View.LIST);
         appState.searchState.search(appState.searchState.inputQuery);
     }
 
     function activateFavs() {
         appState.favorites.activate();
-        appState.ui.pushView('favorites');
+        appState.ui.pushView(View.FAVORITES);
     }
 
     function deactivateFavs() {

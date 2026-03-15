@@ -1,4 +1,12 @@
-type ApiErrorKind = 'network' | 'timeout' | 'http' | 'parse' | 'cloudflare';
+export const ApiErrKind = {
+    NETWORK: 'network',
+    TIMEOUT: 'timeout',
+    HTTP: 'http',
+    PARSE: 'parse',
+    CLOUDFLARE: 'cloudflare',
+} as const;
+
+type ApiErrorKind = typeof ApiErrKind[keyof typeof ApiErrKind];
 
 export class ApiError extends Error {
     constructor(
@@ -7,9 +15,9 @@ export class ApiError extends Error {
         cause?: unknown,
     ) {
         super(
-            kind === 'http' ? `HTTP ${status}` :
-            kind === 'timeout' ? 'Request timed out' :
-            kind === 'parse' ? 'Invalid JSON response' :
+            kind === ApiErrKind.HTTP ? `HTTP ${status}` :
+            kind === ApiErrKind.TIMEOUT ? 'Request timed out' :
+            kind === ApiErrKind.PARSE ? 'Invalid JSON response' :
             'Network error'
         );
         this.cause = cause;
@@ -42,10 +50,10 @@ async function doFetch(url: string, opts: FetchOptions, parseResponse: (res: Res
         try {
             const res = await fetch(url, { signal, method, headers, body });
             if (res.status === 503 && res.headers.get('X-Cloudflare-Solving') === 'true') {
-                throw new ApiError('cloudflare', 503);
+                throw new ApiError(ApiErrKind.CLOUDFLARE, 503);
             }
             if (!res.ok) {
-                const err = new ApiError('http', res.status);
+                const err = new ApiError(ApiErrKind.HTTP, res.status);
                 if (retry && TRANSIENT_CODES.has(res.status) && attempt < maxAttempts - 1) {
                     lastError = err;
                     continue;
@@ -56,18 +64,18 @@ async function doFetch(url: string, opts: FetchOptions, parseResponse: (res: Res
                 return await parseResponse(res);
             } catch (e) {
                 if (e instanceof ApiError) throw e;
-                throw new ApiError('parse', undefined, e);
+                throw new ApiError(ApiErrKind.PARSE, undefined, e);
             }
         } catch (e) {
             if (e instanceof ApiError) throw e;
             if (callerSignal?.aborted) throw e;
             if (e instanceof TypeError) {
-                const err = new ApiError('network', undefined, e);
+                const err = new ApiError(ApiErrKind.NETWORK, undefined, e);
                 if (retry && attempt < maxAttempts - 1) { lastError = err; continue; }
                 throw err;
             }
             if (e instanceof DOMException && e.name === 'TimeoutError') {
-                const err = new ApiError('timeout', undefined, e);
+                const err = new ApiError(ApiErrKind.TIMEOUT, undefined, e);
                 if (retry && attempt < maxAttempts - 1) { lastError = err; continue; }
                 throw err;
             }

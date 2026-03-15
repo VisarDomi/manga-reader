@@ -1,10 +1,10 @@
 import { PROXY_URL, imageProxyUrl as _imageProxyUrl } from '../config.js';
-import { fetchJson, fetchRaw, ApiError } from './fetchJson.js';
+import { fetchJson, fetchRaw, ApiError, ApiErrKind } from './fetchJson.js';
 import { getProvider } from './provider.js';
 import type { Manga, ChapterMeta, ChapterPage } from '../types.js';
 import type { SearchFilters, HttpRequest } from '@manga-reader/provider-types';
 
-export { ApiError } from './fetchJson.js';
+export { ApiError, ApiErrKind } from './fetchJson.js';
 
 // --- Cloudflare callback ---
 
@@ -49,7 +49,7 @@ async function proxyRequest<T>(req: HttpRequest, responseType: 'json' | 'text', 
     try {
         return await doRequest();
     } catch (e) {
-        if (e instanceof ApiError && e.kind === 'cloudflare') {
+        if (e instanceof ApiError && e.kind === ApiErrKind.CLOUDFLARE) {
             onCloudflare?.();
 
             // Retry loop: wait 5s, retry, up to 6 attempts (30s total)
@@ -59,7 +59,7 @@ async function proxyRequest<T>(req: HttpRequest, responseType: 'json' | 'text', 
                 try {
                     return await doRequest();
                 } catch (retryErr) {
-                    if (retryErr instanceof ApiError && retryErr.kind === 'cloudflare') {
+                    if (retryErr instanceof ApiError && retryErr.kind === ApiErrKind.CLOUDFLARE) {
                         continue;
                     }
                     throw retryErr;

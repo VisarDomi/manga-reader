@@ -1,4 +1,5 @@
 import { LOADING_TIMEOUT_MS } from '../constants.js';
+import { Msg } from '../messages.js';
 import type { Manga } from '../types.js';
 import * as api from '../services/api.js';
 import * as storage from '../services/storage.js';
@@ -70,7 +71,7 @@ export class SearchState {
         this.loadingWatchdog = setTimeout(() => {
             if (this.machine.isActive) {
                 this.machine.abort();
-                this.toast.show('Loading timed out — scroll to retry');
+                this.toast.show(Msg.LOADING_TIMED_OUT);
                 this.onStuck?.();
             }
         }, LOADING_TIMEOUT_MS);
@@ -179,14 +180,14 @@ export class SearchState {
         } catch (e) {
             if (signal.aborted) return;
             const isTransient = e instanceof api.ApiError &&
-                (e.kind === 'timeout' || e.kind === 'network' ||
-                 (e.kind === 'http' && [408, 429, 500, 502, 503, 504].includes(e.status ?? 0)));
+                (e.kind === api.ApiErrKind.TIMEOUT || e.kind === api.ApiErrKind.NETWORK ||
+                 (e.kind === api.ApiErrKind.HTTP && [408, 429, 500, 502, 503, 504].includes(e.status ?? 0)));
             this.currentPage--;
             if (isTransient) {
-                this.toast.show('Slow connection, scroll to retry');
+                this.toast.show(Msg.SLOW_CONNECTION);
             } else {
                 this.hasMore = false;
-                this.toast.show('Failed to load more results');
+                this.toast.show(Msg.LOAD_MORE_FAILED);
             }
         } finally {
             this.clearWatchdog();

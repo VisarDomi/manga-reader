@@ -1,4 +1,6 @@
 import type { Manga, ChapterMeta, LoadedChapter } from '../types.js';
+import { View } from '../logic.js';
+import { Msg } from '../messages.js';
 import * as api from '../services/api.js';
 import * as db from '../services/db.js';
 import { PageTracker } from '../services/PageTracker.js';
@@ -49,7 +51,7 @@ export class ReaderState {
             this.pendingPageRestore = null;
         }
 
-        this.ui.pushView('reader');
+        this.ui.pushView(View.READER);
 
         try {
             const pages = await api.fetchChapterImages(manga.id, chapter.id, chapter.number);
@@ -206,7 +208,7 @@ export class ReaderState {
             return true;
         } catch (e) {
             console.error('Failed to append next chapter:', e);
-            this.toast.show('Failed to load next chapter');
+            this.toast.show(Msg.LOAD_NEXT_FAILED);
             return false;
         } finally {
             this.isLoadingNext = false;
@@ -242,7 +244,7 @@ export class ReaderState {
             return chapter;
         } catch (e) {
             console.error('Failed to prepend prev chapter:', e);
-            this.toast.show('Failed to load previous chapter');
+            this.toast.show(Msg.LOAD_PREV_FAILED);
             return null;
         } finally {
             this.isLoadingPrev = false;

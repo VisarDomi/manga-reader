@@ -1,4 +1,5 @@
 import type { SearchFilters } from '@manga-reader/provider-types';
+import { Filter } from '../logic.js';
 import * as storage from '../services/storage.js';
 
 const STORAGE_KEY = 'filters';
@@ -65,7 +66,7 @@ export class FilterState {
         this.initialized = true;
         const terms = new Map(this.termStates);
         for (const id of nsfwIds) {
-            terms.set(id, 'exclude');
+            terms.set(id, Filter.EXCLUDE);
         }
         this.termStates = terms;
         this.persist();
@@ -79,7 +80,7 @@ export class FilterState {
         const includeGenres: string[] = [];
         const excludeGenres: string[] = [];
         for (const [id, state] of this.termStates) {
-            if (state === 'include') includeGenres.push(id);
+            if (state === Filter.INCLUDE) includeGenres.push(id);
             else excludeGenres.push(id);
         }
 
@@ -99,9 +100,9 @@ export class FilterState {
         const current = this.termStates.get(id);
         const next = new Map(this.termStates);
         if (!current) {
-            next.set(id, 'include');
-        } else if (current === 'include') {
-            next.set(id, 'exclude');
+            next.set(id, Filter.INCLUDE);
+        } else if (current === Filter.INCLUDE) {
+            next.set(id, Filter.EXCLUDE);
         } else {
             next.delete(id);
         }
@@ -135,9 +136,9 @@ export class FilterState {
             this.selectedStatuses = new Set();
         } else {
             const terms = new Map<string, 'include' | 'exclude'>();
-            for (const id of filters.includeGenres ?? []) terms.set(id, 'include');
+            for (const id of filters.includeGenres ?? []) terms.set(id, Filter.INCLUDE);
             for (const id of filters.excludeGenres ?? []) {
-                terms.set(id, 'exclude');
+                terms.set(id, Filter.EXCLUDE);
             }
             this.termStates = terms;
             this.selectedTypes = new Set(filters.types ?? []);

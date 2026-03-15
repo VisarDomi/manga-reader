@@ -1,6 +1,7 @@
 <script lang="ts">
     import { onMount, setContext } from 'svelte';
     import { appState } from '$lib/state/index.svelte.js';
+    import { View } from '$lib/logic.js';
     import { initAppDimensions } from '$lib/state/appDimensions.js';
     import ListView from '$lib/views/ListView.svelte';
     import FavoritesView from '$lib/views/FavoritesView.svelte';
@@ -24,17 +25,17 @@
     // The view that would be revealed behind the current view during swipe
     const backView = $derived(isSwiping ? appState.ui.peekBack() : null);
 
-    const inReader = $derived(viewMode === 'reader');
-    const inManga = $derived(viewMode === 'manga');
-    const inFavorites = $derived(viewMode === 'favorites');
+    const inReader = $derived(viewMode === View.READER);
+    const inManga = $derived(viewMode === View.MANGA);
+    const inFavorites = $derived(viewMode === View.FAVORITES);
 </script>
 
 <div
     id="view-list"
     class="view-layer"
-    class:view-hidden={viewMode !== 'list' && backView !== 'list'}
-    class:swipe-back={backView === 'list'}
-    class:swipe-animating={backView === 'list' && swipeAnimating}
+    class:view-hidden={viewMode !== View.LIST && backView !== View.LIST}
+    class:swipe-back={backView === View.LIST}
+    class:swipe-animating={backView === View.LIST && swipeAnimating}
 >
     <ListView />
 </div>
@@ -42,9 +43,9 @@
 <div
     id="view-favorites"
     class="view-layer"
-    class:view-hidden={viewMode !== 'favorites' && backView !== 'favorites'}
-    class:swipe-back={backView === 'favorites'}
-    class:swipe-animating={backView === 'favorites' && swipeAnimating}
+    class:view-hidden={viewMode !== View.FAVORITES && backView !== View.FAVORITES}
+    class:swipe-back={backView === View.FAVORITES}
+    class:swipe-animating={backView === View.FAVORITES && swipeAnimating}
     class:swipe-active={inFavorites && isSwiping}
     style="{inFavorites && isSwiping ? `transform:translateX(${swipeProgress * 100}%)` : ''}"
 >
@@ -54,9 +55,9 @@
 <div
     id="view-manga"
     class="view-layer"
-    class:view-hidden={viewMode !== 'manga' && backView !== 'manga'}
-    class:swipe-back={backView === 'manga'}
-    class:swipe-animating={backView === 'manga' && swipeAnimating}
+    class:view-hidden={viewMode !== View.MANGA && backView !== View.MANGA}
+    class:swipe-back={backView === View.MANGA}
+    class:swipe-animating={backView === View.MANGA && swipeAnimating}
     class:swipe-active={inManga && isSwiping}
     style="{inManga && isSwiping ? `transform:translateX(${swipeProgress * 100}%)` : ''}"
 >

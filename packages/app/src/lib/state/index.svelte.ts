@@ -3,6 +3,8 @@ import { watchdog } from '../services/WatchdogService.js';
 import { initProvider, getProvider } from '../services/provider.js';
 import { setCloudflareCallback } from '../services/api.js';
 import * as api from '../services/api.js';
+import { View } from '../logic.js';
+import { Msg } from '../messages.js';
 import { UIState } from './ui.svelte.js';
 import { SearchState } from './search.svelte.js';
 import { MangaState } from './manga.svelte.js';
@@ -156,7 +158,7 @@ class AppState {
         this.visibleMangaDebounce = setTimeout(() => {
             this.visibleMangaDebounce = null;
             // Only persist if we're on list view (not a stale callback)
-            if (this.ui.viewMode === 'list') {
+            if (this.ui.viewMode === View.LIST) {
                 this.persistSession();
             }
         }, VISIBLE_MANGA_DEBOUNCE_MS);
@@ -171,7 +173,7 @@ class AppState {
         clearSession();
         const targetId = snapshot.targetMangaId ?? null;
 
-        if (snapshot.viewMode === 'list') {
+        if (snapshot.viewMode === View.LIST) {
             if (targetId) this.restore.start(targetId);
             if (snapshot.searchContext) {
                 this.searchState.filters.restoreFromContext(snapshot.searchContext.filters);
@@ -185,18 +187,18 @@ class AppState {
             return true;
         }
 
-        if (snapshot.viewMode === 'favorites') {
-            this.ui.setViewDirect('favorites', ['list']);
+        if (snapshot.viewMode === View.FAVORITES) {
+            this.ui.setViewDirect(View.FAVORITES, [View.LIST]);
             if (targetId) this.restore.start(targetId);
             this.bgReplaySearch(snapshot.searchContext);
             return true;
         }
 
-        if (snapshot.viewMode === 'manga' && snapshot.activeManga) {
-            this.ui.setViewDirect('manga', ['list']);
+        if (snapshot.viewMode === View.MANGA && snapshot.activeManga) {
+            this.ui.setViewDirect(View.MANGA, [View.LIST]);
             const ok = await this.manga.restoreManga(snapshot.activeManga);
             if (!ok) {
-                this.ui.setViewDirect('list', []);
+                this.ui.setViewDirect(View.LIST, []);
                 return false;
             }
             if (targetId) this.restore.start(targetId);
@@ -204,18 +206,18 @@ class AppState {
             return true;
         }
 
-        if (snapshot.viewMode === 'reader' && snapshot.activeManga) {
-            this.ui.setViewDirect('reader', ['list', 'manga']);
+        if (snapshot.viewMode === View.READER && snapshot.activeManga) {
+            this.ui.setViewDirect(View.READER, [View.LIST, View.MANGA]);
 
             const ok = await this.manga.restoreManga(snapshot.activeManga);
             if (!ok) {
-                this.ui.setViewDirect('list', []);
+                this.ui.setViewDirect(View.LIST, []);
                 return false;
             }
 
             const readerOk = await this.reader.restoreReader(snapshot.activeManga);
             if (!readerOk) {
-                this.ui.setViewDirect('manga', ['list']);
+                this.ui.setViewDirect(View.MANGA, [View.LIST]);
                 if (targetId) this.restore.start(targetId);
                 this.bgReplaySearch(snapshot.searchContext);
                 return true;
@@ -294,7 +296,7 @@ class AppState {
         const scrolled = await this.scrollListToTarget(targetId);
 
         if (!scrolled) {
-            if (this.ui.viewMode === 'list') {
+            if (this.ui.viewMode === View.LIST) {
                 this.showScrollToast(targetId);
                 this.restore.done();
             }
@@ -320,7 +322,7 @@ class AppState {
     }
 
     private showScrollToast(targetId: string) {
-        this.toast.show('Tap to scroll to last position', SESSION_TOAST_DURATION, () => {
+        this.toast.show(Msg.SCROLL_TO_LAST, SESSION_TOAST_DURATION, () => {
             const card = document.querySelector(`[data-manga-id="${CSS.escape(targetId)}"]`);
             if (card) {
                 card.scrollIntoView({ block: 'center', behavior: 'smooth' });
@@ -332,7 +334,7 @@ class AppState {
 
     async init() {
         // Wire up Cloudflare solving toast
-        setCloudflareCallback(() => this.toast.show('Solving Cloudflare...', 15000));
+        setCloudflareCallback(() => this.toast.show(Msg.SOLVING_CLOUDFLARE, 15000));
 
         // Initialize provider first — filters and API depend on it
         await initProvider();
@@ -389,12 +391,12 @@ class AppState {
 
     private handleConnectivityChange(online: boolean) {
         if (online) {
-            this.toast.show('Back online');
+            this.toast.show(Msg.BACK_ONLINE);
             void this.refreshCurrentView();
             if (this.status === 'OFFLINE') this.status = 'READY';
         } else {
             this.status = 'OFFLINE';
-            this.toast.show('No connection');
+            this.toast.show(Msg.NO_CONNECTION);
         }
     }
 
@@ -442,15 +444,15 @@ class AppState {
         this.status = 'READY';
 
         if (elapsed > DEEP_SLEEP_MS) {
-            this.toast.show('Session restored');
+            this.toast.show(Msg.SESSION_RESTORED);
         }
     }
 
     private async refreshCurrentView() {
         const view = this.ui.viewMode;
-        if (view === 'list') {
+        if (view === View.LIST) {
             await this.searchState.search(this.searchState.currentQuery);
-        } else if (view === 'manga' && this.manga.activeManga) {
+        } else if (view === View.MANGA && this.manga.activeManga) {
             // Use restoreManga to refresh chapters without pushing view again
             await this.manga.restoreManga(this.manga.activeManga);
         }
