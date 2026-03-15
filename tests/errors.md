@@ -23,7 +23,8 @@ Tests rule AY.
 On transient errors: page counter rolls back, hasMore stays true, toast shows "Slow connection, scroll to retry."
 
 ```contract
-function: isTransient(error: AppError) → boolean
+given: error with kind and optional status
+returns: whether the error is transient
 assert: returns true for { kind: 'upstream', status: 408 }
 assert: returns true for { kind: 'upstream', status: 429 }
 assert: returns true for { kind: 'upstream', status: 500 }
@@ -39,7 +40,8 @@ Tests rule AY.
 On permanent errors: hasMore set to false, pagination stops, toast shows "Failed to load more results."
 
 ```contract
-function: isTransient(error: AppError) → boolean
+given: error with kind and optional status
+returns: whether the error is transient
 assert: returns false for { kind: 'upstream', status: 400 }
 assert: returns false for { kind: 'upstream', status: 403 }
 assert: returns false for { kind: 'upstream', status: 404 }
@@ -53,7 +55,8 @@ Errors are logged with URL, status, response body snippet, and timestamp.
 
 ```contract
 type: ErrorLogEntry = { url: string; kind: string; status?: number; body?: string; timestamp: number }
-function: formatErrorLog(error: AppError, url: string, body?: string) → ErrorLogEntry
+given: error (kind + optional status), url, optional body
+returns: ErrorLogEntry
 case 1: input: { kind: 'upstream', status: 404 }, 'https://api.com/search', '{"error":"not found"}'
   assert: returns { url: 'https://api.com/search', kind: 'upstream', status: 404, body: '{"error":"not found"}', timestamp: <number> }
 case 2: input: { kind: 'timeout' }, 'https://api.com/search'
@@ -66,7 +69,7 @@ case 3: input: { kind: 'network' }, 'https://api.com/chapters'
 
 **T-AZ-1: Errors are a tagged union of 5 kinds**
 Tests rule AZ.
-All errors are: `upstream` (HTTP, carries status), `timeout`, `network` (TypeError), `cloudflare` (503 + Cloudflare header), or `parse` (response received but unparseable). The catch block constructs the final error variant directly — no intermediate error type, no lossy conversion. UI pattern-matches on `kind`.
+All errors are classified into 5 kinds: `upstream` (HTTP, carries status), `timeout`, `network` (no connection), `cloudflare` (Cloudflare block), or `parse` (response received but unparseable). Each kind maps to a user-facing message. No error information is lost in classification. UI pattern-matches on `kind`.
 
 ```contract
 function: loadErrorMessage(err: LoadError) → string
@@ -75,13 +78,14 @@ case 2: { kind: 'timeout' }              → contains 'timed out'
 case 3: { kind: 'network' }              → contains 'Network error'
 case 4: { kind: 'cloudflare' }           → contains 'Cloudflare'
 
-function: toLoadError(e: unknown) → LoadError
-case 1: ApiError(HTTP, 404)    → { kind: 'upstream', status: 404 }
-case 2: ApiError(TIMEOUT)      → { kind: 'timeout' }
-case 3: ApiError(NETWORK)      → { kind: 'network' }
-case 4: ApiError(CLOUDFLARE)   → { kind: 'cloudflare' }
-case 5: ApiError(PARSE)        → { kind: 'network' } (catch-all)
-case 6: unknown Error          → { kind: 'network' } (catch-all)
+given: raw error from fetch boundary
+returns: classified error with kind
+case 1: HTTP 404 error         → { kind: 'upstream', status: 404 }
+case 2: timeout error          → { kind: 'timeout' }
+case 3: network error          → { kind: 'network' }
+case 4: cloudflare error       → { kind: 'cloudflare' }
+case 5: parse error            → { kind: 'network' } (catch-all)
+case 6: unknown error          → { kind: 'network' } (catch-all)
 ```
 
 ### Error Display
@@ -98,22 +102,22 @@ When pagination fails (results already on screen), a transient toast is shown.
 class: SearchState
 case 1 (transient — timeout):
   setup: initial search succeeded with results + hasMore=true
-  action: loadNextPage(), api rejects with ApiError(TIMEOUT)
+  action: loadNextPage(), api rejects with timeout error
   assert: currentPage rolled back to 1
   assert: hasMore still true (can retry)
-  assert: toast contains Msg.SLOW_CONNECTION
+  assert: toast contains "Slow connection, scroll to retry"
   assert: error remains null (not persistent — results already on screen)
 case 2 (permanent — 404):
   setup: initial search succeeded with results + hasMore=true
-  action: loadNextPage(), api rejects with ApiError(HTTP, 404)
+  action: loadNextPage(), api rejects with HTTP 404 error
   assert: hasMore set to false (pagination stops)
-  assert: toast contains Msg.LOAD_MORE_FAILED
+  assert: toast contains "Failed to load more results"
   assert: error remains null
 case 3 (transient HTTP — 429):
   setup: initial search succeeded with results + hasMore=true
-  action: loadNextPage(), api rejects with ApiError(HTTP, 429)
+  action: loadNextPage(), api rejects with HTTP 429 error
   assert: currentPage rolled back to 1, hasMore still true
-  assert: toast contains Msg.SLOW_CONNECTION
+  assert: toast contains "Slow connection, scroll to retry"
 ```
 
 ### Chapter Image Retry
@@ -132,16 +136,16 @@ If the first search on cold start fails (no cache, no session), persistent error
 class: SearchState
 case 1 (network):
   setup: no prior results, no session
-  action: search('naruto'), api rejects with ApiError(NETWORK)
+  action: search('naruto'), api rejects with network error
   assert: error.kind === 'network'
   assert: results === [], hasMore === false, isLoading === false
 case 2 (timeout):
   setup: no prior results, no session
-  action: search('naruto'), api rejects with ApiError(TIMEOUT)
+  action: search('naruto'), api rejects with timeout error
   assert: error.kind === 'timeout'
 case 3 (HTTP 500):
   setup: no prior results, no session
-  action: search('naruto'), api rejects with ApiError(HTTP, 500)
+  action: search('naruto'), api rejects with HTTP 500 error
   assert: error.kind === 'upstream'
 case 4 (retry clears):
   setup: error state from case 1

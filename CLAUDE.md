@@ -21,7 +21,7 @@ Test specs in `tests/` folder — split by domain:
 - `tests/server.md` — proxy, TLS (BJ, BK)
 - `tests/comix.md` — comix provider (C1–C9)
 
-Legacy `test.md` at root is deprecated — use `tests/` folder instead.
+Root `test.md` has been removed — use `tests/` folder.
 
 Reference books in `resources/` — Kent Beck (TDD), Freeman & Pryce (GOOS), Feathers (Legacy Code), Khorikov (Unit Testing), Seemann & van Deursen (DI).
 
