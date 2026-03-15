@@ -1,23 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { createStorageFake } from '../test-helpers/storage-fake.js';
 import type { Manga, ChapterMeta } from '../types.js';
 
-// Storage fake
-const store = new Map<string, string>();
+const { store, fake: storageFake } = createStorageFake();
 
-vi.mock('../services/storage.js', () => ({
-  getJson: <T>(key: string, fallback: T): T => {
-    const raw = store.get(key);
-    if (raw === undefined) return fallback;
-    try { return JSON.parse(raw) as T; }
-    catch { return fallback; }
-  },
-  setJson: (key: string, value: unknown) => {
-    store.set(key, JSON.stringify(value));
-  },
-  getString: (key: string, fallback: string) => store.get(key) ?? fallback,
-  setString: (key: string, value: string) => store.set(key, value),
-  remove: (key: string) => { store.delete(key); },
-}));
+vi.mock('../services/storage.js', () => storageFake);
 
 // DB fake — capture setProgress key
 let lastProgressKey: string | null = null;
@@ -47,13 +34,6 @@ vi.mock('../services/api.js', () => ({
     { url: 'https://cdn.com/page1.jpg', width: 800, height: 1200 },
   ],
   imageProxyUrl: (url: string) => `/proxy?url=${encodeURIComponent(url)}`,
-  ApiError: class ApiError extends Error {
-    constructor(public kind: string, public status?: number) { super(kind); }
-  },
-  ApiErrKind: {
-    NETWORK: 'network', TIMEOUT: 'timeout', HTTP: 'http',
-    PARSE: 'parse', CLOUDFLARE: 'cloudflare',
-  },
 }));
 
 // Provider fake — exposes repoUrl and id for key composition
@@ -96,8 +76,7 @@ beforeEach(() => {
 });
 
 describe('T-AH-1: Progress keyed by repoUrl:providerId:mangaId', () => {
-  // Known-failing: blocked on BH (repo/provider scoping not implemented)
-  it.fails('db.setProgress receives composite key, not bare manga.id', async () => {
+  it('db.setProgress receives composite key, not bare manga.id', async () => {
     const { reader } = createReaderState();
 
     await reader.openReader(manga, chapterA);
