@@ -21,6 +21,8 @@ import {
   isValidStack,
   popViewStack,
   isTransient,
+  shouldLoadNextPage,
+  formatErrorLog,
   READER_ROOT_MARGIN,
   type AppError,
 } from './logic.js';
@@ -268,4 +270,55 @@ describe('T-AY-2: Permanent error detection', () => {
       expect(isTransient(error)).toBe(false);
     });
   }
+});
+
+describe('T-AD-2: Pagination stops when hasMore is false', () => {
+  it('loads when idle, hasMore, not restoring', () => {
+    expect(shouldLoadNextPage(false, true, false)).toBe(true);
+  });
+  it('stops when hasMore is false', () => {
+    expect(shouldLoadNextPage(false, false, false)).toBe(false);
+  });
+  it('stops when already loading', () => {
+    expect(shouldLoadNextPage(true, true, false)).toBe(false);
+  });
+  it('stops when restore in progress', () => {
+    expect(shouldLoadNextPage(false, true, true)).toBe(false);
+  });
+});
+
+describe('T-AY-3: All errors logged with full context', () => {
+  it('upstream error includes url, kind, status, body', () => {
+    const entry = formatErrorLog(
+      { kind: ErrorKind.UPSTREAM, status: 404 },
+      'https://api.com/search',
+      '{"error":"not found"}',
+    );
+    expect(entry.url).toBe('https://api.com/search');
+    expect(entry.kind).toBe(ErrorKind.UPSTREAM);
+    expect(entry.status).toBe(404);
+    expect(entry.body).toBe('{"error":"not found"}');
+    expect(entry.timestamp).toBeTypeOf('number');
+  });
+  it('timeout error has no status or body', () => {
+    const entry = formatErrorLog(
+      { kind: ErrorKind.TIMEOUT },
+      'https://api.com/search',
+    );
+    expect(entry.url).toBe('https://api.com/search');
+    expect(entry.kind).toBe(ErrorKind.TIMEOUT);
+    expect(entry.status).toBeUndefined();
+    expect(entry.body).toBeUndefined();
+    expect(entry.timestamp).toBeTypeOf('number');
+  });
+  it('network error has no status', () => {
+    const entry = formatErrorLog(
+      { kind: ErrorKind.NETWORK },
+      'https://api.com/chapters',
+    );
+    expect(entry.url).toBe('https://api.com/chapters');
+    expect(entry.kind).toBe(ErrorKind.NETWORK);
+    expect(entry.status).toBeUndefined();
+    expect(entry.timestamp).toBeTypeOf('number');
+  });
 });

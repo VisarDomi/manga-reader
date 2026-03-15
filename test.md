@@ -168,6 +168,14 @@ Tests rule AD.
 Given the provider returns `hasMore: false`,
 then no further pages are requested.
 
+```contract
+function: shouldLoadNextPage(isLoading: boolean, hasMore: boolean, isRestoring: boolean) → boolean
+case 1: input: false, true, false  → assert: returns true
+case 2: input: false, false, false → assert: returns false (hasMore is false)
+case 3: input: true, true, false   → assert: returns false (already loading)
+case 4: input: false, true, true   → assert: returns false (restore in progress)
+```
+
 **T-AE-1: Infinite scroll sentinel uses 500% rootMargin**
 Tests rule AE.
 The IntersectionObserver for the list sentinel has `rootMargin: '500% 0px'`.
@@ -690,6 +698,17 @@ assert: returns false for { kind: 'cloudflare' }
 **T-AY-3: All errors logged with full context**
 Tests rule AY.
 Errors are logged with URL, status, response body snippet, and timestamp.
+
+```contract
+type: ErrorLogEntry = { url: string; kind: string; status?: number; body?: string; timestamp: number }
+function: formatErrorLog(error: AppError, url: string, body?: string) → ErrorLogEntry
+case 1: input: { kind: 'upstream', status: 404 }, 'https://api.com/search', '{"error":"not found"}'
+  assert: returns { url: 'https://api.com/search', kind: 'upstream', status: 404, body: '{"error":"not found"}', timestamp: <number> }
+case 2: input: { kind: 'timeout' }, 'https://api.com/search'
+  assert: returns { url: 'https://api.com/search', kind: 'timeout', timestamp: <number> }
+case 3: input: { kind: 'network' }, 'https://api.com/chapters'
+  assert: returns { url: 'https://api.com/chapters', kind: 'network', timestamp: <number> }
+```
 
 ### Error Types
 

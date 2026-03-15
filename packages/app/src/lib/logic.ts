@@ -116,6 +116,29 @@ export function popViewStack(stack: ViewStack): ViewStack {
   return stack.slice(0, -1);
 }
 
+export function shouldLoadNextPage(isLoading: boolean, hasMore: boolean, isRestoring: boolean): boolean {
+  return !isLoading && hasMore && !isRestoring;
+}
+
+export interface ErrorLogEntry {
+  url: string;
+  kind: string;
+  status?: number;
+  body?: string;
+  timestamp: number;
+}
+
+export function formatErrorLog(error: AppError, url: string, body?: string): ErrorLogEntry {
+  const entry: ErrorLogEntry = {
+    url,
+    kind: error.kind,
+    timestamp: Date.now(),
+  };
+  if (error.kind === ErrorKind.UPSTREAM) entry.status = error.status;
+  if (body != null) entry.body = body;
+  return entry;
+}
+
 const TRANSIENT_CODES = new Set([408, 429, 500, 502, 503, 504]);
 
 export function isTransient(error: AppError): boolean {
