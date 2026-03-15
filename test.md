@@ -73,17 +73,35 @@ Given a provider with `getFilters()` returning genres where some have `nsfw: tru
 when the provider is used for the first time (no saved filters in localStorage for that provider key),
 then every genre with `nsfw: true` starts in `exclude` state.
 
+```contract
+class: FilterState
+setup: no saved filters in localStorage (key 'filters' absent)
+action: new FilterState(onChange), then seedDefaults(nsfwIds)
+assert: every id in nsfwIds has termState 'exclude'
+assert: state persisted to localStorage
+```
+
 **T-AA-2: NSFW seeding skipped when filters already exist**
 Tests rule AA.
 Given saved filters already exist in localStorage for the provider key,
 when the provider loads,
 then no genres are modified — the saved state is used as-is.
 
+```contract
+class: FilterState
+setup: saved filters exist in localStorage (key 'filters' has terms)
+action: new FilterState(onChange), then seedDefaults(nsfwIds)
+assert: termStates unchanged — NSFW ids not added
+assert: original saved terms preserved
+```
+
 **T-AA-3: NSFW seeding is per-provider**
 Tests rule AA.
 Given provider A has saved filters but provider B does not,
 when provider B is activated for the first time,
 then provider B's NSFW genres are auto-excluded independently. Provider A's filters are untouched.
+
+_Blocked: FilterState uses a single 'filters' key — per-provider scoping (BH) not yet implemented._
 
 **T-AB-1: Genre filter cycles through 3 states**
 Tests rule AB.
