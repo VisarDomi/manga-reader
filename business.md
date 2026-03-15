@@ -31,7 +31,14 @@ Manga cards show the cover image and nothing else — no title, no author, no ba
 
 ## AF. Chapter Group Filtering
 
-There is a provider-wide group blacklist (hide this scanlation group's chapters across all manga for the active provider — see BH) and a per-manga group selector (for this manga, only show chapters from these selected groups). In the per-manga selector, provider-wide blacklisted groups appear grayed out but remain selectable — selecting one bypasses the provider-wide blacklist for that manga only. When multiple selected groups have the same chapter number, the latest upload wins. Chapters are sorted descending by number (newest first).
+Chapter filtering is a single pipeline: raw chapters in, filtered/deduped/sorted chapters out. The pipeline takes three inputs — the raw chapter list, the provider-wide blacklist, and the per-manga group selection — and produces one output. The stages are:
+
+1. **Blacklist filter:** Remove chapters whose group is in the provider-wide blacklist (hide this scanlation group's chapters across all manga for the active provider — see BH). In the per-manga group selector, blacklisted groups appear grayed out but remain selectable.
+2. **Per-manga group selection:** If the user has selected specific groups for this manga, keep only chapters from those groups. Selecting a blacklisted group overrides the blacklist for that manga only.
+3. **Dedup by chapter number:** When multiple groups have the same chapter number, the latest upload wins.
+4. **Sort descending:** Chapters are sorted by number, newest first.
+
+These stages are not separate functions — the pipeline is one unit. Tests assert the pipeline's end state for each behavior.
 
 ## AG. Chapters Are Yielded Progressively
 
@@ -236,14 +243,16 @@ If `isLoading` stays true for more than 15 seconds, a watchdog force-resets the 
 ## AY. Transient vs Permanent Errors on Pagination
 
 When loading the next page of search results fails:
-- **Transient** (408, 429, 500, 502, 503, 504, network, timeout): page counter rolls back, `hasMore` stays true, toast shows "Slow connection, scroll to retry." User can retry by scrolling to the sentinel again.
-- **Permanent** (400, 403, 404, etc.): `hasMore` set to false, pagination stops, toast shows "Failed to load more results." User keeps existing results.
+- **Transient** (upstream with status 408, 429, 500, 502, 503, 504, or network, or timeout): page counter rolls back, `hasMore` stays true, toast shows "Slow connection, scroll to retry." User can retry by scrolling to the sentinel again.
+- **Permanent** (upstream with status 400, 403, 404, etc., or parse): `hasMore` set to false, pagination stops, toast shows "Failed to load more results." User keeps existing results.
+
+Transient/permanent classification operates on `AppError` (see AZ), not on raw status codes. `isTransient(error: AppError) → boolean` is a single function — no duplication between layers.
 
 All errors are logged with full context (URL, status, response body snippet, timestamp) regardless of transient/permanent classification.
 
 ## AZ. Error Types Are a Tagged Union
 
-All errors are categorized into 4 kinds: `upstream` (HTTP error, carries status code), `timeout` (request exceeded dynamic timeout), `network` (TypeError — CORS or no connection), `cloudflare` (503 + Cloudflare header). Each kind maps to a specific user-facing message. The UI pattern-matches on `kind`.
+All errors are categorized into 5 kinds: `upstream` (HTTP error, carries status code), `timeout` (request exceeded dynamic timeout), `network` (TypeError — CORS or no connection), `cloudflare` (503 + Cloudflare header), `parse` (response received but couldn't be parsed — the upstream returned malformed data). Each kind maps to a specific user-facing message: upstream → "Server error ({status})", timeout → "Request timed out", network → "Network error — check your connection", cloudflare → "Blocked by Cloudflare — retrying...", parse → "Unexpected response from server". The UI pattern-matches on `kind`. There is no intermediate error type or lossy conversion — the catch block constructs the final `AppError` variant directly.
 
 ## BA. Dynamic Fetch Timeout
 

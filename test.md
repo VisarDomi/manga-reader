@@ -3,6 +3,64 @@
 Tests assert business rules. If a test fails, the code is wrong — not the test.
 The only exception is when a business rule changes.
 
+## Domain Types (from packages/provider-types)
+
+These are the spec-level types. Contracts reference these directly.
+
+```typescript
+interface Manga {
+  id: string; title: string; cover: string;
+  latestChapter: number | null;
+  author?: string; status?: string; tags?: string[];
+}
+
+interface ChapterMeta {
+  id: string; number: number;
+  groupId?: string; groupName: string; uploadedAt?: number;
+}
+
+interface ChapterPage { url: string; width: number; height: number; }
+
+interface SearchFilters {
+  includeGenres?: string[]; excludeGenres?: string[];
+  types?: string[]; statuses?: string[];
+}
+
+interface PagedResult<T> { items: T[]; hasMore: boolean; }
+
+interface FilterOption { id: string; name: string; group?: string; nsfw?: boolean; }
+
+interface FilterDefinition {
+  genres: FilterOption[]; types?: FilterOption[]; statuses?: FilterOption[];
+}
+
+interface HttpRequest {
+  url: string; method?: 'GET' | 'POST';
+  headers?: Record<string, string>; body?: string;
+  cloudflareProtected?: boolean;
+}
+
+interface MangaProvider {
+  readonly id: string; readonly name: string;
+  readonly baseUrl: string; readonly language: string;
+  readonly version: string; readonly nsfw: boolean;
+
+  getFilters(): FilterDefinition;
+
+  searchRequest(query: string, page: number, filters?: SearchFilters): HttpRequest;
+  parseSearchResponse(data: unknown): PagedResult<Manga>;
+
+  chapterListRequest(mangaId: string, page: number): HttpRequest;
+  parseChapterListResponse(data: unknown): ChapterMeta[];
+
+  chapterImagesRequest(mangaId: string, chapterId: string, chapterNumber: number): HttpRequest;
+  parseChapterImagesResponse(data: unknown): ChapterPage[];
+  readonly chapterImagesResponseType: 'json' | 'html';
+
+  imageHeaders?(): Record<string, string>;
+}
+```
+
 ---
 
 ## App-Level Tests (packages/app)
@@ -33,11 +91,25 @@ Given a genre filter chip,
 when tapped repeatedly,
 then the state cycles: empty → include → exclude → empty.
 
+```contract
+type: FilterState = 'empty' | 'include' | 'exclude'
+function: cycleGenreFilter(current: FilterState) → FilterState
+case 1: input: 'empty'    → assert: returns 'include'
+case 2: input: 'include'  → assert: returns 'exclude'
+case 3: input: 'exclude'  → assert: returns 'empty'
+```
+
 **T-AB-2: Type and status filters are binary toggles**
 Tests rule AB.
 Given a type or status filter chip,
 when tapped,
 then the state toggles: off → on → off.
+
+```contract
+function: toggleBinaryFilter(current: boolean) → boolean
+case 1: input: false → assert: returns true
+case 2: input: true  → assert: returns false
+```
 
 **T-AB-3: Long-press not used on filter chips**
 Tests rule AB.
@@ -82,6 +154,15 @@ Given page 1 returns manga [A, B, C] and page 2 returns [C, D, E],
 when page 2 appends,
 then results are [A, B, C, D, E] — no duplicate C.
 
+```contract
+function: deduplicateByMangaId(existing: Manga[], incoming: Manga[]) → Manga[]
+input:
+  existing: [{ id: 'A', ... }, { id: 'B', ... }, { id: 'C', ... }]
+  incoming: [{ id: 'C', ... }, { id: 'D', ... }, { id: 'E', ... }]
+assert: returns array with ids ['A', 'B', 'C', 'D', 'E'] — no duplicate C
+assert: order preserved (existing first, then new items from incoming)
+```
+
 **T-AD-2: Pagination stops when hasMore is false**
 Tests rule AD.
 Given the provider returns `hasMore: false`,
@@ -90,6 +171,11 @@ then no further pages are requested.
 **T-AE-1: Infinite scroll sentinel uses 500% rootMargin**
 Tests rule AE.
 The IntersectionObserver for the list sentinel has `rootMargin: '500% 0px'`.
+
+```contract
+constant: SENTINEL_ROOT_MARGIN
+assert: value === '500% 0px'
+```
 
 ### Manga Cards
 
@@ -109,10 +195,42 @@ Tests rule AF.
 Given group X is in the provider-wide blacklist,
 then chapters from group X are hidden across all manga for that provider.
 
+```contract
+pipeline: filteredChapters(
+  chapters: ChapterMeta[],
+  blacklistedGroupIds: Set<string>,
+  selectedGroupIds: Set<string> | null
+) → ChapterMeta[]
+input:
+  chapters: [
+    { id: '1', number: 1, groupId: 'gA', groupName: 'A' },
+    { id: '2', number: 2, groupId: 'gX', groupName: 'X' }
+  ]
+  blacklistedGroupIds: Set(['gX'])
+  selectedGroupIds: null
+assert: returns [id '1'] — group X is blacklisted, sorted descending
+```
+
 **T-AF-2: Per-manga group selector overrides blacklist**
 Tests rule AF.
 Given group X is blacklisted provider-wide but selected in the per-manga selector,
 then group X's chapters are visible for that manga only.
+
+```contract
+pipeline: filteredChapters(
+  chapters: ChapterMeta[],
+  blacklistedGroupIds: Set<string>,
+  selectedGroupIds: Set<string> | null
+) → ChapterMeta[]
+input:
+  chapters: [
+    { id: '1', number: 1, groupId: 'gA', groupName: 'A' },
+    { id: '2', number: 2, groupId: 'gX', groupName: 'X' }
+  ]
+  blacklistedGroupIds: Set(['gX'])
+  selectedGroupIds: Set(['gX'])
+assert: returns [id '2'] — per-manga selection overrides blacklist, only selected group shown, sorted descending
+```
 
 **T-AF-3: Blacklisted groups appear grayed out but selectable**
 Tests rule AF.
@@ -123,9 +241,42 @@ Tests rule AF.
 Given group A uploaded chapter 5 on Jan 1 and group B uploaded chapter 5 on Jan 2, and both groups are selected,
 then only group B's chapter 5 is shown.
 
+```contract
+pipeline: filteredChapters(
+  chapters: ChapterMeta[],
+  blacklistedGroupIds: Set<string>,
+  selectedGroupIds: Set<string> | null
+) → ChapterMeta[]
+input:
+  chapters: [
+    { id: '1', number: 5, groupId: 'gA', groupName: 'A', uploadedAt: 1704067200 },
+    { id: '2', number: 5, groupId: 'gB', groupName: 'B', uploadedAt: 1704153600 }
+  ]
+  blacklistedGroupIds: Set([])
+  selectedGroupIds: Set(['gA', 'gB'])
+assert: returns [id '2'] — same number 5, group B uploaded later wins
+```
+
 **T-AF-5: Chapters sorted descending by number**
 Tests rule AF.
 Chapters are displayed newest first (descending by chapter number).
+
+```contract
+pipeline: filteredChapters(
+  chapters: ChapterMeta[],
+  blacklistedGroupIds: Set<string>,
+  selectedGroupIds: Set<string> | null
+) → ChapterMeta[]
+input:
+  chapters: [
+    { id: '1', number: 1, groupId: 'gA', groupName: 'A' },
+    { id: '3', number: 3, groupId: 'gA', groupName: 'A' },
+    { id: '2', number: 2, groupId: 'gA', groupName: 'A' }
+  ]
+  blacklistedGroupIds: Set([])
+  selectedGroupIds: null
+assert: returns chapters in order [3, 2, 1] by number
+```
 
 **T-AF-6: Long-press on group item shows block/cancel**
 Tests rule AB + AF.
@@ -159,15 +310,30 @@ Opening a different chapter overwrites the previous progress — no per-chapter 
 Tests rule AI.
 Scroll-based progress updates are debounced at 3s before writing to IndexedDB.
 
+```contract
+constant: PROGRESS_DEBOUNCE_MS
+assert: value === 3_000
+```
+
 **T-AJ-1: Current page detected at 1/3 viewport height**
 Tests rule AJ.
 The visible page is the page element whose top edge is at or above 1/3 of the viewport height from the top.
+
+```contract
+constant: VISIBLE_PAGE_RATIO
+assert: value === 1/3
+```
 
 ### Reader Prefetch & Windows
 
 **T-BL-1: Reader image prefetch uses 1500% rootMargin**
 Tests rule BL.
 The IntersectionObserver for reader page images has `rootMargin: '1500%'`.
+
+```contract
+constant: READER_ROOT_MARGIN
+assert: value === '1500%'
+```
 
 **T-AK-1: Fetch window is ±1 chapters**
 Tests rule AK.
@@ -176,6 +342,12 @@ Only the current chapter and its immediate neighbors (3 total) have active Inter
 **T-AK-2: Cache window is ±2 chapters**
 Tests rule AK.
 Blob URLs are kept for current ±2 chapters (5 total). Blobs are revoked when a chapter exits this window.
+
+```contract
+constant: CACHE_WINDOW
+assert: value === 2
+note: total cached chapters = current ± CACHE_WINDOW = 5
+```
 
 **T-AK-3: Gated observer activation**
 Tests rule AK.
@@ -296,13 +468,49 @@ The view stack only allows these configurations:
 - `[list, manga, reader]`
 - `[list, favorites, manga, reader]`
 
+```contract
+type: ViewName = 'list' | 'repos' | 'favorites' | 'manga' | 'reader'
+type: ViewStack = ViewName[]
+constant: VALID_STACKS
+assert: value deep-equals [
+  ['list'],
+  ['list', 'repos'],
+  ['list', 'favorites'],
+  ['list', 'manga'],
+  ['list', 'favorites', 'manga'],
+  ['list', 'manga', 'reader'],
+  ['list', 'favorites', 'manga', 'reader']
+]
+function: isValidStack(stack: ViewStack) → boolean
+assert: returns true for each of the 7 stacks above
+assert: returns false for any other combination
+```
+
 **T-AO-2: Back always pops one level**
 Tests rule AO.
 Back (swipe or button) pops one level from the stack. No skipping, no duplicates.
 
+```contract
+function: popViewStack(stack: ViewStack) → ViewStack
+input: ['list', 'manga', 'reader']
+assert: returns ['list', 'manga']
+input: ['list', 'manga']
+assert: returns ['list']
+input: ['list']
+assert: returns ['list'] (cannot pop below root)
+```
+
 **T-AO-3: Repos is a leaf**
 Tests rule AO.
 From repos, you can only go back to list — not deeper.
+
+```contract
+function: isValidStack(stack: ViewStack) → boolean
+input: ['list', 'repos', 'manga']
+assert: returns false — repos allows no deeper pushes
+input: ['list', 'repos']
+assert: returns true — repos is a valid leaf
+```
 
 **T-AO-4: Session restore rebuilds all views below current**
 Tests rule AO.
@@ -374,13 +582,28 @@ On restore, the reader reads chapter/page position from IDB progress — not the
 Tests rule AT.
 The swipe must start within the left 7.7% of the screen.
 
+```contract
+constant: EDGE_ZONE_RATIO
+assert: value === 0.077
+```
+
 **T-AT-2: 1.3% deadzone before lock**
 Tests rule AT.
 A 1.3% deadzone must be crossed before the gesture locks. If vertical movement exceeds horizontal before the deadzone, the gesture is rejected.
 
+```contract
+constant: DEADZONE_RATIO
+assert: value === 0.013
+```
+
 **T-AT-3: 15% drag threshold to trigger back**
 Tests rule AT.
 After locking, the user must drag at least 15% of the remaining screen width to trigger navigation.
+
+```contract
+constant: SWIPE_THRESHOLD_RATIO
+assert: value === 0.15
+```
 
 **T-AT-4: Animation follows drag and snaps**
 Tests rule AT.
@@ -428,15 +651,41 @@ Cloudflare solving is silent unless the user's foreground action is blocked.
 Tests rule AX.
 If `isLoading` stays true for 15+ seconds, the watchdog force-resets to idle, logs `console.error`, and shows "Something went wrong — pull down to refresh."
 
+```contract
+constant: WATCHDOG_TIMEOUT_MS
+assert: value === 15_000
+```
+
 ### Pagination Errors
 
 **T-AY-1: Transient errors roll back page and allow retry**
 Tests rule AY.
-On transient errors (408, 429, 500, 502, 503, 504, network, timeout): page counter rolls back, hasMore stays true, toast shows "Slow connection, scroll to retry."
+On transient errors: page counter rolls back, hasMore stays true, toast shows "Slow connection, scroll to retry."
+
+```contract
+function: isTransient(error: AppError) → boolean
+assert: returns true for { kind: 'upstream', status: 408 }
+assert: returns true for { kind: 'upstream', status: 429 }
+assert: returns true for { kind: 'upstream', status: 500 }
+assert: returns true for { kind: 'upstream', status: 502 }
+assert: returns true for { kind: 'upstream', status: 503 }
+assert: returns true for { kind: 'upstream', status: 504 }
+assert: returns true for { kind: 'timeout' }
+assert: returns true for { kind: 'network' }
+```
 
 **T-AY-2: Permanent errors stop pagination**
 Tests rule AY.
-On permanent errors (400, 403, 404, etc.): hasMore set to false, pagination stops, toast shows "Failed to load more results."
+On permanent errors: hasMore set to false, pagination stops, toast shows "Failed to load more results."
+
+```contract
+function: isTransient(error: AppError) → boolean
+assert: returns false for { kind: 'upstream', status: 400 }
+assert: returns false for { kind: 'upstream', status: 403 }
+assert: returns false for { kind: 'upstream', status: 404 }
+assert: returns false for { kind: 'parse' }
+assert: returns false for { kind: 'cloudflare' }
+```
 
 **T-AY-3: All errors logged with full context**
 Tests rule AY.
@@ -444,9 +693,23 @@ Errors are logged with URL, status, response body snippet, and timestamp.
 
 ### Error Types
 
-**T-AZ-1: Errors are a tagged union of 4 kinds**
+**T-AZ-1: Errors are a tagged union of 5 kinds**
 Tests rule AZ.
-All errors are: `upstream` (HTTP, carries status), `timeout`, `network` (TypeError), or `cloudflare` (503 + Cloudflare header). UI pattern-matches on `kind`.
+All errors are: `upstream` (HTTP, carries status), `timeout`, `network` (TypeError), `cloudflare` (503 + Cloudflare header), or `parse` (response received but unparseable). The catch block constructs the final `AppError` variant directly — no intermediate error type, no lossy conversion. UI pattern-matches on `kind`.
+
+```contract
+type: AppError =
+  | { kind: 'upstream'; status: number }
+  | { kind: 'timeout' }
+  | { kind: 'network' }
+  | { kind: 'cloudflare' }
+  | { kind: 'parse' }
+case 1: HTTP 404 response            → assert: { kind: 'upstream', status: 404 }
+case 2: request exceeded timeout      → assert: { kind: 'timeout' }
+case 3: TypeError (CORS / no conn)    → assert: { kind: 'network' }
+case 4: 503 + Cloudflare header       → assert: { kind: 'cloudflare' }
+case 5: JSON.parse / parse failure    → assert: { kind: 'parse' }
+```
 
 ### Dynamic Timeout
 
@@ -588,9 +851,19 @@ The server serves the CA as a downloadable PEM file for iOS devices to install a
 Tests comix rule 1.
 The search request uses `limit=100`.
 
+```contract
+method: MangaProvider.searchRequest(query, page, filters)
+assert: returned HttpRequest.url contains 'limit=100'
+```
+
 **T-C1-2: Chapter list limit is 100**
 Tests comix rule 1.
 The chapter list request uses `limit=100`.
+
+```contract
+method: MangaProvider.chapterListRequest(mangaId, page)
+assert: returned HttpRequest.url contains 'limit=100'
+```
 
 ### hasMore Computation
 
@@ -598,9 +871,22 @@ The chapter list request uses `limit=100`.
 Tests comix rule 2.
 Given a pagination object with `current_page` and `last_page`, `hasMore` is `current_page < last_page`.
 
+```contract
+upstream response shape: { pagination: { current_page: number, last_page: number, total: number } }
+function: computeHasMore(pagination: { current_page: number, last_page: number }) → boolean
+case 1: input: { current_page: 1, last_page: 3 } → assert: returns true
+case 2: input: { current_page: 3, last_page: 3 } → assert: returns false
+```
+
 **T-C2-2: No extra request when total is multiple of 100**
 Tests comix rule 2.
 Given `current_page == last_page`, `hasMore` is false — no trailing empty request.
+
+```contract
+function: computeHasMore(pagination: { current_page: number, last_page: number }) → boolean
+input: { current_page: 3, last_page: 3 } (total = 300, exact multiple)
+assert: returns false — no trailing empty request
+```
 
 ### Sort Order
 
@@ -608,9 +894,19 @@ Given `current_page == last_page`, `hasMore` is false — no trailing empty requ
 Tests comix rule 3.
 When query is empty or only filters are applied, the request includes sort by `chapter_updated_at` descending.
 
+```contract
+method: MangaProvider.searchRequest('', page, filters)
+assert: returned HttpRequest.url contains sort param for chapter_updated_at descending
+```
+
 **T-C3-2: With keyword — no explicit sort**
 Tests comix rule 3.
 When the user types a keyword, no sort parameter is sent (API default relevance ranking).
+
+```contract
+method: MangaProvider.searchRequest('one piece', page, filters)
+assert: returned HttpRequest.url does NOT contain a sort param
+```
 
 ### NSFW Genres
 
@@ -618,9 +914,20 @@ When the user types a keyword, no sort parameter is sent (API default relevance 
 Tests comix rule 4.
 `getFilters()` marks exactly these 5 genres as `nsfw: true`: Adult, Ecchi, Hentai, Mature, Smut.
 
+```contract
+method: MangaProvider.getFilters() → FilterDefinition
+assert: exactly 5 genres have nsfw === true
+assert: nsfw genre names are 'Adult', 'Ecchi', 'Hentai', 'Mature', 'Smut'
+```
+
 **T-C4-2: NSFW flag is on genre options**
 Tests comix rule 4.
 Each of the 5 NSFW genres has `nsfw: true` in the FilterDefinition returned by `getFilters()`.
+
+```contract
+method: MangaProvider.getFilters() → FilterDefinition
+assert: each of the 5 NSFW genres is a FilterOption with nsfw: true
+```
 
 ### Adaptive Chapter Pagination
 
@@ -664,17 +971,42 @@ The client uses SSE push notifications — no polling, no arbitrary retry counts
 Tests comix rule 7.
 Given HTML with `\"images\":[{\"url\":\"https:\/\/cdn.com\/page1.jpg\"}]`, the parser extracts the image list correctly.
 
+```contract
+method: MangaProvider.parseChapterImagesResponse(html: string) → ChapterPage[]
+input: html containing \"images\":[{\"url\":\"https:\/\/cdn.com\/page1.jpg\",\"width\":800,\"height\":1200}]
+assert: returns [{ url: 'https://cdn.com/page1.jpg', width: 800, height: 1200 }]
+```
+
 **T-C7-2: Extracts images from unescaped format**
 Tests comix rule 7.
 Given HTML with `"images":[{"url":"https://cdn.com/page1.jpg"}]`, the parser extracts the image list correctly.
+
+```contract
+method: MangaProvider.parseChapterImagesResponse(html: string) → ChapterPage[]
+input: html containing "images":[{"url":"https://cdn.com/page1.jpg","width":800,"height":1200}]
+assert: returns [{ url: 'https://cdn.com/page1.jpg', width: 800, height: 1200 }]
+```
 
 **T-C7-3: Tries escaped first, falls back to unescaped**
 Tests comix rule 7.
 The parser attempts the escaped pattern first. If no match, it tries unescaped. If neither matches, it throws.
 
+```contract
+method: MangaProvider.parseChapterImagesResponse(html: string) → ChapterPage[]
+case 1: html with escaped format    → assert: extracts successfully
+case 2: html with unescaped format  → assert: extracts successfully (fallback)
+case 3: html with neither format    → assert: throws error
+```
+
 **T-C7-4: Validates extracted JSON with JSON.parse**
 Tests comix rule 7.
 After extraction and unescaping, the result is validated through `JSON.parse`.
+
+```contract
+method: MangaProvider.parseChapterImagesResponse(html: string) → ChapterPage[]
+input: html with images pattern but invalid JSON inside it
+assert: throws (JSON.parse validation catches malformed data)
+```
 
 ### Image Referer Header
 
@@ -682,12 +1014,37 @@ After extraction and unescaping, the result is validated through `JSON.parse`.
 Tests comix rule 8.
 `imageHeaders()` returns `{ Referer: 'https://comix.to' }`.
 
+```contract
+method: MangaProvider.imageHeaders() → Record<string, string>
+assert: returns { Referer: 'https://comix.to' }
+```
+
 ### Manga ID
 
 **T-C9-1: Uses hash_id as primary ID**
 Tests comix rule 9.
 Given a manga with `hash_id: "okdv"`, the provider uses `"okdv"` as the manga ID.
 
+```contract
+upstream manga shape: { hash_id?: string, slug: string, ... }
+method: MangaProvider.parseSearchResponse(data) → PagedResult<Manga>
+input: manga with hash_id: 'okdv', slug: 'one-piece'
+assert: returned Manga.id === 'okdv'
+```
+
 **T-C9-2: Falls back to slug if hash_id missing**
 Tests comix rule 9.
 Given a manga without `hash_id` but with `slug: "one-piece"`, the provider uses `"one-piece"` as the manga ID.
+
+```contract
+upstream manga shape: { hash_id?: string, slug: string, ... }
+method: MangaProvider.parseSearchResponse(data) → PagedResult<Manga>
+input: manga with no hash_id, slug: 'one-piece'
+assert: returned Manga.id === 'one-piece'
+```
+
+---
+
+## Spec Gaps
+
+None. All gaps resolved.
