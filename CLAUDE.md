@@ -43,4 +43,5 @@ These tests are written to the spec but fail because the multi-repo/provider inf
 ## Tech Debt
 
 - **logic.ts is an orphan grab-bag**: Pure functions (`cycleGenreFilter`, `filteredChapters`, `isTransient`, etc.), constants (`VALID_STACKS`, `READER_ROOT_MARGIN`), and types (`AppError`, `ViewStack`) are all in one file. Some functions are duplicated in state classes (e.g. `filteredChapters` in logic.ts vs `MangaState.filteredChapters`). Needs refactoring when the app is restructured — move functions closer to their consumers or into domain modules.
+- **T-AG-2/3 blocked on extraction** (`api.test.ts`): Dedup + partial-failure logic is inside `fetchChapterList` in `api.ts`. Tests target `mergeChapterPages` — a pure function that should be extracted to `logic.ts` (same pattern as `filteredChapters`). Tests are `it.fails` until the extraction happens.
 

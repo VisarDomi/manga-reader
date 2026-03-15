@@ -354,9 +354,29 @@ When opening a manga, the app renders chapters as each page arrives without wait
 Tests rule AG.
 On each incoming batch, the app deduplicates by chapter ID and re-applies group filtering and sorting.
 
+```contract
+function: mergeChapterPages(pages: (ChapterMeta[] | null)[]) → ChapterMeta[]
+setup: pages with overlapping chapter IDs
+  page 1: [{ id: 'ch-1' }, { id: 'ch-2' }]
+  page 2: [{ id: 'ch-2' }, { id: 'ch-3' }]
+  page 3: null (failed)
+assert: returns 3 chapters with unique IDs [ch-1, ch-2, ch-3]
+assert: first occurrence wins (page 1's ch-2, not page 2's)
+```
+
 **T-AG-3: Partial data shown on partial failure**
 Tests rule AG.
 If some chapter list pages fail but others succeed, the app shows what it got.
+
+```contract
+function: mergeChapterPages(pages: (ChapterMeta[] | null)[]) → ChapterMeta[]
+case 1 (partial success):
+  setup: page 1 has chapters, pages 2-5 are null (failed)
+  assert: returns page 1's chapters (not empty)
+case 2 (all failed):
+  setup: all pages are null
+  assert: returns empty array
+```
 
 ### Reading Progress
 
