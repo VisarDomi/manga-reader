@@ -13,7 +13,7 @@ export class FavoritesState {
         try {
             this.items = await db.getAllFavorites();
         } catch {
-            // silent — favorites are non-critical
+            this.toast.show('Storage unavailable');
         }
     }
 

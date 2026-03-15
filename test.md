@@ -364,6 +364,14 @@ assert: key is NOT just 'one-piece' (manga.id alone)
 Tests rule AH.
 Opening a different chapter overwrites the previous progress — no per-chapter history.
 
+```contract
+class: ReaderState
+setup: open manga 'one-piece', chapter A → progress saved
+action: open same manga, chapter B → progress saved
+assert: progress for 'one-piece' has chapterId === B (not A)
+assert: only one entry exists for this manga (no per-chapter history)
+```
+
 **T-AI-1: Progress debounced at 3 seconds**
 Tests rule AI.
 Scroll-based progress updates are debounced at 3s before writing to IndexedDB.
@@ -511,6 +519,13 @@ case 3 (write failure reverts):
 Tests rule BR.
 Favorites appear oldest first, newest at bottom.
 
+```contract
+class: FavoritesState
+setup: db contains favorites added in order: A, B, C
+action: init()
+assert: items order is [A, B, C] — oldest first, newest at bottom
+```
+
 **T-BR-2: Favorites scroll target is middle-of-viewport card**
 Tests rule BR.
 For session restore, the scroll target is whichever manga card was at the middle of the viewport when the user left favorites.
@@ -542,6 +557,15 @@ assert: optimistic update reverted, toast shown
 **T-AN-3: DB init failure shows error state without crash**
 Tests rule AN.
 If IDB initialization fails, a "Storage unavailable" toast is shown. The app remains usable for browsing and reading without persistence.
+
+```contract
+class: FavoritesState
+setup: db fails on all operations (getAllFavorites throws)
+action: init()
+assert: items === [] (empty, not crash)
+assert: toast contains "Storage unavailable"
+assert: isFavorited() still works (returns false, no throw)
+```
 
 ### View Stack
 

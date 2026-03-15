@@ -107,3 +107,46 @@ describe('T-AN-2: Write failures reject for caller handling', () => {
     expect(toast.items.some(t => t.message === 'Failed to update favorites')).toBe(true);
   });
 });
+
+describe('T-BR-1: Favorites ordered by insertion order', () => {
+  it('items appear oldest first, newest at bottom', async () => {
+    const mangaA: Manga = { id: 'a', title: 'A', cover: 'a.jpg', latestChapter: 1 };
+    const mangaB: Manga = { id: 'b', title: 'B', cover: 'b.jpg', latestChapter: 2 };
+    const mangaC: Manga = { id: 'c', title: 'C', cover: 'c.jpg', latestChapter: 3 };
+
+    // Add in order: A, B, C
+    favoritesStore.set('a', mangaA);
+    favoritesStore.set('b', mangaB);
+    favoritesStore.set('c', mangaC);
+
+    const toast = new ToastState();
+    const favs = new FavoritesState(toast);
+    await favs.init();
+
+    expect(favs.items.map(m => m.id)).toEqual(['a', 'b', 'c']);
+  });
+});
+
+describe('T-AN-3: DB init failure shows error state without crash', () => {
+  it('init failure shows "Storage unavailable" toast and returns empty', async () => {
+    const toast = new ToastState();
+    const favs = new FavoritesState(toast);
+
+    dbShouldFail = true;
+    await favs.init();
+
+    expect(favs.items).toEqual([]);
+    expect(toast.items.some(t => t.message === 'Storage unavailable')).toBe(true);
+  });
+
+  it('app remains usable after init failure', async () => {
+    const toast = new ToastState();
+    const favs = new FavoritesState(toast);
+
+    dbShouldFail = true;
+    await favs.init();
+
+    // isFavorited still works — no throw
+    expect(favs.isFavorited('one-piece')).toBe(false);
+  });
+});
