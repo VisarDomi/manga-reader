@@ -16,7 +16,7 @@ When the user browses with no keyword (filters only, or no input at all), result
 
 ## 4. NSFW Genres
 
-The following 5 genres are NSFW: Adult, Ecchi, Hentai, Mature, Smut. The provider marks these with `nsfw: true` in `getFilters()` so the app can auto-exclude them when the provider is first used (see root AA) without knowing the names itself.
+The following 5 genres are NSFW: Adult, Ecchi, Hentai, Mature, Smut. The provider marks these as NSFW so the app can auto-exclude them when the provider is first used (see root AA) without knowing the names itself.
 
 ## 5. Chapter List Pagination Is Adaptive
 
@@ -40,12 +40,12 @@ Comix.to has no JSON API for chapter images. The provider fetches the chapter pa
 - **Escaped**: `\"images\":[{\"url\":\"https:\/\/cdn.com\/page1.jpg\"}]` — JSON embedded inside a JavaScript string, with escaped quotes and slashes.
 - **Unescaped**: `"images":[{"url":"https://cdn.com/page1.jpg"}]` — plain JSON inside a JS object.
 
-The parser tries escaped first, then falls back to unescaped. When matched, it extracts the JSON array, unescapes if needed, validates with `JSON.parse`, and returns the image list. If neither pattern matches, it throws an error. Both formats must be supported because the upstream varies between renders — supporting only one would cause intermittent failures.
+The parser tries escaped first, then falls back to unescaped. When matched, it extracts the JSON array, unescapes if needed, validates the result as valid JSON, and returns the image list. If neither pattern matches or the extracted data is malformed, it fails with an error. Both formats must be supported because the upstream varies between renders — supporting only one would cause intermittent failures.
 
 ## 8. Image Requests Require Referer Header
 
-The CDN serving chapter images rejects requests without a `Referer: https://comix.to` header (returns 403). The provider specifies this via `imageHeaders()` and the app's image proxy forwards it. Without it, every image silently fails to load — the reader shows blank pages with no error.
+The CDN serving chapter images rejects requests without a `Referer: https://comix.to` header (returns 403). The provider declares this required header and the app's image proxy forwards it. Without it, every image silently fails to load — the reader shows blank pages with no error.
 
 ## 9. Manga ID Is `hash_id` with `slug` Fallback
 
-The provider uses the manga's `hash_id` (e.g. `"okdv"`) as the primary identifier, falling back to `slug` if `hash_id` is missing. This ID is used everywhere — API requests, IDB progress keys, IDB favorite keys. If comix.to changes their ID scheme, all stored progress and favorites become orphaned. A manual IDB migration would be needed.
+The provider uses the manga's `hash_id` (e.g. `"okdv"`) as the primary identifier, falling back to `slug` if `hash_id` is missing. This ID is used everywhere — API requests, progress tracking, favorites. If comix.to changes their ID scheme, all stored progress and favorites become orphaned and would need migration.

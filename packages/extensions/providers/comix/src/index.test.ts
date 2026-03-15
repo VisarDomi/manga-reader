@@ -32,11 +32,8 @@ describe('T-C2-1: hasMore = current_page < last_page', () => {
   });
 });
 
-describe('T-C2-2: No extra request when total is multiple of 100', () => {
-  it('returns false — no trailing empty request', () => {
-    expect(computeHasMore({ current_page: 3, last_page: 3 })).toBe(false);
-  });
-});
+// T-C2-2 deleted — duplicate of T-C2-1 case 2. The "no trailing empty request"
+// guarantee comes from upstream API setting last_page correctly, not our code.
 
 // ── Sort Order ─────────────────────────────────────────────────────────
 

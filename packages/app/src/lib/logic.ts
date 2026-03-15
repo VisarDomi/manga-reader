@@ -66,6 +66,20 @@ export function toggleBinaryFilter(current: boolean): boolean {
   return !current;
 }
 
+export function mergeChapterPages(pages: (ChapterEntry[] | null)[]): ChapterEntry[] {
+  const all: ChapterEntry[] = [];
+  const seen = new Set<string>();
+  for (const page of pages) {
+    if (!page) continue;
+    for (const ch of page) {
+      if (seen.has(ch.id)) continue;
+      seen.add(ch.id);
+      all.push(ch);
+    }
+  }
+  return all;
+}
+
 export function deduplicateByMangaId<T extends HasId>(existing: T[], incoming: T[]): T[] {
   const seen = new Set(existing.map(m => m.id));
   const deduped = incoming.filter(m => !seen.has(m.id));

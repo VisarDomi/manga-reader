@@ -833,7 +833,7 @@ assert: returns false for { kind: 'upstream', status: 400 }
 assert: returns false for { kind: 'upstream', status: 403 }
 assert: returns false for { kind: 'upstream', status: 404 }
 assert: returns false for { kind: 'parse' }
-assert: returns false for { kind: 'cloudflare' }
+assert: returns false for { kind: 'cloudflare' } (safe fallback — cloudflare should never reach pagination per AW)
 ```
 
 **T-AY-3: All errors logged with full context**
@@ -858,17 +858,19 @@ Tests rule AZ.
 All errors are: `upstream` (HTTP, carries status), `timeout`, `network` (TypeError), `cloudflare` (503 + Cloudflare header), or `parse` (response received but unparseable). The catch block constructs the final `AppError` variant directly — no intermediate error type, no lossy conversion. UI pattern-matches on `kind`.
 
 ```contract
-type: AppError =
-  | { kind: 'upstream'; status: number }
-  | { kind: 'timeout' }
-  | { kind: 'network' }
-  | { kind: 'cloudflare' }
-  | { kind: 'parse' }
-case 1: HTTP 404 response            → assert: { kind: 'upstream', status: 404 }
-case 2: request exceeded timeout      → assert: { kind: 'timeout' }
-case 3: TypeError (CORS / no conn)    → assert: { kind: 'network' }
-case 4: 503 + Cloudflare header       → assert: { kind: 'cloudflare' }
-case 5: JSON.parse / parse failure    → assert: { kind: 'parse' }
+function: loadErrorMessage(err: LoadError) → string
+case 1: { kind: 'upstream', status: 404 } → contains 'Server error' and '404'
+case 2: { kind: 'timeout' }              → contains 'timed out'
+case 3: { kind: 'network' }              → contains 'Network error'
+case 4: { kind: 'cloudflare' }           → contains 'Cloudflare'
+
+function: toLoadError(e: unknown) → LoadError
+case 1: ApiError(HTTP, 404)    → { kind: 'upstream', status: 404 }
+case 2: ApiError(TIMEOUT)      → { kind: 'timeout' }
+case 3: ApiError(NETWORK)      → { kind: 'network' }
+case 4: ApiError(CLOUDFLARE)   → { kind: 'cloudflare' }
+case 5: ApiError(PARSE)        → { kind: 'network' } (catch-all)
+case 6: unknown Error          → { kind: 'network' } (catch-all)
 ```
 
 ### Dynamic Timeout

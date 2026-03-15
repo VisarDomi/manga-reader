@@ -5,7 +5,7 @@ A test only changes if a business decision changes.
 
 ## AA. NSFW Genres Auto-Excluded on First Install
 
-When a provider is used for the first time (no prior filter state in localStorage for that provider), the app auto-excludes all genres that the provider marks as NSFW. The app does not know which genres are NSFW by name — it asks the provider via `getFilters()` and excludes every genre flagged `nsfw: true`. After this one-time seeding, the user can toggle any of them freely. If the provider already has saved filters, this seeding is skipped entirely. This triggers independently per provider — installing a second provider seeds its NSFW genres even if the first provider's filters already exist.
+When a provider is used for the first time (no prior filter state for that provider), the app auto-excludes all genres that the provider marks as NSFW. The app does not know which genres are NSFW by name — it asks the provider which genres are NSFW and excludes them. After this one-time seeding, the user can toggle any of them freely. If the provider already has saved filters, this seeding is skipped entirely. This triggers independently per provider — installing a second provider seeds its NSFW genres even if the first provider's filters already exist.
 
 ## AB. Genre Filters Are 3-State Toggles
 
@@ -38,7 +38,7 @@ Chapter filtering is a single pipeline: raw chapters in, filtered/deduped/sorted
 3. **Dedup by chapter number:** When multiple groups have the same chapter number, the latest upload wins.
 4. **Sort descending:** Chapters are sorted by number, newest first.
 
-These stages are not separate functions — the pipeline is one unit. Tests assert the pipeline's end state for each behavior.
+Tests assert the pipeline's end state for each behavior.
 
 ## AG. Chapters Are Yielded Progressively
 
@@ -244,15 +244,16 @@ If `isLoading` stays true for more than 15 seconds, a watchdog force-resets the 
 
 When loading the next page of search results fails:
 - **Transient** (upstream with status 408, 429, 500, 502, 503, 504, or network, or timeout): page counter rolls back, `hasMore` stays true, toast shows "Slow connection, scroll to retry." User can retry by scrolling to the sentinel again.
-- **Permanent** (upstream with status 400, 403, 404, etc., or parse): `hasMore` set to false, pagination stops, toast shows "Failed to load more results." User keeps existing results.
+- **Permanent** (upstream with any other status — 400, 401, 403, 404, 405, 406, 410, 422, etc. — or parse): `hasMore` set to false, pagination stops, toast shows "Failed to load more results." User keeps existing results.
+- **Cloudflare** errors never reach pagination — the provider handles them via AW before they bubble up. If a cloudflare error does reach `isTransient`, it returns false (stop pagination) as a safe fallback — the user can't solve cloudflare by scrolling.
 
-Transient/permanent classification operates on `AppError` (see AZ), not on raw status codes. `isTransient(error: AppError) → boolean` is a single function — no duplication between layers.
+Transient/permanent classification operates on the error kind (see AZ), not on raw status codes. The classification logic exists in one place — no duplication between layers.
 
 All errors are logged with full context (URL, status, response body snippet, timestamp) regardless of transient/permanent classification.
 
 ## AZ. Error Types Are a Tagged Union
 
-All errors are categorized into 5 kinds: `upstream` (HTTP error, carries status code), `timeout` (request exceeded dynamic timeout), `network` (TypeError — CORS or no connection), `cloudflare` (503 + Cloudflare header), `parse` (response received but couldn't be parsed — the upstream returned malformed data). Each kind maps to a specific user-facing message: upstream → "Server error ({status})", timeout → "Request timed out", network → "Network error — check your connection", cloudflare → "Blocked by Cloudflare — retrying...", parse → "Unexpected response from server". The UI pattern-matches on `kind`. There is no intermediate error type or lossy conversion — the catch block constructs the final `AppError` variant directly.
+All errors are categorized into 5 kinds: `upstream` (HTTP error, carries status code), `timeout` (request exceeded timeout), `network` (no connection or CORS), `cloudflare` (Cloudflare block), `parse` (response received but unparseable). Each kind maps to a user-facing message: upstream → "Server error ({status})", timeout → "Request timed out", network → "Network error — check your connection", cloudflare → "Blocked by Cloudflare — retrying...", parse → "Unexpected response from server". No error information is lost in classification — HTTP errors preserve their status code, and the UI pattern-matches on kind.
 
 ## BA. Dynamic Fetch Timeout
 

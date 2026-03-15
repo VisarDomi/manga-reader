@@ -229,29 +229,8 @@ describe('T-AO-3: Repos is a leaf', () => {
   });
 });
 
-describe('T-AZ-1: Errors are a tagged union of 5 kinds', () => {
-  it('HTTP 404 → { kind: upstream, status: 404 }', () => {
-    const err: AppError = { kind: ErrorKind.UPSTREAM, status: 404 };
-    expect(err.kind).toBe(ErrorKind.UPSTREAM);
-    expect(err.status).toBe(404);
-  });
-  it('timeout → { kind: timeout }', () => {
-    const err: AppError = { kind: ErrorKind.TIMEOUT };
-    expect(err.kind).toBe(ErrorKind.TIMEOUT);
-  });
-  it('TypeError → { kind: network }', () => {
-    const err: AppError = { kind: ErrorKind.NETWORK };
-    expect(err.kind).toBe(ErrorKind.NETWORK);
-  });
-  it('503 + Cloudflare → { kind: cloudflare }', () => {
-    const err: AppError = { kind: ErrorKind.CLOUDFLARE };
-    expect(err.kind).toBe(ErrorKind.CLOUDFLARE);
-  });
-  it('parse failure → { kind: parse }', () => {
-    const err: AppError = { kind: ErrorKind.PARSE };
-    expect(err.kind).toBe(ErrorKind.PARSE);
-  });
-});
+// T-AZ-1 tests moved to state/errors.test.ts — tests toLoadError + loadErrorMessage
+// instead of tautological object construction
 
 describe('T-AY-1: Transient error detection', () => {
   const cases: [AppError, string][] = [

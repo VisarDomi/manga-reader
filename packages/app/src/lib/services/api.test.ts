@@ -1,15 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import type { ChapterMeta } from '../types.js';
-
-// mergeChapterPages does not exist yet — extract from fetchChapterList
-// when refactoring api.ts (see CLAUDE.md tech debt)
-const { mergeChapterPages } = await import('../logic.js') as {
-  mergeChapterPages: (pages: (ChapterMeta[] | null)[]) => ChapterMeta[];
-};
+import { mergeChapterPages } from '../logic.js';
 
 describe('T-AG-2: Deduplication on each batch', () => {
-  // Known-failing: mergeChapterPages not yet extracted from fetchChapterList
-  it.fails('duplicate chapter IDs across pages are deduplicated', () => {
+  it('duplicate chapter IDs across pages are deduplicated', () => {
     const pages: (ChapterMeta[] | null)[] = [
       [
         { id: 'ch-1', number: 1, groupName: 'A' },
@@ -30,8 +24,7 @@ describe('T-AG-2: Deduplication on each batch', () => {
 });
 
 describe('T-AG-3: Partial data shown on partial failure', () => {
-  // Known-failing: mergeChapterPages not yet extracted from fetchChapterList
-  it.fails('returns chapters from succeeded pages when others failed', () => {
+  it('returns chapters from succeeded pages when others failed', () => {
     const pages: (ChapterMeta[] | null)[] = [
       [
         { id: 'ch-5', number: 5, groupName: 'A' },
@@ -49,7 +42,7 @@ describe('T-AG-3: Partial data shown on partial failure', () => {
     expect(result.map(ch => ch.id)).toEqual(['ch-5', 'ch-4']);
   });
 
-  it.fails('returns empty array when all pages failed', () => {
+  it('returns empty array when all pages failed', () => {
     const pages: (ChapterMeta[] | null)[] = [null, null, null, null, null];
 
     const result = mergeChapterPages(pages);

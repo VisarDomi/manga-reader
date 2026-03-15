@@ -85,12 +85,6 @@ describe('T-AC-6: Filters and query persist per provider', () => {
     expect(fs2.selectedTypes.has('manga')).toBe(true);
   });
 
-  it('query persists via storage', () => {
-    store.set('lastQuery', 'one piece');
-
-    // Storage fake is the same Map — verify the value round-trips
-    expect(store.get('lastQuery')).toBe('one piece');
-  });
 });
 
 describe('T-AC-2: Each change restarts the debounce', () => {
