@@ -69,9 +69,10 @@ describe('T-AM-1: Optimistic toggle with revert on failure', () => {
     const toast = new ToastState();
     const favs = new FavoritesState(toast);
 
-    // Toggle with DB failure
     dbShouldFail = true;
+    vi.spyOn(console, 'error').mockImplementation(() => {});
     await favs.toggle(manga);
+    vi.restoreAllMocks();
 
     // Should revert — not favorited
     expect(favs.isFavorited('one-piece')).toBe(false);
@@ -97,7 +98,9 @@ describe('T-AN-2: Write failures reject for caller handling', () => {
     const favs = new FavoritesState(toast);
 
     dbShouldFail = true;
+    vi.spyOn(console, 'error').mockImplementation(() => {});
     await favs.toggle(manga);
+    vi.restoreAllMocks();
 
     // Reverted — not in items
     expect(favs.isFavorited('one-piece')).toBe(false);
