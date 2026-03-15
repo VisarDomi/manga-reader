@@ -835,6 +835,28 @@ When the initial search or manga open fails, the app shows a persistent error st
 Tests rule BB.
 When pagination fails (results already on screen), a transient toast is shown.
 
+```contract
+class: SearchState
+case 1 (transient — timeout):
+  setup: initial search succeeded with results + hasMore=true
+  action: loadNextPage(), api rejects with ApiError(TIMEOUT)
+  assert: currentPage rolled back to 1
+  assert: hasMore still true (can retry)
+  assert: toast contains Msg.SLOW_CONNECTION
+  assert: error remains null (not persistent — results already on screen)
+case 2 (permanent — 404):
+  setup: initial search succeeded with results + hasMore=true
+  action: loadNextPage(), api rejects with ApiError(HTTP, 404)
+  assert: hasMore set to false (pagination stops)
+  assert: toast contains Msg.LOAD_MORE_FAILED
+  assert: error remains null
+case 3 (transient HTTP — 429):
+  setup: initial search succeeded with results + hasMore=true
+  action: loadNextPage(), api rejects with ApiError(HTTP, 429)
+  assert: currentPage rolled back to 1, hasMore still true
+  assert: toast contains Msg.SLOW_CONNECTION
+```
+
 ### Chapter Image Retry
 
 **T-BC-1: Transient errors retry once after 1 second**

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ApiError, ApiErrKind } from '../services/fetchJson.js';
+import { Msg } from '../messages.js';
 import type { Manga } from '../types.js';
 
 // Storage fake
@@ -120,5 +121,59 @@ describe('T-BD-1: First search failure shows persistent error', () => {
     await p;
 
     expect(search.error).toBeNull();
+  });
+});
+
+describe('T-BB-2: Pagination failure shows toast', () => {
+  // Helper: set up a SearchState with initial results + hasMore=true
+  async function searchWithResults(toast: InstanceType<typeof ToastState>) {
+    const search = new SearchState(toast);
+    const p = search.search('test');
+    lastPending().resolve({
+      manga: [{ id: 'a', title: 'A', cover: 'a.jpg', latestChapter: 1 }],
+      hasMore: true,
+    });
+    await p;
+    return search;
+  }
+
+  it('transient timeout → page rolls back, hasMore stays true, toast SLOW_CONNECTION', async () => {
+    const toast = new ToastState();
+    const search = await searchWithResults(toast);
+
+    const p = search.loadNextPage();
+    lastPending().reject(new ApiError(ApiErrKind.TIMEOUT));
+    await p;
+
+    expect(search.currentPage).toBe(1);
+    expect(search.hasMore).toBe(true);
+    expect(search.error).toBeNull();
+    expect(toast.items.some(t => t.message === Msg.SLOW_CONNECTION)).toBe(true);
+  });
+
+  it('permanent 404 → hasMore false, toast LOAD_MORE_FAILED', async () => {
+    const toast = new ToastState();
+    const search = await searchWithResults(toast);
+
+    const p = search.loadNextPage();
+    lastPending().reject(new ApiError(ApiErrKind.HTTP, 404));
+    await p;
+
+    expect(search.hasMore).toBe(false);
+    expect(search.error).toBeNull();
+    expect(toast.items.some(t => t.message === Msg.LOAD_MORE_FAILED)).toBe(true);
+  });
+
+  it('transient HTTP 429 → page rolls back, hasMore stays true', async () => {
+    const toast = new ToastState();
+    const search = await searchWithResults(toast);
+
+    const p = search.loadNextPage();
+    lastPending().reject(new ApiError(ApiErrKind.HTTP, 429));
+    await p;
+
+    expect(search.currentPage).toBe(1);
+    expect(search.hasMore).toBe(true);
+    expect(toast.items.some(t => t.message === Msg.SLOW_CONNECTION)).toBe(true);
   });
 });
