@@ -1,16 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import provider from './index.js';
-
-// Helper to build upstream manga items for parseSearchResponse
-function makeUpstreamItems(count: number) {
-  return Array.from({ length: count }, (_, i) => ({
-    hash_id: `h${i}`,
-    slug: `slug-${i}`,
-    title: `Title ${i}`,
-    poster: { medium: `cover${i}.jpg` },
-    latest_chapter: i + 1,
-  }));
-}
+import { computeHasMore } from './pagination.js';
 
 // ── Search Page Size ───────────────────────────────────────────────────
 
@@ -34,32 +24,17 @@ describe('T-C1-2: Chapter list limit is 100', () => {
 
 describe('T-C2-1: hasMore = current_page < last_page', () => {
   it('returns true when current_page < last_page', () => {
-    const data = {
-      result: { items: makeUpstreamItems(100) },
-      pagination: { current_page: 1, last_page: 3, total: 300 },
-    };
-    const result = provider.parseSearchResponse(data);
-    expect(result.hasMore).toBe(true);
+    expect(computeHasMore({ current_page: 1, last_page: 3 })).toBe(true);
   });
 
   it('returns false when current_page === last_page', () => {
-    const data = {
-      result: { items: makeUpstreamItems(100) },
-      pagination: { current_page: 3, last_page: 3, total: 300 },
-    };
-    const result = provider.parseSearchResponse(data);
-    expect(result.hasMore).toBe(false);
+    expect(computeHasMore({ current_page: 3, last_page: 3 })).toBe(false);
   });
 });
 
 describe('T-C2-2: No extra request when total is multiple of 100', () => {
   it('returns false — no trailing empty request', () => {
-    const data = {
-      result: { items: makeUpstreamItems(100) },
-      pagination: { current_page: 3, last_page: 3, total: 300 },
-    };
-    const result = provider.parseSearchResponse(data);
-    expect(result.hasMore).toBe(false);
+    expect(computeHasMore({ current_page: 3, last_page: 3 })).toBe(false);
   });
 });
 
