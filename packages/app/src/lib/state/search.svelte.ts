@@ -86,6 +86,7 @@ export class SearchState {
 
     async search(query: string) {
         this.onNewSearch?.();
+        this.filters.cancelDebounce();
         this.machine.enter('searching');
         const signal = this.machine.signal!;
         this.startWatchdog();

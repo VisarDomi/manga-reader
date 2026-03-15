@@ -33,6 +33,14 @@ export class FilterState {
         }, SEARCH_DEBOUNCE_MS);
     }
 
+    /** Cancel any pending debounce timer (e.g. when enter fires search immediately). */
+    cancelDebounce(): void {
+        if (this.debounceTimer) {
+            clearTimeout(this.debounceTimer);
+            this.debounceTimer = null;
+        }
+    }
+
     private persist(): void {
         const data: PersistedFilters = {
             terms: [...this.termStates.entries()],

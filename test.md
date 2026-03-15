@@ -149,7 +149,13 @@ Tests rule AC.
 Given a keystroke at t=0 and another at t=300ms,
 then no search fires at t=500ms. A search fires at t=800ms (500ms after the last change).
 
-_Behavioral: needs fake timers to verify restart._
+```contract
+class: FilterState
+setup: FilterState with onChange spy, fake timers
+action: toggleTerm('1') at t=0, toggleTerm('2') at t=300ms
+assert: onChange not called at t=500ms (first debounce would have fired)
+assert: onChange called once at t=800ms (500ms after last change)
+```
 
 **T-AC-3: Changes abort in-flight requests**
 Tests rule AC.
@@ -169,7 +175,13 @@ Tests rule AC.
 Given the user types and immediately presses enter,
 then the search fires immediately without waiting 500ms.
 
-_Behavioral: needs fake timers to verify immediate fire._
+```contract
+class: SearchState + FilterState
+setup: fake timers, filter toggle triggers debounce
+action: toggleTerm('1') at t=0, then search('query') at t=100ms
+assert: search fires at t=100ms (immediately, not waiting for debounce)
+assert: no duplicate search fires at t=500ms (debounce cancelled)
+```
 
 **T-AC-5: Search is non-blocking**
 Tests rule AC.

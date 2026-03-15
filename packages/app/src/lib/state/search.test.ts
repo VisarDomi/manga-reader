@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ApiError, ApiErrKind } from '../services/fetchJson.js';
 import { Msg } from '../messages.js';
 import type { Manga } from '../types.js';
@@ -175,5 +175,30 @@ describe('T-BB-2: Pagination failure shows toast', () => {
     expect(search.currentPage).toBe(1);
     expect(search.hasMore).toBe(true);
     expect(toast.items.some(t => t.message === Msg.SLOW_CONNECTION)).toBe(true);
+  });
+});
+
+describe('T-AC-4: Enter skips debounce', () => {
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('search() fires immediately, pending debounce does not fire duplicate', () => {
+    const toast = new ToastState();
+    const search = new SearchState(toast);
+
+    // t=0: toggle filter — starts 500ms debounce
+    search.filters.toggleTerm('1');
+    expect(pendingCalls).toHaveLength(0);
+
+    // t=100: "enter" — search fires immediately
+    vi.advanceTimersByTime(100);
+    search.search('query');
+    expect(pendingCalls).toHaveLength(1);
+
+    const callCountAfterEnter = pendingCalls.length;
+
+    // t=500: debounce from toggleTerm would fire — should NOT create a duplicate search
+    vi.advanceTimersByTime(400);
+    expect(pendingCalls).toHaveLength(callCountAfterEnter);
   });
 });

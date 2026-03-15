@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Filter } from '../logic.js';
 
 const store = new Map<string, string>();
@@ -90,5 +90,32 @@ describe('T-AC-6: Filters and query persist per provider', () => {
 
     // Storage fake is the same Map — verify the value round-trips
     expect(store.get('lastQuery')).toBe('one piece');
+  });
+});
+
+describe('T-AC-2: Each change restarts the debounce', () => {
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('second toggle at t=300 restarts debounce — onChange fires at t=800, not t=500', () => {
+    const onChange = vi.fn();
+    const fs = new FilterState(onChange);
+
+    // t=0: first toggle
+    fs.toggleTerm('1');
+    expect(onChange).not.toHaveBeenCalled();
+
+    // t=300: second toggle restarts the debounce
+    vi.advanceTimersByTime(300);
+    fs.toggleTerm('2');
+    expect(onChange).not.toHaveBeenCalled();
+
+    // t=500: first debounce would have fired — but it was restarted
+    vi.advanceTimersByTime(200);
+    expect(onChange).not.toHaveBeenCalled();
+
+    // t=800: 500ms after last change — debounce fires
+    vi.advanceTimersByTime(300);
+    expect(onChange).toHaveBeenCalledTimes(1);
   });
 });
