@@ -100,8 +100,10 @@ describe('T-AH-2: Only one position per manga per provider', () => {
     expect(lastProgressData).toEqual({ chapterId: 'ch-101', chapterNumber: 101 });
 
     // Only one entry for this manga — last write wins
-    expect(lastProgressKey).toBe(manga.id);
-    const saved = progress.get(manga.id);
+    // Key must be composite per T-AH-1: repoUrl:providerId:mangaId
+    expect(lastProgressKey).toMatch(/^.+:.+:one-piece$/);
+    const compositeKey = lastProgressKey!;
+    const saved = progress.get(compositeKey);
     expect(saved!.chapterId).toBe('ch-101');
   });
 });

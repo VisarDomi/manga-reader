@@ -94,6 +94,31 @@ case 6: unknown error          → { kind: 'network' } (catch-all)
 Tests rule BB.
 When the initial search or manga open fails, the app shows a persistent error state with error kind and "Tap to retry". No disappearing toast for an empty screen.
 
+```contract
+class: MangaState
+case 1 (timeout):
+  setup: no prior chapters loaded
+  action: openManga(manga), api rejects with timeout error
+  assert: error.kind === 'timeout'
+  assert: chapters === [], isLoading === false
+  assert: no toast shown (persistent error, not transient)
+case 2 (network):
+  setup: no prior chapters loaded
+  action: openManga(manga), api rejects with network error
+  assert: error.kind === 'network'
+  assert: chapters === [], isLoading === false
+case 3 (HTTP 500):
+  setup: no prior chapters loaded
+  action: openManga(manga), api rejects with HTTP 500 error
+  assert: error.kind === 'upstream'
+  assert: chapters === [], isLoading === false
+case 4 (retry clears):
+  setup: previous openManga failed (error !== null)
+  action: openManga(manga) again, api succeeds with chapters
+  assert: error === null
+  assert: chapters.length > 0, isLoading === false
+```
+
 **T-BB-2: Pagination failure shows toast**
 Tests rule BB.
 When pagination fails (results already on screen), a transient toast is shown.
