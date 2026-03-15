@@ -157,6 +157,13 @@ Given a search request is in-flight,
 when the user makes any change (keystroke or filter toggle),
 then the in-flight request is aborted.
 
+```contract
+class: SearchState
+setup: search('naruto') started, request in-flight (signal not aborted)
+action: search('one piece') called
+assert: first search's AbortSignal is aborted
+```
+
 **T-AC-4: Enter skips debounce**
 Tests rule AC.
 Given the user types and immediately presses enter,
@@ -174,6 +181,14 @@ Tests rule AC + BH.
 Given the user sets filters and a query,
 when the app is reloaded,
 then the saved filters and query are restored from localStorage, scoped by provider key.
+
+```contract
+class: FilterState
+setup: toggleTerm('42'), toggleType('manga')
+action: new FilterState(onChange) — simulating reload
+assert: termStates.get('42') === 'include'
+assert: selectedTypes.has('manga') === true
+```
 
 **T-AD-1: Pagination deduplicates by manga ID**
 Tests rule AD.
@@ -468,6 +483,22 @@ Opening a chapter different from the saved one starts from the top. The old prog
 Tests rule AM.
 Toggling a favorite updates the UI immediately. If the IDB write fails, the UI reverts and a toast is shown.
 
+```contract
+class: FavoritesState
+case 1 (add success):
+  setup: manga not in favorites, db healthy
+  action: toggle(manga)
+  assert: isFavorited(manga.id) === true, db contains manga
+case 2 (remove success):
+  setup: manga in favorites, db healthy
+  action: toggle(manga)
+  assert: isFavorited(manga.id) === false, db does not contain manga
+case 3 (write failure reverts):
+  setup: manga not in favorites, db fails on write
+  action: toggle(manga)
+  assert: isFavorited(manga.id) === false (reverted), toast shown
+```
+
 **T-BR-1: Favorites ordered by insertion order**
 Tests rule BR.
 Favorites appear oldest first, newest at bottom.
@@ -482,9 +513,23 @@ For session restore, the scroll target is whichever manga card was at the middle
 Tests rule AN.
 IDB read failures (progress lookups, favorites listing) resolve with empty data. A one-time toast per session notifies the user.
 
+```contract
+class: FavoritesState
+setup: db fails on read
+action: init()
+assert: items === [] (empty, not crash)
+```
+
 **T-AN-2: Write failures reject for caller handling**
 Tests rule AN.
 IDB write failures reject. Favorites reverts the optimistic update (AM). Progress shows a toast on first failure per session.
+
+```contract
+class: FavoritesState
+setup: db fails on write
+action: toggle(manga)
+assert: optimistic update reverted, toast shown
+```
 
 **T-AN-3: DB init failure shows error state without crash**
 Tests rule AN.

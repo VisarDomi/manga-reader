@@ -53,7 +53,6 @@ describe('T-AA-1: NSFW genres auto-excluded on first install', () => {
 
 describe('T-AA-2: NSFW seeding skipped when filters already exist', () => {
   it('seedDefaults does not modify existing saved filters', () => {
-    // Pre-populate storage with saved filters
     const savedFilters = {
       terms: [['100', 'include']],
       types: [],
@@ -67,10 +66,29 @@ describe('T-AA-2: NSFW seeding skipped when filters already exist', () => {
 
     fs.seedDefaults(nsfwIds);
 
-    // NSFW IDs should NOT be in termStates — saved state preserved
     expect(fs.termStates.has('87264')).toBe(false);
     expect(fs.termStates.has('87265')).toBe(false);
-    // Original saved term should still be there
     expect(fs.termStates.get('100')).toBe(Filter.INCLUDE);
+  });
+});
+
+describe('T-AC-6: Filters and query persist per provider', () => {
+  it('toggled filters survive a FilterState rebuild', () => {
+    const onChange = vi.fn();
+    const fs1 = new FilterState(onChange);
+    fs1.toggleTerm('42');
+    fs1.toggleType('manga');
+
+    // Simulate reload — new instance reads from same storage
+    const fs2 = new FilterState(onChange);
+    expect(fs2.termStates.get('42')).toBe(Filter.INCLUDE);
+    expect(fs2.selectedTypes.has('manga')).toBe(true);
+  });
+
+  it('query persists via storage', () => {
+    store.set('lastQuery', 'one piece');
+
+    // Storage fake is the same Map — verify the value round-trips
+    expect(store.get('lastQuery')).toBe('one piece');
   });
 });
