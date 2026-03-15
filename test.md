@@ -847,6 +847,27 @@ On transient image fetch errors (408, 429, 5xx, network, timeout), one automatic
 Tests rule BD.
 If the first search on cold start fails (no cache, no session), persistent error state with error kind and "Tap to retry".
 
+```contract
+class: SearchState
+case 1 (network):
+  setup: no prior results, no session
+  action: search('naruto'), api rejects with ApiError(NETWORK)
+  assert: error.kind === 'network'
+  assert: results === [], hasMore === false, isLoading === false
+case 2 (timeout):
+  setup: no prior results, no session
+  action: search('naruto'), api rejects with ApiError(TIMEOUT)
+  assert: error.kind === 'timeout'
+case 3 (HTTP 500):
+  setup: no prior results, no session
+  action: search('naruto'), api rejects with ApiError(HTTP, 500)
+  assert: error.kind === 'upstream'
+case 4 (retry clears):
+  setup: error state from case 1
+  action: search('naruto'), api resolves with results
+  assert: error === null
+```
+
 **T-BD-2: Corrupted provider bundle shows "Provider unavailable"**
 Tests rule BD.
 If loading the provider's JS bundle from IDB fails, "Provider unavailable" with retry.
