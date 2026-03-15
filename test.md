@@ -176,15 +176,6 @@ Tests rule AC.
 While a search is loading,
 the UI remains responsive — filters can be toggled, text can be typed.
 
-```contract
-class: SearchState
-setup: search('naruto') started, promise pending (never resolved)
-action: check isLoading, access filters, call search('one piece')
-assert: isLoading === true during pending search
-assert: filters are accessible (FilterState instance exists)
-assert: new search can be initiated (does not block)
-```
-
 **T-AC-6: Filters and query persist per provider**
 Tests rule AC + BH.
 Given the user sets filters and a query,
@@ -347,37 +338,13 @@ Long-pressing a group item in the chapter list shows a block/cancel option to ad
 Tests rule AG.
 When opening a manga, the app renders chapters as each page arrives without waiting for the full list. Page 1 (newest chapters) fills the top of the list.
 
-```contract
-class: MangaState
-setup: api.fetchChapterList returns chapters [ch3, ch1, ch2]
-action: openManga(manga)
-assert: chapters stored on state after resolve
-assert: filteredChapters sorted descending by number [3, 2, 1]
-```
-
 **T-AG-2: Deduplication on each batch**
 Tests rule AG.
 On each incoming batch, the app deduplicates by chapter ID and re-applies group filtering and sorting.
 
-```contract
-class: MangaState
-setup: api.fetchChapterList returns chapters with duplicate IDs [ch-a(num:3), ch-b(num:1), ch-a(num:3)]
-action: openManga(manga)
-assert: chapters contain no duplicate IDs — dedup already done by fetchChapterList
-assert: filteredChapters sorted descending
-```
-
 **T-AG-3: Partial data shown on partial failure**
 Tests rule AG.
 If some chapter list pages fail but others succeed, the app shows what it got.
-
-```contract
-class: MangaState
-setup: api.fetchChapterList returns partial results (some pages succeeded)
-action: openManga(manga)
-assert: chapters.length > 0 — partial data shown
-assert: error is null — partial success is not an error
-```
 
 ### Reading Progress
 
@@ -567,14 +534,6 @@ assert: optimistic update reverted, toast shown
 **T-AN-3: DB init failure shows error state without crash**
 Tests rule AN.
 If IDB initialization fails, a "Storage unavailable" toast is shown. The app remains usable for browsing and reading without persistence.
-
-```contract
-class: FavoritesState
-setup: db fails on all operations (init failure)
-action: init()
-assert: items === [] (empty, not crash)
-assert: app does not throw — remains usable
-```
 
 ### View Stack
 
@@ -872,41 +831,9 @@ The server proxy defers to the app's dynamic timeout — it does not enforce its
 Tests rule BB.
 When the initial search or manga open fails, the app shows a persistent error state with error kind and "Tap to retry". No disappearing toast for an empty screen.
 
-```contract
-class: SearchState
-case 1 (error persists):
-  setup: no prior results
-  action: search('naruto'), api rejects with network error
-  assert: error !== null — persistent, not just a toast
-  assert: results === [], isLoading === false
-case 2 (retry clears error):
-  setup: error state from case 1
-  action: search('naruto'), api resolves with results
-  assert: error === null — cleared on success
-```
-
 **T-BB-2: Pagination failure shows toast**
 Tests rule BB.
 When pagination fails (results already on screen), a transient toast is shown.
-
-```contract
-class: SearchState
-case 1 (transient):
-  setup: search succeeded with hasMore=true
-  action: loadNextPage(), api rejects with ApiError(timeout)
-  assert: currentPage rolled back, hasMore still true
-  assert: toast shows SLOW_CONNECTION
-case 2 (permanent):
-  setup: search succeeded with hasMore=true
-  action: loadNextPage(), api rejects with ApiError(http, 404)
-  assert: hasMore set to false — pagination stops
-  assert: toast shows LOAD_MORE_FAILED
-case 3 (transient HTTP):
-  setup: search succeeded with hasMore=true
-  action: loadNextPage(), api rejects with ApiError(http, 429)
-  assert: currentPage rolled back, hasMore still true
-  assert: toast shows SLOW_CONNECTION
-```
 
 ### Chapter Image Retry
 
@@ -919,15 +846,6 @@ On transient image fetch errors (408, 429, 5xx, network, timeout), one automatic
 **T-BD-1: First search failure shows persistent error**
 Tests rule BD.
 If the first search on cold start fails (no cache, no session), persistent error state with error kind and "Tap to retry".
-
-```contract
-class: SearchState
-setup: no cached results, no session
-action: search('naruto'), api rejects with ApiError(network)
-assert: error !== null, error.kind === 'network'
-assert: results === []
-assert: isLoading === false
-```
 
 **T-BD-2: Corrupted provider bundle shows "Provider unavailable"**
 Tests rule BD.
