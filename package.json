@@ -7,5 +7,8 @@
     "packages/extensions",
     "packages/server",
     "packages/app"
-  ]
+  ],
+  "devDependencies": {
+    "vitest": "^4.1.0"
+  }
 }
