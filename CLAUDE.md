@@ -40,3 +40,7 @@ These tests are written to the spec but fail because the multi-repo/provider inf
 - **T-AH-1** (`reader.test.ts`): Progress key must be `repoUrl:providerId:mangaId`, not bare `manga.id`
 - **T-AA-3** (not yet written): FilterState NSFW seeding must be per-provider, not global `'filters'` key
 
+## Tech Debt
+
+- **logic.ts is an orphan grab-bag**: Pure functions (`cycleGenreFilter`, `filteredChapters`, `isTransient`, etc.), constants (`VALID_STACKS`, `READER_ROOT_MARGIN`), and types (`AppError`, `ViewStack`) are all in one file. Some functions are duplicated in state classes (e.g. `filteredChapters` in logic.ts vs `MangaState.filteredChapters`). Needs refactoring when the app is restructured — move functions closer to their consumers or into domain modules.
+
