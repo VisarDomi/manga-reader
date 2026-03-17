@@ -42,7 +42,7 @@ const provider: MangaProvider = {
     params.set('limit', String(SEARCH_LIMIT));
     if (query) {
       params.set('keyword', query);
-    } else if (!filters) {
+    } else {
       params.set('order[chapter_updated_at]', 'desc');
     }
 
