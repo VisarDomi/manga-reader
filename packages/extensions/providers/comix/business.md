@@ -12,7 +12,7 @@ Both the search and chapter endpoints return a `pagination` object with `current
 
 ## 3. Sort Order Depends on Whether a Keyword Is Present
 
-When the user browses with no keyword (filters only, or no input at all), results are sorted by `chapter_updated_at` descending — a "latest updates" feed. When the user types a keyword, the API's default relevance ranking takes over and no explicit sort is sent. This means filter-only browsing always shows the freshest content, while keyword search shows the best matches.
+When the user types a keyword, the API's default relevance ranking takes over and no explicit sort is sent — keyword search shows the best matches. When the user browses with no keyword and no filters, results are sorted by `chapter_updated_at` descending — a "latest updates" feed. When the user browses with no keyword but has active filters, only the filters are sent — no keyword and no explicit ordering — so the API decides the best ordering for filtered results.
 
 ## 4. NSFW Genres
 

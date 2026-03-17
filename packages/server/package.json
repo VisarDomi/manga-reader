@@ -6,10 +6,10 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
-    "restart": "systemctl --user restart comix-backend",
-    "stop": "systemctl --user stop comix-backend",
-    "logs": "journalctl --user -u comix-backend -f",
-    "status": "systemctl --user status comix-backend"
+    "restart": "systemctl --user restart manga-reader",
+    "stop": "systemctl --user stop manga-reader",
+    "logs": "journalctl --user -u manga-reader -f",
+    "status": "systemctl --user status manga-reader"
   },
   "dependencies": {
     "express": "^4.21.0",
