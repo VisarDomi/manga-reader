@@ -1,11 +1,12 @@
 import { execSync } from 'node:child_process';
-import { readdirSync, existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readdirSync, existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROVIDERS_DIR = join(__dirname, 'providers');
 const DIST_DIR = join(__dirname, 'dist');
+const APP_BUNDLED_DIR = join(__dirname, '..', 'app', 'src', 'lib', 'services', 'bundled');
 
 const index = [];
 
@@ -35,6 +36,11 @@ for (const name of readdirSync(PROVIDERS_DIR)) {
     nsfw: provider.nsfw,
     bundle: `bundles/${name}.js`,
   });
+
+  // Copy bundle to app's bundled fallback directory
+  const appBundleDest = join(APP_BUNDLED_DIR, `${name}.js`);
+  copyFileSync(bundlePath, appBundleDest);
+  console.log(`  Copied to app bundled fallback: ${appBundleDest}`);
 
   console.log(`  Done: ${provider.id} v${provider.version}`);
 }

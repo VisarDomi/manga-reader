@@ -1,4 +1,4 @@
-const y = [
+const u = [
   // Demographics (4)
   { id: 1, name: "Shoujo", category: "demographic" },
   { id: 2, name: "Shounen", category: "demographic" },
@@ -94,16 +94,16 @@ const y = [
   manhwa: "Manhwa",
   manhua: "Manhua",
   other: "Other"
-};
-function M(n, o) {
-  const a = o.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), e = [
+}, M = [87264, 87265, 87266, 87267, 87268];
+function R(r, o) {
+  const a = o.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), t = [
     [`\\"${a}\\"`, !0],
     [`"${a}"`, !1]
   ];
-  for (const [t, i] of e) {
-    const r = n.indexOf(t);
-    if (r === -1) continue;
-    const m = n.slice(r + t.length).match(/^\s*:\s*(\[[\s\S]*?\])/);
+  for (const [e, i] of t) {
+    const n = r.indexOf(e);
+    if (n === -1) continue;
+    const m = r.slice(n + e.length).match(/^\s*:\s*(\[[\s\S]*?\])/);
     if (!m) continue;
     let s = m[1];
     i && (s = s.replace(/\\"/g, '"').replace(/\\\//g, "/"));
@@ -116,91 +116,92 @@ function M(n, o) {
   }
   throw new Error(`Key "${o}" not found in HTML (tried both escaped and unescaped patterns)`);
 }
-const g = "https://comix.to", u = `${g}/api/v2`, l = 30, A = {
+const d = "https://comix.to", l = `${d}/api/v2`, y = 100, A = {
   id: "comix",
   name: "Comix",
-  baseUrl: g,
+  baseUrl: d,
   language: "en",
   version: "1.0.0",
   nsfw: !0,
   chapterImagesResponseType: "html",
   getFilters() {
-    const n = y.map((e) => ({
+    const r = new Set(M.map(Number)), o = u.map((e) => ({
       id: String(e.id),
       name: e.name,
-      group: e.category
-    })), o = p.map((e) => ({
+      group: e.category,
+      ...r.has(e.id) ? { nsfw: !0 } : {}
+    })), a = p.map((e) => ({
       id: e,
       name: _[e] ?? e
-    })), a = S.map((e) => ({
+    })), t = S.map((e) => ({
       id: e,
       name: f[e] ?? e
     }));
-    return { genres: n, types: o, statuses: a };
+    return { genres: o, types: a, statuses: t };
   },
   // --- Search ---
-  searchRequest(n, o, a) {
-    const e = new URLSearchParams();
-    if (e.set("page", String(o)), e.set("limit", String(l)), n ? e.set("keyword", n) : e.set("order[chapter_updated_at]", "desc"), a) {
+  searchRequest(r, o, a) {
+    const t = new URLSearchParams();
+    if (t.set("page", String(o)), t.set("limit", String(y)), r ? t.set("keyword", r) : t.set("order[chapter_updated_at]", "desc"), a) {
       if (a.includeGenres)
-        for (const t of a.includeGenres) e.append("genres[]", t);
+        for (const e of a.includeGenres) t.append("genres[]", e);
       if (a.excludeGenres)
-        for (const t of a.excludeGenres) e.append("genres[]", `-${t}`);
-      if (((a.includeGenres?.length ?? 0) > 0 || (a.excludeGenres?.length ?? 0) > 0) && e.set("genres_mode", "and"), a.types)
-        for (const t of a.types) e.append("types[]", t);
+        for (const e of a.excludeGenres) t.append("genres[]", `-${e}`);
+      if (((a.includeGenres?.length ?? 0) > 0 || (a.excludeGenres?.length ?? 0) > 0) && t.set("genres_mode", "and"), a.types)
+        for (const e of a.types) t.append("types[]", e);
       if (a.statuses)
-        for (const t of a.statuses) e.append("statuses[]", t);
+        for (const e of a.statuses) t.append("statuses[]", e);
     }
-    return { url: `${u}/manga?${e}` };
+    return { url: `${l}/manga?${t}`, cloudflareProtected: !0 };
   },
-  parseSearchResponse(n) {
-    const o = n, e = o.result?.items ?? o.items ?? [], t = /* @__PURE__ */ new Map();
-    for (const r of y) t.set(r.id, r.name);
-    const i = e.map((r) => {
-      const c = r.poster, m = String(r.hash_id ?? ""), s = String(r.slug ?? ""), h = r.term_ids?.map((d) => t.get(d)).filter((d) => d != null);
+  parseSearchResponse(r) {
+    const o = r, t = o.result?.items ?? o.items ?? [], e = /* @__PURE__ */ new Map();
+    for (const n of u) e.set(n.id, n.name);
+    const i = t.map((n) => {
+      const c = n.poster, m = String(n.hash_id ?? ""), s = String(n.slug ?? ""), h = n.term_ids?.map((g) => e.get(g)).filter((g) => g != null);
       return {
         id: m || s,
-        title: String(r.title ?? ""),
+        title: String(n.title ?? ""),
         cover: c?.medium ?? c?.large ?? c?.small ?? "",
-        latestChapter: r.latest_chapter != null ? Number(r.latest_chapter) : null,
-        author: r.author ? String(r.author) : void 0,
-        status: r.status ? String(r.status) : void 0,
+        latestChapter: n.latest_chapter != null ? Number(n.latest_chapter) : null,
+        author: n.author ? String(n.author) : void 0,
+        status: n.status ? String(n.status) : void 0,
         tags: h?.length ? h : void 0
       };
     });
-    return { items: i, hasMore: i.length >= l };
+    return { items: i, hasMore: i.length >= y };
   },
   // --- Chapters ---
-  chapterListRequest(n, o) {
+  chapterListRequest(r, o) {
     const a = new URLSearchParams();
-    return a.set("limit", "100"), a.set("page", String(o)), a.set("order[number]", "desc"), { url: `${u}/manga/${n}/chapters?${a}` };
+    return a.set("limit", "100"), a.set("page", String(o)), a.set("order[number]", "desc"), { url: `${l}/manga/${r}/chapters?${a}`, cloudflareProtected: !0 };
   },
-  parseChapterListResponse(n) {
-    return (n.result?.items ?? []).map((t) => {
-      const i = t.scanlation_group;
+  parseChapterListResponse(r) {
+    return (r.result?.items ?? []).map((e) => {
+      const i = e.scanlation_group;
       return {
-        id: String(t.chapter_id ?? ""),
-        number: parseFloat(String(t.number)),
-        groupId: t.scanlation_group_id != null ? String(t.scanlation_group_id) : void 0,
+        id: String(e.chapter_id ?? ""),
+        number: parseFloat(String(e.number)),
+        groupId: e.scanlation_group_id != null ? String(e.scanlation_group_id) : void 0,
         groupName: i?.name ?? "Unknown",
-        uploadedAt: t.created_at != null ? Number(t.created_at) : void 0
+        uploadedAt: e.created_at != null ? Number(e.created_at) : void 0
       };
     });
   },
   // --- Chapter Images ---
-  chapterImagesRequest(n, o, a) {
-    return { url: `${g}/title/${n}/${o}-chapter-${a}` };
+  chapterImagesRequest(r, o, a) {
+    return { url: `${d}/title/${r}/${o}-chapter-${a}`, cloudflareProtected: !0 };
   },
-  parseChapterImagesResponse(n) {
-    const a = M(n, "images");
-    return JSON.parse(a).map((t) => ({
-      url: String(t.url ?? ""),
-      width: Number(t.width ?? 0),
-      height: Number(t.height ?? 0)
+  parseChapterImagesResponse(r) {
+    const a = R(r, "images");
+    return JSON.parse(a).map((e) => ({
+      url: String(e.url ?? ""),
+      width: Number(e.width ?? 0),
+      height: Number(e.height ?? 0)
     }));
   },
   imageHeaders() {
-    return { Referer: g };
+    return { Referer: d };
   }
 };
 export {
