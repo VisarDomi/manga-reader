@@ -51,7 +51,7 @@
         }
 
         const restore = appState.reader.pageRestoreTarget;
-        if (restore && restore.pageIndex > 0) {
+        if (restore && (restore.pageIndex > 0 || restore.scrollOffset > 0)) {
             const pages = root.querySelectorAll('.reader-page');
             const target = pages[restore.pageIndex];
             if (target) {

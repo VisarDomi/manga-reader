@@ -123,19 +123,27 @@ export class ReaderState {
         }
     }
 
-    /** Tracks the currently visible page in-memory. Called from scroll handler. */
+    /** Tracks the currently visible page in-memory. Called from scroll handler.
+     *  Write-through: updates in-memory progress immediately, schedules debounced IDB write.
+     *  This ensures pageIndex/scrollOffset survive restart even without chapter change. */
     trackVisiblePage(chapterId: string, pageIndex: number, scrollOffset: number): void {
         this.pageTracker.track(chapterId, pageIndex, scrollOffset);
+        this.scheduleProgressSync(chapterId);
     }
 
-    /** Called when the visible chapter changes. Updates state + debounced sync to local DB. */
+    /** Called when the visible chapter changes. Updates currentChapterId + syncs progress. */
     syncChapterProgress(chapterId: string): void {
         this.currentChapterId = chapterId;
         this.manga.updateScrollTarget(chapterId);
+        this.scheduleProgressSync(chapterId);
+    }
+
+    /** Debounced write-through: in-memory update + IDB persist. Single owner of the sync timer. */
+    private scheduleProgressSync(chapterId: string): void {
         this.pageTracker.scheduleSync(chapterId, (cId, pageIndex, scrollOffset) => {
             const manga = this.manga.activeManga;
             if (!manga) return;
-            const ch = this.manga.chapters.find(c => c.id === cId);
+            const ch = this.chapterList.find(c => c.id === cId);
             if (ch) {
                 const progressData = { chapterId: cId, chapterNumber: ch.number, pageIndex, scrollOffset };
                 db.setProgress(manga.id, progressData);
