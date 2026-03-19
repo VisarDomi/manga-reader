@@ -13,7 +13,7 @@ import { ProgressState } from './progress.svelte.js';
 import { ToastState } from './toast.svelte.js';
 import { FavoritesState } from './favorites.svelte.js';
 import { GroupFilterState } from './groupFilter.svelte.js';
-import { saveSession, loadSession, clearSession, type SessionSnapshot, type SearchContext } from './session.js';
+import { saveSession, loadSession, type SessionSnapshot, type SearchContext } from './session.js';
 import { RESUME_RECOVERY_MS, DEEP_SLEEP_MS, VISIBLE_MANGA_DEBOUNCE_MS } from '../constants.js';
 
 export type AppStatus = 'BOOTING' | 'READY' | 'BACKGROUND' | 'RECONNECTING' | 'OFFLINE';
@@ -170,7 +170,6 @@ class AppState {
         const snapshot = loadSession();
         if (!snapshot) return false;
 
-        clearSession();
         const targetId = snapshot.targetMangaId ?? null;
 
         if (snapshot.viewMode === View.LIST) {
@@ -184,6 +183,7 @@ class AppState {
             if (targetId && this.restore.isActive) {
                 this.bgPaginateToTarget();
             }
+            this.persistSession();
             return true;
         }
 
@@ -191,6 +191,7 @@ class AppState {
             this.ui.setViewDirect(View.FAVORITES, [View.LIST]);
             if (targetId) this.restore.start(targetId);
             this.bgReplaySearch(snapshot.searchContext);
+            this.persistSession();
             return true;
         }
 
@@ -199,10 +200,12 @@ class AppState {
             const ok = await this.manga.restoreManga(snapshot.activeManga);
             if (!ok) {
                 this.ui.setViewDirect(View.LIST, []);
+                this.persistSession();
                 return false;
             }
             if (targetId) this.restore.start(targetId);
             this.bgReplaySearch(snapshot.searchContext);
+            this.persistSession();
             return true;
         }
 
@@ -212,6 +215,7 @@ class AppState {
             const ok = await this.manga.restoreManga(snapshot.activeManga);
             if (!ok) {
                 this.ui.setViewDirect(View.LIST, []);
+                this.persistSession();
                 return false;
             }
 
@@ -220,14 +224,17 @@ class AppState {
                 this.ui.setViewDirect(View.MANGA, [View.LIST]);
                 if (targetId) this.restore.start(targetId);
                 this.bgReplaySearch(snapshot.searchContext);
+                this.persistSession();
                 return true;
             }
 
             if (targetId) this.restore.start(targetId);
             this.bgReplaySearch(snapshot.searchContext);
+            this.persistSession();
             return true;
         }
 
+        this.persistSession();
         return false;
     }
 
@@ -242,6 +249,7 @@ class AppState {
         } else {
             await this.searchState.search(this.searchState.inputQuery);
         }
+        this.persistSession();
         if (!this.restore.isActive) return; // cancelled during search
         await this.bgPaginateToTarget();
     }

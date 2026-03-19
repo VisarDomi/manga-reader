@@ -50,12 +50,13 @@
             return;
         }
 
-        const pageIndex = appState.reader.consumePageRestore();
-        if (pageIndex != null && pageIndex > 0) {
+        const restore = appState.reader.pageRestoreTarget;
+        if (restore && restore.pageIndex > 0) {
             const pages = root.querySelectorAll('.reader-page');
-            const target = pages[pageIndex];
+            const target = pages[restore.pageIndex];
             if (target) {
                 target.scrollIntoView({ block: 'start' });
+                root.scrollTop += restore.scrollOffset;
             } else {
                 root.scrollTop = 0;
             }
@@ -65,14 +66,15 @@
 
         requestAnimationFrame(() => {
             sentinelsReady = true;
+            appState.reader.clearPageRestore();
         });
     }
 
     function handleScroll() {
         const root = getReaderRoot();
         if (!root) return;
-        pageTracker.handleScroll(root, memory.pageDataMap, (chapterId, pageIndex) => {
-            appState.reader.trackVisiblePage(chapterId, pageIndex);
+        pageTracker.handleScroll(root, memory.pageDataMap, (chapterId, pageIndex, scrollOffset) => {
+            appState.reader.trackVisiblePage(chapterId, pageIndex, scrollOffset);
         });
     }
 

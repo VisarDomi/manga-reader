@@ -25,6 +25,3 @@ export function loadSession(): SessionSnapshot | null {
     return storage.getJson<SessionSnapshot | null>(SESSION_KEY, null);
 }
 
-export function clearSession(): void {
-    storage.remove(SESSION_KEY);
-}

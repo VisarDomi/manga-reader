@@ -16,7 +16,7 @@ export class ReaderState {
     error = $state<LoadError | null>(null);
     isLoadingNext = $state(false);
     isLoadingPrev = $state(false);
-    pendingPageRestore = $state<number | null>(null);
+    pendingPageRestore = $state<{ pageIndex: number; scrollOffset: number } | null>(null);
     private activeMangaId = '';
     /** The filtered+deduped+sorted chapter list from manga details. Reader navigates only within this list. */
     private chapterList: ChapterMeta[] = [];
@@ -46,7 +46,7 @@ export class ReaderState {
         // Check if reopening the same chapter — restore page position
         const saved = this.progress.get(manga.id);
         if (saved && saved.chapterId === chapter.id && saved.pageIndex != null) {
-            this.pendingPageRestore = saved.pageIndex;
+            this.pendingPageRestore = { pageIndex: saved.pageIndex, scrollOffset: saved.scrollOffset ?? 0 };
         } else {
             this.pendingPageRestore = null;
         }
@@ -98,7 +98,7 @@ export class ReaderState {
         this.chapterList = [...filtered].sort((a, b) => a.number - b.number);
 
         if (saved.pageIndex != null) {
-            this.pendingPageRestore = saved.pageIndex;
+            this.pendingPageRestore = { pageIndex: saved.pageIndex, scrollOffset: saved.scrollOffset ?? 0 };
         } else {
             this.pendingPageRestore = null;
         }
@@ -124,31 +124,34 @@ export class ReaderState {
     }
 
     /** Tracks the currently visible page in-memory. Called from scroll handler. */
-    trackVisiblePage(chapterId: string, pageIndex: number): void {
-        this.pageTracker.track(chapterId, pageIndex);
+    trackVisiblePage(chapterId: string, pageIndex: number, scrollOffset: number): void {
+        this.pageTracker.track(chapterId, pageIndex, scrollOffset);
     }
 
     /** Called when the visible chapter changes. Updates state + debounced sync to local DB. */
     syncChapterProgress(chapterId: string): void {
         this.currentChapterId = chapterId;
         this.manga.updateScrollTarget(chapterId);
-        this.pageTracker.scheduleSync(chapterId, (cId, pageIndex) => {
+        this.pageTracker.scheduleSync(chapterId, (cId, pageIndex, scrollOffset) => {
             const manga = this.manga.activeManga;
             if (!manga) return;
             const ch = this.manga.chapters.find(c => c.id === cId);
             if (ch) {
-                const progressData = { chapterId: cId, chapterNumber: ch.number, pageIndex };
+                const progressData = { chapterId: cId, chapterNumber: ch.number, pageIndex, scrollOffset };
                 db.setProgress(manga.id, progressData);
                 this.progress.update(manga.id, progressData);
             }
         });
     }
 
-    /** Returns and clears the pending page restore index. */
-    consumePageRestore(): number | null {
-        const idx = this.pendingPageRestore;
+    /** Read-only access to pending page restore target. */
+    get pageRestoreTarget(): { pageIndex: number; scrollOffset: number } | null {
+        return this.pendingPageRestore;
+    }
+
+    /** Explicit cleanup after restore scroll is complete. */
+    clearPageRestore(): void {
         this.pendingPageRestore = null;
-        return idx;
     }
 
     clearHistorySync(): void {
@@ -156,11 +159,11 @@ export class ReaderState {
     }
 
     closeReader() {
-        this.pageTracker.flush((chapterId, pageIndex) => {
+        this.pageTracker.flush((chapterId, pageIndex, scrollOffset) => {
             if (!this.activeMangaId) return;
             const ch = this.manga.chapters.find(c => c.id === chapterId);
             if (ch) {
-                const progressData = { chapterId, chapterNumber: ch.number, pageIndex };
+                const progressData = { chapterId, chapterNumber: ch.number, pageIndex, scrollOffset };
                 db.setProgress(this.activeMangaId, progressData);
                 this.progress.update(this.activeMangaId, progressData);
             }
