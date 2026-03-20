@@ -1,5 +1,5 @@
 import { PROXY_TIMEOUT } from '../config';
-import { isCloudflareBlock, getCachedCookies, clearCachedCookies, isSolving, solveCloudflareCookies } from './cloudflare';
+import { isCloudflareBlock, getCachedCookies, getCachedUserAgent, clearCachedCookies, isSolving, solveCloudflareCookies } from './cloudflare';
 
 export class UpstreamError extends Error {
   status: number;
@@ -40,6 +40,11 @@ export async function proxyFetch(
     if (cachedCookies) {
       const headers = new Headers(fetchInit.headers);
       headers.set('Cookie', cachedCookies);
+      // CF binds cf_clearance to User-Agent — must match what the browser used
+      const cachedUA = getCachedUserAgent(domain);
+      if (cachedUA) {
+        headers.set('User-Agent', cachedUA);
+      }
       fetchInit.headers = Object.fromEntries(headers.entries());
     }
   }

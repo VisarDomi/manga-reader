@@ -1,27 +1,62 @@
+import path from 'node:path';
+import os from 'node:os';
 import { chromium } from 'playwright';
-import { USER_AGENT } from '../config';
+
+const CLOAKBROWSER_PATH = path.join(os.homedir(), '.cloakbrowser/chromium-145.0.7632.159.7/chrome');
+const PROFILE_DIR = path.join(os.homedir(), '.cloakbrowser-profiles');
+
+const STEALTH_ARGS = [
+  '--no-sandbox',
+  '--disable-blink-features=AutomationControlled',
+  '--fingerprint=52495',
+  '--fingerprint-platform=windows',
+  '--fingerprint-gpu-vendor=Google Inc. (NVIDIA)',
+  '--fingerprint-gpu-renderer=ANGLE (NVIDIA, NVIDIA GeForce RTX 3070 (0x00002484) Direct3D11 vs_5_0 ps_5_0, D3D11)',
+  '--ignore-gpu-blocklist',
+  '--window-size=1920,1080',
+];
+
+const IGNORE_DEFAULT_ARGS = ['--enable-automation', '--enable-unsafe-swiftshader'];
 
 interface CachedCookies {
   cookieHeader: string;
+  userAgent: string;
   obtainedAt: number;
 }
 
 const cookieCache = new Map<string, CachedCookies>();
 const solvingDomains = new Set<string>();
 
+/** Look up cache by exact domain, then try parent (static.comix.to → comix.to). */
+function findCached(domain: string): CachedCookies | null {
+  let cached = cookieCache.get(domain);
+  if (!cached) {
+    // Try parent domain — CF sets cookies on .comix.to covering all subdomains
+    const parts = domain.split('.');
+    if (parts.length > 2) {
+      const parent = parts.slice(1).join('.');
+      cached = cookieCache.get(parent);
+    }
+  }
+  if (!cached) return null;
+  if (Date.now() - cached.obtainedAt > 30 * 60 * 1000) {
+    cookieCache.delete(domain);
+    return null;
+  }
+  return cached;
+}
+
 export function isCloudflareBlock(status: number, serverHeader: string | null): boolean {
   return (status === 403 || status === 503) && (serverHeader ?? '').toLowerCase().includes('cloudflare');
 }
 
 export function getCachedCookies(domain: string): string | null {
-  const cached = cookieCache.get(domain);
-  if (!cached) return null;
-  // Expire after 30 minutes
-  if (Date.now() - cached.obtainedAt > 30 * 60 * 1000) {
-    cookieCache.delete(domain);
-    return null;
-  }
-  return cached.cookieHeader;
+  return findCached(domain)?.cookieHeader ?? null;
+}
+
+/** Returns the User-Agent the browser used during the CF solve, so fetch requests match. */
+export function getCachedUserAgent(domain: string): string | null {
+  return findCached(domain)?.userAgent ?? null;
 }
 
 export function clearCachedCookies(domain: string): void {
@@ -42,23 +77,31 @@ export async function solveCloudflareCookies(url: string): Promise<string> {
   solvingDomains.add(domain);
   console.log(`[cloudflare] Starting solve for ${domain}`);
 
-  let browser;
+  const profileDir = path.join(PROFILE_DIR, domain);
+  let context;
   try {
-    browser = await chromium.launch({
+    context = await chromium.launchPersistentContext(profileDir, {
+      executablePath: CLOAKBROWSER_PATH,
+      args: STEALTH_ARGS,
+      ignoreDefaultArgs: IGNORE_DEFAULT_ARGS,
       headless: false,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--window-size=1920,1080',
-      ],
-    });
-
-    const context = await browser.newContext({
-      userAgent: USER_AGENT,
       viewport: { width: 1920, height: 1080 },
     });
 
-    const page = await context.newPage();
+    // Clear stale cf_clearance so the poll only catches a freshly issued one
+    const existingCookies = await context.cookies();
+    const staleCf = existingCookies.filter(c => c.name === 'cf_clearance');
+    if (staleCf.length > 0) {
+      await context.clearCookies({ name: 'cf_clearance' });
+      console.log(`[cloudflare] Cleared ${staleCf.length} stale cf_clearance cookie(s) for ${domain}`);
+    }
+
+    const page = context.pages()[0] || await context.newPage();
+
+    // Capture the browser's actual UA — CF binds cf_clearance to it
+    const browserUA = await page.evaluate(() => navigator.userAgent);
+    console.log(`[cloudflare] Browser UA: ${browserUA}`);
+
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
 
     // Poll for cf_clearance cookie up to 30 seconds
@@ -69,7 +112,6 @@ export async function solveCloudflareCookies(url: string): Promise<string> {
       const cookies = await context.cookies();
       const cfCookie = cookies.find(c => c.name === 'cf_clearance');
       if (cfCookie) {
-        // Collect all cookies for the domain
         const domainCookies = cookies.filter(c =>
           domain.endsWith(c.domain.replace(/^\./, ''))
         );
@@ -84,12 +126,12 @@ export async function solveCloudflareCookies(url: string): Promise<string> {
     }
 
     console.log(`[cloudflare] Solved for ${domain}`);
-    cookieCache.set(domain, { cookieHeader, obtainedAt: Date.now() });
+    cookieCache.set(domain, { cookieHeader, userAgent: browserUA, obtainedAt: Date.now() });
     return cookieHeader;
   } finally {
     solvingDomains.delete(domain);
-    if (browser) {
-      await browser.close().catch(() => {});
+    if (context) {
+      await context.close().catch(() => {});
     }
   }
 }

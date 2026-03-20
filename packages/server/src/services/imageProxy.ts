@@ -12,7 +12,7 @@ export async function streamImage(imageUrl: string, res: Response, referer?: str
   const headers: Record<string, string> = { 'User-Agent': USER_AGENT };
   if (referer) headers['Referer'] = referer;
 
-  const r = await proxyFetch(imageUrl, { headers });
+  const r = await proxyFetch(imageUrl, { headers, cloudflareProtected: true });
 
   const contentType = r.headers.get('content-type') || 'image/jpeg';
   res.set('Content-Type', contentType);
