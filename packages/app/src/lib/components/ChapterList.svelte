@@ -111,7 +111,12 @@
         return result;
     });
 
-    const currentChapterId = $derived(appState.progress.get(mangaId)?.chapterId ?? null);
+    const currentProgress = $derived(appState.progress.get(mangaId));
+    const currentChapterId = $derived(currentProgress?.chapterId ?? null);
+    const progressPercent = $derived.by(() => {
+        if (currentProgress?.pageIndex == null || !currentProgress?.pageCount) return 0;
+        return Math.round(((currentProgress.pageIndex + 1) / currentProgress.pageCount) * 100);
+    });
 
     function handleClick(chapter: ChapterMeta) {
         const manga = appState.manga.activeManga;
@@ -206,12 +211,14 @@
             </div>
         {:else}
             {@const chapter = item.chapter}
+            {@const isCurrent = chapter.id === currentChapterId}
             <button
                 class="chapter-item"
-                class:chapter-current={chapter.id === currentChapterId}
+                class:chapter-current={isCurrent}
                 class:chapter-filtered={gf.showFiltered && isChapterFiltered(chapter)}
+                style={isCurrent && progressPercent > 0 ? `background: linear-gradient(to right, rgba(74, 246, 38, 0.15) ${progressPercent}%, #1a1a1a ${progressPercent}%)` : ''}
                 data-chapter-id={chapter.id}
-                use:scrollIfCurrent={chapter.id === currentChapterId}
+                use:scrollIfCurrent={isCurrent}
                 onclick={() => handleClick(chapter)}
             >
                 <span class="chapter-number">Ch. {chapter.number}</span>

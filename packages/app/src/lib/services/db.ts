@@ -8,10 +8,11 @@ interface ProgressEntry {
     chapterId: string;
     chapterNumber: number;
     pageIndex?: number;
+    pageCount?: number;
     scrollOffset?: number;
 }
 
-export type ProgressData = { chapterId: string; chapterNumber: number; pageIndex?: number; scrollOffset?: number };
+export type ProgressData = { chapterId: string; chapterNumber: number; pageIndex?: number; pageCount?: number; scrollOffset?: number };
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -50,6 +51,7 @@ export async function getProgress(mangaSlug: string): Promise<ProgressData | nul
             if (!entry) return resolve(null);
             const data: ProgressData = { chapterId: String(entry.chapterId), chapterNumber: entry.chapterNumber };
             if (entry.pageIndex != null) data.pageIndex = entry.pageIndex;
+            if (entry.pageCount != null) data.pageCount = entry.pageCount;
             if (entry.scrollOffset != null) data.scrollOffset = entry.scrollOffset;
             resolve(data);
         };
@@ -77,6 +79,7 @@ export async function getAllProgress(): Promise<Record<string, ProgressData>> {
             for (const entry of req.result as ProgressEntry[]) {
                 const data: ProgressData = { chapterId: String(entry.chapterId), chapterNumber: entry.chapterNumber };
                 if (entry.pageIndex != null) data.pageIndex = entry.pageIndex;
+                if (entry.pageCount != null) data.pageCount = entry.pageCount;
                 if (entry.scrollOffset != null) data.scrollOffset = entry.scrollOffset;
                 map[entry.mangaSlug] = data;
             }

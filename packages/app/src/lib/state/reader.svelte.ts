@@ -145,7 +145,9 @@ export class ReaderState {
             if (!manga) return;
             const ch = this.chapterList.find(c => c.id === cId);
             if (ch) {
-                const progressData = { chapterId: cId, chapterNumber: ch.number, pageIndex, scrollOffset };
+                const loaded = this.loadedChapters.find(lc => lc.id === cId);
+                const pageCount = loaded?.pages.length;
+                const progressData = { chapterId: cId, chapterNumber: ch.number, pageIndex, pageCount, scrollOffset };
                 db.setProgress(manga.id, progressData);
                 this.progress.update(manga.id, progressData);
             }
@@ -171,7 +173,9 @@ export class ReaderState {
             if (!this.activeMangaId) return;
             const ch = this.manga.chapters.find(c => c.id === chapterId);
             if (ch) {
-                const progressData = { chapterId, chapterNumber: ch.number, pageIndex, scrollOffset };
+                const loaded = this.loadedChapters.find(lc => lc.id === chapterId);
+                const pageCount = loaded?.pages.length;
+                const progressData = { chapterId, chapterNumber: ch.number, pageIndex, pageCount, scrollOffset };
                 db.setProgress(this.activeMangaId, progressData);
                 this.progress.update(this.activeMangaId, progressData);
             }

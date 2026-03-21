@@ -3,6 +3,7 @@ import https from 'node:https';
 import os from 'node:os';
 import { PORT, CERT_KEY_PATH, CERT_PEM_PATH, FRONTEND_BUILD_DIR, validateConfig } from './config';
 import app from './app';
+import { startPrewarm } from './utils/prewarm';
 
 validateConfig();
 
@@ -18,6 +19,8 @@ const server = https.createServer(sslOptions, app);
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`comix-backend running on https://localhost:${PORT}`);
   console.log(`Serving frontend: ${FRONTEND_BUILD_DIR}`);
+
+  startPrewarm();
 
   const networkInterfaces = os.networkInterfaces();
   for (const [, addrs] of Object.entries(networkInterfaces)) {
