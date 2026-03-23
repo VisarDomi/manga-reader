@@ -23,8 +23,12 @@ class PrewarmMonitor {
       const r = await proxyFetch(PREWARM_URL, { method: 'HEAD', cloudflareProtected: true });
       await r.text();
       next = 'ok';
-    } catch {
+    } catch (e) {
       // proxyFetch triggers CF solve on block — we just track the transition
+      const msg = (e as Error).message ?? String(e);
+      if (this.status !== 'blocked') {
+        console.error(`[prewarm] tick failed: ${msg}`);
+      }
       next = 'blocked';
     }
 

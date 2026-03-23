@@ -171,9 +171,18 @@ class AppState {
 
     private async restoreSession(): Promise<boolean> {
         const snapshot = loadSession();
-        if (!snapshot) return false;
+        if (!snapshot) {
+            this.log.log('restore-none');
+            return false;
+        }
 
         const targetId = snapshot.targetMangaId ?? null;
+        this.log.log('restore-start', {
+            view: snapshot.viewMode,
+            mangaId: snapshot.activeManga?.id ?? null,
+            targetId,
+            hasSearch: !!snapshot.searchContext,
+        });
 
         if (snapshot.viewMode === View.LIST) {
             if (targetId) this.restore.start(targetId);
@@ -187,6 +196,7 @@ class AppState {
                 this.bgPaginateToTarget();
             }
             this.persistSession();
+            this.log.log('restore-ok', { view: 'list' });
             return true;
         }
 
@@ -195,6 +205,7 @@ class AppState {
             if (targetId) this.restore.start(targetId);
             this.bgReplaySearch(snapshot.searchContext);
             this.persistSession();
+            this.log.log('restore-ok', { view: 'favorites' });
             return true;
         }
 
@@ -204,11 +215,13 @@ class AppState {
             if (!ok) {
                 this.ui.setViewDirect(View.LIST, []);
                 this.persistSession();
+                this.log.log('restore-fallback', { view: 'manga', reason: 'manga-load-failed' });
                 return false;
             }
             if (targetId) this.restore.start(targetId);
             this.bgReplaySearch(snapshot.searchContext);
             this.persistSession();
+            this.log.log('restore-ok', { view: 'manga', mangaId: snapshot.activeManga.id });
             return true;
         }
 
@@ -219,6 +232,7 @@ class AppState {
             if (!ok) {
                 this.ui.setViewDirect(View.LIST, []);
                 this.persistSession();
+                this.log.log('restore-fallback', { view: 'reader', reason: 'manga-load-failed' });
                 return false;
             }
 
@@ -228,16 +242,19 @@ class AppState {
                 if (targetId) this.restore.start(targetId);
                 this.bgReplaySearch(snapshot.searchContext);
                 this.persistSession();
+                this.log.log('restore-fallback', { view: 'reader', reason: 'reader-load-failed', fallback: 'manga' });
                 return true;
             }
 
             if (targetId) this.restore.start(targetId);
             this.bgReplaySearch(snapshot.searchContext);
             this.persistSession();
+            this.log.log('restore-ok', { view: 'reader', mangaId: snapshot.activeManga.id });
             return true;
         }
 
         this.persistSession();
+        this.log.log('restore-fallback', { view: snapshot.viewMode, reason: 'unknown-view' });
         return false;
     }
 
@@ -344,8 +361,11 @@ class AppState {
     // --- Init ---
 
     async init() {
+        const t0 = Date.now();
+
         // LogService owns global error handlers — start first so crashes during init are captured
         this.log.start();
+        this.log.log('boot-start');
 
         // Wire db module's logger to our LogService
         setDbLogger((op, error) => this.log.log('db-error', { op, error }));
@@ -395,10 +415,12 @@ class AppState {
             watchdog.start();
 
             this.status = 'READY';
+            this.log.log('boot-ready', { ms: Date.now() - t0, view: this.ui.viewMode });
         } catch (e) {
             this.log.log('init-crash', {
                 message: String((e as Error)?.message ?? e),
                 stack: (e as Error)?.stack ?? '',
+                ms: Date.now() - t0,
             });
         }
     }
@@ -463,6 +485,8 @@ class AppState {
 
     private async resumeFromSleep(elapsed: number) {
         this.status = 'RECONNECTING';
+        const kind = elapsed > DEEP_SLEEP_MS ? 'deep-sleep' : 'recovery';
+        this.log.log('resume', { kind, elapsedMs: elapsed, view: this.ui.viewMode });
 
         await this.refreshCurrentView();
 

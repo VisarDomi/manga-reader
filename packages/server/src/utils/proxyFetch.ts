@@ -49,10 +49,17 @@ export async function proxyFetch(
     }
   }
 
-  const r = await fetch(url, {
-    ...fetchInit,
-    signal: fetchInit.signal ?? AbortSignal.timeout(timeout),
-  });
+  let r: globalThis.Response;
+  try {
+    r = await fetch(url, {
+      ...fetchInit,
+      signal: fetchInit.signal ?? AbortSignal.timeout(timeout),
+    });
+  } catch (e) {
+    const kind = e instanceof DOMException && e.name === 'TimeoutError' ? 'timeout' : 'fetch-error';
+    console.error(`[proxyFetch] ${kind} ${fetchInit.method ?? 'GET'} ${url}: ${(e as Error).message}`);
+    throw e;
+  }
 
   if (!r.ok && cloudflareProtected && isCloudflareBlock(r.status, r.headers.get('server'))) {
     // If we had cached cookies and still got blocked, clear them

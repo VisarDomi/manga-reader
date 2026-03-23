@@ -27,5 +27,11 @@ export async function streamImage(imageUrl: string, res: Response, referer?: str
     throw new Error('Upstream returned empty body for image');
   }
 
-  Readable.fromWeb(r.body as Parameters<typeof Readable.fromWeb>[0]).pipe(res);
+  const readable = Readable.fromWeb(r.body as Parameters<typeof Readable.fromWeb>[0]);
+  readable.on('error', (err) => {
+    console.error(`[imageProxy] stream error for ${imageUrl}: ${err.message}`);
+    if (!res.headersSent) res.status(502).end();
+    else res.destroy();
+  });
+  readable.pipe(res);
 }
