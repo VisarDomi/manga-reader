@@ -30,6 +30,7 @@ router.post('/proxy', asyncHandler(async (req, res) => {
     }
 
     try {
+        const start = Date.now();
         const r = await proxyFetch(url, {
             method,
             headers: {
@@ -39,6 +40,7 @@ router.post('/proxy', asyncHandler(async (req, res) => {
             body: body ?? undefined,
             cloudflareProtected,
         });
+        console.log(`[proxy] ${new URL(url).pathname} ${r.status} ${Date.now() - start}ms`);
 
         if (responseType === 'text') {
             const text = await r.text();

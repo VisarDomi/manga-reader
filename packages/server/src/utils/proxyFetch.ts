@@ -49,13 +49,10 @@ export async function proxyFetch(
     }
   }
 
-  const start = Date.now();
   const r = await fetch(url, {
     ...fetchInit,
     signal: fetchInit.signal ?? AbortSignal.timeout(timeout),
   });
-  const duration = Date.now() - start;
-  console.log(`[proxy] ${new URL(url).pathname} ${r.status} ${duration}ms`);
 
   if (!r.ok && cloudflareProtected && isCloudflareBlock(r.status, r.headers.get('server'))) {
     // If we had cached cookies and still got blocked, clear them
