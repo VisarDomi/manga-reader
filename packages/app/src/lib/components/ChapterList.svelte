@@ -216,7 +216,7 @@
                 class="chapter-item"
                 class:chapter-current={isCurrent}
                 class:chapter-filtered={gf.showFiltered && isChapterFiltered(chapter)}
-                style={isCurrent && progressPercent > 0 ? `background: linear-gradient(to right, rgba(74, 246, 38, 0.15) ${progressPercent}%, #1a1a1a ${progressPercent}%)` : ''}
+                style={isCurrent && progressPercent > 0 ? `background: linear-gradient(to right, rgba(45, 212, 191, 0.55) ${progressPercent}%, #1a1a1a ${progressPercent}%)` : ''}
                 data-chapter-id={chapter.id}
                 use:scrollIfCurrent={isCurrent}
                 onclick={() => handleClick(chapter)}
@@ -263,12 +263,20 @@
 }
 
 .chapter-item.chapter-current {
-    border-left: 3px solid #4af626;
+    border-left: 3px solid #2dd4bf;
 }
 
 .chapter-item.chapter-current .chapter-number {
-    color: #4af626;
+    color: #f0fdfa;
     font-weight: 700;
+}
+
+.chapter-item.chapter-current .chapter-group {
+    color: #a5f3fc;
+}
+
+.chapter-item.chapter-current .chapter-date {
+    color: #67e8f9;
 }
 
 .chapter-item.chapter-filtered {
@@ -285,7 +293,7 @@
 .chapter-group {
     flex: 1;
     font-size: 13px;
-    color: #888;
+    color: #fff;
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
@@ -293,7 +301,7 @@
 
 .chapter-date {
     font-size: 11px;
-    color: #666;
+    color: #fff;
     white-space: nowrap;
 }
 

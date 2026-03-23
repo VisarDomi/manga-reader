@@ -24,7 +24,6 @@ export class WatchdogService {
 
             if (delta > (this.TICK_MS + this.TOLERANCE_MS)) {
                 const gap = delta - this.TICK_MS;
-                console.warn(`[Watchdog] Freeze detected. Gap: ${gap}ms`);
                 this.onFreeze?.(gap);
             }
 

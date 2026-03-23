@@ -33,7 +33,7 @@ server.listen(PORT, '0.0.0.0', () => {
 });
 
 function shutdown(signal: string) {
-  console.log(`\n${signal} received — shutting down gracefully...`);
+  console.log(`${signal} received — shutting down gracefully...`);
   server.close(() => {
     console.log('All connections closed. Exiting.');
     process.exit(0);

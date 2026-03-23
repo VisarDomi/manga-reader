@@ -1,6 +1,8 @@
 import { ConnectionMonitor } from '../services/ConnectionMonitor.svelte.js';
 import { watchdog } from '../services/WatchdogService.js';
 import { initProvider, getProvider } from '../services/provider.js';
+import { LogService } from '../services/LogService.js';
+import { setDbLogger } from '../services/db.js';
 import { setCloudflareCallback } from '../services/api.js';
 import * as api from '../services/api.js';
 import { View } from '../logic.js';
@@ -61,6 +63,7 @@ class RestoreMachine {
 // --- App State ---
 
 class AppState {
+    readonly log = new LogService();
     ui = new UIState();
     toast = new ToastState();
     searchState: SearchState;
@@ -97,8 +100,8 @@ class AppState {
             }
         };
         this.manga = new MangaState(this.ui, this.toast, this.groupFilter, () => this.restore.cancel());
-        this.reader = new ReaderState(this.ui, this.manga, this.progress, this.toast);
-        this.favorites = new FavoritesState(this.toast);
+        this.reader = new ReaderState(this.ui, this.manga, this.progress, this.toast, this.log);
+        this.favorites = new FavoritesState(this.toast, this.log);
 
         // Wire up session save on every view transition
         this.ui.onViewChange = () => this.persistSession();
@@ -341,49 +344,63 @@ class AppState {
     // --- Init ---
 
     async init() {
-        // Wire up Cloudflare solving toast
-        setCloudflareCallback(() => this.toast.show(Msg.SOLVING_CLOUDFLARE, 15000));
+        // LogService owns global error handlers — start first so crashes during init are captured
+        this.log.start();
 
-        // Initialize provider first — filters and API depend on it
-        await initProvider();
+        // Wire db module's logger to our LogService
+        setDbLogger((op, error) => this.log.log('db-error', { op, error }));
 
-        // Derive NSFW genre IDs from provider's filter definition
-        const filters = getProvider().getFilters();
-        const nsfwIds = new Set<string>();
-        for (const g of filters.genres) {
-            if (NSFW_NAMES.has(g.name)) nsfwIds.add(g.id);
-        }
-        this.searchState.filters.seedDefaults(nsfwIds);
+        try {
+            // Wire up Cloudflare solving toast
+            setCloudflareCallback(() => this.toast.show(Msg.SOLVING_CLOUDFLARE, 15000));
 
-        await Promise.all([this.progress.init(), this.favorites.init()]);
+            // Initialize provider first — filters and API depend on it
+            await initProvider('comix', (event, data) => this.log.log(event, data));
 
-        // Attempt session restore; if no deep restore, run default search
-        const restored = await this.restoreSession();
-        if (!restored) {
-            await this.searchState.search(this.searchState.inputQuery);
-        }
-
-        // Hook into view changes to detect when user navigates back to list
-        const origOnViewChange = this.ui.onViewChange;
-        this.ui.onViewChange = () => {
-            origOnViewChange?.();
-            this.handleViewChanged();
-        };
-
-        // Start lifecycle monitoring
-        this.monitor = new ConnectionMonitor(
-            (online) => this.handleConnectivityChange(online),
-            (visible) => this.handleVisibilityChange(visible)
-        );
-
-        watchdog.setOnFreeze((gap) => {
-            if (this.status === 'READY') {
-                void this.resumeFromSleep(gap);
+            // Derive NSFW genre IDs from provider's filter definition
+            const filters = getProvider().getFilters();
+            const nsfwIds = new Set<string>();
+            for (const g of filters.genres) {
+                if (NSFW_NAMES.has(g.name)) nsfwIds.add(g.id);
             }
-        });
-        watchdog.start();
+            this.searchState.filters.seedDefaults(nsfwIds);
 
-        this.status = 'READY';
+            await Promise.all([this.progress.init(), this.favorites.init()]);
+
+            // Attempt session restore; if no deep restore, run default search
+            const restored = await this.restoreSession();
+            if (!restored) {
+                await this.searchState.search(this.searchState.inputQuery);
+            }
+
+            // Hook into view changes to detect when user navigates back to list
+            const origOnViewChange = this.ui.onViewChange;
+            this.ui.onViewChange = () => {
+                origOnViewChange?.();
+                this.handleViewChanged();
+            };
+
+            // Start lifecycle monitoring
+            this.monitor = new ConnectionMonitor(
+                (online) => this.handleConnectivityChange(online),
+                (visible) => this.handleVisibilityChange(visible)
+            );
+
+            watchdog.setOnFreeze((gap) => {
+                this.log.log('watchdog-freeze', { gapMs: gap });
+                if (this.status === 'READY') {
+                    void this.resumeFromSleep(gap);
+                }
+            });
+            watchdog.start();
+
+            this.status = 'READY';
+        } catch (e) {
+            this.log.log('init-crash', {
+                message: String((e as Error)?.message ?? e),
+                stack: (e as Error)?.stack ?? '',
+            });
+        }
     }
 
     /** Called on every view transition to handle pending scroll-to notifications. */
@@ -481,7 +498,7 @@ class AppState {
             this.bgSentinelTick = now;
 
             if (delta > 3000 && this.status === 'BACKGROUND' && document.visibilityState === 'visible') {
-                console.warn(`[AppState] Sentinel: visibilitychange missed, forcing resume (frozen ${Math.round(delta / 1000)}s)`);
+                this.log.log('sentinel-forced-resume', { frozenSeconds: Math.round(delta / 1000) });
                 this.executeResume();
             }
         }, 1000);
@@ -495,6 +512,7 @@ class AppState {
     }
 
     destroy() {
+        this.log.destroy();
         this.monitor.destroy();
         watchdog.stop();
         this.stopBackgroundSentinel();

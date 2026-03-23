@@ -3,6 +3,7 @@ import { View } from '../logic.js';
 import { Msg } from '../messages.js';
 import * as api from '../services/api.js';
 import * as db from '../services/db.js';
+import type { LogService } from '../services/LogService.js';
 import { PageTracker } from '../services/PageTracker.js';
 import type { UIState } from './ui.svelte.js';
 import type { MangaState } from './manga.svelte.js';
@@ -26,12 +27,14 @@ export class ReaderState {
     private manga: MangaState;
     private progress: ProgressState;
     private toast: ToastState;
+    private log: LogService;
 
-    constructor(ui: UIState, manga: MangaState, progress: ProgressState, toast: ToastState) {
+    constructor(ui: UIState, manga: MangaState, progress: ProgressState, toast: ToastState, log: LogService) {
         this.ui = ui;
         this.manga = manga;
         this.progress = progress;
         this.toast = toast;
+        this.log = log;
     }
 
     async openReader(manga: Manga, chapter: ChapterMeta) {
@@ -222,7 +225,7 @@ export class ReaderState {
             }];
             return true;
         } catch (e) {
-            console.error('Failed to append next chapter:', e);
+            this.log.log('reader-append-failed', { message: String((e as Error)?.message ?? e) });
             this.toast.show(Msg.LOAD_NEXT_FAILED);
             return false;
         } finally {
@@ -258,7 +261,7 @@ export class ReaderState {
             this.loadedChapters = [chapter, ...this.loadedChapters];
             return chapter;
         } catch (e) {
-            console.error('Failed to prepend prev chapter:', e);
+            this.log.log('reader-prepend-failed', { message: String((e as Error)?.message ?? e) });
             this.toast.show(Msg.LOAD_PREV_FAILED);
             return null;
         } finally {

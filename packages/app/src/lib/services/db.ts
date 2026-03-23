@@ -14,6 +14,14 @@ interface ProgressEntry {
 
 export type ProgressData = { chapterId: string; chapterNumber: number; pageIndex?: number; pageCount?: number; scrollOffset?: number };
 
+type DbLogger = (op: string, error: string) => void;
+let logger: DbLogger = () => {};
+
+/** Set once during app init. Owned by AppState. */
+export function setDbLogger(fn: DbLogger): void {
+    logger = fn;
+}
+
 let dbPromise: Promise<IDBDatabase> | null = null;
 
 function openDB(): Promise<IDBDatabase> {
@@ -55,7 +63,7 @@ export async function getProgress(mangaSlug: string): Promise<ProgressData | nul
             if (entry.scrollOffset != null) data.scrollOffset = entry.scrollOffset;
             resolve(data);
         };
-        req.onerror = () => { console.error('[db] getProgress failed:', req.error); resolve(null); };
+        req.onerror = () => { logger('getProgress', String(req.error)); resolve(null); };
     });
 }
 
@@ -65,7 +73,7 @@ export async function setProgress(mangaSlug: string, data: ProgressData): Promis
         const tx = db.transaction('progress', 'readwrite');
         tx.objectStore('progress').put({ mangaSlug, ...data } satisfies ProgressEntry);
         tx.oncomplete = () => resolve();
-        tx.onerror = () => { console.error('[db] setProgress failed:', tx.error); resolve(); };
+        tx.onerror = () => { logger('setProgress', String(tx.error)); resolve(); };
     });
 }
 
@@ -85,7 +93,7 @@ export async function getAllProgress(): Promise<Record<string, ProgressData>> {
             }
             resolve(map);
         };
-        req.onerror = () => { console.error('[db] getAllProgress failed:', req.error); resolve({}); };
+        req.onerror = () => { logger('getAllProgress', String(req.error)); resolve({}); };
     });
 }
 
@@ -97,7 +105,7 @@ export async function getAllFavorites(): Promise<Manga[]> {
         const tx = db.transaction('favorites', 'readonly');
         const req = tx.objectStore('favorites').getAll();
         req.onsuccess = () => resolve(req.result as Manga[]);
-        req.onerror = () => { console.error('[db] getAllFavorites failed:', req.error); resolve([]); };
+        req.onerror = () => { logger('getAllFavorites', String(req.error)); resolve([]); };
     });
 }
 
@@ -107,7 +115,7 @@ export async function addFavorite(manga: Manga): Promise<void> {
         const tx = db.transaction('favorites', 'readwrite');
         tx.objectStore('favorites').put(manga);
         tx.oncomplete = () => resolve();
-        tx.onerror = () => { console.error('[db] addFavorite failed:', tx.error); resolve(); };
+        tx.onerror = () => { logger('addFavorite', String(tx.error)); resolve(); };
     });
 }
 
@@ -117,6 +125,6 @@ export async function removeFavorite(id: string): Promise<void> {
         const tx = db.transaction('favorites', 'readwrite');
         tx.objectStore('favorites').delete(id);
         tx.oncomplete = () => resolve();
-        tx.onerror = () => { console.error('[db] removeFavorite failed:', tx.error); resolve(); };
+        tx.onerror = () => { logger('removeFavorite', String(tx.error)); resolve(); };
     });
 }

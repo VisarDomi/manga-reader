@@ -1,4 +1,5 @@
 import * as db from '../services/db.js';
+import type { LogService } from '../services/LogService.js';
 import { Msg } from '../messages.js';
 import type { Manga } from '../types.js';
 import type { ToastState } from './toast.svelte.js';
@@ -8,7 +9,12 @@ export class FavoritesState {
     isActive = $state(false);
     isLoading = $state(false);
 
-    constructor(private toast: ToastState) {}
+    private log: LogService;
+
+    constructor(toast: ToastState, log: LogService) {
+        this.toast = toast;
+        this.log = log;
+    }
 
     async init() {
         try {
@@ -39,7 +45,7 @@ export class FavoritesState {
                 this.toast.show('Added to favorites');
             }
         } catch (e) {
-            console.error('[favorites] toggle failed:', e);
+            this.log.log('favorites-toggle-failed', { message: String((e as Error)?.message ?? e) });
             // Revert optimistic update
             if (was) {
                 this.items = [...this.items, manga];

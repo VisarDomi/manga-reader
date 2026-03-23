@@ -64,7 +64,7 @@
     background: #1a1a1a;
     color: #999;
     border: 1px solid transparent;
-    white-space: nowrap;
+    word-break: break-word;
 }
 
 .filter-chip:active {

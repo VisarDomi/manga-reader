@@ -8,6 +8,7 @@ import healthRouter from './routes/health';
 import imageRouter from './routes/image';
 import certRouter from './routes/cert';
 import proxyRouter from './routes/proxy';
+import logRouter from './routes/log';
 import type { Request, Response } from 'express';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -40,6 +41,7 @@ app.use('/api', healthRouter);
 app.use('/api', imageRouter);
 app.use('/api', certRouter);
 app.use('/api', proxyRouter);
+app.use('/api', logRouter);
 
 // SPA fallback — serve index.html for non-API routes
 app.get(/^\/(?!api).*/, (_req: Request, res: Response) => {
