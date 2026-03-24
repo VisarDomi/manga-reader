@@ -1,4 +1,4 @@
-import type { MangaProvider, Manga, ChapterMeta, ChapterPage, SearchFilters, PagedResult, FilterDefinition, HttpRequest } from '@manga-reader/provider-types';
+import type { MangaProvider, Manga, ChapterMeta, ChapterPage, ChapterListPage, PaginationMeta, SearchFilters, PagedResult, FilterDefinition, HttpRequest } from '@manga-reader/provider-types';
 import { TERMS, TYPES, STATUSES, TYPE_LABELS, STATUS_LABELS, NSFW_TERM_IDS } from './terms.js';
 import { extractJsonArray } from './parse.js';
 
@@ -71,6 +71,7 @@ const provider: MangaProvider = {
     const d = data as Record<string, unknown>;
     const result = d.result as Record<string, unknown> | undefined;
     const items = (result?.items ?? (d as Record<string, unknown>).items ?? []) as Record<string, unknown>[];
+    const paginationRaw = (result?.pagination ?? d.pagination) as Record<string, unknown> | undefined;
 
     const termMap = new Map<number, string>();
     for (const t of TERMS) termMap.set(t.id, t.name);
@@ -92,7 +93,13 @@ const provider: MangaProvider = {
       };
     });
 
-    return { items: manga, hasMore: manga.length >= SEARCH_LIMIT };
+    const pagination: PaginationMeta | undefined = paginationRaw ? {
+      currentPage: Number(paginationRaw.current_page ?? 1),
+      lastPage: Number(paginationRaw.last_page ?? 1),
+      total: Number(paginationRaw.total ?? items.length),
+    } : undefined;
+
+    return { items: manga, hasMore: manga.length >= SEARCH_LIMIT, pagination };
   },
 
   // --- Chapters ---
@@ -105,12 +112,13 @@ const provider: MangaProvider = {
     return { url: `${API_URL}/manga/${mangaId}/chapters?${params}`, cloudflareProtected: true };
   },
 
-  parseChapterListResponse(data: unknown): ChapterMeta[] {
+  parseChapterListResponse(data: unknown): ChapterListPage {
     const d = data as Record<string, unknown>;
     const result = d.result as Record<string, unknown> | undefined;
     const items = (result?.items ?? []) as Record<string, unknown>[];
+    const paginationRaw = (result?.pagination ?? d.pagination) as Record<string, unknown> | undefined;
 
-    return items.map(item => {
+    const chapters = items.map(item => {
       const group = item.scanlation_group as Record<string, unknown> | undefined;
       return {
         id: String(item.chapter_id ?? ''),
@@ -120,6 +128,14 @@ const provider: MangaProvider = {
         uploadedAt: item.created_at != null ? Number(item.created_at) : undefined,
       };
     });
+
+    const pagination: PaginationMeta = {
+      currentPage: Number(paginationRaw?.current_page ?? 1),
+      lastPage: Number(paginationRaw?.last_page ?? 1),
+      total: Number(paginationRaw?.total ?? items.length),
+    };
+
+    return { items: chapters, pagination };
   },
 
   // --- Chapter Images ---

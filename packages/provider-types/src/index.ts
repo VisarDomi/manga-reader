@@ -31,9 +31,21 @@ export interface SearchFilters {
   statuses?: string[];
 }
 
+export interface PaginationMeta {
+  currentPage: number;
+  lastPage: number;
+  total: number;
+}
+
 export interface PagedResult<T> {
   items: T[];
   hasMore: boolean;
+  pagination?: PaginationMeta;
+}
+
+export interface ChapterListPage {
+  items: ChapterMeta[];
+  pagination: PaginationMeta;
 }
 
 export interface FilterOption {
@@ -72,7 +84,7 @@ export interface MangaProvider {
   parseSearchResponse(data: unknown): PagedResult<Manga>;
 
   chapterListRequest(mangaId: string, page: number): HttpRequest;
-  parseChapterListResponse(data: unknown): ChapterMeta[];
+  parseChapterListResponse(data: unknown): ChapterListPage;
 
   chapterImagesRequest(mangaId: string, chapterId: string, chapterNumber: number): HttpRequest;
   parseChapterImagesResponse(data: unknown): ChapterPage[];

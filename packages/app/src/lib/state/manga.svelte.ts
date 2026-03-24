@@ -86,6 +86,26 @@ export class MangaState {
         if (mangaId) storage.remove(`group:${mangaId}`);
     }
 
+    /**
+     * Consume chapter batches from the generator, dedup by ID, update state progressively.
+     * Each batch triggers a reactive update so the UI renders immediately.
+     * Owns dedup — the generator yields raw pages, this method filters duplicates.
+     */
+    private async consumeChapterStream(mangaId: string): Promise<void> {
+        const all: ChapterMeta[] = [];
+        const seen = new Set<string>();
+
+        for await (const { items } of api.fetchChapterList(mangaId)) {
+            for (const ch of items) {
+                if (seen.has(ch.id)) continue;
+                seen.add(ch.id);
+                all.push(ch);
+            }
+            // New array reference on each batch — triggers Svelte reactivity
+            this.chapters = [...all];
+        }
+    }
+
     async openManga(manga: Manga) {
         this.onOpen?.();
         this.activeManga = manga;
@@ -95,9 +115,8 @@ export class MangaState {
         this.ui.pushView(View.MANGA);
 
         try {
-            const chapters = await api.fetchChapterList(manga.id);
+            await this.consumeChapterStream(manga.id);
             this.error = null;
-            this.chapters = chapters;
             this.loadGroupSelection();
         } catch (e) {
             this.error = toLoadError(e);
@@ -114,9 +133,8 @@ export class MangaState {
         this.isLoading = true;
 
         try {
-            const chapters = await api.fetchChapterList(manga.id);
+            await this.consumeChapterStream(manga.id);
             this.error = null;
-            this.chapters = chapters;
             this.loadGroupSelection();
             return true;
         } catch (e) {

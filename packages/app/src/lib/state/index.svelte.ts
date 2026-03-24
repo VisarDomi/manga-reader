@@ -3,7 +3,7 @@ import { watchdog } from '../services/WatchdogService.js';
 import { initProvider, getProvider } from '../services/provider.js';
 import { LogService } from '../services/LogService.js';
 import { setDbLogger } from '../services/db.js';
-import { setCloudflareCallback } from '../services/api.js';
+import { setCloudflareCallback, setApiLogger } from '../services/api.js';
 import * as api from '../services/api.js';
 import { View } from '../logic.js';
 import { Msg } from '../messages.js';
@@ -286,9 +286,12 @@ class AppState {
         }
 
         try {
-            // Verify the manga still exists before paginating
+            // Verify the manga still exists before paginating (consume first page only)
             try {
-                await api.fetchChapterList(targetId);
+                const gen = api.fetchChapterList(targetId);
+                const first = await gen.next();
+                if (first.done) { this.restore.done(); return; }
+                await gen.return(undefined as never);
             } catch {
                 this.restore.done();
                 return;
@@ -371,7 +374,8 @@ class AppState {
         setDbLogger((op, error) => this.log.log('db-error', { op, error }));
 
         try {
-            // Wire up Cloudflare solving toast
+            // Wire up API logging and Cloudflare solving toast
+            setApiLogger((event, data) => this.log.log(event, data));
             setCloudflareCallback(() => this.toast.show(Msg.SOLVING_CLOUDFLARE, 15000));
 
             // Initialize provider first — filters and API depend on it

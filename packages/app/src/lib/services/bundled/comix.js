@@ -83,30 +83,30 @@ const u = [
   { id: 93170, name: "Long Strip", category: "format" },
   { id: 93171, name: "Web Comic", category: "format" },
   { id: 93172, name: "Full Color", category: "format" }
-], p = ["manga", "manhwa", "manhua", "other"], S = ["releasing", "finished", "on_hiatus", "discontinued", "not_yet_released"], f = {
+], f = ["manga", "manhwa", "manhua", "other"], _ = ["releasing", "finished", "on_hiatus", "discontinued", "not_yet_released"], R = {
   releasing: "Releasing",
   finished: "Finished",
   on_hiatus: "On Hiatus",
   discontinued: "Discontinued",
   not_yet_released: "Not Yet Released"
-}, _ = {
+}, M = {
   manga: "Manga",
   manhwa: "Manhwa",
   manhua: "Manhua",
   other: "Other"
-}, M = [87264, 87265, 87266, 87267, 87268];
-function R(r, o) {
-  const a = o.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), t = [
+}, w = [87264, 87265, 87266, 87267, 87268];
+function A(o, r) {
+  const a = r.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), t = [
     [`\\"${a}\\"`, !0],
     [`"${a}"`, !1]
   ];
-  for (const [e, i] of t) {
-    const n = r.indexOf(e);
-    if (n === -1) continue;
-    const m = r.slice(n + e.length).match(/^\s*:\s*(\[[\s\S]*?\])/);
-    if (!m) continue;
-    let s = m[1];
-    i && (s = s.replace(/\\"/g, '"').replace(/\\\//g, "/"));
+  for (const [e, m] of t) {
+    const c = o.indexOf(e);
+    if (c === -1) continue;
+    const n = o.slice(c + e.length).match(/^\s*:\s*(\[[\s\S]*?\])/);
+    if (!n) continue;
+    let s = n[1];
+    m && (s = s.replace(/\\"/g, '"').replace(/\\\//g, "/"));
     try {
       JSON.parse(s);
     } catch {
@@ -114,35 +114,35 @@ function R(r, o) {
     }
     return s;
   }
-  throw new Error(`Key "${o}" not found in HTML (tried both escaped and unescaped patterns)`);
+  throw new Error(`Key "${r}" not found in HTML (tried both escaped and unescaped patterns)`);
 }
-const d = "https://comix.to", l = `${d}/api/v2`, y = 100, A = {
+const g = "https://comix.to", l = `${g}/api/v2`, y = 100, L = {
   id: "comix",
   name: "Comix",
-  baseUrl: d,
+  baseUrl: g,
   language: "en",
   version: "1.0.0",
   nsfw: !0,
   chapterImagesResponseType: "html",
   getFilters() {
-    const r = new Set(M.map(Number)), o = u.map((e) => ({
+    const o = new Set(w.map(Number)), r = u.map((e) => ({
       id: String(e.id),
       name: e.name,
       group: e.category,
-      ...r.has(e.id) ? { nsfw: !0 } : {}
-    })), a = p.map((e) => ({
+      ...o.has(e.id) ? { nsfw: !0 } : {}
+    })), a = f.map((e) => ({
       id: e,
-      name: _[e] ?? e
-    })), t = S.map((e) => ({
+      name: M[e] ?? e
+    })), t = _.map((e) => ({
       id: e,
-      name: f[e] ?? e
+      name: R[e] ?? e
     }));
-    return { genres: o, types: a, statuses: t };
+    return { genres: r, types: a, statuses: t };
   },
   // --- Search ---
-  searchRequest(r, o, a) {
+  searchRequest(o, r, a) {
     const t = new URLSearchParams();
-    if (t.set("page", String(o)), t.set("limit", String(y)), r ? t.set("keyword", r) : t.set("order[chapter_updated_at]", "desc"), a) {
+    if (t.set("page", String(r)), t.set("limit", String(y)), o ? t.set("keyword", o) : t.set("order[chapter_updated_at]", "desc"), a) {
       if (a.includeGenres)
         for (const e of a.includeGenres) t.append("genres[]", e);
       if (a.excludeGenres)
@@ -154,46 +154,55 @@ const d = "https://comix.to", l = `${d}/api/v2`, y = 100, A = {
     }
     return { url: `${l}/manga?${t}`, cloudflareProtected: !0 };
   },
-  parseSearchResponse(r) {
-    const o = r, t = o.result?.items ?? o.items ?? [], e = /* @__PURE__ */ new Map();
-    for (const n of u) e.set(n.id, n.name);
-    const i = t.map((n) => {
-      const c = n.poster, m = String(n.hash_id ?? ""), s = String(n.slug ?? ""), h = n.term_ids?.map((g) => e.get(g)).filter((g) => g != null);
+  parseSearchResponse(o) {
+    const r = o, a = r.result, t = a?.items ?? r.items ?? [], e = a?.pagination ?? r.pagination, m = /* @__PURE__ */ new Map();
+    for (const n of u) m.set(n.id, n.name);
+    const c = t.map((n) => {
+      const s = n.poster, p = String(n.hash_id ?? ""), S = String(n.slug ?? ""), h = n.term_ids?.map((d) => m.get(d)).filter((d) => d != null);
       return {
-        id: m || s,
+        id: p || S,
         title: String(n.title ?? ""),
-        cover: c?.medium ?? c?.large ?? c?.small ?? "",
+        cover: s?.medium ?? s?.large ?? s?.small ?? "",
         latestChapter: n.latest_chapter != null ? Number(n.latest_chapter) : null,
         author: n.author ? String(n.author) : void 0,
         status: n.status ? String(n.status) : void 0,
         tags: h?.length ? h : void 0
       };
-    });
-    return { items: i, hasMore: i.length >= y };
+    }), i = e ? {
+      currentPage: Number(e.current_page ?? 1),
+      lastPage: Number(e.last_page ?? 1),
+      total: Number(e.total ?? t.length)
+    } : void 0;
+    return { items: c, hasMore: c.length >= y, pagination: i };
   },
   // --- Chapters ---
-  chapterListRequest(r, o) {
+  chapterListRequest(o, r) {
     const a = new URLSearchParams();
-    return a.set("limit", "100"), a.set("page", String(o)), a.set("order[number]", "desc"), { url: `${l}/manga/${r}/chapters?${a}`, cloudflareProtected: !0 };
+    return a.set("limit", "100"), a.set("page", String(r)), a.set("order[number]", "desc"), { url: `${l}/manga/${o}/chapters?${a}`, cloudflareProtected: !0 };
   },
-  parseChapterListResponse(r) {
-    return (r.result?.items ?? []).map((e) => {
-      const i = e.scanlation_group;
+  parseChapterListResponse(o) {
+    const r = o, a = r.result, t = a?.items ?? [], e = a?.pagination ?? r.pagination, m = t.map((i) => {
+      const n = i.scanlation_group;
       return {
-        id: String(e.chapter_id ?? ""),
-        number: parseFloat(String(e.number)),
-        groupId: e.scanlation_group_id != null ? String(e.scanlation_group_id) : void 0,
-        groupName: i?.name ?? "Unknown",
-        uploadedAt: e.created_at != null ? Number(e.created_at) : void 0
+        id: String(i.chapter_id ?? ""),
+        number: parseFloat(String(i.number)),
+        groupId: i.scanlation_group_id != null ? String(i.scanlation_group_id) : void 0,
+        groupName: n?.name ?? "Unknown",
+        uploadedAt: i.created_at != null ? Number(i.created_at) : void 0
       };
-    });
+    }), c = {
+      currentPage: Number(e?.current_page ?? 1),
+      lastPage: Number(e?.last_page ?? 1),
+      total: Number(e?.total ?? t.length)
+    };
+    return { items: m, pagination: c };
   },
   // --- Chapter Images ---
-  chapterImagesRequest(r, o, a) {
-    return { url: `${d}/title/${r}/${o}-chapter-${a}`, cloudflareProtected: !0 };
+  chapterImagesRequest(o, r, a) {
+    return { url: `${g}/title/${o}/${r}-chapter-${a}`, cloudflareProtected: !0 };
   },
-  parseChapterImagesResponse(r) {
-    const a = R(r, "images");
+  parseChapterImagesResponse(o) {
+    const a = A(o, "images");
     return JSON.parse(a).map((e) => ({
       url: String(e.url ?? ""),
       width: Number(e.width ?? 0),
@@ -201,9 +210,9 @@ const d = "https://comix.to", l = `${d}/api/v2`, y = 100, A = {
     }));
   },
   imageHeaders() {
-    return { Referer: d };
+    return { Referer: g };
   }
 };
 export {
-  A as default
+  L as default
 };

@@ -40,7 +40,9 @@ router.post('/proxy', asyncHandler(async (req, res) => {
             body: body ?? undefined,
             cloudflareProtected,
         });
-        console.log(`[proxy] ${new URL(url).pathname} ${r.status} ${Date.now() - start}ms`);
+        const parsed = new URL(url);
+        const path = parsed.pathname + (parsed.search ? parsed.search : '');
+        console.log(`[proxy] ${method} ${path} ${r.status} ${Date.now() - start}ms`);
 
         if (responseType === 'text') {
             const text = await r.text();
