@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import { asyncHandler } from '../middleware/errorHandler';
 import { proxyFetch, CloudflareError } from '../utils/proxyFetch';
-import { USER_AGENT } from '../config';
 
 const router = Router();
 
@@ -30,11 +29,10 @@ router.post('/proxy', asyncHandler(async (req, res) => {
     }
 
     try {
-        const start = Date.now();
-        const r = await proxyFetch(url, {
+        const { response: r, meta } = await proxyFetch(url, {
             method,
             headers: {
-                'User-Agent': USER_AGENT,
+                'User-Agent': req.headers['user-agent'] || '',
                 ...headers,
             },
             body: body ?? undefined,
@@ -42,7 +40,7 @@ router.post('/proxy', asyncHandler(async (req, res) => {
         });
         const parsed = new URL(url);
         const path = parsed.pathname + (parsed.search ? parsed.search : '');
-        console.log(`[proxy] ${method} ${path} ${r.status} ${Date.now() - start}ms`);
+        console.log(`[proxy] ${method} ${path} ${r.status} ${meta.durationMs}ms`);
 
         if (responseType === 'text') {
             const text = await r.text();

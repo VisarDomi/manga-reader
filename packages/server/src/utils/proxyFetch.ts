@@ -26,13 +26,37 @@ export interface ProxyFetchOptions extends RequestInit {
   cloudflareProtected?: boolean;
 }
 
+/** What proxyFetch resolved and observed — caller owns logging. */
+export interface ProxyFetchMeta {
+  url: string;
+  method: string;
+  domain: string;
+  resolvedUA: string | null;
+  referer: string | null;
+  cfCookiesInjected: boolean;
+  status: number;
+  durationMs: number;
+  contentLength: number | null;
+}
+
+export interface ProxyFetchResult {
+  response: globalThis.Response;
+  meta: ProxyFetchMeta;
+}
+
 export async function proxyFetch(
   url: string,
   init?: ProxyFetchOptions,
   timeout = PROXY_TIMEOUT,
-) {
+): Promise<ProxyFetchResult> {
   const { cloudflareProtected, ...fetchInit } = init ?? {};
   const domain = new URL(url).hostname;
+  const method = (fetchInit.method as string) ?? 'GET';
+
+  // Track what we resolve for the caller
+  let cfCookiesInjected = false;
+  let resolvedUA: string | null = null;
+  let resolvedReferer: string | null = null;
 
   // Inject cached CF cookies if available
   if (cloudflareProtected) {
@@ -40,6 +64,7 @@ export async function proxyFetch(
     if (cachedCookies) {
       const headers = new Headers(fetchInit.headers);
       headers.set('Cookie', cachedCookies);
+      cfCookiesInjected = true;
       // CF binds cf_clearance to User-Agent — must match what the browser used
       const cachedUA = getCachedUserAgent(domain);
       if (cachedUA) {
@@ -49,6 +74,13 @@ export async function proxyFetch(
     }
   }
 
+  // Read resolved headers for meta
+  const finalHeaders = new Headers(fetchInit.headers);
+  resolvedUA = finalHeaders.get('user-agent');
+  resolvedReferer = finalHeaders.get('referer');
+
+  const start = Date.now();
+
   let r: globalThis.Response;
   try {
     r = await fetch(url, {
@@ -56,10 +88,24 @@ export async function proxyFetch(
       signal: fetchInit.signal ?? AbortSignal.timeout(timeout),
     });
   } catch (e) {
+    const durationMs = Date.now() - start;
     const kind = e instanceof DOMException && e.name === 'TimeoutError' ? 'timeout' : 'fetch-error';
-    console.error(`[proxyFetch] ${kind} ${fetchInit.method ?? 'GET'} ${url}: ${(e as Error).message}`);
+    console.error(`[proxyFetch] ${kind} ${method} ${url} ${durationMs}ms ua=${resolvedUA} referer=${resolvedReferer} cf=${cfCookiesInjected}`);
     throw e;
   }
+
+  const durationMs = Date.now() - start;
+  const meta: ProxyFetchMeta = {
+    url,
+    method,
+    domain,
+    resolvedUA,
+    referer: resolvedReferer,
+    cfCookiesInjected,
+    status: r.status,
+    durationMs,
+    contentLength: r.headers.get('content-length') ? parseInt(r.headers.get('content-length')!, 10) : null,
+  };
 
   if (!r.ok && cloudflareProtected && isCloudflareBlock(r.status, r.headers.get('server'))) {
     // If we had cached cookies and still got blocked, clear them
@@ -82,5 +128,5 @@ export async function proxyFetch(
   if (!r.ok) {
     throw new UpstreamError(r.status, r.statusText, url);
   }
-  return r;
+  return { response: r, meta };
 }

@@ -20,7 +20,7 @@ class PrewarmMonitor {
   private async tick(): Promise<void> {
     let next: Status;
     try {
-      const r = await proxyFetch(PREWARM_URL, { method: 'HEAD', cloudflareProtected: true });
+      const { response: r } = await proxyFetch(PREWARM_URL, { method: 'HEAD', cloudflareProtected: true });
       await r.text();
       next = 'ok';
     } catch (e) {

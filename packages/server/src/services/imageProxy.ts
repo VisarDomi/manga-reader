@@ -1,18 +1,27 @@
 import { Readable } from 'node:stream';
 import type { Response } from 'express';
-import { CACHE_MAX_AGE, USER_AGENT } from '../config';
+import { CACHE_MAX_AGE } from '../config';
 import { proxyFetch } from '../utils/proxyFetch';
+import type { ProxyFetchMeta } from '../utils/proxyFetch';
 
 /** No domain restriction — the backend is LAN-only and CDN domains change unpredictably. */
 export function isAllowedImageDomain(_hostname: string): boolean {
   return true;
 }
 
-export async function streamImage(imageUrl: string, res: Response, referer?: string): Promise<void> {
-  const headers: Record<string, string> = { 'User-Agent': USER_AGENT };
+function logImageRequest(meta: ProxyFetchMeta): void {
+  const size = meta.contentLength != null ? `${meta.contentLength}B` : '?B';
+  console.log(
+    `[imageProxy] ${meta.status} ${meta.domain} ${meta.durationMs}ms ${size} cf=${meta.cfCookiesInjected} ua=${meta.resolvedUA} ref=${meta.referer}`,
+  );
+}
+
+export async function streamImage(imageUrl: string, res: Response, callerUA: string, referer?: string): Promise<void> {
+  const headers: Record<string, string> = { 'User-Agent': callerUA };
   if (referer) headers['Referer'] = referer;
 
-  const r = await proxyFetch(imageUrl, { headers, cloudflareProtected: true });
+  const { response: r, meta } = await proxyFetch(imageUrl, { headers, cloudflareProtected: true });
+  logImageRequest(meta);
 
   const contentType = r.headers.get('content-type') || 'image/jpeg';
   res.set('Content-Type', contentType);
