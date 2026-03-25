@@ -1,4 +1,5 @@
 import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import type { Response } from 'express';
 import { CACHE_MAX_AGE } from '../config';
 import { proxyFetch } from '../utils/proxyFetch';
@@ -9,19 +10,30 @@ export function isAllowedImageDomain(_hostname: string): boolean {
   return true;
 }
 
-function logImageRequest(meta: ProxyFetchMeta): void {
+// ── In-flight tracking ────────────────────────────────────────────────
+
+let inFlight = 0;
+
+// ── Logging ───────────────────────────────────────────────────────────
+
+function logStreamResult(meta: ProxyFetchMeta, streamMs: number, totalMs: number, ok: boolean, errorMsg?: string): void {
   const size = meta.contentLength != null ? `${meta.contentLength}B` : '?B';
+  const status = ok ? 'ok' : 'fail';
   console.log(
-    `[imageProxy] ${meta.status} ${meta.domain} ${meta.durationMs}ms ${size} cf=${meta.cfCookiesInjected} ua=${meta.resolvedUA} ref=${meta.referer}`,
+    `[imageProxy] ${status} ${meta.domain} ttfb=${meta.durationMs}ms stream=${streamMs}ms total=${totalMs}ms ${size} inflight=${inFlight} cf=${meta.cfCookiesInjected} ref=${meta.referer}${errorMsg ? ` err=${errorMsg}` : ''}`,
   );
 }
+
+// ── Stream lifecycle ──────────────────────────────────────────────────
 
 export async function streamImage(imageUrl: string, res: Response, callerUA: string, referer?: string): Promise<void> {
   const headers: Record<string, string> = { 'User-Agent': callerUA };
   if (referer) headers['Referer'] = referer;
 
+  inFlight++;
+  const requestStart = Date.now();
+
   const { response: r, meta } = await proxyFetch(imageUrl, { headers, cloudflareProtected: true });
-  logImageRequest(meta);
 
   const contentType = r.headers.get('content-type') || 'image/jpeg';
   res.set('Content-Type', contentType);
@@ -33,14 +45,23 @@ export async function streamImage(imageUrl: string, res: Response, callerUA: str
   }
 
   if (!r.body) {
+    inFlight--;
     throw new Error('Upstream returned empty body for image');
   }
 
   const readable = Readable.fromWeb(r.body as Parameters<typeof Readable.fromWeb>[0]);
-  readable.on('error', (err) => {
-    console.error(`[imageProxy] stream error for ${imageUrl}: ${err.message}`);
+  const streamStart = Date.now();
+
+  try {
+    await pipeline(readable, res);
+    const now = Date.now();
+    logStreamResult(meta, now - streamStart, now - requestStart, true);
+  } catch (err) {
+    const now = Date.now();
+    logStreamResult(meta, now - streamStart, now - requestStart, false, (err as Error).message);
     if (!res.headersSent) res.status(502).end();
     else res.destroy();
-  });
-  readable.pipe(res);
+  } finally {
+    inFlight--;
+  }
 }

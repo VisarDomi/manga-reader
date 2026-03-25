@@ -20,7 +20,7 @@
         onClose: () => void;
     } = $props();
 
-    const memory = new ReaderMemoryManager();
+    const memory = new ReaderMemoryManager((event, data) => appState.log.log(event, data));
     const { pageTracker } = appState.reader;
 
     // Slow connection detection: 3+ failures within 10s → toast once per session

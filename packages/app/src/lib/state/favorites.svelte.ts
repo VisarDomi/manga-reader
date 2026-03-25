@@ -9,6 +9,7 @@ export class FavoritesState {
     isActive = $state(false);
     isLoading = $state(false);
 
+    private toast: ToastState;
     private log: LogService;
 
     constructor(toast: ToastState, log: LogService) {

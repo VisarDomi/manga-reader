@@ -1,13 +1,19 @@
 import type { LoadedChapter, ReaderPageData } from '$lib/types.js';
+import type { LogFn } from '$lib/services/LogService.js';
 import { MAX_CHAPTER_DISTANCE } from '$lib/constants.js';
 
 export class ReaderMemoryManager {
     private blobUrls = new Map<string, string>();
     private loadingKeys = new Set<string>();
     private abortController: AbortController | undefined;
+    private log: LogFn;
     readonly pageDataMap = new Map<HTMLElement, ReaderPageData>();
     root: HTMLElement | null = null;
     onLoadFailure: ((key: string) => void) | undefined;
+
+    constructor(log: LogFn) {
+        this.log = log;
+    }
 
     private pageKey(chapterId: string, pageIndex: number): string {
         return `${chapterId}-${pageIndex}`;
@@ -41,6 +47,7 @@ export class ReaderMemoryManager {
     /**
      * Fetch an image as a blob and set it on the given `<img>` element.
      * No-ops if the key is already loaded or currently loading.
+     * Owns the full lifecycle: fetch start → response → blob → img.src.
      */
     loadImage(url: string, key: string, img: HTMLImageElement): void {
         if (!this.abortController) return;
@@ -48,16 +55,37 @@ export class ReaderMemoryManager {
         this.loadingKeys.add(key);
 
         const signal = this.abortController.signal;
+        const t0 = performance.now();
+        let tResponse = 0;
 
         fetch(url, { signal })
-            .then(r => r.blob())
+            .then(r => {
+                tResponse = performance.now();
+                return r.blob();
+            })
             .then(blob => {
+                const tDone = performance.now();
                 const blobUrl = URL.createObjectURL(blob);
                 this.blobUrls.set(key, blobUrl);
                 img.src = blobUrl;
+                this.log('img-ok', {
+                    key,
+                    fetchMs: Math.round(tResponse - t0),
+                    blobMs: Math.round(tDone - tResponse),
+                    totalMs: Math.round(tDone - t0),
+                    sizeKB: Math.round(blob.size / 1024),
+                    pending: this.loadingKeys.size,
+                });
             })
             .catch((err) => {
                 if (err?.name !== 'AbortError') {
+                    const tFail = performance.now();
+                    this.log('img-fail', {
+                        key,
+                        totalMs: Math.round(tFail - t0),
+                        error: err?.message ?? String(err),
+                        pending: this.loadingKeys.size,
+                    });
                     this.onLoadFailure?.(key);
                 }
             })

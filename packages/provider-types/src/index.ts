@@ -90,5 +90,5 @@ export interface MangaProvider {
   parseChapterImagesResponse(data: unknown): ChapterPage[];
   readonly chapterImagesResponseType: 'json' | 'html';
 
-  imageHeaders?(): Record<string, string>;
+  imageHeaders?(mangaId: string, chapterId: string, chapterNumber: number): Record<string, string>;
 }

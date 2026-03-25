@@ -82,10 +82,16 @@ async function proxyRequest<T>(req: HttpRequest, responseType: 'json' | 'text', 
 
 // --- Image proxy URL ---
 
-export function imageProxyUrl(url: string): string {
+export function imageProxyUrl(url: string, mangaId: string, chapterId: string, chapterNumber: number): string {
     const provider = getProvider();
-    const referer = provider.imageHeaders?.()?.['Referer'];
+    const referer = provider.imageHeaders?.(mangaId, chapterId, chapterNumber)?.['Referer'];
     return _imageProxyUrl(url, referer);
+}
+
+/** Cover images use the base URL as referer — no chapter context needed. */
+export function coverProxyUrl(url: string): string {
+    const provider = getProvider();
+    return _imageProxyUrl(url, provider.baseUrl);
 }
 
 // --- Search ---

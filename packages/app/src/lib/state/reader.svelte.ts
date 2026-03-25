@@ -58,10 +58,9 @@ export class ReaderState {
 
         try {
             const pages = await api.fetchChapterImages(manga.id, chapter.id, chapter.number);
-            // Proxy all image URLs through our backend to avoid CORS issues
             const proxiedPages = pages.map(p => ({
                 ...p,
-                url: api.imageProxyUrl(p.url),
+                url: api.imageProxyUrl(p.url, manga.id, chapter.id, chapter.number),
             }));
             this.error = null;
             this.loadedChapters = [{
@@ -110,7 +109,7 @@ export class ReaderState {
             const pages = await api.fetchChapterImages(manga.id, chapter.id, chapter.number);
             const proxiedPages = pages.map(p => ({
                 ...p,
-                url: api.imageProxyUrl(p.url),
+                url: api.imageProxyUrl(p.url, manga.id, chapter.id, chapter.number),
             }));
             this.error = null;
             this.loadedChapters = [{
@@ -215,7 +214,7 @@ export class ReaderState {
             const pages = await api.fetchChapterImages(manga.id, next.id, next.number);
             const proxiedPages = pages.map(p => ({
                 ...p,
-                url: api.imageProxyUrl(p.url),
+                url: api.imageProxyUrl(p.url, manga.id, next.id, next.number),
             }));
             this.loadedChapters = [...this.loadedChapters, {
                 id: next.id,
@@ -250,7 +249,7 @@ export class ReaderState {
             const pages = await api.fetchChapterImages(manga.id, prev.id, prev.number);
             const proxiedPages = pages.map(p => ({
                 ...p,
-                url: api.imageProxyUrl(p.url),
+                url: api.imageProxyUrl(p.url, manga.id, prev.id, prev.number),
             }));
             const chapter: LoadedChapter = {
                 id: prev.id,

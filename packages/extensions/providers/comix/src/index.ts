@@ -155,8 +155,8 @@ const provider: MangaProvider = {
     }));
   },
 
-  imageHeaders(): Record<string, string> {
-    return { Referer: BASE_URL };
+  imageHeaders(mangaId: string, chapterId: string, chapterNumber: number): Record<string, string> {
+    return { Referer: `${BASE_URL}/title/${mangaId}/${chapterId}-chapter-${chapterNumber}` };
   },
 };
 

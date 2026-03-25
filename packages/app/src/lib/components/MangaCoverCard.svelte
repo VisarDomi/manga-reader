@@ -5,7 +5,7 @@
 
     let { manga }: { manga: Manga } = $props();
 
-    const coverUrl = $derived(manga.cover ? api.imageProxyUrl(manga.cover) : '');
+    const coverUrl = $derived(manga.cover ? api.coverProxyUrl(manga.cover) : '');
     const progress = $derived(appState.progress.get(manga.id));
     const hasProgress = $derived(progress != null && manga.latestChapter != null);
 </script>
