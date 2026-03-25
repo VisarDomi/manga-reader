@@ -27,11 +27,9 @@ interface CachedCookies {
 const cookieCache = new Map<string, CachedCookies>();
 const solvingDomains = new Set<string>();
 
-/** Look up cache by exact domain, then try parent (static.comix.to → comix.to). */
 function findCached(domain: string): CachedCookies | null {
   let cached = cookieCache.get(domain);
   if (!cached) {
-    // Try parent domain — CF sets cookies on .comix.to covering all subdomains
     const parts = domain.split('.');
     if (parts.length > 2) {
       const parent = parts.slice(1).join('.');
@@ -54,7 +52,6 @@ export function getCachedCookies(domain: string): string | null {
   return findCached(domain)?.cookieHeader ?? null;
 }
 
-/** Returns the User-Agent the browser used during the CF solve, so fetch requests match. */
 export function getCachedUserAgent(domain: string): string | null {
   return findCached(domain)?.userAgent ?? null;
 }
@@ -88,7 +85,6 @@ export async function solveCloudflareCookies(url: string): Promise<string> {
       viewport: { width: 1920, height: 1080 },
     });
 
-    // Clear stale cf_clearance so the poll only catches a freshly issued one
     const existingCookies = await context.cookies();
     const staleCf = existingCookies.filter(c => c.name === 'cf_clearance');
     if (staleCf.length > 0) {
@@ -98,13 +94,11 @@ export async function solveCloudflareCookies(url: string): Promise<string> {
 
     const page = context.pages()[0] || await context.newPage();
 
-    // Capture the browser's actual UA — CF binds cf_clearance to it
     const browserUA = await page.evaluate(() => navigator.userAgent);
     console.log(`[cloudflare] Browser UA: ${browserUA}`);
 
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
 
-    // Poll for cf_clearance cookie up to 30 seconds
     let cookieHeader: string | null = null;
     const deadline = Date.now() + 30_000;
 

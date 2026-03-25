@@ -19,19 +19,16 @@ export class ReaderMemoryManager {
         return `${chapterId}-${pageIndex}`;
     }
 
-    /** Start a new session (creates a fresh AbortController). */
     startSession(): void {
         this.abortController = new AbortController();
     }
 
-    /** Ensure an AbortController exists (idempotent). */
     ensureAbortController(): void {
         if (!this.abortController) {
             this.abortController = new AbortController();
         }
     }
 
-    /** Get the current abort signal, or undefined if no session is active. */
     get signal(): AbortSignal | undefined {
         return this.abortController?.signal;
     }
@@ -44,11 +41,6 @@ export class ReaderMemoryManager {
         this.pageDataMap.delete(node);
     }
 
-    /**
-     * Fetch an image as a blob and set it on the given `<img>` element.
-     * No-ops if the key is already loaded or currently loading.
-     * Owns the full lifecycle: fetch start → response → blob → img.src.
-     */
     loadImage(url: string, key: string, img: HTMLImageElement): void {
         if (!this.abortController) return;
         if (this.blobUrls.has(key) || this.loadingKeys.has(key)) return;
@@ -92,10 +84,6 @@ export class ReaderMemoryManager {
             .finally(() => this.loadingKeys.delete(key));
     }
 
-    /**
-     * Revoke blob URLs for chapters whose distance from the current chapter
-     * exceeds MAX_CHAPTER_DISTANCE. Clears `src` on the provided page elements.
-     */
     cleanupDistantChapters(
         currentChapterId: string,
         chapters: LoadedChapter[],
@@ -104,12 +92,10 @@ export class ReaderMemoryManager {
         const currentIndex = chapters.findIndex(c => c.id === currentChapterId);
         if (currentIndex < 0) return;
 
-        // Collect chapter IDs that should be unloaded
         const unloadIds = new Set<string>();
         for (let i = 0; i < chapters.length; i++) {
             if (Math.abs(i - currentIndex) > MAX_CHAPTER_DISTANCE) {
                 const ch = chapters[i];
-                // Revoke blob URLs for every page in this chapter
                 for (let p = 0; p < ch.pages.length; p++) {
                     const key = this.pageKey(ch.id, p);
                     const blobUrl = this.blobUrls.get(key);
@@ -124,7 +110,6 @@ export class ReaderMemoryManager {
 
         if (unloadIds.size === 0) return;
 
-        // Clear src on affected <img> elements
         for (const wrapper of pageElements) {
             const data = this.pageDataMap.get(wrapper);
             if (!data) continue;
@@ -138,10 +123,6 @@ export class ReaderMemoryManager {
         }
     }
 
-    /**
-     * Reload images for a previously-unloaded chapter.
-     * Caller passes the page wrapper elements so the manager doesn't query the DOM.
-     */
     reloadChapterImages(
         chapterId: string,
         pageElements: Iterable<HTMLElement>,
@@ -159,7 +140,6 @@ export class ReaderMemoryManager {
         }
     }
 
-    /** Revoke all blob URLs and abort pending fetches. Full cleanup. */
     revokeAll(): void {
         this.abortController?.abort();
         this.abortController = undefined;

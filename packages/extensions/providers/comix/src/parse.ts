@@ -1,11 +1,3 @@
-/**
- * Extracts a JSON array value from inline HTML/JS by key name.
- *
- * comix.to embeds chapter data in <script> tags in two possible formats:
- * 1. Escaped: \"images\":[ ... ] — inside JSON strings within JS (e.g. x-data attributes)
- * 2. Unescaped: "images":[ ... ] — inside inline <script> blocks
- * Both patterns are tried because the upstream page format varies between renders.
- */
 export function extractJsonArray(html: string, key: string): string {
   const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const needles: [string, boolean][] = [

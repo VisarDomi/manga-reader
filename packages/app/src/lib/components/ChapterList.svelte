@@ -9,13 +9,11 @@
     const gf = appState.groupFilter;
     const selectedGroups = $derived(appState.manga.selectedGroups);
 
-    // Reset showFiltered when manga changes
     $effect(() => {
         mangaId;
         gf.showFiltered = false;
     });
 
-    // Scroll sync: when reader updates scrollTarget, scroll the chapter into position
     $effect(() => {
         const target = appState.manga.scrollTarget;
         if (!target) return;
@@ -27,22 +25,18 @@
         container.scrollTop = Math.max(0, desiredScrollTop);
     });
 
-    // Whether this manga has chapters hidden by the global filter
     const hasFilteredChapters = $derived(
         gf.count > 0 && chapters.some(ch => gf.isFiltered(ch.groupId ?? ''))
     );
 
-    // Chapters after applying global group filter (used only for "All" count display)
     const effectiveCount = $derived.by(() => {
         if (gf.showFiltered || gf.count === 0) return chapters.length;
         return chapters.filter(ch => !gf.isFiltered(ch.groupId ?? '')).length;
     });
 
-    // Long-press inline confirm state
     let pendingGroup = $state<{ id: string; name: string } | null>(null);
 
     function handleLongPressGroup(groupId: string, groupName: string) {
-        // Toggle off if same group tapped again
         if (pendingGroup?.id === groupId) {
             pendingGroup = null;
         } else {
@@ -63,7 +57,6 @@
         pendingGroup = null;
     }
 
-    // Collect unique groups from ALL chapters (not effectiveChapters) so filtered groups stay visible
     const groups = $derived.by(() => {
         const map = new Map<string, { id: string; name: string; count: number }>();
         for (const ch of chapters) {
@@ -100,7 +93,6 @@
                 }
             }
         }
-        // Base case: if the last (lowest) chapter is > 1, show gap from chapter 1
         if (filtered.length > 0) {
             const lowest = Math.floor(filtered[filtered.length - 1].number);
             if (lowest > 1) {
@@ -122,7 +114,6 @@
         const manga = appState.manga.activeManga;
         if (!manga) return;
 
-        // Capture viewport-relative position of clicked chapter
         const container = document.getElementById('view-manga');
         const el = container?.querySelector(`[data-chapter-id="${CSS.escape(chapter.id)}"]`);
         if (container && el) {
@@ -136,7 +127,6 @@
         appState.reader.openReader(manga, chapter);
     }
 
-    /** Scrolls the current chapter into view on mount. */
     function scrollIfCurrent(node: HTMLElement, isCurrent: boolean) {
         if (isCurrent) {
             requestAnimationFrame(() => {
@@ -161,7 +151,6 @@
         return `${Math.floor(months / 12)}y ago`;
     }
 
-    /** Check if a chapter belongs to a globally filtered group */
     function isChapterFiltered(ch: ChapterMeta): boolean {
         return gf.isFiltered(ch.groupId ?? '');
     }
@@ -230,8 +219,6 @@
         {/if}
     {/each}
 </div>
-
-
 <style>
 .chapter-filter {
     display: flex;
@@ -331,7 +318,6 @@
     border-color: #5a2d5a;
 }
 
-/* Inline confirm */
 .inline-confirm {
     display: flex;
     align-items: center;

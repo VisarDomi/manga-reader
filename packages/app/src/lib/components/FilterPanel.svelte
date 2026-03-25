@@ -5,7 +5,6 @@
 
     const filterDef = getProvider().getFilters();
 
-    // Group genres by their group field (demographic, genre, theme, format)
     const genresByGroup = $derived.by(() => {
         const map = new Map<string, typeof filterDef.genres>();
         for (const g of filterDef.genres) {

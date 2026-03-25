@@ -24,7 +24,6 @@
             ticking = true;
             requestAnimationFrame(() => {
                 ticking = false;
-                // Find the manga card at the center of the viewport
                 const centerY = window.innerHeight / 2;
                 const centerX = window.innerWidth / 2;
                 const el = document.elementFromPoint(centerX, centerY);

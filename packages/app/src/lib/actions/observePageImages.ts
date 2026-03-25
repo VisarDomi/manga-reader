@@ -1,7 +1,3 @@
-// Shared IntersectionObserver pattern: a single observer instance is reused for all
-// elements in the reader session. This avoids creating one observer per page/chapter,
-// which would degrade performance with 100+ elements. The observer is recreated only
-// when the root element changes (new session).
 
 import type { ReaderMemoryManager } from '$lib/services/ReaderMemoryManager.js';
 
@@ -42,7 +38,6 @@ function ensureObserver(memory: ReaderMemoryManager, getRoot: () => HTMLElement 
         { rootMargin: '500% 0px', root },
     );
 
-    // Observe any nodes that registered before root was ready
     for (const pending of pendingNodes) {
         sharedObserver.observe(pending);
     }
@@ -61,7 +56,6 @@ export function observePageImages(
     if (ensureObserver(memory, getRoot)) {
         sharedObserver!.observe(node);
     } else {
-        // Root not ready yet — queue for later
         pendingNodes.push(node);
     }
 
@@ -75,7 +69,6 @@ export function observePageImages(
     };
 }
 
-/** Flush pending nodes — call after root is guaranteed to exist. */
 export function flushPageObserver(memory: ReaderMemoryManager, getRoot: () => HTMLElement | null) {
     if (pendingNodes.length > 0) {
         ensureObserver(memory, getRoot);

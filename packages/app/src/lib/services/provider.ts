@@ -13,7 +13,6 @@ interface ProviderMeta {
 }
 
 export async function initProvider(providerId = 'comix', log?: LogFn): Promise<void> {
-    // Try dynamic loading first
     try {
         const res = await fetch('/providers/index.json');
         if (res.ok) {
@@ -27,10 +26,8 @@ export async function initProvider(providerId = 'comix', log?: LogFn): Promise<v
             }
         }
     } catch {
-        // Fall through to bundled
     }
 
-    // Fallback: bundled provider
     const mod = await import('./bundled/comix.js');
     activeProvider = mod.default as MangaProvider;
     log?.('provider-loaded', { name: 'comix', mode: 'bundled-fallback' });

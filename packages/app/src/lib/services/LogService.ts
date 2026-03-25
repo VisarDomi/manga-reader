@@ -3,7 +3,6 @@ export type LogFn = (event: string, data?: Record<string, unknown>) => void;
 export class LogService {
     private cleanups: (() => void)[] = [];
 
-    /** Register global error handlers. Call once during app init. */
     start(): void {
         if (typeof window === 'undefined') return;
 

@@ -53,7 +53,6 @@ export class SearchState {
     private loadingWatchdog: ReturnType<typeof setTimeout> | null = null;
     private onStuck: (() => void) | null = null;
     private isRestoring: () => boolean;
-    /** Fired at the start of every search(). AppState uses this to cancel restore on user-initiated searches. */
     onNewSearch: (() => void) | null = null;
 
     get isLoading() { return this.machine.isActive; }
@@ -150,10 +149,6 @@ export class SearchState {
         }
     }
 
-    /**
-     * Core pagination: fetch a specific page, append deduplicated results.
-     * Returns the new manga entries added (after dedup).
-     */
     private async fetchAndAppendPage(page: number, signal?: AbortSignal): Promise<Manga[]> {
         const data = await api.searchManga(
             this.currentQuery, page,
@@ -198,10 +193,6 @@ export class SearchState {
         }
     }
 
-    /**
-     * Background pagination: load pages sequentially until targetId is found
-     * in results, or all pages are exhausted. Returns true if target was found.
-     */
     async paginateToTarget(targetId: string, signal?: AbortSignal): Promise<boolean> {
         if (this.results.some(m => m.id === targetId)) return true;
 

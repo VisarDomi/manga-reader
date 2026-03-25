@@ -34,8 +34,6 @@ const provider: MangaProvider = {
     return { genres, types, statuses };
   },
 
-  // --- Search ---
-
   searchRequest(query: string, page: number, filters?: SearchFilters): HttpRequest {
     const params = new URLSearchParams();
     params.set('page', String(page));
@@ -102,8 +100,6 @@ const provider: MangaProvider = {
     return { items: manga, hasMore: manga.length >= SEARCH_LIMIT, pagination };
   },
 
-  // --- Chapters ---
-
   chapterListRequest(mangaId: string, page: number): HttpRequest {
     const params = new URLSearchParams();
     params.set('limit', '100');
@@ -137,8 +133,6 @@ const provider: MangaProvider = {
 
     return { items: chapters, pagination };
   },
-
-  // --- Chapter Images ---
 
   chapterImagesRequest(mangaId: string, chapterId: string, chapterNumber: number): HttpRequest {
     return { url: `${BASE_URL}/title/${mangaId}/${chapterId}-chapter-${chapterNumber}`, cloudflareProtected: true };

@@ -21,19 +21,11 @@ export class CloudflareError extends Error {
     this.name = 'CloudflareError';
   }
 }
-
-// ── Header resolution (pure) ──────────────────────────────────────────
-
 export interface ResolvedHeaders {
   headers: Record<string, string>;
   cfCookiesInjected: boolean;
 }
 
-/**
- * Pure function: merges caller headers with CF cookies/UA for a domain.
- * Returns a new object — caller headers are never mutated.
- * The caller sees exactly what will be sent before the fetch happens.
- */
 export function resolveHeaders(
   callerHeaders: Record<string, string>,
   domain: string,
@@ -44,16 +36,12 @@ export function resolveHeaders(
   }
 
   const resolved: Record<string, string> = { ...callerHeaders, Cookie: cfCookies };
-  // CF binds cf_clearance to User-Agent — must match what the browser used
   const cfUA = getCachedUserAgent(domain);
   if (cfUA) {
     resolved['User-Agent'] = cfUA;
   }
   return { headers: resolved, cfCookiesInjected: true };
 }
-
-// ── Fetch metadata (caller owns logging) ──────────────────────────────
-
 export interface ProxyFetchMeta {
   url: string;
   method: string;
@@ -70,9 +58,6 @@ export interface ProxyFetchResult {
   response: globalThis.Response;
   meta: ProxyFetchMeta;
 }
-
-// ── Fetch execution ───────────────────────────────────────────────────
-
 export interface ProxyFetchOptions {
   method?: string;
   headers?: Record<string, string>;
@@ -90,7 +75,6 @@ export async function proxyFetch(
   const domain = new URL(url).hostname;
   const method = fetchOpts.method ?? 'GET';
 
-  // Phase 1: resolve headers — pure, no side effects
   const { headers, cfCookiesInjected } = cloudflareProtected
     ? resolveHeaders(callerHeaders ?? {}, domain)
     : { headers: { ...callerHeaders }, cfCookiesInjected: false };
@@ -98,7 +82,6 @@ export async function proxyFetch(
   const resolvedUA = headers['User-Agent'] ?? null;
   const resolvedReferer = headers['Referer'] ?? null;
 
-  // Phase 2: execute fetch
   const start = Date.now();
 
   let r: globalThis.Response;
@@ -129,7 +112,6 @@ export async function proxyFetch(
     contentLength: r.headers.get('content-length') ? parseInt(r.headers.get('content-length')!, 10) : null,
   };
 
-  // Phase 3: CF error detection + recovery
   if (!r.ok && cloudflareProtected && isCloudflareBlock(r.status, r.headers.get('server'))) {
     if (cfCookiesInjected) {
       clearCachedCookies(domain);

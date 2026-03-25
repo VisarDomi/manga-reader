@@ -14,7 +14,6 @@ export const CERT_KEY_PATH = process.env.CERT_KEY_PATH || path.join(SSL_DIR, 'ke
 export const CERT_PEM_PATH = process.env.CERT_PEM_PATH || path.join(SSL_DIR, 'cert.pem');
 export const ROOT_CA_PATH = process.env.ROOT_CA_PATH || path.join(os.homedir(), '.local/share/mkcert/rootCA.pem');
 
-// Startup validation — crash early with clear messages
 export function validateConfig(): void {
   if (isNaN(PORT) || PORT < 1 || PORT > 65535) {
     console.error(`Invalid PORT: "${process.env.PORT}". Must be a number between 1 and 65535.`);

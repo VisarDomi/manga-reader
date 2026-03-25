@@ -6,25 +6,17 @@ import type { SearchFilters, HttpRequest, PaginationMeta, ChapterListPage } from
 import type { LogFn } from './LogService.js';
 
 export { ApiError, ApiErrKind } from './fetchJson.js';
-
-// --- Log function (owned by AppState, injected once at init) ---
-
 let log: LogFn = () => {};
 
 export function setApiLogger(fn: LogFn): void {
     log = fn;
 }
 
-// --- Cloudflare callback ---
-
 let onCloudflare: (() => void) | null = null;
 
 export function setCloudflareCallback(cb: () => void): void {
     onCloudflare = cb;
 }
-
-// --- Proxy helper ---
-
 interface ProxyOptions {
     signal?: AbortSignal;
     retry?: boolean;
@@ -61,7 +53,6 @@ async function proxyRequest<T>(req: HttpRequest, responseType: 'json' | 'text', 
         if (e instanceof ApiError && e.kind === ApiErrKind.CLOUDFLARE) {
             onCloudflare?.();
 
-            // Retry loop: wait 5s, retry, up to 6 attempts (30s total)
             for (let attempt = 0; attempt < 6; attempt++) {
                 await new Promise(r => setTimeout(r, 5000));
                 if (opts.signal?.aborted) throw e;
@@ -79,23 +70,16 @@ async function proxyRequest<T>(req: HttpRequest, responseType: 'json' | 'text', 
         throw e;
     }
 }
-
-// --- Image proxy URL ---
-
 export function imageProxyUrl(url: string, mangaId: string, chapterId: string, chapterNumber: number): string {
     const provider = getProvider();
     const referer = provider.imageHeaders?.(mangaId, chapterId, chapterNumber)?.['Referer'];
     return _imageProxyUrl(url, referer);
 }
 
-/** Cover images use the base URL as referer — no chapter context needed. */
 export function coverProxyUrl(url: string): string {
     const provider = getProvider();
     return _imageProxyUrl(url, provider.baseUrl);
 }
-
-// --- Search ---
-
 export interface SearchResult {
     manga: Manga[];
     hasMore: boolean;
@@ -119,26 +103,12 @@ export async function searchManga(query: string, page = 1, filters?: SearchFilte
     });
     return { manga: result.items, hasMore: result.hasMore };
 }
-
-// --- Chapters ---
-
-/**
- * Async generator that yields chapter pages as they arrive.
- *
- * Phase 1: Fetch page 1 sequentially — establishes pagination bounds.
- * Phase 2: Fetch pages 2..lastPage in parallel — yield each as it completes.
- *
- * Consumer owns dedup. Generator owns fetch lifecycle and logging.
- * Partial results on failure: if some pages fail, successful pages still yield.
- * Page 1 failure propagates — nothing to show without it.
- */
 export async function* fetchChapterList(
     mangaId: string,
     signal?: AbortSignal,
 ): AsyncGenerator<ChapterListPage> {
     const provider = getProvider();
 
-    // Phase 1: page 1 — sequential, establishes pagination bounds
     const req1 = provider.chapterListRequest(mangaId, 1);
     const data1 = await proxyRequest(req1, 'json', { signal });
     const page1 = provider.parseChapterListResponse(data1);
@@ -156,11 +126,9 @@ export async function* fetchChapterList(
         return;
     }
 
-    // Phase 2: pages 2..lastPage — parallel, yield as each completes
     const remaining = lastPage - 1;
     log('chapters-parallel', { mangaId, remaining, total });
 
-    // Channel: settled results waiting to be yielded
     const settled: (ChapterListPage | null)[] = [];
     let notify: (() => void) | null = null;
     let pending = remaining;
@@ -203,9 +171,6 @@ export async function* fetchChapterList(
 
     log('chapters-done', { mangaId, pages: lastPage, failed, total });
 }
-
-// --- Chapter Images ---
-
 export async function fetchChapterImages(mangaId: string, chapterId: string, chapterNumber: number): Promise<ChapterPage[]> {
     const provider = getProvider();
     const req = provider.chapterImagesRequest(mangaId, chapterId, chapterNumber);

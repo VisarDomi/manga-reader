@@ -5,17 +5,10 @@ import { CACHE_MAX_AGE } from '../config';
 import { proxyFetch } from '../utils/proxyFetch';
 import type { ProxyFetchMeta } from '../utils/proxyFetch';
 
-/** No domain restriction — the backend is LAN-only and CDN domains change unpredictably. */
 export function isAllowedImageDomain(_hostname: string): boolean {
   return true;
 }
-
-// ── In-flight tracking ────────────────────────────────────────────────
-
 let inFlight = 0;
-
-// ── Logging ───────────────────────────────────────────────────────────
-
 function logStreamResult(meta: ProxyFetchMeta, streamMs: number, totalMs: number, ok: boolean, errorMsg?: string): void {
   const size = meta.contentLength != null ? `${meta.contentLength}B` : '?B';
   const status = ok ? 'ok' : 'fail';
@@ -23,9 +16,6 @@ function logStreamResult(meta: ProxyFetchMeta, streamMs: number, totalMs: number
     `[imageProxy] ${status} ${meta.domain} ttfb=${meta.durationMs}ms stream=${streamMs}ms total=${totalMs}ms ${size} inflight=${inFlight} cf=${meta.cfCookiesInjected} ref=${meta.referer}${errorMsg ? ` err=${errorMsg}` : ''}`,
   );
 }
-
-// ── Stream lifecycle ──────────────────────────────────────────────────
-
 export async function streamImage(imageUrl: string, res: Response, callerUA: string, referer?: string): Promise<void> {
   const headers: Record<string, string> = { 'User-Agent': callerUA };
   if (referer) headers['Referer'] = referer;

@@ -31,7 +31,6 @@ export class FavoritesState {
 
     async toggle(manga: Manga) {
         const was = this.isFavorited(manga.id);
-        // Optimistic update
         if (was) {
             this.items = this.items.filter(m => m.id !== manga.id);
         } else {
@@ -47,7 +46,6 @@ export class FavoritesState {
             }
         } catch (e) {
             this.log.log('favorites-toggle-failed', { message: String((e as Error)?.message ?? e) });
-            // Revert optimistic update
             if (was) {
                 this.items = [...this.items, manga];
             } else {

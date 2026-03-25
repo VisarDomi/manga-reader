@@ -5,13 +5,12 @@ interface Term {
 }
 
 export const TERMS: Term[] = [
-  // Demographics (4)
+
   { id: 1, name: 'Shoujo', category: 'demographic' },
   { id: 2, name: 'Shounen', category: 'demographic' },
   { id: 3, name: 'Josei', category: 'demographic' },
   { id: 4, name: 'Seinen', category: 'demographic' },
 
-  // Genres (30)
   { id: 6, name: 'Action', category: 'genre' },
   { id: 7, name: 'Adventure', category: 'genre' },
   { id: 8, name: 'Boys Love', category: 'genre' },
@@ -43,7 +42,6 @@ export const TERMS: Term[] = [
   { id: 87267, name: 'Mature', category: 'genre' },
   { id: 87268, name: 'Smut', category: 'genre' },
 
-  // Themes (37)
   { id: 31, name: 'Aliens', category: 'theme' },
   { id: 32, name: 'Animals', category: 'theme' },
   { id: 33, name: 'Cooking', category: 'theme' },
@@ -82,7 +80,6 @@ export const TERMS: Term[] = [
   { id: 66, name: 'Virtual Reality', category: 'theme' },
   { id: 67, name: 'Zombies', category: 'theme' },
 
-  // Formats (9)
   { id: 93164, name: '4-Koma', category: 'format' },
   { id: 93165, name: 'Anthology', category: 'format' },
   { id: 93166, name: 'Award Winning', category: 'format' },

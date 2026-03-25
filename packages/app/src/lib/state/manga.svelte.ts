@@ -14,7 +14,6 @@ export class MangaState {
     error = $state<LoadError | null>(null);
     selectedGroups = $state<Set<string>>(new Set());
 
-    // Scroll sync: captured when entering reader, consumed by ChapterList
     private scrollAnchorRatio = 0;
     scrollTarget = $state<{ chapterId: string; ratio: number } | null>(null);
 
@@ -86,11 +85,6 @@ export class MangaState {
         if (mangaId) storage.remove(`group:${mangaId}`);
     }
 
-    /**
-     * Consume chapter batches from the generator, dedup by ID, update state progressively.
-     * Each batch triggers a reactive update so the UI renders immediately.
-     * Owns dedup — the generator yields raw pages, this method filters duplicates.
-     */
     private async consumeChapterStream(mangaId: string): Promise<void> {
         const all: ChapterMeta[] = [];
         const seen = new Set<string>();
@@ -101,7 +95,6 @@ export class MangaState {
                 seen.add(ch.id);
                 all.push(ch);
             }
-            // New array reference on each batch — triggers Svelte reactivity
             this.chapters = [...all];
         }
     }
@@ -125,7 +118,6 @@ export class MangaState {
         }
     }
 
-    /** Restore manga state without pushing view (used by session restore). */
     async restoreManga(manga: Manga): Promise<boolean> {
         this.activeManga = manga;
         this.chapters = [];

@@ -19,7 +19,6 @@ export class ReaderState {
     isLoadingPrev = $state(false);
     pendingPageRestore = $state<{ pageIndex: number; scrollOffset: number } | null>(null);
     private activeMangaId = '';
-    /** The filtered+deduped+sorted chapter list from manga details. Reader navigates only within this list. */
     private chapterList: ChapterMeta[] = [];
     readonly pageTracker = new PageTracker();
 
@@ -43,10 +42,8 @@ export class ReaderState {
         this.loadedChapters = [];
         this.isLoadingNext = false;
         this.isLoadingPrev = false;
-        // Store sorted ascending (ch1, ch2, ch3, ...) for index-based navigation
         this.chapterList = [...this.manga.filteredChapters].sort((a, b) => a.number - b.number);
 
-        // Check if reopening the same chapter — restore page position
         const saved = this.progress.get(manga.id);
         if (saved && saved.chapterId === chapter.id && saved.pageIndex != null) {
             this.pendingPageRestore = { pageIndex: saved.pageIndex, scrollOffset: saved.scrollOffset ?? 0 };
@@ -70,7 +67,6 @@ export class ReaderState {
                 groupName: chapter.groupName,
             }];
 
-            // Save progress (local + in-memory)
             const progressData = { chapterId: chapter.id, chapterNumber: chapter.number };
             db.setProgress(manga.id, progressData);
             this.progress.update(manga.id, progressData);
@@ -79,11 +75,6 @@ export class ReaderState {
         }
     }
 
-    /**
-     * Restore reader state without pushing view (used by session restore).
-     * Uses saved progress from IDB to determine which chapter/page to load.
-     * Returns true if restoration succeeded.
-     */
     async restoreReader(manga: Manga): Promise<boolean> {
         const saved = this.progress.get(manga.id);
         if (!saved) return false;
@@ -125,22 +116,17 @@ export class ReaderState {
         }
     }
 
-    /** Tracks the currently visible page in-memory. Called from scroll handler.
-     *  Write-through: updates in-memory progress immediately, schedules debounced IDB write.
-     *  This ensures pageIndex/scrollOffset survive restart even without chapter change. */
     trackVisiblePage(chapterId: string, pageIndex: number, scrollOffset: number): void {
         this.pageTracker.track(chapterId, pageIndex, scrollOffset);
         this.scheduleProgressSync(chapterId);
     }
 
-    /** Called when the visible chapter changes. Updates currentChapterId + syncs progress. */
     syncChapterProgress(chapterId: string): void {
         this.currentChapterId = chapterId;
         this.manga.updateScrollTarget(chapterId);
         this.scheduleProgressSync(chapterId);
     }
 
-    /** Debounced write-through: in-memory update + IDB persist. Single owner of the sync timer. */
     private scheduleProgressSync(chapterId: string): void {
         this.pageTracker.scheduleSync(chapterId, (cId, pageIndex, scrollOffset) => {
             const manga = this.manga.activeManga;
@@ -156,12 +142,10 @@ export class ReaderState {
         });
     }
 
-    /** Read-only access to pending page restore target. */
     get pageRestoreTarget(): { pageIndex: number; scrollOffset: number } | null {
         return this.pendingPageRestore;
     }
 
-    /** Explicit cleanup after restore scroll is complete. */
     clearPageRestore(): void {
         this.pendingPageRestore = null;
     }
@@ -189,7 +173,6 @@ export class ReaderState {
         this.ui.popView();
     }
 
-    /** Find the next/prev chapter by index in the filtered list. */
     private getAdjacent(chapterId: string, direction: 'next' | 'prev'): ChapterMeta | null {
         const idx = this.chapterList.findIndex(c => c.id === chapterId);
         if (idx === -1) return null;

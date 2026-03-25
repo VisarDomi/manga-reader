@@ -16,7 +16,6 @@
         chapters.every(ch => gf.isFiltered(ch.groupId ?? ''))
     );
 
-    // Reset scroll to top when a new manga opens (before chapters load)
     $effect(() => {
         if (isLoading) {
             const view = document.getElementById('view-manga');

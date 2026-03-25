@@ -30,7 +30,6 @@ export function sentinel(node: HTMLElement, params: SentinelParams) {
         observer.observe(node);
     }
 
-    /** After creation, verify the IO actually fires if the sentinel is in the zone. */
     function scheduleHealthCheck() {
         requestAnimationFrame(() => {
             if (!observer || params.disabled || firedSinceCreate) return;

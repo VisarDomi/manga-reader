@@ -33,7 +33,6 @@ export class FilterState {
         }, SEARCH_DEBOUNCE_MS);
     }
 
-    /** Cancel any pending debounce timer (e.g. when enter fires search immediately). */
     cancelDebounce(): void {
         if (this.debounceTimer) {
             clearTimeout(this.debounceTimer);
@@ -51,14 +50,12 @@ export class FilterState {
     }
 
     private restore(): void {
-        // Clean up orphaned key from previous contentMode toggle
         storage.remove('contentMode');
 
         const data = storage.getJson<PersistedFilters | null>(STORAGE_KEY, null);
         if (!data) return;
         this.initialized = true;
         if (Array.isArray(data.terms) && data.terms.length > 0) {
-            // Backward compat: coerce numeric IDs to strings
             this.termStates = new Map(data.terms.map(([id, state]) => [String(id), state]));
         }
         if (Array.isArray(data.types) && data.types.length > 0) {
@@ -69,7 +66,6 @@ export class FilterState {
         }
     }
 
-    /** Seed NSFW genres as excluded on first install. No-op if already initialized. */
     seedDefaults(nsfwIds: Set<string>): void {
         if (this.initialized) return;
         this.initialized = true;

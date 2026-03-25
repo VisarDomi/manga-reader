@@ -24,7 +24,6 @@ class PrewarmMonitor {
       await r.text();
       next = 'ok';
     } catch (e) {
-      // proxyFetch triggers CF solve on block — we just track the transition
       const msg = (e as Error).message ?? String(e);
       if (this.status !== 'blocked') {
         console.error(`[prewarm] tick failed: ${msg}`);

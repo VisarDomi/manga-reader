@@ -1,5 +1,3 @@
-// Shared data types used by providers and the app
-
 export interface Manga {
   id: string;
   title: string;
@@ -69,7 +67,6 @@ export interface HttpRequest {
   cloudflareProtected?: boolean;
 }
 
-// The interface each provider implements
 export interface MangaProvider {
   readonly id: string;
   readonly name: string;

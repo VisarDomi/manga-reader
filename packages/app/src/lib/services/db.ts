@@ -17,7 +17,6 @@ export type ProgressData = { chapterId: string; chapterNumber: number; pageIndex
 type DbLogger = (op: string, error: string) => void;
 let logger: DbLogger = () => {};
 
-/** Set once during app init. Owned by AppState. */
 export function setDbLogger(fn: DbLogger): void {
     logger = fn;
 }
@@ -46,9 +45,6 @@ function openDB(): Promise<IDBDatabase> {
 
     return dbPromise;
 }
-
-// --- Progress --- keyed by mangaSlug, stores { chapterId, chapterNumber }
-
 export async function getProgress(mangaSlug: string): Promise<ProgressData | null> {
     const db = await openDB();
     return new Promise((resolve) => {
@@ -96,9 +92,6 @@ export async function getAllProgress(): Promise<Record<string, ProgressData>> {
         req.onerror = () => { logger('getAllProgress', String(req.error)); resolve({}); };
     });
 }
-
-// --- Favorites --- keyed by manga id
-
 export async function getAllFavorites(): Promise<Manga[]> {
     const db = await openDB();
     return new Promise((resolve) => {

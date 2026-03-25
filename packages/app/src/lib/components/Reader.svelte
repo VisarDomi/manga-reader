@@ -23,7 +23,6 @@
     const memory = new ReaderMemoryManager((event, data) => appState.log.log(event, data));
     const { pageTracker } = appState.reader;
 
-    // Slow connection detection: 3+ failures within 10s → toast once per session
     let failureTimestamps: number[] = [];
     let slowToastShown = false;
 
@@ -38,7 +37,6 @@
         }
     };
 
-    // Session lifecycle
     let initialized = false;
     let sentinelsReady = $state(false);
 
@@ -92,7 +90,6 @@
                 failureTimestamps = [];
                 slowToastShown = false;
 
-                // Remove scroll listener
                 const root = getReaderRoot();
                 if (root) root.removeEventListener('scroll', handleScroll);
             }
@@ -104,11 +101,9 @@
             memory.startSession();
             initialized = true;
 
-            // Attach scroll listener
             const root = getReaderRoot();
             if (root) root.addEventListener('scroll', handleScroll, { passive: true });
 
-            // Flush any page nodes queued before root was ready
             flushPageObserver(memory, getReaderRoot);
 
             restoreScrollPosition();
@@ -116,7 +111,6 @@
         memory.ensureAbortController();
     });
 
-    // Chapter change: memory management + state sync
     function handleChapterChange(chapterId: string) {
         if (chapterId === appState.reader.currentChapterId) return;
         const root = getReaderRoot();
@@ -136,8 +130,6 @@
         const loaded = await appState.reader.appendNextChapter();
         if (!loaded) return;
         await tick();
-        // Sentinel IO doesn't re-fire when the element stays in the zone.
-        // One-shot observer rechecks: if still within 500% rootMargin, load more.
         const root = getReaderRoot();
         if (!root || !appendSentinelEl?.isConnected) return;
         const checker = new IntersectionObserver(

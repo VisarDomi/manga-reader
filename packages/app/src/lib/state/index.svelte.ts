@@ -22,10 +22,6 @@ export type AppStatus = 'BOOTING' | 'READY' | 'BACKGROUND' | 'RECONNECTING' | 'O
 
 const NSFW_NAMES = new Set(['Adult', 'Ecchi', 'Hentai', 'Mature', 'Smut']);
 const SESSION_TOAST_DURATION = 4000;
-// VISIBLE_MANGA_DEBOUNCE_MS imported from constants.ts
-
-// --- Restore State Machine ---
-
 type RestorePhase = 'replaying-search' | 'paginating-to-target' | 'scrolling';
 type RestoreInner =
     | { kind: 'idle' }
@@ -59,9 +55,6 @@ class RestoreMachine {
         this.inner = { kind: 'idle' };
     }
 }
-
-// --- App State ---
-
 class AppState {
     readonly log = new LogService();
     ui = new UIState();
@@ -73,17 +66,12 @@ class AppState {
     favorites: FavoritesState;
     groupFilter = new GroupFilterState();
 
-    // Lifecycle
     status = $state<AppStatus>('BOOTING');
     private monitor!: ConnectionMonitor;
     private backgroundedAt = 0;
     private bgSentinelId: ReturnType<typeof setInterval> | null = null;
     private bgSentinelTick = 0;
-
-    // Session restore
     private restore = new RestoreMachine();
-
-    // Visible manga tracking (for session snapshot "just scrolled" case)
     private visibleMangaDebounce: ReturnType<typeof setTimeout> | null = null;
     private lastVisibleMangaId: string | null = null;
 
@@ -94,7 +82,6 @@ class AppState {
             () => this.restore.phase === 'paginating-to-target',
         );
         this.searchState.onNewSearch = () => {
-            // Cancel restore on user-initiated searches, but not during restore's own search replay
             if (this.restore.phase !== 'replaying-search') {
                 this.restore.cancel();
             }
@@ -103,15 +90,9 @@ class AppState {
         this.reader = new ReaderState(this.ui, this.manga, this.progress, this.toast, this.log);
         this.favorites = new FavoritesState(this.toast, this.log);
 
-        // Wire up session save on every view transition
         this.ui.onViewChange = () => this.persistSession();
     }
 
-    /**
-     * Force re-layout on scroll containers to recover from iOS WebKit
-     * touch handling desync. Toggling overflow forces WebKit to recreate
-     * the internal scroll handler.
-     */
     private recoverScrollContainers() {
         const ids = ['view-list', 'view-manga', 'view-reader'];
         for (const id of ids) {
@@ -126,9 +107,6 @@ class AppState {
             }
         });
     }
-
-    // --- Session persistence ---
-
     private persistSession() {
         const snapshot: SessionSnapshot = {
             viewMode: this.ui.viewMode,
@@ -139,7 +117,6 @@ class AppState {
             snapshot.activeManga = $state.snapshot(this.manga.activeManga);
         }
 
-        // targetMangaId: last clicked manga, or last visible in scroll
         const target = this.manga.activeManga?.id ?? this.lastVisibleMangaId;
         if (target) {
             snapshot.targetMangaId = target;
@@ -152,23 +129,17 @@ class AppState {
         saveSession(snapshot);
     }
 
-    /** Called from ListView scroll handler to track visible manga card. */
     trackVisibleManga(mangaId: string) {
         this.lastVisibleMangaId = mangaId;
 
-        // Debounced persist so we don't write localStorage on every scroll
         if (this.visibleMangaDebounce) clearTimeout(this.visibleMangaDebounce);
         this.visibleMangaDebounce = setTimeout(() => {
             this.visibleMangaDebounce = null;
-            // Only persist if we're on list view (not a stale callback)
             if (this.ui.viewMode === View.LIST) {
                 this.persistSession();
             }
         }, VISIBLE_MANGA_DEBOUNCE_MS);
     }
-
-    // --- Session restore ---
-
     private async restoreSession(): Promise<boolean> {
         const snapshot = loadSession();
         if (!snapshot) {
@@ -258,10 +229,6 @@ class AppState {
         return false;
     }
 
-    /**
-     * Background: replay last search query and paginate to find target.
-     * Scrolls the list view to the target card when found.
-     */
     private async bgReplaySearch(searchContext?: SearchContext) {
         if (searchContext) {
             this.searchState.filters.restoreFromContext(searchContext.filters);
@@ -270,14 +237,10 @@ class AppState {
             await this.searchState.search(this.searchState.inputQuery);
         }
         this.persistSession();
-        if (!this.restore.isActive) return; // cancelled during search
+        if (!this.restore.isActive) return;
         await this.bgPaginateToTarget();
     }
 
-    /**
-     * Background: paginate search results until target is found.
-     * Assumes search has already been executed and results are loaded.
-     */
     private async bgPaginateToTarget() {
         const targetId = this.restore.targetMangaId;
         if (!targetId || !this.restore.isActive) {
@@ -286,7 +249,6 @@ class AppState {
         }
 
         try {
-            // Verify the manga still exists before paginating (consume first page only)
             try {
                 const gen = api.fetchChapterList(targetId);
                 const first = await gen.next();
@@ -297,20 +259,18 @@ class AppState {
                 return;
             }
 
-            if (!this.restore.isActive) return; // cancelled during verify
+            if (!this.restore.isActive) return;
 
-            // If already found on first page
             if (this.searchState.results.some(m => m.id === targetId)) {
                 this.restore.transition('scrolling');
                 await this.onTargetFound(targetId);
                 return;
             }
 
-            // Paginate in background
             this.restore.transition('paginating-to-target');
             const found = await this.searchState.paginateToTarget(targetId, this.restore.signal);
 
-            if (!this.restore.isActive) return; // cancelled during pagination
+            if (!this.restore.isActive) return;
 
             if (found) {
                 this.restore.transition('scrolling');
@@ -331,13 +291,11 @@ class AppState {
                 this.showScrollToast(targetId);
                 this.restore.done();
             }
-            // else: machine stays in 'scrolling' — handleViewChanged will show toast
         } else {
             this.restore.done();
         }
     }
 
-    /** Scrolls list view to target card. Returns true if card was found in DOM. */
     private scrollListToTarget(targetId: string): Promise<boolean> {
         return new Promise(resolve => {
             requestAnimationFrame(() => {
@@ -360,28 +318,20 @@ class AppState {
             }
         });
     }
-
-    // --- Init ---
-
     async init() {
         const t0 = Date.now();
 
-        // LogService owns global error handlers — start first so crashes during init are captured
         this.log.start();
         this.log.log('boot-start');
 
-        // Wire db module's logger to our LogService
         setDbLogger((op, error) => this.log.log('db-error', { op, error }));
 
         try {
-            // Wire up API logging and Cloudflare solving toast
             setApiLogger((event, data) => this.log.log(event, data));
             setCloudflareCallback(() => this.toast.show(Msg.SOLVING_CLOUDFLARE, 15000));
 
-            // Initialize provider first — filters and API depend on it
             await initProvider('comix', (event, data) => this.log.log(event, data));
 
-            // Derive NSFW genre IDs from provider's filter definition
             const filters = getProvider().getFilters();
             const nsfwIds = new Set<string>();
             for (const g of filters.genres) {
@@ -391,20 +341,17 @@ class AppState {
 
             await Promise.all([this.progress.init(), this.favorites.init()]);
 
-            // Attempt session restore; if no deep restore, run default search
             const restored = await this.restoreSession();
             if (!restored) {
                 await this.searchState.search(this.searchState.inputQuery);
             }
 
-            // Hook into view changes to detect when user navigates back to list
             const origOnViewChange = this.ui.onViewChange;
             this.ui.onViewChange = () => {
                 origOnViewChange?.();
                 this.handleViewChanged();
             };
 
-            // Start lifecycle monitoring
             this.monitor = new ConnectionMonitor(
                 (online) => this.handleConnectivityChange(online),
                 (visible) => this.handleVisibilityChange(visible)
@@ -429,7 +376,6 @@ class AppState {
         }
     }
 
-    /** Called on every view transition to handle pending scroll-to notifications. */
     private handleViewChanged() {
         if (this.ui.viewMode === 'list' && this.restore.phase === 'scrolling') {
             const targetId = this.restore.targetMangaId;
@@ -437,9 +383,6 @@ class AppState {
             this.restore.done();
         }
     }
-
-    // --- Connectivity ---
-
     private handleConnectivityChange(online: boolean) {
         if (online) {
             this.toast.show(Msg.BACK_ONLINE);
@@ -450,9 +393,6 @@ class AppState {
             this.toast.show(Msg.NO_CONNECTION);
         }
     }
-
-    // --- Visibility (primary resume signal) ---
-
     private handleVisibilityChange(visible: boolean) {
         if (!visible) {
             if (this.status === 'READY') {
@@ -468,9 +408,6 @@ class AppState {
             }
         }
     }
-
-    // --- Resume logic ---
-
     private executeResume() {
         if (this.status !== 'BACKGROUND') return;
 
@@ -482,7 +419,6 @@ class AppState {
         if (elapsed > RESUME_RECOVERY_MS) {
             void this.resumeFromSleep(elapsed);
         } else {
-            // Quick switch — just go back to READY, no refresh needed
             this.status = 'READY';
         }
     }
@@ -506,16 +442,9 @@ class AppState {
         if (view === View.LIST) {
             await this.searchState.search(this.searchState.currentQuery);
         } else if (view === View.MANGA && this.manga.activeManga) {
-            // Use restoreManga to refresh chapters without pushing view again
             await this.manga.restoreManga(this.manga.activeManga);
         }
-        // reader: no refresh needed — images are already loaded/blobbed
     }
-
-    // --- iOS background sentinel ---
-    // iOS PWA freezes JS when backgrounded. When it resumes, visibilitychange
-    // often doesn't fire. This sentinel interval detects the freeze via time drift.
-
     private startBackgroundSentinel() {
         this.stopBackgroundSentinel();
         this.bgSentinelTick = Date.now();

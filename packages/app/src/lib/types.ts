@@ -5,7 +5,6 @@ export interface LoadedChapter {
     number: number;
     pages: import('@manga-reader/provider-types').ChapterPage[];
     groupName: string;
-    /** Set to true when images have been revoked for memory management */
     unloaded?: boolean;
 }
 
