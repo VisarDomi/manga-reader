@@ -210,7 +210,7 @@
                 use:scrollIfCurrent={isCurrent}
                 onclick={() => handleClick(chapter)}
             >
-                <span class="chapter-number">Ch. {chapter.number}</span>
+                <span class="chapter-number">{chapter.number}</span>
                 <span class="chapter-group">{chapter.groupName || 'No Group'}</span>
                 {#if chapter.uploadedAt}
                     <span class="chapter-date">{formatDate(chapter.uploadedAt)}</span>
