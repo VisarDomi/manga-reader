@@ -45,12 +45,14 @@ export class ReaderState {
         this.chapterList = [...this.manga.filteredChapters].sort((a, b) => a.number - b.number);
 
         const saved = this.progress.get(manga.id);
-        if (saved && saved.chapterId === chapter.id && saved.pageIndex != null) {
-            this.pendingPageRestore = { pageIndex: saved.pageIndex, scrollOffset: saved.scrollOffset ?? 0 };
+        const hasRestore = !!(saved && saved.chapterId === chapter.id && saved.pageIndex != null);
+        if (hasRestore) {
+            this.pendingPageRestore = { pageIndex: saved!.pageIndex!, scrollOffset: saved!.scrollOffset ?? 0 };
         } else {
             this.pendingPageRestore = null;
         }
 
+        this.log.emit('reader-open', { mangaId: manga.id, chapterId: chapter.id, chapterNumber: chapter.number, hasRestore });
         this.ui.pushView(View.READER);
 
         try {
@@ -70,6 +72,7 @@ export class ReaderState {
             const progressData = { chapterId: chapter.id, chapterNumber: chapter.number };
             db.setProgress(manga.id, progressData);
             this.progress.update(manga.id, progressData);
+            this.log.emit('progress-save', { mangaId: manga.id, ...progressData });
         } catch (e) {
             this.error = toLoadError(e);
         }
@@ -95,6 +98,8 @@ export class ReaderState {
         } else {
             this.pendingPageRestore = null;
         }
+
+        this.log.emit('reader-open', { mangaId: manga.id, chapterId: chapter.id, chapterNumber: chapter.number, hasRestore: true });
 
         try {
             const pages = await api.fetchChapterImages(manga.id, chapter.id, chapter.number);
@@ -122,8 +127,16 @@ export class ReaderState {
     }
 
     syncChapterProgress(chapterId: string): void {
+        const prevChapterId = this.currentChapterId;
         this.currentChapterId = chapterId;
         this.manga.updateScrollTarget(chapterId);
+        if (chapterId !== prevChapterId) {
+            this.log.emit('reader-chapter-change', {
+                mangaId: this.activeMangaId,
+                fromChapterId: prevChapterId,
+                toChapterId: chapterId,
+            });
+        }
         this.scheduleProgressSync(chapterId);
     }
 
@@ -138,6 +151,7 @@ export class ReaderState {
                 const progressData = { chapterId: cId, chapterNumber: ch.number, pageIndex, pageCount, scrollOffset };
                 db.setProgress(manga.id, progressData);
                 this.progress.update(manga.id, progressData);
+                this.log.emit('progress-save', { mangaId: manga.id, chapterId: cId, chapterNumber: ch.number, pageIndex, pageCount });
             }
         });
     }
@@ -155,17 +169,22 @@ export class ReaderState {
     }
 
     closeReader() {
-        this.pageTracker.flush((chapterId, pageIndex, scrollOffset) => {
-            if (!this.activeMangaId) return;
-            const ch = this.manga.chapters.find(c => c.id === chapterId);
+        const mangaId = this.activeMangaId;
+        const chapterId = this.currentChapterId;
+
+        this.pageTracker.flush((flushChapterId, pageIndex, scrollOffset) => {
+            if (!mangaId) return;
+            const ch = this.manga.chapters.find(c => c.id === flushChapterId);
             if (ch) {
-                const loaded = this.loadedChapters.find(lc => lc.id === chapterId);
+                const loaded = this.loadedChapters.find(lc => lc.id === flushChapterId);
                 const pageCount = loaded?.pages.length;
-                const progressData = { chapterId, chapterNumber: ch.number, pageIndex, pageCount, scrollOffset };
-                db.setProgress(this.activeMangaId, progressData);
-                this.progress.update(this.activeMangaId, progressData);
+                const progressData = { chapterId: flushChapterId, chapterNumber: ch.number, pageIndex, pageCount, scrollOffset };
+                db.setProgress(mangaId, progressData);
+                this.progress.update(mangaId, progressData);
+                this.log.emit('progress-save', { mangaId, chapterId: flushChapterId, chapterNumber: ch.number, pageIndex, pageCount });
             }
         });
+        this.log.emit('reader-close', { mangaId, chapterId });
         this.pageTracker.destroy();
         this.loadedChapters = [];
         this.currentChapterId = null;
@@ -181,16 +200,35 @@ export class ReaderState {
     }
 
     async appendNextChapter(): Promise<boolean> {
-        if (this.isLoadingNext || !this.currentChapterId) return false;
+        if (this.isLoadingNext) {
+            this.log.emit('reader-append-skipped', { reason: 'loading' });
+            return false;
+        }
+        if (!this.currentChapterId) {
+            this.log.emit('reader-append-skipped', { reason: 'loading' });
+            return false;
+        }
         const manga = this.manga.activeManga;
-        if (!manga) return false;
+        if (!manga) {
+            this.log.emit('reader-append-skipped', { reason: 'no-manga' });
+            return false;
+        }
 
         const lastLoaded = this.loadedChapters[this.loadedChapters.length - 1];
-        if (!lastLoaded) return false;
+        if (!lastLoaded) {
+            this.log.emit('reader-append-skipped', { reason: 'no-loaded' });
+            return false;
+        }
 
         const next = this.getAdjacent(lastLoaded.id, 'next');
-        if (!next) return false;
-        if (this.loadedChapters.some(c => c.id === next.id)) return false;
+        if (!next) {
+            this.log.emit('reader-append-skipped', { reason: 'no-next' });
+            return false;
+        }
+        if (this.loadedChapters.some(c => c.id === next.id)) {
+            this.log.emit('reader-append-skipped', { reason: 'already-loaded' });
+            return false;
+        }
 
         this.isLoadingNext = true;
         try {
@@ -205,9 +243,10 @@ export class ReaderState {
                 pages: proxiedPages,
                 groupName: next.groupName,
             }];
+            this.log.emit('reader-append-ok', { mangaId: manga.id, chapterId: next.id, chapterNumber: next.number });
             return true;
         } catch (e) {
-            this.log.log('reader-append-failed', { message: String((e as Error)?.message ?? e) });
+            this.log.emit('reader-append-failed', { mangaId: manga.id, chapterId: next.id, error: String((e as Error)?.message ?? e) });
             this.toast.show(Msg.LOAD_NEXT_FAILED);
             return false;
         } finally {
@@ -216,16 +255,35 @@ export class ReaderState {
     }
 
     async prependPrevChapter(): Promise<LoadedChapter | null> {
-        if (this.isLoadingPrev || !this.currentChapterId) return null;
+        if (this.isLoadingPrev) {
+            this.log.emit('reader-prepend-skipped', { reason: 'loading' });
+            return null;
+        }
+        if (!this.currentChapterId) {
+            this.log.emit('reader-prepend-skipped', { reason: 'loading' });
+            return null;
+        }
         const manga = this.manga.activeManga;
-        if (!manga) return null;
+        if (!manga) {
+            this.log.emit('reader-prepend-skipped', { reason: 'no-manga' });
+            return null;
+        }
 
         const firstLoaded = this.loadedChapters[0];
-        if (!firstLoaded) return null;
+        if (!firstLoaded) {
+            this.log.emit('reader-prepend-skipped', { reason: 'no-loaded' });
+            return null;
+        }
 
         const prev = this.getAdjacent(firstLoaded.id, 'prev');
-        if (!prev) return null;
-        if (this.loadedChapters.some(c => c.id === prev.id)) return null;
+        if (!prev) {
+            this.log.emit('reader-prepend-skipped', { reason: 'no-prev' });
+            return null;
+        }
+        if (this.loadedChapters.some(c => c.id === prev.id)) {
+            this.log.emit('reader-prepend-skipped', { reason: 'already-loaded' });
+            return null;
+        }
 
         this.isLoadingPrev = true;
         try {
@@ -241,9 +299,10 @@ export class ReaderState {
                 groupName: prev.groupName,
             };
             this.loadedChapters = [chapter, ...this.loadedChapters];
+            this.log.emit('reader-prepend-ok', { mangaId: manga.id, chapterId: prev.id, chapterNumber: prev.number });
             return chapter;
         } catch (e) {
-            this.log.log('reader-prepend-failed', { message: String((e as Error)?.message ?? e) });
+            this.log.emit('reader-prepend-failed', { mangaId: manga.id, chapterId: prev.id, error: String((e as Error)?.message ?? e) });
             this.toast.show(Msg.LOAD_PREV_FAILED);
             return null;
         } finally {

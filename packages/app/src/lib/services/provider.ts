@@ -1,5 +1,5 @@
 import type { MangaProvider } from '@manga-reader/provider-types';
-import type { LogFn } from './LogService.js';
+import type { LogEmit } from './LogService.js';
 
 let activeProvider: MangaProvider | null = null;
 
@@ -12,7 +12,7 @@ interface ProviderMeta {
     bundle: string;
 }
 
-export async function initProvider(providerId = 'comix', log?: LogFn): Promise<void> {
+export async function initProvider(providerId = 'comix', emit?: LogEmit): Promise<void> {
     try {
         const res = await fetch('/providers/index.json');
         if (res.ok) {
@@ -21,7 +21,7 @@ export async function initProvider(providerId = 'comix', log?: LogFn): Promise<v
             if (meta) {
                 const mod = await import(/* @vite-ignore */ `/providers/${meta.bundle}`);
                 activeProvider = mod.default as MangaProvider;
-                log?.('provider-loaded', { name: meta.name, version: meta.version, mode: 'dynamic' });
+                emit?.('provider-loaded', { name: meta.name, version: meta.version, mode: 'dynamic' });
                 return;
             }
         }
@@ -30,7 +30,7 @@ export async function initProvider(providerId = 'comix', log?: LogFn): Promise<v
 
     const mod = await import('./bundled/comix.js');
     activeProvider = mod.default as MangaProvider;
-    log?.('provider-loaded', { name: 'comix', mode: 'bundled-fallback' });
+    emit?.('provider-loaded', { name: 'comix', mode: 'bundled-fallback' });
 }
 
 export function getProvider(): MangaProvider {

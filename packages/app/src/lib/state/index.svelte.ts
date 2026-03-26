@@ -57,7 +57,7 @@ class RestoreMachine {
 }
 class AppState {
     readonly log = new LogService();
-    ui = new UIState();
+    ui: UIState;
     toast = new ToastState();
     searchState: SearchState;
     manga: MangaState;
@@ -76,6 +76,9 @@ class AppState {
     private lastVisibleMangaId: string | null = null;
 
     constructor() {
+        const emit = this.log.emit;
+
+        this.ui = new UIState(emit);
         this.searchState = new SearchState(
             this.toast,
             () => this.recoverScrollContainers(),
@@ -83,14 +86,18 @@ class AppState {
         );
         this.searchState.onNewSearch = () => {
             if (this.restore.phase !== 'replaying-search') {
+                if (this.restore.isActive) {
+                    const targetId = this.restore.targetMangaId;
+                    if (targetId) {
+                        emit('restore-target-missed', { targetId, pagesSearched: 0, reason: 'cancelled' });
+                    }
+                }
                 this.restore.cancel();
             }
         };
         this.manga = new MangaState(this.ui, this.toast, this.groupFilter, () => this.restore.cancel());
         this.reader = new ReaderState(this.ui, this.manga, this.progress, this.toast, this.log);
         this.favorites = new FavoritesState(this.toast, this.log);
-
-        this.ui.onViewChange = () => this.persistSession();
     }
 
     private recoverScrollContainers() {
@@ -141,14 +148,15 @@ class AppState {
         }, VISIBLE_MANGA_DEBOUNCE_MS);
     }
     private async restoreSession(): Promise<boolean> {
+        const emit = this.log.emit;
         const snapshot = loadSession();
         if (!snapshot) {
-            this.log.log('restore-none');
+            emit('restore-none');
             return false;
         }
 
         const targetId = snapshot.targetMangaId ?? null;
-        this.log.log('restore-start', {
+        emit('restore-start', {
             view: snapshot.viewMode,
             mangaId: snapshot.activeManga?.id ?? null,
             targetId,
@@ -163,11 +171,12 @@ class AppState {
             } else {
                 await this.searchState.search(this.searchState.inputQuery);
             }
+            emit('restore-search-done', { view: 'list' });
             if (targetId && this.restore.isActive) {
                 this.bgPaginateToTarget();
             }
             this.persistSession();
-            this.log.log('restore-ok', { view: 'list' });
+            emit('restore-ok', { view: 'list' });
             return true;
         }
 
@@ -176,7 +185,7 @@ class AppState {
             if (targetId) this.restore.start(targetId);
             this.bgReplaySearch(snapshot.searchContext);
             this.persistSession();
-            this.log.log('restore-ok', { view: 'favorites' });
+            emit('restore-ok', { view: 'favorites' });
             return true;
         }
 
@@ -186,13 +195,13 @@ class AppState {
             if (!ok) {
                 this.ui.setViewDirect(View.LIST, []);
                 this.persistSession();
-                this.log.log('restore-fallback', { view: 'manga', reason: 'manga-load-failed' });
+                emit('restore-fallback', { view: 'manga', reason: 'manga-load-failed' });
                 return false;
             }
             if (targetId) this.restore.start(targetId);
             this.bgReplaySearch(snapshot.searchContext);
             this.persistSession();
-            this.log.log('restore-ok', { view: 'manga', mangaId: snapshot.activeManga.id });
+            emit('restore-ok', { view: 'manga', mangaId: snapshot.activeManga.id });
             return true;
         }
 
@@ -203,7 +212,7 @@ class AppState {
             if (!ok) {
                 this.ui.setViewDirect(View.LIST, []);
                 this.persistSession();
-                this.log.log('restore-fallback', { view: 'reader', reason: 'manga-load-failed' });
+                emit('restore-fallback', { view: 'reader', reason: 'manga-load-failed' });
                 return false;
             }
 
@@ -213,19 +222,19 @@ class AppState {
                 if (targetId) this.restore.start(targetId);
                 this.bgReplaySearch(snapshot.searchContext);
                 this.persistSession();
-                this.log.log('restore-fallback', { view: 'reader', reason: 'reader-load-failed', fallback: 'manga' });
+                emit('restore-fallback', { view: 'reader', reason: 'reader-load-failed', fallback: 'manga' });
                 return true;
             }
 
             if (targetId) this.restore.start(targetId);
             this.bgReplaySearch(snapshot.searchContext);
             this.persistSession();
-            this.log.log('restore-ok', { view: 'reader', mangaId: snapshot.activeManga.id });
+            emit('restore-ok', { view: 'reader', mangaId: snapshot.activeManga.id });
             return true;
         }
 
         this.persistSession();
-        this.log.log('restore-fallback', { view: snapshot.viewMode, reason: 'unknown-view' });
+        emit('restore-fallback', { view: snapshot.viewMode, reason: 'unknown-view' });
         return false;
     }
 
@@ -242,6 +251,7 @@ class AppState {
     }
 
     private async bgPaginateToTarget() {
+        const emit = this.log.emit;
         const targetId = this.restore.targetMangaId;
         if (!targetId || !this.restore.isActive) {
             this.restore.done();
@@ -252,9 +262,14 @@ class AppState {
             try {
                 const gen = api.fetchChapterList(targetId);
                 const first = await gen.next();
-                if (first.done) { this.restore.done(); return; }
+                if (first.done) {
+                    emit('restore-target-missed', { targetId, pagesSearched: 0, reason: 'no-chapters' });
+                    this.restore.done();
+                    return;
+                }
                 await gen.return(undefined as never);
             } catch {
+                emit('restore-target-missed', { targetId, pagesSearched: 0, reason: 'error' });
                 this.restore.done();
                 return;
             }
@@ -263,35 +278,35 @@ class AppState {
 
             if (this.searchState.results.some(m => m.id === targetId)) {
                 this.restore.transition('scrolling');
-                await this.onTargetFound(targetId);
+                const scrolled = await this.scrollListToTarget(targetId);
+                emit('restore-target-found', { targetId, page: this.searchState.currentPage, scrolled });
+                if (!scrolled && this.ui.viewMode === View.LIST) {
+                    this.showScrollToast(targetId);
+                }
+                this.restore.done();
                 return;
             }
 
             this.restore.transition('paginating-to-target');
+            const startPage = this.searchState.currentPage;
             const found = await this.searchState.paginateToTarget(targetId, this.restore.signal);
 
             if (!this.restore.isActive) return;
 
             if (found) {
                 this.restore.transition('scrolling');
-                await this.onTargetFound(targetId);
+                const scrolled = await this.scrollListToTarget(targetId);
+                emit('restore-target-found', { targetId, page: this.searchState.currentPage, scrolled });
+                if (!scrolled && this.ui.viewMode === View.LIST) {
+                    this.showScrollToast(targetId);
+                }
+                this.restore.done();
             } else {
+                emit('restore-target-missed', { targetId, pagesSearched: this.searchState.currentPage - startPage, reason: 'not-found' });
                 this.restore.done();
             }
         } catch {
-            this.restore.done();
-        }
-    }
-
-    private async onTargetFound(targetId: string) {
-        const scrolled = await this.scrollListToTarget(targetId);
-
-        if (!scrolled) {
-            if (this.ui.viewMode === View.LIST) {
-                this.showScrollToast(targetId);
-                this.restore.done();
-            }
-        } else {
+            emit('restore-target-missed', { targetId, pagesSearched: 0, reason: 'error' });
             this.restore.done();
         }
     }
@@ -319,18 +334,19 @@ class AppState {
         });
     }
     async init() {
+        const emit = this.log.emit;
         const t0 = Date.now();
 
         this.log.start();
-        this.log.log('boot-start');
+        emit('boot-start');
 
-        setDbLogger((op, error) => this.log.log('db-error', { op, error }));
+        setDbLogger((op, error) => emit('db-error', { op, error }));
 
         try {
-            setApiLogger((event, data) => this.log.log(event, data));
+            setApiLogger(emit);
             setCloudflareCallback(() => this.toast.show(Msg.SOLVING_CLOUDFLARE, 15000));
 
-            await initProvider('comix', (event, data) => this.log.log(event, data));
+            await initProvider('comix', emit);
 
             const filters = getProvider().getFilters();
             const nsfwIds = new Set<string>();
@@ -346,9 +362,8 @@ class AppState {
                 await this.searchState.search(this.searchState.inputQuery);
             }
 
-            const origOnViewChange = this.ui.onViewChange;
             this.ui.onViewChange = () => {
-                origOnViewChange?.();
+                this.persistSession();
                 this.handleViewChanged();
             };
 
@@ -358,7 +373,7 @@ class AppState {
             );
 
             watchdog.setOnFreeze((gap) => {
-                this.log.log('watchdog-freeze', { gapMs: gap });
+                emit('watchdog-freeze', { gapMs: gap });
                 if (this.status === 'READY') {
                     void this.resumeFromSleep(gap);
                 }
@@ -366,9 +381,9 @@ class AppState {
             watchdog.start();
 
             this.status = 'READY';
-            this.log.log('boot-ready', { ms: Date.now() - t0, view: this.ui.viewMode });
+            emit('boot-ready', { ms: Date.now() - t0, view: this.ui.viewMode });
         } catch (e) {
-            this.log.log('init-crash', {
+            emit('init-crash', {
                 message: String((e as Error)?.message ?? e),
                 stack: (e as Error)?.stack ?? '',
                 ms: Date.now() - t0,
@@ -424,9 +439,10 @@ class AppState {
     }
 
     private async resumeFromSleep(elapsed: number) {
+        const emit = this.log.emit;
         this.status = 'RECONNECTING';
         const kind = elapsed > DEEP_SLEEP_MS ? 'deep-sleep' : 'recovery';
-        this.log.log('resume', { kind, elapsedMs: elapsed, view: this.ui.viewMode });
+        emit('resume', { kind, elapsedMs: elapsed, view: this.ui.viewMode });
 
         await this.refreshCurrentView();
 
@@ -455,7 +471,7 @@ class AppState {
             this.bgSentinelTick = now;
 
             if (delta > 3000 && this.status === 'BACKGROUND' && document.visibilityState === 'visible') {
-                this.log.log('sentinel-forced-resume', { frozenSeconds: Math.round(delta / 1000) });
+                this.log.emit('sentinel-forced-resume', { frozenSeconds: Math.round(delta / 1000) });
                 this.executeResume();
             }
         }, 1000);

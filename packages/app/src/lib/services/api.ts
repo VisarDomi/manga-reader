@@ -3,13 +3,13 @@ import { fetchJson, fetchRaw, ApiError, ApiErrKind } from './fetchJson.js';
 import { getProvider } from './provider.js';
 import type { Manga, ChapterMeta, ChapterPage } from '../types.js';
 import type { SearchFilters, HttpRequest, PaginationMeta, ChapterListPage } from '@manga-reader/provider-types';
-import type { LogFn } from './LogService.js';
+import type { LogEmit } from './LogService.js';
 
 export { ApiError, ApiErrKind } from './fetchJson.js';
-let log: LogFn = () => {};
+let emit: LogEmit = (() => {}) as unknown as LogEmit;
 
-export function setApiLogger(fn: LogFn): void {
-    log = fn;
+export function setApiLogger(fn: LogEmit): void {
+    emit = fn;
 }
 
 let onCloudflare: (() => void) | null = null;
@@ -90,7 +90,7 @@ export async function searchManga(query: string, page = 1, filters?: SearchFilte
     const req = provider.searchRequest(query, page, filters);
     const data = await proxyRequest(req, 'json', { signal, retry });
     const result = provider.parseSearchResponse(data);
-    log('search-result', {
+    emit('search-result', {
         query: query || '(browse)',
         page,
         resultCount: result.items.length,
@@ -112,7 +112,7 @@ export async function* fetchChapterList(
     const req1 = provider.chapterListRequest(mangaId, 1);
     const data1 = await proxyRequest(req1, 'json', { signal });
     const page1 = provider.parseChapterListResponse(data1);
-    log('chapters-page', {
+    emit('chapters-page', {
         mangaId, page: 1,
         items: page1.items.length,
         lastPage: page1.pagination.lastPage,
@@ -122,12 +122,12 @@ export async function* fetchChapterList(
 
     const { lastPage, total } = page1.pagination;
     if (lastPage <= 1) {
-        log('chapters-done', { mangaId, pages: 1, total });
+        emit('chapters-done', { mangaId, pages: 1, total });
         return;
     }
 
     const remaining = lastPage - 1;
-    log('chapters-parallel', { mangaId, remaining, total });
+    emit('chapters-parallel', { mangaId, remaining, total });
 
     const settled: (ChapterListPage | null)[] = [];
     let notify: (() => void) | null = null;
@@ -139,12 +139,12 @@ export async function* fetchChapterList(
         proxyRequest(req, 'json', { signal })
             .then(data => {
                 const parsed = provider.parseChapterListResponse(data);
-                log('chapters-page', { mangaId, page, items: parsed.items.length });
+                emit('chapters-page', { mangaId, page, items: parsed.items.length });
                 settled.push(parsed);
             })
             .catch(e => {
                 if (!signal?.aborted) {
-                    log('chapters-page-error', { mangaId, page, error: String((e as Error)?.message ?? e) });
+                    emit('chapters-page-error', { mangaId, page, error: String((e as Error)?.message ?? e) });
                 }
                 failed++;
                 settled.push(null);
@@ -169,7 +169,7 @@ export async function* fetchChapterList(
         }
     }
 
-    log('chapters-done', { mangaId, pages: lastPage, failed, total });
+    emit('chapters-done', { mangaId, pages: lastPage, failed, total });
 }
 export async function fetchChapterImages(mangaId: string, chapterId: string, chapterNumber: number): Promise<ChapterPage[]> {
     const provider = getProvider();
@@ -177,6 +177,6 @@ export async function fetchChapterImages(mangaId: string, chapterId: string, cha
     const responseType = provider.chapterImagesResponseType === 'html' ? 'text' : 'json';
     const data = await proxyRequest(req, responseType as 'json' | 'text', { retry: true });
     const pages = provider.parseChapterImagesResponse(data);
-    log('chapter-images-result', { mangaId, chapterId, chapterNumber, imageCount: pages.length });
+    emit('chapter-images-result', { mangaId, chapterId, chapterNumber, imageCount: pages.length });
     return pages;
 }

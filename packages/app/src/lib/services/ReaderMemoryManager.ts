@@ -1,18 +1,18 @@
 import type { LoadedChapter, ReaderPageData } from '$lib/types.js';
-import type { LogFn } from '$lib/services/LogService.js';
+import type { LogEmit } from '$lib/services/LogService.js';
 import { MAX_CHAPTER_DISTANCE } from '$lib/constants.js';
 
 export class ReaderMemoryManager {
     private blobUrls = new Map<string, string>();
     private loadingKeys = new Set<string>();
     private abortController: AbortController | undefined;
-    private log: LogFn;
+    private emit: LogEmit;
     readonly pageDataMap = new Map<HTMLElement, ReaderPageData>();
     root: HTMLElement | null = null;
     onLoadFailure: ((key: string) => void) | undefined;
 
-    constructor(log: LogFn) {
-        this.log = log;
+    constructor(emit: LogEmit) {
+        this.emit = emit;
     }
 
     private pageKey(chapterId: string, pageIndex: number): string {
@@ -60,7 +60,7 @@ export class ReaderMemoryManager {
                 const blobUrl = URL.createObjectURL(blob);
                 this.blobUrls.set(key, blobUrl);
                 img.src = blobUrl;
-                this.log('img-ok', {
+                this.emit('img-ok', {
                     key,
                     fetchMs: Math.round(tResponse - t0),
                     blobMs: Math.round(tDone - tResponse),
@@ -72,7 +72,7 @@ export class ReaderMemoryManager {
             .catch((err) => {
                 if (err?.name !== 'AbortError') {
                     const tFail = performance.now();
-                    this.log('img-fail', {
+                    this.emit('img-fail', {
                         key,
                         totalMs: Math.round(tFail - t0),
                         error: err?.message ?? String(err),

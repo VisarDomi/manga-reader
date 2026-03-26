@@ -20,7 +20,7 @@
         onClose: () => void;
     } = $props();
 
-    const memory = new ReaderMemoryManager((event, data) => appState.log.log(event, data));
+    const memory = new ReaderMemoryManager(appState.log.emit);
     const { pageTracker } = appState.reader;
 
     let failureTimestamps: number[] = [];

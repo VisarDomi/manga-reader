@@ -25,7 +25,7 @@
             </div>
         {:else if manga.latestChapter != null}
             <div class="manga-card-chapters unread">
-                <span>Ch. {manga.latestChapter}</span>
+                <span>{manga.latestChapter}</span>
             </div>
         {/if}
     </div>

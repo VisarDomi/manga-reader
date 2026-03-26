@@ -45,7 +45,7 @@ export class FavoritesState {
                 this.toast.show('Added to favorites');
             }
         } catch (e) {
-            this.log.log('favorites-toggle-failed', { message: String((e as Error)?.message ?? e) });
+            this.log.emit('favorites-toggle-failed', { message: String((e as Error)?.message ?? e) });
             if (was) {
                 this.items = [...this.items, manga];
             } else {
