@@ -21,36 +21,37 @@ export async function streamImage(imageUrl: string, res: Response, callerUA: str
   if (referer) headers['Referer'] = referer;
 
   inFlight++;
-  const requestStart = Date.now();
-
-  const { response: r, meta } = await proxyFetch(imageUrl, { headers, cloudflareProtected: true });
-
-  const contentType = r.headers.get('content-type') || 'image/jpeg';
-  res.set('Content-Type', contentType);
-  res.set('Cache-Control', `public, max-age=${CACHE_MAX_AGE}`);
-
-  const contentLength = r.headers.get('content-length');
-  if (contentLength) {
-    res.set('Content-Length', contentLength);
-  }
-
-  if (!r.body) {
-    inFlight--;
-    throw new Error('Upstream returned empty body for image');
-  }
-
-  const readable = Readable.fromWeb(r.body as Parameters<typeof Readable.fromWeb>[0]);
-  const streamStart = Date.now();
-
   try {
-    await pipeline(readable, res);
-    const now = Date.now();
-    logStreamResult(meta, now - streamStart, now - requestStart, true);
-  } catch (err) {
-    const now = Date.now();
-    logStreamResult(meta, now - streamStart, now - requestStart, false, (err as Error).message);
-    if (!res.headersSent) res.status(502).end();
-    else res.destroy();
+    const requestStart = Date.now();
+
+    const { response: r, meta } = await proxyFetch(imageUrl, { headers, cloudflareProtected: true });
+
+    const contentType = r.headers.get('content-type') || 'image/jpeg';
+    res.set('Content-Type', contentType);
+    res.set('Cache-Control', `public, max-age=${CACHE_MAX_AGE}`);
+
+    const contentLength = r.headers.get('content-length');
+    if (contentLength) {
+      res.set('Content-Length', contentLength);
+    }
+
+    if (!r.body) {
+      throw new Error('Upstream returned empty body for image');
+    }
+
+    const readable = Readable.fromWeb(r.body as Parameters<typeof Readable.fromWeb>[0]);
+    const streamStart = Date.now();
+
+    try {
+      await pipeline(readable, res);
+      const now = Date.now();
+      logStreamResult(meta, now - streamStart, now - requestStart, true);
+    } catch (err) {
+      const now = Date.now();
+      logStreamResult(meta, now - streamStart, now - requestStart, false, (err as Error).message);
+      if (!res.headersSent) res.status(502).end();
+      else res.destroy();
+    }
   } finally {
     inFlight--;
   }

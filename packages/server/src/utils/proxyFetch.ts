@@ -1,26 +1,42 @@
 import { PROXY_TIMEOUT } from '../config';
 import { isCloudflareBlock, getCachedCookies, getCachedUserAgent, clearCachedCookies, isSolving, solveCloudflareCookies } from './cloudflare';
 
+export interface ProxyFetchMeta {
+  url: string;
+  method: string;
+  domain: string;
+  resolvedUA: string | null;
+  referer: string | null;
+  cfCookiesInjected: boolean;
+  status: number;
+  durationMs: number;
+  contentLength: number | null;
+}
+
 export class UpstreamError extends Error {
   status: number;
   statusText: string;
-  url: string;
+  meta: ProxyFetchMeta;
 
-  constructor(status: number, statusText: string, url: string) {
-    super(`Upstream ${status} ${statusText} from ${url}`);
+  constructor(status: number, statusText: string, meta: ProxyFetchMeta) {
+    super(`Upstream ${status} ${statusText} from ${meta.url}`);
     this.name = 'UpstreamError';
     this.status = status;
     this.statusText = statusText;
-    this.url = url;
+    this.meta = meta;
   }
 }
 
 export class CloudflareError extends Error {
-  constructor(message: string) {
-    super(message);
+  meta: ProxyFetchMeta;
+
+  constructor(meta: ProxyFetchMeta) {
+    super(`Cloudflare block for ${meta.domain}`);
     this.name = 'CloudflareError';
+    this.meta = meta;
   }
 }
+
 export interface ResolvedHeaders {
   headers: Record<string, string>;
   cfCookiesInjected: boolean;
@@ -42,22 +58,12 @@ export function resolveHeaders(
   }
   return { headers: resolved, cfCookiesInjected: true };
 }
-export interface ProxyFetchMeta {
-  url: string;
-  method: string;
-  domain: string;
-  resolvedUA: string | null;
-  referer: string | null;
-  cfCookiesInjected: boolean;
-  status: number;
-  durationMs: number;
-  contentLength: number | null;
-}
 
 export interface ProxyFetchResult {
   response: globalThis.Response;
   meta: ProxyFetchMeta;
 }
+
 export interface ProxyFetchOptions {
   method?: string;
   headers?: Record<string, string>;
@@ -117,19 +123,17 @@ export async function proxyFetch(
       clearCachedCookies(domain);
     }
 
-    if (isSolving(domain)) {
-      throw new CloudflareError(`Cloudflare solve in progress for ${domain}`);
+    if (!isSolving(domain)) {
+      solveCloudflareCookies(url).catch(err => {
+        console.error(`[cloudflare] Solve failed for ${domain}:`, err.message);
+      });
     }
 
-    solveCloudflareCookies(url).catch(err => {
-      console.error(`[cloudflare] Solve failed for ${domain}:`, err.message);
-    });
-
-    throw new CloudflareError(`Cloudflare block detected for ${domain}, solving started`);
+    throw new CloudflareError(meta);
   }
 
   if (!r.ok) {
-    throw new UpstreamError(r.status, r.statusText, url);
+    throw new UpstreamError(r.status, r.statusText, meta);
   }
   return { response: r, meta };
 }
