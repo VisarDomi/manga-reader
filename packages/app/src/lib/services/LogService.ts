@@ -54,6 +54,7 @@ export type LogEvent =
 
     // Resume
     | { event: 'resume'; kind: string; elapsedMs: number; view: string }
+    | { event: 'resume-recover'; view: string; searchWasStuck: boolean; resultCount: number; currentPage: number; query: string }
     | { event: 'watchdog-freeze'; gapMs: number }
     | { event: 'sentinel-forced-resume'; frozenSeconds: number }
 

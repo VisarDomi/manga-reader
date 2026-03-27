@@ -83,6 +83,13 @@ export class SearchState {
         }
     }
 
+    recover(): boolean {
+        if (!this.machine.isActive) return false;
+        this.machine.abort();
+        this.clearWatchdog();
+        return true;
+    }
+
     async search(query: string) {
         this.onNewSearch?.();
         this.filters.cancelDebounce();

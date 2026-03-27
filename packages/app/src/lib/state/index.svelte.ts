@@ -438,13 +438,12 @@ class AppState {
         }
     }
 
-    private async resumeFromSleep(elapsed: number) {
+    private resumeFromSleep(elapsed: number) {
         const emit = this.log.emit;
-        this.status = 'RECONNECTING';
         const kind = elapsed > DEEP_SLEEP_MS ? 'deep-sleep' : 'recovery';
         emit('resume', { kind, elapsedMs: elapsed, view: this.ui.viewMode });
 
-        await this.refreshCurrentView();
+        this.recoverWarmResume();
 
         this.status = 'READY';
 
@@ -453,10 +452,46 @@ class AppState {
         }
     }
 
+    private recoverWarmResume() {
+        const emit = this.log.emit;
+        const view = this.ui.viewMode;
+
+        // Fix WebKit touch handler desync
+        this.recoverScrollContainers();
+
+        // If a search was in-flight when iOS froze JS, the fetch is dead.
+        // SearchState owns aborting its own stuck controller + watchdog.
+        const searchWasStuck = this.searchState.recover();
+
+        // Reconnect potentially dead IntersectionObservers
+        if (view === View.LIST) {
+            this.ui.listViewGeneration++;
+        }
+
+        emit('resume-recover', {
+            view,
+            searchWasStuck,
+            resultCount: this.searchState.results.length,
+            currentPage: this.searchState.currentPage,
+            query: this.searchState.currentQuery || '(browse)',
+        });
+    }
+
     private async refreshCurrentView() {
         const view = this.ui.viewMode;
         if (view === View.LIST) {
-            await this.searchState.search(this.searchState.currentQuery);
+            const targetId = this.lastVisibleMangaId;
+            const ctx = this.searchState.context;
+            if (ctx) {
+                this.searchState.filters.restoreFromContext(ctx.filters);
+                await this.searchState.replayFromContext(ctx);
+            } else {
+                await this.searchState.search(this.searchState.currentQuery);
+            }
+            if (targetId) {
+                this.restore.start(targetId);
+                await this.bgPaginateToTarget();
+            }
         } else if (view === View.MANGA && this.manga.activeManga) {
             await this.manga.restoreManga(this.manga.activeManga);
         }
