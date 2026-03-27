@@ -12,7 +12,7 @@ export const VISIBLE_MANGA_DEBOUNCE_MS = 1_000;   // debounce for visible manga 
 export const VISIBLE_PAGE_RATIO = 1 / 3;        // fraction down viewport to probe for current page
 export const MAX_CHAPTER_DISTANCE = 2;           // chapters kept loaded around current (±2)
 export const SCROLL_DEBOUNCE_MS = 500;           // debounce for scroll-based page tracking
-export const HISTORY_SYNC_MS = 3_000;            // debounce for progress sync to DB + API
+export const HISTORY_SYNC_MS = 500;              // debounce for progress sync to DB + API
 
 export const SENTINEL_ROOT_MARGIN = '500% 0px'; // preload trigger zone for infinite scroll
 
