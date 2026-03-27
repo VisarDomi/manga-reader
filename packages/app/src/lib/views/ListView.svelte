@@ -63,8 +63,6 @@
             disabled: isLoading,
             generation: appState.ui.listViewGeneration
         }}></div>
-    {:else}
-        <!-- [DBG] sentinel hidden: hasMore=false -->
     {/if}
 
     {#if isLoading}

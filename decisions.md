@@ -41,3 +41,15 @@ iOS Safari requires HTTPS for PWA installation (Add to Home Screen). The server 
 ## D10. Server Runs Under xvfb-run
 
 The manga-reader systemd service is wrapped in `xvfb-run` because Playwright/CloakBrowser needs a display for Cloudflare solving. Never kill the process directly or restart with nohup — always use `systemctl --user restart manga-reader`.
+
+## D11. imageProxy Batches Success Logs
+
+Individual image proxy successes accumulate in a batch. A summary (count, avg ttfb, avg size, peak inflight) flushes when activity quiets down (1 second with no new result). Failures are always logged immediately and individually. This reduced log volume from ~6,500 lines/day to ~50-100 batch summaries.
+
+## D12. LogEvent Is a Discriminated Union
+
+Every frontend log event is a variant of the `LogEvent` union type. Adding a new event requires adding it to the union first — the compiler forces every emitter to supply the correct payload. The `emit` function extracts the `event` field as the first arg and type-checks the payload against the event name.
+
+## D13. Image Load Success Logged Server-Side Only
+
+Client-side `img-ok` was removed. The server's imageProxy already logs every proxied image fetch (see D11). Only `img-fail` is logged client-side because client-only failures (CORS, AbortError, blob creation) never reach the server.

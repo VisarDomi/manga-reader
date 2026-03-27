@@ -39,9 +39,9 @@ class SearchMachine {
 
 export class SearchState {
     results = $state<Manga[]>([]);
-    error = $state<LoadError | null>(null); // non-null ↔ last search failed (results is meaningless)
+    error = $state<LoadError | null>(null);
     currentQuery = $state('');
-    inputQuery = $state(''); // live value of the search input field
+    inputQuery = $state('');
     currentPage = $state(1);
     hasMore = $state(false);
 

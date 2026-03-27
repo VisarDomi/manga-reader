@@ -170,7 +170,6 @@
         role="application"
         use:swipeBack={{ onClose, ui: appState.ui }}
     >
-        <!-- Prepend sentinel at very top -->
         <div class="sentinel" use:sentinel={{ getRoot: getReaderRoot, rootMargin: '500% 0px', onIntersect: handlePrepend, disabled: !sentinelsReady }}></div>
 
         {#each chapters as chapter (chapter.id)}
@@ -193,7 +192,6 @@
             {/each}
         {/each}
 
-        <!-- Append sentinel at very bottom -->
         <div class="sentinel" bind:this={appendSentinelEl} use:sentinel={{ getRoot: getReaderRoot, rootMargin: '500% 0px', onIntersect: handleAppend, disabled: !sentinelsReady }}></div>
 
         {#if appState.reader.isLoadingNext}

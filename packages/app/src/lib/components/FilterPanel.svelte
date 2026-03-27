@@ -35,7 +35,7 @@
 </script>
 
 <div class="filter-panel">
-    <!-- Collapse button row -->
+
     <div class="filter-header">
         <button class="filter-collapse" onclick={() => appState.ui.filtersExpanded = false}>
             Collapse
@@ -47,7 +47,7 @@
         {/if}
     </div>
 
-    <!-- Type -->
+
     {#if filterDef.types && filterDef.types.length > 0}
         <div class="filter-section">
             <span class="filter-label">Type</span>
@@ -63,7 +63,7 @@
         </div>
     {/if}
 
-    <!-- Status -->
+
     {#if filterDef.statuses && filterDef.statuses.length > 0}
         <div class="filter-section">
             <span class="filter-label">Status</span>
@@ -79,7 +79,7 @@
         </div>
     {/if}
 
-    <!-- Genre categories -->
+
     {#each [...genresByGroup] as [groupKey, genres] (groupKey)}
         <div class="filter-section">
             <span class="filter-label">{GROUP_LABELS[groupKey] ?? groupKey}</span>

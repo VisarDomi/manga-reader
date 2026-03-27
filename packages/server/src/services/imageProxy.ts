@@ -10,11 +10,6 @@ export function isAllowedImageDomain(_hostname: string): boolean {
 }
 let inFlight = 0;
 
-// ── Batch accumulator ─────────────────────────────────────────────
-// Owns the decision of when to flush. Individual successes accumulate;
-// a summary is emitted when activity quiets down (1s with no new result).
-// Failures are always logged immediately — they're rare and diagnostic.
-
 const FLUSH_DELAY_MS = 1000;
 
 interface ImageBatch {

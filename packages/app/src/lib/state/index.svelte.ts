@@ -456,14 +456,8 @@ class AppState {
         const emit = this.log.emit;
         const view = this.ui.viewMode;
 
-        // Fix WebKit touch handler desync
         this.recoverScrollContainers();
-
-        // If a search was in-flight when iOS froze JS, the fetch is dead.
-        // SearchState owns aborting its own stuck controller + watchdog.
         const searchWasStuck = this.searchState.recover();
-
-        // Reconnect potentially dead IntersectionObservers
         if (view === View.LIST) {
             this.ui.listViewGeneration++;
         }
