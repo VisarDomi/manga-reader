@@ -48,26 +48,13 @@ export class ReaderMemoryManager {
 
         const signal = this.abortController.signal;
         const t0 = performance.now();
-        let tResponse = 0;
 
         fetch(url, { signal })
-            .then(r => {
-                tResponse = performance.now();
-                return r.blob();
-            })
+            .then(r => r.blob())
             .then(blob => {
-                const tDone = performance.now();
                 const blobUrl = URL.createObjectURL(blob);
                 this.blobUrls.set(key, blobUrl);
                 img.src = blobUrl;
-                this.emit('img-ok', {
-                    key,
-                    fetchMs: Math.round(tResponse - t0),
-                    blobMs: Math.round(tDone - tResponse),
-                    totalMs: Math.round(tDone - t0),
-                    sizeKB: Math.round(blob.size / 1024),
-                    pending: this.loadingKeys.size,
-                });
             })
             .catch((err) => {
                 if (err?.name !== 'AbortError') {

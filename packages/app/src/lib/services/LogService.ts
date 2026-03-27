@@ -58,8 +58,7 @@ export type LogEvent =
     | { event: 'watchdog-freeze'; gapMs: number }
     | { event: 'sentinel-forced-resume'; frozenSeconds: number }
 
-    // Image loading (from ReaderMemoryManager)
-    | { event: 'img-ok'; key: string; fetchMs: number; blobMs: number; totalMs: number; sizeKB: number; pending: number }
+    // Image loading (from ReaderMemoryManager) — only failures; successes logged server-side by imageProxy
     | { event: 'img-fail'; key: string; totalMs: number; error: string; pending: number }
 
     // Errors

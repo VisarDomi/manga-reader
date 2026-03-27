@@ -9,11 +9,61 @@ export function isAllowedImageDomain(_hostname: string): boolean {
   return true;
 }
 let inFlight = 0;
-function logStreamResult(meta: ProxyFetchMeta, streamMs: number, totalMs: number, ok: boolean, errorMsg?: string): void {
-  const size = meta.contentLength != null ? `${meta.contentLength}B` : '?B';
-  const status = ok ? 'ok' : 'fail';
+
+// ── Batch accumulator ─────────────────────────────────────────────
+// Owns the decision of when to flush. Individual successes accumulate;
+// a summary is emitted when activity quiets down (1s with no new result).
+// Failures are always logged immediately — they're rare and diagnostic.
+
+const FLUSH_DELAY_MS = 1000;
+
+interface ImageBatch {
+  count: number;
+  totalBytes: number;
+  ttfbSum: number;
+  streamSum: number;
+  totalMsSum: number;
+  domain: string;
+  peakInflight: number;
+}
+
+let batch: ImageBatch | null = null;
+let flushTimer: ReturnType<typeof setTimeout> | null = null;
+
+function flushBatch(): void {
+  if (!batch || batch.count === 0) { batch = null; return; }
+  const avgTtfb = Math.round(batch.ttfbSum / batch.count);
+  const avgStream = Math.round(batch.streamSum / batch.count);
+  const avgTotal = Math.round(batch.totalMsSum / batch.count);
+  const avgSize = Math.round(batch.totalBytes / batch.count);
   console.log(
-    `[imageProxy] ${status} ${meta.domain} ttfb=${meta.durationMs}ms stream=${streamMs}ms total=${totalMs}ms ${size} inflight=${inFlight} cf=${meta.cfCookiesInjected} ref=${meta.referer}${errorMsg ? ` err=${errorMsg}` : ''}`,
+    `[imageProxy] ok ${batch.domain} n=${batch.count} avgTtfb=${avgTtfb}ms avgStream=${avgStream}ms avgTotal=${avgTotal}ms avgSize=${avgSize}B peakInflight=${batch.peakInflight}`,
+  );
+  batch = null;
+}
+
+function scheduleFlush(): void {
+  if (flushTimer) clearTimeout(flushTimer);
+  flushTimer = setTimeout(() => { flushTimer = null; flushBatch(); }, FLUSH_DELAY_MS);
+}
+
+function recordSuccess(meta: ProxyFetchMeta, streamMs: number, totalMs: number): void {
+  if (!batch) {
+    batch = { count: 0, totalBytes: 0, ttfbSum: 0, streamSum: 0, totalMsSum: 0, domain: meta.domain, peakInflight: 0 };
+  }
+  batch.count++;
+  batch.totalBytes += meta.contentLength ?? 0;
+  batch.ttfbSum += meta.durationMs;
+  batch.streamSum += streamMs;
+  batch.totalMsSum += totalMs;
+  if (inFlight > batch.peakInflight) batch.peakInflight = inFlight;
+  scheduleFlush();
+}
+
+function logFailure(meta: ProxyFetchMeta, streamMs: number, totalMs: number, errorMsg: string): void {
+  const size = meta.contentLength != null ? `${meta.contentLength}B` : '?B';
+  console.log(
+    `[imageProxy] fail ${meta.domain} ttfb=${meta.durationMs}ms stream=${streamMs}ms total=${totalMs}ms ${size} inflight=${inFlight} cf=${meta.cfCookiesInjected} ref=${meta.referer} err=${errorMsg}`,
   );
 }
 export async function streamImage(imageUrl: string, res: Response, callerUA: string, referer?: string): Promise<void> {
@@ -45,10 +95,10 @@ export async function streamImage(imageUrl: string, res: Response, callerUA: str
     try {
       await pipeline(readable, res);
       const now = Date.now();
-      logStreamResult(meta, now - streamStart, now - requestStart, true);
+      recordSuccess(meta, now - streamStart, now - requestStart);
     } catch (err) {
       const now = Date.now();
-      logStreamResult(meta, now - streamStart, now - requestStart, false, (err as Error).message);
+      logFailure(meta, now - streamStart, now - requestStart, (err as Error).message);
       if (!res.headersSent) res.status(502).end();
       else res.destroy();
     }

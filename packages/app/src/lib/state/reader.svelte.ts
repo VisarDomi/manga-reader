@@ -151,7 +151,6 @@ export class ReaderState {
                 const progressData = { chapterId: cId, chapterNumber: ch.number, pageIndex, pageCount, scrollOffset };
                 db.setProgress(manga.id, progressData);
                 this.progress.update(manga.id, progressData);
-                this.log.emit('progress-save', { mangaId: manga.id, chapterId: cId, chapterNumber: ch.number, pageIndex, pageCount });
             }
         });
     }
