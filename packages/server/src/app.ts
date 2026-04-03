@@ -14,10 +14,6 @@ import type { Request, Response } from 'express';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-/**
- * Factory: creates Express app, borrowing BrowserSession for the proxy route.
- * Ownership: BrowserSession is owned by server.ts, borrowed here and passed to proxy.
- */
 export function createApp(browserSession: BrowserSession | null): express.Express {
     const app = express();
     app.use(express.json());

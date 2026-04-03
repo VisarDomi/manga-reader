@@ -22,7 +22,6 @@
     const swipeAnimating = $derived(appState.ui.swipeAnimating);
     const swipeProgress = $derived(appState.ui.swipeProgress);
 
-    // The view that would be revealed behind the current view during swipe
     const backView = $derived(isSwiping ? appState.ui.peekBack() : null);
 
     const inReader = $derived(viewMode === View.READER);

@@ -63,7 +63,6 @@
 
         listEl.addEventListener('scroll', onScroll, { passive: true });
 
-        // Prewarm the initial visible manga on mount
         requestAnimationFrame(() => prewarmVisible());
 
         return () => listEl.removeEventListener('scroll', onScroll);

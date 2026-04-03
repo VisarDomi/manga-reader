@@ -160,7 +160,6 @@ export async function* fetchChapterList(
     }
 
 }
-/** Fire-and-forget: ask server to prewarm chapter signatures for these manga. */
 export function prewarmChapters(mangaIds: string[]): void {
     if (mangaIds.length === 0) return;
     emit('prewarm-sent', { count: mangaIds.length });

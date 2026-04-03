@@ -12,10 +12,6 @@ interface ProxyBody {
     cloudflareProtected?: boolean;
 }
 
-/**
- * Factory: proxy route borrows BrowserSession for signed endpoints.
- * Ownership: BrowserSession is owned by the server, borrowed here.
- */
 export function createProxyRouter(browserSession: BrowserSession | null): Router {
     const router = Router();
 
@@ -37,7 +33,6 @@ export function createProxyRouter(browserSession: BrowserSession | null): Router
         const parsed = new URL(url);
         const pathStr = parsed.pathname + (parsed.search ? parsed.search : '');
 
-        // Signed endpoints go straight to BrowserSession — no wasted proxyFetch.
         if (browserSession?.ready && browserSession.needsSigning(url)) {
             try {
                 const result = await browserSession.signedFetch(url);
@@ -46,7 +41,6 @@ export function createProxyRouter(browserSession: BrowserSession | null): Router
                 return;
             } catch (e) {
                 console.log(`[proxy] signed-fail ${pathStr} ${(e as Error).message}`);
-                // Fall through to proxyFetch as last resort
             }
         }
 
@@ -71,8 +65,6 @@ export function createProxyRouter(browserSession: BrowserSession | null): Router
         }
     }));
 
-    // Prewarm signatures for a batch of manga IDs.
-    // Frontend calls this with visible manga IDs from the list view.
     router.post('/prewarm-chapters', asyncHandler(async (req, res) => {
         const { mangaIds } = req.body as { mangaIds?: string[] };
 
@@ -86,7 +78,6 @@ export function createProxyRouter(browserSession: BrowserSession | null): Router
             return;
         }
 
-        // Synchronous — submits to scheduler queue, returns immediately
         browserSession.prewarmSigs(mangaIds);
         res.status(202).json({ queued: mangaIds.length });
     }));

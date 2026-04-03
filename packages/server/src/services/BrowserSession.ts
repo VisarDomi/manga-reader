@@ -26,10 +26,6 @@ export interface BrowserFetchResult {
     durationMs: number;
 }
 
-// ─── NavigationScheduler ───────────────────────────────────────────────
-// Single owner of all page navigation. Nobody else creates pages or navigates.
-// Owns: worker page pool, work queue, sig cache.
-
 const enum Priority { USER = 0, PREWARM = 1 }
 
 interface WorkItem {
@@ -57,19 +53,12 @@ class NavigationScheduler {
         return this.sigCache.get(mangaId);
     }
 
-    /**
-     * Request a signature. Returns immediately if cached.
-     * Otherwise enqueues work and returns a promise that resolves when
-     * a worker captures the sig.
-     */
     acquire(mangaId: string, priority: Priority): Promise<string> {
         const cached = this.sigCache.get(mangaId);
         if (cached) return Promise.resolve(cached);
 
-        // Deduplicate: if already queued or inflight, piggyback on it
         const existing = this.queue.find(w => w.mangaId === mangaId);
         if (existing) {
-            // Promote priority if user request piggybacks on prewarm
             if (priority < existing.priority) existing.priority = priority;
             return new Promise((resolve, reject) => {
                 const orig = { resolve: existing.resolve, reject: existing.reject };
@@ -90,10 +79,6 @@ class NavigationScheduler {
         });
     }
 
-    /**
-     * Submit manga IDs for background prewarming. Fire-and-forget.
-     * Deduplicates against cache and existing queue entries.
-     */
     submitPrewarm(mangaIds: string[]): { queued: number; skipped: number } {
         let queued = 0;
         let skipped = 0;
@@ -118,11 +103,9 @@ class NavigationScheduler {
 
     private drain(): void {
         while (this.activeWorkers < POOL_SIZE && this.queue.length > 0) {
-            // Sort: user items first, then prewarm (stable within same priority)
             this.queue.sort((a, b) => a.priority - b.priority);
             const item = this.queue.shift()!;
 
-            // Double-check cache (may have been filled while queued)
             const cached = this.sigCache.get(item.mangaId);
             if (cached) {
                 item.resolve(cached);
@@ -149,7 +132,6 @@ class NavigationScheduler {
                 console.log(`[navScheduler] ${label} ${mangaId} sig=${sig.slice(0, 16)}… ${Date.now() - t0}ms cache=${this.sigCache.size}`);
                 item.resolve(sig);
 
-                // Resolve any piggybacked items for the same mangaId
                 for (let i = this.queue.length - 1; i >= 0; i--) {
                     if (this.queue[i].mangaId === mangaId) {
                         this.queue[i].resolve(sig);
@@ -241,10 +223,6 @@ class NavigationScheduler {
         console.log(`[navScheduler] destroyed pool=${POOL_SIZE} cache=${this.sigCache.size} queue=${this.queue.length}`);
     }
 }
-
-// ─── BrowserSession ────────────────────────────────────────────────────
-// Owns: browser context, fetch page, navigation scheduler.
-// Exposes: needsSigning, signedFetch, prewarmSigs, destroy.
 
 export class BrowserSession {
     private context: BrowserContext | null = null;

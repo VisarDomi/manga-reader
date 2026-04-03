@@ -10,7 +10,6 @@ validateConfig();
 
 const SHUTDOWN_TIMEOUT = 10_000;
 
-// Server owns BrowserSession — passes ref to app, destroys on shutdown.
 const browserSession = new BrowserSession('comix.to', 'https://comix.to');
 const app = createApp(browserSession);
 
@@ -27,8 +26,6 @@ server.listen(PORT, '0.0.0.0', () => {
 
     startPrewarm();
 
-    // BrowserSession init is async — server is available immediately,
-    // browser fallback becomes available once init completes.
     browserSession.init().catch(err => {
         console.error(`[browserSession] init failed: ${err.message}`);
     });
