@@ -160,6 +160,17 @@ export async function* fetchChapterList(
     }
 
 }
+/** Fire-and-forget: ask server to prewarm chapter signatures for these manga. */
+export function prewarmChapters(mangaIds: string[]): void {
+    if (mangaIds.length === 0) return;
+    emit('prewarm-sent', { count: mangaIds.length });
+    fetch('/api/prewarm-chapters', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mangaIds }),
+    }).catch(() => {});
+}
+
 export async function fetchChapterImages(mangaId: string, chapterId: string, chapterNumber: number): Promise<ChapterPage[]> {
     const provider = getProvider();
     const req = provider.chapterImagesRequest(mangaId, chapterId, chapterNumber);

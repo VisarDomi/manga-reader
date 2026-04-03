@@ -37,7 +37,8 @@ export type LogEvent =
     | { event: 'uncaught-error'; message: string; source: string; line: number; col: number; stack: string }
     | { event: 'unhandled-rejection'; message: string; stack: string }
     | { event: 'db-error'; op: string; error: string }
-    | { event: 'favorites-toggle-failed'; message: string };
+    | { event: 'favorites-toggle-failed'; message: string }
+    | { event: 'prewarm-sent'; count: number };
 
 type EventName = LogEvent['event'];
 type PayloadOf<E extends EventName> = Omit<Extract<LogEvent, { event: E }>, 'event'>;

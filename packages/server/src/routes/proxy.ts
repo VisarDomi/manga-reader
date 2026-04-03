@@ -86,8 +86,8 @@ export function createProxyRouter(browserSession: BrowserSession | null): Router
             return;
         }
 
-        // Fire and forget — don't block the response
-        browserSession.prewarmSigs(mangaIds).catch(() => {});
+        // Synchronous — submits to scheduler queue, returns immediately
+        browserSession.prewarmSigs(mangaIds);
         res.status(202).json({ queued: mangaIds.length });
     }));
 
