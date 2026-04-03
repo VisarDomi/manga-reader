@@ -112,17 +112,10 @@ export async function* fetchChapterList(
     const req1 = provider.chapterListRequest(mangaId, 1);
     const data1 = await proxyRequest(req1, 'json', { signal });
     const page1 = provider.parseChapterListResponse(data1);
-    emit('chapters-page', {
-        mangaId, page: 1,
-        items: page1.items.length,
-        lastPage: page1.pagination.lastPage,
-        total: page1.pagination.total,
-    });
     yield page1;
 
     const { lastPage, total } = page1.pagination;
     if (lastPage <= 1) {
-        emit('chapters-done', { mangaId, pages: 1, total });
         return;
     }
 
@@ -132,21 +125,18 @@ export async function* fetchChapterList(
     const settled: (ChapterListPage | null)[] = [];
     let notify: (() => void) | null = null;
     let pending = remaining;
-    let failed = 0;
 
     for (let page = 2; page <= lastPage; page++) {
         const req = provider.chapterListRequest(mangaId, page);
         proxyRequest(req, 'json', { signal })
             .then(data => {
                 const parsed = provider.parseChapterListResponse(data);
-                emit('chapters-page', { mangaId, page, items: parsed.items.length });
                 settled.push(parsed);
             })
             .catch(e => {
                 if (!signal?.aborted) {
                     emit('chapters-page-error', { mangaId, page, error: String((e as Error)?.message ?? e) });
                 }
-                failed++;
                 settled.push(null);
             })
             .finally(() => {
@@ -169,7 +159,6 @@ export async function* fetchChapterList(
         }
     }
 
-    emit('chapters-done', { mangaId, pages: lastPage, failed, total });
 }
 export async function fetchChapterImages(mangaId: string, chapterId: string, chapterNumber: number): Promise<ChapterPage[]> {
     const provider = getProvider();

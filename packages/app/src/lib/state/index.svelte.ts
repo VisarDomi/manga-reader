@@ -95,7 +95,7 @@ class AppState {
                 this.restore.cancel();
             }
         };
-        this.manga = new MangaState(this.ui, this.toast, this.groupFilter, () => this.restore.cancel());
+        this.manga = new MangaState(this.ui, this.toast, this.groupFilter, emit, () => this.restore.cancel());
         this.reader = new ReaderState(this.ui, this.manga, this.progress, this.toast, this.log);
         this.favorites = new FavoritesState(this.toast, this.log);
     }

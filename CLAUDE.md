@@ -1,5 +1,11 @@
 # Manga Reader
 
+## Svelte 5 Pitfalls
+
+IMPORTANT: Before writing or modifying any `.svelte` or `.svelte.ts` file, read BOTH of these:
+- [svelte5-pitfalls.md](/home/visar/.claude/projects/-home-visar/memory/svelte5-pitfalls.md) — quick rules
+- [svelte5-pitfalls-detail.md](/home/visar/.claude/projects/-home-visar/memory/svelte5-pitfalls-detail.md) — detailed explanations with code examples
+
 Monorepo (npm workspaces). 4 packages: provider-types, extensions, server (port 11555), app (SvelteKit PWA, Svelte 5).
 
 ## Server Management

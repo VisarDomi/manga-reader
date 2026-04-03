@@ -2,6 +2,7 @@ import type { Manga, ChapterMeta } from '../types.js';
 import { View } from '../logic.js';
 import * as api from '../services/api.js';
 import * as storage from '../services/storage.js';
+import type { LogEmit } from '../services/LogService.js';
 import type { UIState } from './ui.svelte.js';
 import type { ToastState } from './toast.svelte.js';
 import type { GroupFilterState } from './groupFilter.svelte.js';
@@ -20,12 +21,14 @@ export class MangaState {
     private ui: UIState;
     private toast: ToastState;
     private gf: GroupFilterState;
+    private emit: LogEmit;
     private onOpen: (() => void) | null;
 
-    constructor(ui: UIState, toast: ToastState, gf: GroupFilterState, onOpen?: () => void) {
+    constructor(ui: UIState, toast: ToastState, gf: GroupFilterState, emit: LogEmit, onOpen?: () => void) {
         this.ui = ui;
         this.toast = toast;
         this.gf = gf;
+        this.emit = emit;
         this.onOpen = onOpen ?? null;
     }
 
@@ -88,15 +91,27 @@ export class MangaState {
     private async consumeChapterStream(mangaId: string): Promise<void> {
         const all: ChapterMeta[] = [];
         const seen = new Set<string>();
+        let pageCount = 0;
 
-        for await (const { items } of api.fetchChapterList(mangaId)) {
-            for (const ch of items) {
+        for await (const page of api.fetchChapterList(mangaId)) {
+            pageCount++;
+            this.emit('chapters-page', {
+                mangaId,
+                page: page.pagination.currentPage,
+                items: page.items.length,
+                ...(pageCount === 1 ? {
+                    lastPage: page.pagination.lastPage,
+                    total: page.pagination.total,
+                } : {}),
+            });
+            for (const ch of page.items) {
                 if (seen.has(ch.id)) continue;
                 seen.add(ch.id);
                 all.push(ch);
             }
             this.chapters = [...all];
         }
+        this.emit('chapters-done', { mangaId, pages: pageCount, total: all.length });
     }
 
     async openManga(manga: Manga) {
