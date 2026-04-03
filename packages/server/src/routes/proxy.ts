@@ -12,15 +12,8 @@ interface ProxyBody {
     cloudflareProtected?: boolean;
 }
 
-/** Application-level 403 wrapped in HTTP 200 — needs signed browser request. */
-function isSoft403(data: unknown): boolean {
-    if (typeof data !== 'object' || data === null) return false;
-    const d = data as Record<string, unknown>;
-    return d.status === 403 && d.result === null;
-}
-
 /**
- * Factory: proxy route borrows BrowserSession for soft-403 fallback.
+ * Factory: proxy route borrows BrowserSession for signed endpoints.
  * Ownership: BrowserSession is owned by the server, borrowed here.
  */
 export function createProxyRouter(browserSession: BrowserSession | null): Router {
@@ -41,6 +34,22 @@ export function createProxyRouter(browserSession: BrowserSession | null): Router
             return;
         }
 
+        const parsed = new URL(url);
+        const pathStr = parsed.pathname + (parsed.search ? parsed.search : '');
+
+        // Signed endpoints go straight to BrowserSession — no wasted proxyFetch.
+        if (browserSession?.ready && browserSession.needsSigning(url)) {
+            try {
+                const result = await browserSession.signedFetch(url);
+                console.log(`[proxy] signed ${pathStr} ${result.durationMs}ms`);
+                res.json(result.data);
+                return;
+            } catch (e) {
+                console.log(`[proxy] signed-fail ${pathStr} ${(e as Error).message}`);
+                // Fall through to proxyFetch as last resort
+            }
+        }
+
         const { response: r, meta } = await proxyFetch(url, {
             method,
             headers: {
@@ -50,8 +59,6 @@ export function createProxyRouter(browserSession: BrowserSession | null): Router
             body: body ?? undefined,
             cloudflareProtected,
         });
-        const parsed = new URL(url);
-        const pathStr = parsed.pathname + (parsed.search ? parsed.search : '');
         console.log(`[proxy] ${method} ${pathStr} ${r.status} ${meta.durationMs}ms`);
 
         if (responseType === 'text') {
@@ -60,21 +67,28 @@ export function createProxyRouter(browserSession: BrowserSession | null): Router
             res.send(text);
         } else {
             const data = await r.json();
-
-            if (isSoft403(data) && browserSession?.ready) {
-                console.log(`[proxy] soft-403 ${pathStr} — retrying via browser`);
-                try {
-                    const result = await browserSession.signedFetch(url);
-                    console.log(`[proxy] browser-ok ${pathStr} ${result.durationMs}ms`);
-                    res.json(result.data);
-                    return;
-                } catch (e) {
-                    console.log(`[proxy] browser-fail ${pathStr} ${(e as Error).message}`);
-                }
-            }
-
             res.json(data);
         }
+    }));
+
+    // Prewarm signatures for a batch of manga IDs.
+    // Frontend calls this with visible manga IDs from the list view.
+    router.post('/prewarm-chapters', asyncHandler(async (req, res) => {
+        const { mangaIds } = req.body as { mangaIds?: string[] };
+
+        if (!Array.isArray(mangaIds) || mangaIds.length === 0) {
+            res.status(400).json({ error: 'Missing mangaIds array' });
+            return;
+        }
+
+        if (!browserSession?.ready) {
+            res.status(503).json({ error: 'BrowserSession not ready' });
+            return;
+        }
+
+        // Fire and forget — don't block the response
+        browserSession.prewarmSigs(mangaIds).catch(() => {});
+        res.status(202).json({ queued: mangaIds.length });
     }));
 
     return router;
