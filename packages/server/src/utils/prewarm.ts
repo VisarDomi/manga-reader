@@ -1,4 +1,4 @@
-import { proxyFetch } from './proxyFetch';
+import { proxyFetchText } from './proxyFetch';
 
 const PREWARM_URL = 'https://comix.to';
 const INTERVAL_MS = 5_000;
@@ -20,8 +20,7 @@ class PrewarmMonitor {
   private async tick(): Promise<void> {
     let next: Status;
     try {
-      const { response: r } = await proxyFetch(PREWARM_URL, { method: 'HEAD', cloudflareProtected: true });
-      await r.text();
+      await proxyFetchText(PREWARM_URL, { method: 'HEAD', cloudflareProtected: true });
       next = 'ok';
     } catch (e) {
       const msg = (e as Error).message ?? String(e);

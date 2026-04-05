@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction, RequestHandler } from 'express';
-import { UpstreamError, CloudflareError } from '../utils/proxyFetch';
+import { UpstreamError, CloudflareError, ParseError } from '../utils/proxyFetch';
 import type { ProxyFetchMeta } from '../utils/proxyFetch';
 
 type AsyncRequestHandler = (req: Request, res: Response, next: NextFunction) => Promise<void>;
@@ -23,6 +23,9 @@ export function errorHandler(err: Error, req: Request, res: Response, _next: Nex
   } else if (err instanceof UpstreamError) {
     console.error(`[${req.path}] upstream status=${err.status} ${formatMeta(err.meta)}`);
     res.status(err.status).json({ error: err.message, status: err.status });
+  } else if (err instanceof ParseError) {
+    console.error(`[${req.path}] parse-error upstream=${err.meta.status} ${formatMeta(err.meta)} cause=${(err.cause as Error)?.message ?? err.cause}`);
+    res.status(502).json({ error: 'Failed to parse upstream response', status: 502 });
   } else {
     console.error(`[${req.path}] unexpected: ${err.stack || err.message}`);
     res.status(500).json({ error: 'Internal server error', status: 500 });

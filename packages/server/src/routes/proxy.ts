@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { asyncHandler } from '../middleware/errorHandler';
-import { proxyFetch } from '../utils/proxyFetch';
+import { proxyFetchJson, proxyFetchText } from '../utils/proxyFetch';
 import type { BrowserSession } from '../services/BrowserSession';
 
 interface ProxyBody {
@@ -44,7 +44,7 @@ export function createProxyRouter(browserSession: BrowserSession | null): Router
             }
         }
 
-        const { response: r, meta } = await proxyFetch(url, {
+        const fetchOpts = {
             method,
             headers: {
                 'User-Agent': req.headers['user-agent'] || '',
@@ -52,15 +52,16 @@ export function createProxyRouter(browserSession: BrowserSession | null): Router
             },
             body: body ?? undefined,
             cloudflareProtected,
-        });
-        console.log(`[proxy] ${method} ${pathStr} ${r.status} ${meta.durationMs}ms`);
+        };
 
         if (responseType === 'text') {
-            const text = await r.text();
+            const { data, meta } = await proxyFetchText(url, fetchOpts);
+            console.log(`[proxy] ${method} ${pathStr} ${meta.status} ${meta.durationMs}ms`);
             res.set('Content-Type', 'text/plain; charset=utf-8');
-            res.send(text);
+            res.send(data);
         } else {
-            const data = await r.json();
+            const { data, meta } = await proxyFetchJson(url, fetchOpts);
+            console.log(`[proxy] ${method} ${pathStr} ${meta.status} ${meta.durationMs}ms`);
             res.json(data);
         }
     }));

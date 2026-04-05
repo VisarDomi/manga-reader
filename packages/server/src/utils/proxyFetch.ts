@@ -137,3 +137,47 @@ export async function proxyFetch(
   }
   return { response: r, meta };
 }
+
+export class ParseError extends Error {
+  meta: ProxyFetchMeta;
+
+  constructor(meta: ProxyFetchMeta, cause: unknown) {
+    super(`Failed to parse ${meta.method} ${meta.url}`);
+    this.name = 'ParseError';
+    this.meta = meta;
+    this.cause = cause;
+  }
+}
+
+export interface ConsumedResult<T> {
+  data: T;
+  meta: ProxyFetchMeta;
+}
+
+export async function proxyFetchJson<T = unknown>(
+  url: string,
+  init?: ProxyFetchOptions,
+  timeout?: number,
+): Promise<ConsumedResult<T>> {
+  const { response, meta } = await proxyFetch(url, init, timeout);
+  try {
+    const data = await response.json() as T;
+    return { data, meta };
+  } catch (e) {
+    throw new ParseError(meta, e);
+  }
+}
+
+export async function proxyFetchText(
+  url: string,
+  init?: ProxyFetchOptions,
+  timeout?: number,
+): Promise<ConsumedResult<string>> {
+  const { response, meta } = await proxyFetch(url, init, timeout);
+  try {
+    const data = await response.text();
+    return { data, meta };
+  } catch (e) {
+    throw new ParseError(meta, e);
+  }
+}
