@@ -12,7 +12,8 @@ const STEALTH_ARGS = [
   '--fingerprint-platform=windows',
   '--fingerprint-gpu-vendor=Google Inc. (NVIDIA)',
   '--fingerprint-gpu-renderer=ANGLE (NVIDIA, NVIDIA GeForce RTX 3070 (0x00002484) Direct3D11 vs_5_0 ps_5_0, D3D11)',
-  '--ignore-gpu-blocklist',
+  '--disable-gpu',
+  '--disable-gpu-compositing',
   '--window-size=1920,1080',
 ];
 

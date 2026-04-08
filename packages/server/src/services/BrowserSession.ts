@@ -12,7 +12,8 @@ const STEALTH_ARGS = [
     '--fingerprint-platform=windows',
     '--fingerprint-gpu-vendor=Google Inc. (NVIDIA)',
     '--fingerprint-gpu-renderer=ANGLE (NVIDIA, NVIDIA GeForce RTX 3070 (0x00002484) Direct3D11 vs_5_0 ps_5_0, D3D11)',
-    '--ignore-gpu-blocklist',
+    '--disable-gpu',
+    '--disable-gpu-compositing',
     '--window-size=1920,1080',
 ];
 
@@ -269,6 +270,10 @@ export class BrowserSession {
 
         this.fetchPage = this.context.pages()[0] || await this.context.newPage();
         await this.fetchPage.goto(this.startUrl, { waitUntil: 'networkidle', timeout: 30_000 });
+
+        const cdp = await this.context.newCDPSession(this.fetchPage);
+        await cdp.send('Emulation.setScriptExecutionDisabled', { value: true });
+        await this.fetchPage.goto(`${this.startUrl}/api/v2`, { waitUntil: 'domcontentloaded', timeout: 15_000 });
 
         console.log(`[browserSession] ready ${this.domain} ${Date.now() - start}ms`);
         this._ready = true;

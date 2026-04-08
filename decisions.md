@@ -69,3 +69,13 @@ The `chapters-page` and `chapters-done` log events are emitted by `MangaState.co
 ## D17. BrowserSession fetchPage Stays on comix.to Root
 
 The persistent `fetchPage` (used for `page.evaluate(fetch(...))` calls) stays navigated to `https://comix.to`. It never navigates away — only the ephemeral pool pages navigate to manga title pages for signature capture. This keeps the fetchPage's cookies and JS context stable for chapter fetches.
+
+## D18. CloakBrowser CPU Mitigation Under Xvfb
+
+Xvfb provides no vsync signal. Chromium's GPU compositor expects vsync to throttle frame production — without it, `SwapBuffers` returns instantly and the GPU process busy-loops (Chromium bugs #170681, #518209). Three layers of mitigation reduce total CloakBrowser CPU from ~545% to ~7%:
+
+1. **`--disable-gpu --disable-gpu-compositing`**: Reduces GPU process from 500% to ~70%. CloakBrowser's fingerprint patches force some GPU init via a compiled-in `gpu-preferences` protobuf, so the process still spins but at a fraction. Never add `--ignore-gpu-blocklist` back.
+2. **CDP `Emulation.setScriptExecutionDisabled`**: Kills page-originated JS (timers, animations, ads). `page.evaluate()` still works — it uses CDP `Runtime.evaluate` which bypasses this restriction.
+3. **Navigate fetchPage to lightweight same-origin URL** (`/api/v2`): After init on comix.to homepage (to load cookies), redirect to a minimal JSON endpoint. This eliminates CSS animation and rendering overhead that persists even with JS disabled. The page retains comix.to origin and cookies, so `page.evaluate(fetch(...))` works.
+
+Tested and rejected: `--disable-software-rasterizer` (no effect), `--in-process-gpu` (moves spin into main process, worse for stability), `setScriptExecutionDisabled` alone without navigating away (28% CPU from CSS/rendering).
