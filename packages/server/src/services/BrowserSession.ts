@@ -140,6 +140,7 @@ class NavigationScheduler {
                     }
                 }
             } finally {
+                await page.goto('about:blank', { waitUntil: 'commit' }).catch(() => {});
                 this.releasePage(page);
             }
         } catch (e) {
