@@ -139,7 +139,9 @@ class NavigationScheduler {
                     }
                 }
             } finally {
-                await page.close().catch(() => {});
+                await page.close().catch(e => {
+                    console.log(`[navScheduler] page-close failed ${mangaId}: ${(e as Error)?.message ?? e}`);
+                });
             }
         } catch (e) {
             const msg = (e as Error)?.message ?? String(e);
