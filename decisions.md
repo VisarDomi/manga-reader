@@ -60,7 +60,7 @@ The `/api/v2/manga/{id}/chapters` endpoint returns application-level 403 (HTTP 2
 
 ## D15. NavigationScheduler Is the Single Owner of Page Navigation
 
-Only NavigationScheduler creates and navigates Playwright pages. Both user requests (signedFetch) and background prewarming go through its priority queue. USER priority items sort before PREWARM items. The page pool is fixed at 4 workers. Multiple requests for the same mangaId piggyback on the in-flight or queued item rather than creating duplicate work.
+Only NavigationScheduler creates and navigates Playwright pages. Both user requests (signedFetch) and background prewarming go through its priority queue. USER priority items sort before PREWARM items. Concurrency is capped at 4 workers. Pages are created per-request and closed immediately after sig capture — there is no page pool. Multiple requests for the same mangaId piggyback on the in-flight or queued item rather than creating duplicate work.
 
 ## D16. Chapter Log Ownership: Consumer, Not API Layer
 
@@ -79,3 +79,7 @@ Xvfb provides no vsync signal. Chromium's GPU compositor expects vsync to thrott
 3. **Navigate fetchPage to lightweight same-origin URL** (`/api/v2`): After init on comix.to homepage (to load cookies), redirect to a minimal JSON endpoint. This eliminates CSS animation and rendering overhead that persists even with JS disabled. The page retains comix.to origin and cookies, so `page.evaluate(fetch(...))` works.
 
 Tested and rejected: `--disable-software-rasterizer` (no effect), `--in-process-gpu` (moves spin into main process, worse for stability), `setScriptExecutionDisabled` alone without navigating away (28% CPU from CSS/rendering).
+
+## D19. No Page Pool — Create and Close Per Sig Capture
+
+NavigationScheduler creates a fresh page per sig capture and closes it immediately after. No page pool. Playwright persistent contexts leak memory via internal request/response bookkeeping that only flushes on context disposal (playwright#6319), and `page.evaluate()` on intervals leaks in the Node process (playwright#21345). Pooled pages on `about:blank` still hold live Chromium renderer processes (~60-170 MB each). Creating a new page within an existing context costs ~50-100ms — negligible vs the 500-900ms sig capture navigation. The tradeoff: slightly higher latency per sig, but zero idle CPU/memory from stale renderer processes.

@@ -20,7 +20,7 @@ const STEALTH_ARGS = [
 const IGNORE_DEFAULT_ARGS = ['--enable-automation', '--enable-unsafe-swiftshader'];
 
 const SIGNED_PATTERN = /\/manga\/([^/]+)\/chapters/;
-const POOL_SIZE = 4;
+const MAX_WORKERS = 4;
 
 export interface BrowserFetchResult {
     data: unknown;
@@ -40,7 +40,6 @@ class NavigationScheduler {
     private readonly queue: WorkItem[] = [];
     private readonly sigCache = new Map<string, string>();
     private readonly inflight = new Set<string>();
-    private readonly pool: Page[] = [];
     private activeWorkers = 0;
     private context: BrowserContext | null = null;
 
@@ -103,7 +102,7 @@ class NavigationScheduler {
     }
 
     private drain(): void {
-        while (this.activeWorkers < POOL_SIZE && this.queue.length > 0) {
+        while (this.activeWorkers < MAX_WORKERS && this.queue.length > 0) {
             this.queue.sort((a, b) => a.priority - b.priority);
             const item = this.queue.shift()!;
 
@@ -124,7 +123,7 @@ class NavigationScheduler {
         const label = item.priority === Priority.USER ? 'user' : 'prewarm';
 
         try {
-            const page = await this.acquirePage();
+            const page = await this.context!.newPage();
             const t0 = Date.now();
 
             try {
@@ -140,8 +139,7 @@ class NavigationScheduler {
                     }
                 }
             } finally {
-                await page.goto('about:blank', { waitUntil: 'commit' }).catch(() => {});
-                this.releasePage(page);
+                await page.close().catch(() => {});
             }
         } catch (e) {
             const msg = (e as Error)?.message ?? String(e);
@@ -158,19 +156,6 @@ class NavigationScheduler {
             this.inflight.delete(mangaId);
             this.activeWorkers--;
             this.drain();
-        }
-    }
-
-    private async acquirePage(): Promise<Page> {
-        if (this.pool.length > 0) return this.pool.pop()!;
-        return this.context!.newPage();
-    }
-
-    private releasePage(page: Page): void {
-        if (this.pool.length < POOL_SIZE) {
-            this.pool.push(page);
-        } else {
-            page.close().catch(() => {});
         }
     }
 
@@ -218,11 +203,7 @@ class NavigationScheduler {
     }
 
     async destroy(): Promise<void> {
-        for (const page of this.pool) {
-            await page.close().catch(() => {});
-        }
-        this.pool.length = 0;
-        console.log(`[navScheduler] destroyed pool=${POOL_SIZE} cache=${this.sigCache.size} queue=${this.queue.length}`);
+        console.log(`[navScheduler] destroyed cache=${this.sigCache.size} queue=${this.queue.length}`);
     }
 }
 
