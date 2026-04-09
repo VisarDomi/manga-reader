@@ -83,3 +83,7 @@ Tested and rejected: `--disable-software-rasterizer` (no effect), `--in-process-
 ## D19. No Page Pool — Create and Close Per Sig Capture
 
 NavigationScheduler creates a fresh page per sig capture and closes it immediately after. No page pool. Playwright persistent contexts leak memory via internal request/response bookkeeping that only flushes on context disposal (playwright#6319), and `page.evaluate()` on intervals leaks in the Node process (playwright#21345). Pooled pages on `about:blank` still hold live Chromium renderer processes (~60-170 MB each). Creating a new page within an existing context costs ~50-100ms — negligible vs the 500-900ms sig capture navigation. The tradeoff: slightly higher latency per sig, but zero idle CPU/memory from stale renderer processes.
+
+## D20. Chromium Spare Renderer Process Is Expected
+
+After all sig capture pages are closed, one renderer process remains at 0% CPU (~62 MB). This is not a leak — it is Chromium's `SpareRenderProcessHostManager`, which pre-creates one warm renderer so the next `context.newPage()` is instant instead of cold-starting a process. Exactly one spare, always. Can be disabled with `--disable-features=SpareRendererForSitePerProcess`, but we keep it because it speeds up the next sig capture and costs nothing at idle.
