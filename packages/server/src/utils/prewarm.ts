@@ -1,4 +1,4 @@
-import { proxyFetchText } from './proxyFetch';
+import { proxyFetchText } from './proxyFetch.js';
 
 const PREWARM_URL = 'https://comix.to';
 const INTERVAL_MS = 5_000;

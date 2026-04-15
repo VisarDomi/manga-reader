@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction, RequestHandler } from 'express';
-import { UpstreamError, CloudflareError, ParseError } from '../utils/proxyFetch';
-import type { ProxyFetchMeta } from '../utils/proxyFetch';
+import { UpstreamError, CloudflareError, ParseError } from '../utils/proxyFetch.js';
+import type { ProxyFetchMeta } from '../utils/proxyFetch.js';
 
 type AsyncRequestHandler = (req: Request, res: Response, next: NextFunction) => Promise<void>;
 

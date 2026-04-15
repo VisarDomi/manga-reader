@@ -1,10 +1,10 @@
 import fs from 'node:fs';
 import https from 'node:https';
 import os from 'node:os';
-import { PORT, CERT_KEY_PATH, CERT_PEM_PATH, FRONTEND_BUILD_DIR, validateConfig } from './config';
-import { createApp } from './app';
-import { BrowserSession } from './services/BrowserSession';
-import { startPrewarm } from './utils/prewarm';
+import { PORT, CERT_KEY_PATH, CERT_PEM_PATH, FRONTEND_BUILD_DIR, validateConfig } from './config.js';
+import { createApp } from './app.js';
+import { BrowserSession } from './services/BrowserSession.js';
+import { startPrewarm } from './utils/prewarm.js';
 
 validateConfig();
 

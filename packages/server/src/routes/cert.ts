@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import fs from 'node:fs';
-import { ROOT_CA_PATH } from '../config';
+import { ROOT_CA_PATH } from '../config.js';
 
 const router = Router();
 

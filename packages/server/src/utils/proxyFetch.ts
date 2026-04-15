@@ -1,5 +1,5 @@
-import { PROXY_TIMEOUT } from '../config';
-import { isCloudflareBlock, getCachedCookies, getCachedUserAgent, clearCachedCookies, isSolving, solveCloudflareCookies } from './cloudflare';
+import { PROXY_TIMEOUT } from '../config.js';
+import { isCloudflareBlock, getCachedCookies, getCachedUserAgent, clearCachedCookies, isSolving, solveCloudflareCookies } from './cloudflare.js';
 
 export interface ProxyFetchMeta {
   url: string;

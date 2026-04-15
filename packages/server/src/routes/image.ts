@@ -1,6 +1,6 @@
 import { Router } from 'express';
-import { asyncHandler } from '../middleware/errorHandler';
-import { isAllowedImageDomain, streamImage } from '../services/imageProxy';
+import { asyncHandler } from '../middleware/errorHandler.js';
+import { isAllowedImageDomain, streamImage } from '../services/imageProxy.js';
 
 const router = Router();
 

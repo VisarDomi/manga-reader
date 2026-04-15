@@ -1,7 +1,7 @@
 import { Router } from 'express';
-import { asyncHandler } from '../middleware/errorHandler';
-import { proxyFetchJson, proxyFetchText } from '../utils/proxyFetch';
-import type { BrowserSession } from '../services/BrowserSession';
+import { asyncHandler } from '../middleware/errorHandler.js';
+import { proxyFetchJson, proxyFetchText } from '../utils/proxyFetch.js';
+import type { BrowserSession } from '../services/BrowserSession.js';
 
 interface ProxyBody {
     url: string;
