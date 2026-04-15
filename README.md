@@ -2,6 +2,16 @@
 
 Local-network manga reader PWA. Monorepo with 4 packages: provider-types, extensions, server, app.
 
+# What
+This repo is fullstack, meaning that it needs the pc and the iphone on the same local network for it to work.
+
+# Why
+I did this because the usual repos are either android only or too bloated in features, hence missing in features I actually use. I want a streamlined reading experience, which this repo does.
+
+# How
+The frontend is thin layer that just consumes what the pc works on. This helps in keeping battery usage minimal. All the heavy lifting is done by the backend. The backend uses chromium and cloakbrowser to keep cloudflare warm and the signing services for each specific manga warm. It consumes the manga requested by the frontend in a queue, but with priority of what the frontend sent the latest, so a priority queue.
+
+
 ## iOS PWA Setup
 
 The app runs over HTTPS using mkcert certificates. iOS devices must trust the root CA before the PWA works.
