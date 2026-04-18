@@ -6,5 +6,4 @@ dist/
 .idea/
 .claude/
 .env
-package-lock.json
 resources/
