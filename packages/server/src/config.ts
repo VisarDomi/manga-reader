@@ -7,12 +7,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export const PORT = parseInt(process.env.PORT || '11555', 10);
 export const SSL_DIR = process.env.SSL_DIR || path.join(os.homedir(), '.local/share/mkcert/pwa');
+export const STATE_DIR = process.env.STATE_DIR || path.join(os.homedir(), '.local', 'state', 'manga-reader');
 export const FRONTEND_BUILD_DIR = process.env.FRONTEND_BUILD_DIR || path.join(__dirname, '..', '..', 'app', 'build');
 export const CACHE_MAX_AGE = parseInt(process.env.CACHE_MAX_AGE || '86400', 10);
 export const PROXY_TIMEOUT = parseInt(process.env.PROXY_TIMEOUT || '10000', 10);
 export const CERT_KEY_PATH = process.env.CERT_KEY_PATH || path.join(SSL_DIR, 'key.pem');
 export const CERT_PEM_PATH = process.env.CERT_PEM_PATH || path.join(SSL_DIR, 'cert.pem');
 export const ROOT_CA_PATH = process.env.ROOT_CA_PATH || path.join(os.homedir(), '.local/share/mkcert/rootCA.pem');
+export const STORE_HOSTS_PATH = process.env.STORE_HOSTS_PATH || path.join(STATE_DIR, 'store-hosts.json');
 
 export function validateConfig(): void {
   if (isNaN(PORT) || PORT < 1 || PORT > 65535) {

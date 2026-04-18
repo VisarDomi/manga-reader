@@ -4,6 +4,7 @@ import os from 'node:os';
 import { PORT, CERT_KEY_PATH, CERT_PEM_PATH, FRONTEND_BUILD_DIR, validateConfig } from './config.js';
 import { createApp } from './app.js';
 import { BrowserSession } from './services/BrowserSession.js';
+import { listStoreHosts } from './utils/storeHosts.js';
 import { startPrewarm } from './utils/prewarm.js';
 
 validateConfig();
@@ -23,6 +24,7 @@ const server = https.createServer(sslOptions, app);
 server.listen(PORT, '0.0.0.0', () => {
     console.log(`comix-backend running on https://localhost:${PORT}`);
     console.log(`Serving frontend: ${FRONTEND_BUILD_DIR}`);
+    console.log(`[storeHosts] loaded ${listStoreHosts().length} hosts`);
 
     startPrewarm();
 

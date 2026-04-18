@@ -2,8 +2,9 @@ import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { Response } from 'express';
 import { CACHE_MAX_AGE } from '../config.js';
-import { proxyFetch } from '../utils/proxyFetch.js';
+import { UpstreamError, proxyFetch } from '../utils/proxyFetch.js';
 import type { ProxyFetchMeta } from '../utils/proxyFetch.js';
+import { learnStoreHost, learnStoreHostFromUrl, listStoreHosts } from '../utils/storeHosts.js';
 
 export function isAllowedImageDomain(_hostname: string): boolean {
   return true;
@@ -61,6 +62,107 @@ function logFailure(meta: ProxyFetchMeta, streamMs: number, totalMs: number, err
     `[imageProxy] fail ${meta.domain} ttfb=${meta.durationMs}ms stream=${streamMs}ms total=${totalMs}ms ${size} inflight=${inFlight} cf=${meta.cfCookiesInjected} ref=${meta.referer} err=${errorMsg}`,
   );
 }
+
+interface FetchedImage {
+  response: globalThis.Response;
+  meta: ProxyFetchMeta;
+  finalUrl: string;
+}
+
+function isServerError(err: unknown): err is UpstreamError {
+  return err instanceof UpstreamError && err.status >= 500 && err.status <= 599;
+}
+
+function replaceHostname(imageUrl: string, hostname: string): string {
+  const next = new URL(imageUrl);
+  next.hostname = hostname;
+  return next.toString();
+}
+
+function candidateImageUrls(imageUrl: string): string[] {
+  const originalHost = new URL(imageUrl).hostname.toLowerCase();
+  const candidates = listStoreHosts().filter(host => host !== originalHost);
+  return candidates.map(host => replaceHostname(imageUrl, host));
+}
+
+async function fetchCandidate(
+  imageUrl: string,
+  headers: Record<string, string>,
+  controller: AbortController,
+): Promise<FetchedImage> {
+  const { response, meta } = await proxyFetch(imageUrl, {
+    headers,
+    cloudflareProtected: true,
+    signal: controller.signal,
+  });
+  return { response, meta, finalUrl: imageUrl };
+}
+
+async function probeAlternateImage(
+  imageUrl: string,
+  headers: Record<string, string>,
+): Promise<FetchedImage | null> {
+  const urls = candidateImageUrls(imageUrl);
+  if (urls.length === 0) return null;
+
+  const controllers = urls.map(() => new AbortController());
+  const failures: string[] = [];
+
+  return await new Promise<FetchedImage | null>((resolve) => {
+    let pending = urls.length;
+    let settled = false;
+
+    urls.forEach((candidateUrl, index) => {
+      const controller = controllers[index];
+      fetchCandidate(candidateUrl, headers, controller)
+        .then((result) => {
+          if (settled) {
+            void result.response.body?.cancel().catch(() => {});
+            return;
+          }
+          settled = true;
+          learnStoreHost(new URL(candidateUrl).hostname);
+          console.log(`[imageProxy] failover hit original=${imageUrl} winner=${candidateUrl}`);
+          controllers.forEach((other, otherIndex) => {
+            if (otherIndex !== index) other.abort();
+          });
+          resolve(result);
+        })
+        .catch((err: unknown) => {
+          if (controller.signal.aborted) {
+            pending--;
+          } else {
+            const detail = err instanceof Error ? err.message : String(err);
+            failures.push(`${candidateUrl} -> ${detail}`);
+            pending--;
+          }
+
+          if (pending === 0 && !settled) {
+            console.log(`[imageProxy] failover miss original=${imageUrl} tried=${urls.length} failures=${failures.join(' | ')}`);
+            resolve(null);
+          }
+        });
+    });
+  });
+}
+
+async function fetchImageWithFailover(imageUrl: string, headers: Record<string, string>): Promise<FetchedImage> {
+  learnStoreHostFromUrl(imageUrl);
+
+  try {
+    const { response, meta } = await proxyFetch(imageUrl, { headers, cloudflareProtected: true });
+    return { response, meta, finalUrl: imageUrl };
+  } catch (err) {
+    if (!isServerError(err)) {
+      throw err;
+    }
+
+    const alternate = await probeAlternateImage(imageUrl, headers);
+    if (alternate) return alternate;
+    throw err;
+  }
+}
+
 export async function streamImage(imageUrl: string, res: Response, callerUA: string, referer?: string): Promise<void> {
   const headers: Record<string, string> = { 'User-Agent': callerUA };
   if (referer) headers['Referer'] = referer;
@@ -69,7 +171,8 @@ export async function streamImage(imageUrl: string, res: Response, callerUA: str
   try {
     const requestStart = Date.now();
 
-    const { response: r, meta } = await proxyFetch(imageUrl, { headers, cloudflareProtected: true });
+    const { response: r, meta, finalUrl } = await fetchImageWithFailover(imageUrl, headers);
+    learnStoreHostFromUrl(finalUrl);
 
     const contentType = r.headers.get('content-type') || 'image/jpeg';
     res.set('Content-Type', contentType);
