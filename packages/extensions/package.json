@@ -8,7 +8,7 @@
     "build:comix": "cd providers/comix && npx vite build"
   },
   "devDependencies": {
-    "vite": "^7.3.1",
-    "typescript": "^5.9.3"
+    "vite": "8.0.8",
+    "typescript": "6.0.3"
   }
 }

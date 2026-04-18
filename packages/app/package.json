@@ -7,14 +7,14 @@
         "build": "vite build"
     },
     "dependencies": {
-        "@sveltejs/adapter-static": "^3.0.10",
-        "@sveltejs/kit": "^2.50.2",
-        "@sveltejs/vite-plugin-svelte": "^6.2.4",
-        "svelte": "^5.50.0",
-        "typescript": "^5.9.3",
-        "vite": "^7.3.1"
+        "@sveltejs/adapter-static": "3.0.10",
+        "@sveltejs/kit": "2.57.1",
+        "@sveltejs/vite-plugin-svelte": "7.0.0",
+        "svelte": "5.55.4",
+        "typescript": "6.0.3",
+        "vite": "8.0.8"
     },
     "devDependencies": {
-        "@types/node": "^25.2.2"
+        "@types/node": "25.6.0"
     }
 }

@@ -13,12 +13,12 @@
     "status": "systemctl --user status manga-reader"
   },
   "dependencies": {
-    "express": "^4.21.0",
-    "playwright": "^1.58.2"
+    "express": "5.2.1",
+    "playwright": "1.59.1"
   },
   "devDependencies": {
-    "@types/express": "^5.0.0",
-    "tsx": "^4.19.0",
-    "typescript": "^5.7.0"
+    "@types/express": "5.0.6",
+    "tsx": "4.21.0",
+    "typescript": "6.0.3"
   }
 }

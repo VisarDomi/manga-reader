@@ -8,6 +8,12 @@
     "packages/server",
     "packages/app"
   ],
+  "overrides": {
+    "cookie": "0.7.2",
+    "@sveltejs/kit": {
+      "cookie": "0.7.2"
+    }
+  },
   "scripts": {
     "build": "npm run build:backend && npm run build:frontend",
     "build:frontend": "npm run build -w @manga-reader/app",
@@ -24,6 +30,6 @@
     "status:all": "systemctl --user status manga-reader.service --no-pager"
   },
   "devDependencies": {
-    "vitest": "^4.1.0"
+    "vitest": "4.1.4"
   }
 }
