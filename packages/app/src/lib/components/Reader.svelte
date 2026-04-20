@@ -22,6 +22,7 @@
 
     const memory = new ReaderMemoryManager(appState.log.emit);
     const { pageTracker } = appState.reader;
+    const mangaTitle = $derived(appState.manga.activeManga?.title ?? 'Unknown Manga');
 
     let failureTimestamps: number[] = [];
     let slowToastShown = false;
@@ -178,7 +179,7 @@
                 data-chapter-id={chapter.id}
                 use:observeChapterBoundary={{ getRoot: getReaderRoot, onChapterChange: handleChapterChange }}
             >
-                Chapter {chapter.number} ({chapter.groupName})
+                Chapter {chapter.number} - {chapter.groupName} - {mangaTitle}
             </div>
             {#each chapter.pages as page, i}
                 {@const aspectRatio = page.width && page.height ? `${page.width}/${page.height}` : '2/3'}
