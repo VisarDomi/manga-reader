@@ -100,6 +100,20 @@ class AppState {
         this.favorites = new FavoritesState(this.toast, this.log);
     }
 
+    get documentTitle(): string {
+        if (this.ui.viewMode !== View.READER) {
+            return 'Manga Reader';
+        }
+
+        const mangaTitle = this.manga.activeManga?.title;
+        const readerTitle = this.reader.titleContext;
+        if (!mangaTitle || !readerTitle) {
+            return 'Manga Reader';
+        }
+
+        return `Chapter ${readerTitle.chapterNumber} - ${readerTitle.groupName} - ${mangaTitle}`;
+    }
+
     private recoverScrollContainers() {
         const ids = ['view-list', 'view-manga', 'view-reader'];
         for (const id of ids) {

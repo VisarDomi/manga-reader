@@ -11,6 +11,11 @@ import type { ProgressState } from './progress.svelte.js';
 import type { ToastState } from './toast.svelte.js';
 import { type LoadError, toLoadError } from './errors.js';
 
+export interface ReaderTitleContext {
+    chapterNumber: number;
+    groupName: string;
+}
+
 export class ReaderState {
     loadedChapters = $state<LoadedChapter[]>([]);
     currentChapterId = $state<string | null>(null);
@@ -165,6 +170,27 @@ export class ReaderState {
 
     clearHistorySync(): void {
         this.pageTracker.clearSync();
+    }
+
+    get titleContext(): ReaderTitleContext | null {
+        const chapterId = this.currentChapterId;
+        if (!chapterId) return null;
+
+        const loaded = this.loadedChapters.find(ch => ch.id === chapterId);
+        if (loaded) {
+            return {
+                chapterNumber: loaded.number,
+                groupName: loaded.groupName,
+            };
+        }
+
+        const meta = this.chapterList.find(ch => ch.id === chapterId);
+        if (!meta) return null;
+
+        return {
+            chapterNumber: meta.number,
+            groupName: meta.groupName,
+        };
     }
 
     closeReader() {

@@ -2,7 +2,7 @@ import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { Response } from 'express';
 import { CACHE_MAX_AGE } from '../config.js';
-import { UpstreamError, proxyFetch } from '../utils/proxyFetch.js';
+import { CloudflareError, UpstreamError, proxyFetch } from '../utils/proxyFetch.js';
 import type { ProxyFetchMeta } from '../utils/proxyFetch.js';
 import { learnStoreHost, learnStoreHostFromUrl, listStoreHosts } from '../utils/storeHosts.js';
 
@@ -12,6 +12,19 @@ export function isAllowedImageDomain(_hostname: string): boolean {
 let inFlight = 0;
 
 const FLUSH_DELAY_MS = 1000;
+const FAILOVER_TRANSPORT_CODES = new Set([
+  'ENOTFOUND',
+  'EAI_AGAIN',
+  'ECONNRESET',
+  'ECONNREFUSED',
+  'ECONNABORTED',
+  'EHOSTUNREACH',
+  'ENETUNREACH',
+  'UND_ERR_CONNECT_TIMEOUT',
+  'UND_ERR_HEADERS_TIMEOUT',
+  'UND_ERR_BODY_TIMEOUT',
+  'UND_ERR_SOCKET',
+]);
 
 interface ImageBatch {
   count: number;
@@ -69,8 +82,64 @@ interface FetchedImage {
   finalUrl: string;
 }
 
-function isServerError(err: unknown): err is UpstreamError {
-  return err instanceof UpstreamError && err.status >= 500 && err.status <= 599;
+type ImageFetchFailureKind =
+  | 'abort'
+  | 'cloudflare'
+  | 'http-4xx'
+  | 'http-5xx'
+  | 'timeout'
+  | 'transport'
+  | 'unknown';
+
+interface ImageFetchFailure {
+  kind: ImageFetchFailureKind;
+  detail: string;
+  allowFailover: boolean;
+}
+
+function classifyImageFetchFailure(err: unknown): ImageFetchFailure {
+  if (err instanceof UpstreamError) {
+    if (err.status >= 500 && err.status <= 599) {
+      return {
+        kind: 'http-5xx',
+        detail: `${err.status} ${err.statusText}`,
+        allowFailover: true,
+      };
+    }
+
+    return {
+      kind: 'http-4xx',
+      detail: `${err.status} ${err.statusText}`,
+      allowFailover: false,
+    };
+  }
+
+  if (err instanceof CloudflareError) {
+    return {
+      kind: 'cloudflare',
+      detail: `cloudflare ${err.meta.status}`,
+      allowFailover: true,
+    };
+  }
+
+  if (err instanceof DOMException) {
+    if (err.name === 'AbortError') {
+      return { kind: 'abort', detail: err.name, allowFailover: false };
+    }
+    if (err.name === 'TimeoutError') {
+      return { kind: 'timeout', detail: err.name, allowFailover: true };
+    }
+  }
+
+  if (err instanceof Error) {
+    const code = ((err as Error & { cause?: { code?: string } }).cause?.code ?? '').toUpperCase();
+    if (FAILOVER_TRANSPORT_CODES.has(code)) {
+      return { kind: 'transport', detail: code, allowFailover: true };
+    }
+    return { kind: 'unknown', detail: err.message, allowFailover: false };
+  }
+
+  return { kind: 'unknown', detail: String(err), allowFailover: false };
 }
 
 function replaceHostname(imageUrl: string, hostname: string): string {
@@ -153,12 +222,14 @@ async function fetchImageWithFailover(imageUrl: string, headers: Record<string, 
     const { response, meta } = await proxyFetch(imageUrl, { headers, cloudflareProtected: true });
     return { response, meta, finalUrl: imageUrl };
   } catch (err) {
-    if (!isServerError(err)) {
+    const failure = classifyImageFetchFailure(err);
+    if (!failure.allowFailover) {
       throw err;
     }
 
     const alternate = await probeAlternateImage(imageUrl, headers);
     if (alternate) return alternate;
+    console.log(`[imageProxy] failover exhausted original=${imageUrl} reason=${failure.kind} detail=${failure.detail}`);
     throw err;
   }
 }

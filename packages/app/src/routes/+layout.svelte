@@ -1,6 +1,7 @@
 <script lang="ts">
     import '$lib/styles.css';
     import { onMount } from 'svelte';
+    import { appState } from '$lib/state/index.svelte.js';
 
     let { children } = $props();
 
@@ -12,7 +13,7 @@
 </script>
 
 <svelte:head>
-    <title>Manga Reader</title>
+    <title>{appState.documentTitle}</title>
 </svelte:head>
 
 <div class="safe-area">
