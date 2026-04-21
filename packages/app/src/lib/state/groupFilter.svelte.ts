@@ -4,7 +4,6 @@ const STORAGE_KEY = 'globalGroupFilter';
 
 export class GroupFilterState {
     groups = $state<{ groupId: string; groupName: string }[]>([]);
-    showFiltered = $state(false);
 
     constructor() {
         this.groups = storage.getJson<{ groupId: string; groupName: string }[]>(STORAGE_KEY, []);

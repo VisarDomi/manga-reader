@@ -7,12 +7,8 @@
 
     const mangaId = $derived(appState.manga.activeManga?.id ?? '');
     const gf = appState.groupFilter;
+    const manga = appState.manga;
     const selectedGroups = $derived(appState.manga.selectedGroups);
-
-    $effect(() => {
-        mangaId;
-        gf.showFiltered = false;
-    });
 
     $effect(() => {
         const target = appState.manga.scrollTarget;
@@ -30,7 +26,7 @@
     );
 
     const effectiveCount = $derived.by(() => {
-        if (gf.showFiltered || gf.count === 0) return chapters.length;
+        if (manga.isShowingBlockedChapters || gf.count === 0) return chapters.length;
         return chapters.filter(ch => !gf.isFiltered(ch.groupId ?? '')).length;
     });
 
@@ -174,9 +170,9 @@
     {#if hasFilteredChapters}
         <button
             class="show-filtered-btn"
-            class:active={gf.showFiltered}
-            onclick={() => gf.showFiltered = !gf.showFiltered}
-        >{gf.showFiltered ? 'Hide filtered' : 'Show filtered'}</button>
+            class:active={manga.isShowingBlockedChapters}
+            onclick={() => manga.toggleBlockedChapters()}
+        >{manga.isShowingBlockedChapters ? 'Hide filtered' : 'Show filtered'}</button>
     {/if}
     {#if pendingGroup}
         <div class="inline-confirm">
@@ -204,7 +200,7 @@
             <button
                 class="chapter-item"
                 class:chapter-current={isCurrent}
-                class:chapter-filtered={gf.showFiltered && isChapterFiltered(chapter)}
+                class:chapter-filtered={manga.isShowingBlockedChapters && isChapterFiltered(chapter)}
                 style={isCurrent && progressPercent > 0 ? `background: linear-gradient(to right, rgba(45, 212, 191, 0.55) ${progressPercent}%, #1a1a1a ${progressPercent}%)` : ''}
                 data-chapter-id={chapter.id}
                 use:scrollIfCurrent={isCurrent}

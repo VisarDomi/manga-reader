@@ -14,6 +14,7 @@ export class MangaState {
     isLoading = $state(false);
     error = $state<LoadError | null>(null);
     selectedGroups = $state<Set<string>>(new Set());
+    private includeBlockedChapters = $state(false);
 
     private scrollAnchorRatio = 0;
     scrollTarget = $state<{ chapterId: string; ratio: number } | null>(null);
@@ -33,7 +34,7 @@ export class MangaState {
     }
 
     get filteredChapters(): ChapterMeta[] {
-        let chs = this.gf.showFiltered || this.gf.count === 0
+        let chs = this.includeBlockedChapters || this.gf.count === 0
             ? this.chapters
             : this.chapters.filter(ch => !this.gf.isFiltered(ch.groupId ?? ''));
 
@@ -48,6 +49,26 @@ export class MangaState {
                 best.set(ch.number, ch);
         }
         return [...best.values()].sort((a, b) => b.number - a.number);
+    }
+
+    get isShowingBlockedChapters(): boolean {
+        return this.includeBlockedChapters;
+    }
+
+    showBlockedChapters() {
+        this.includeBlockedChapters = true;
+    }
+
+    hideBlockedChapters() {
+        this.includeBlockedChapters = false;
+    }
+
+    toggleBlockedChapters() {
+        this.includeBlockedChapters = !this.includeBlockedChapters;
+    }
+
+    private resetBlockedChapterVisibility() {
+        this.includeBlockedChapters = false;
     }
 
     private loadGroupSelection() {
@@ -116,6 +137,7 @@ export class MangaState {
 
     async openManga(manga: Manga) {
         this.onOpen?.();
+        this.resetBlockedChapterVisibility();
         this.activeManga = manga;
         this.chapters = [];
         this.selectedGroups = new Set();
@@ -134,6 +156,7 @@ export class MangaState {
     }
 
     async restoreManga(manga: Manga): Promise<boolean> {
+        this.resetBlockedChapterVisibility();
         this.activeManga = manga;
         this.chapters = [];
         this.selectedGroups = new Set();
@@ -153,6 +176,7 @@ export class MangaState {
     }
 
     closeManga() {
+        this.resetBlockedChapterVisibility();
         this.activeManga = null;
         this.chapters = [];
         this.error = null;

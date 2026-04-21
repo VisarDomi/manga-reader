@@ -9,6 +9,7 @@
     const isLoading = $derived(appState.manga.isLoading);
     const error = $derived(appState.manga.error);
     const isFav = $derived(manga ? appState.favorites.isFavorited(manga.id) : false);
+    const mangaState = appState.manga;
     const gf = appState.groupFilter;
 
     const allFiltered = $derived(
@@ -55,10 +56,10 @@
             <div class="empty error">{loadErrorMessage(error)}</div>
         {:else if chapters.length === 0}
             <div class="empty">No chapters found</div>
-        {:else if allFiltered && !gf.showFiltered}
+        {:else if allFiltered && !mangaState.isShowingBlockedChapters}
             <div class="empty">
                 <p>All chapters hidden by group filter</p>
-                <button class="show-filtered-action" onclick={() => gf.showFiltered = true}>Show filtered chapters</button>
+                <button class="show-filtered-action" onclick={() => mangaState.showBlockedChapters()}>Show filtered chapters</button>
             </div>
         {:else}
             <ChapterList {chapters} />
