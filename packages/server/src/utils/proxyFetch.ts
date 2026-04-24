@@ -27,6 +27,23 @@ export class UpstreamError extends Error {
   }
 }
 
+export class UpstreamBodyError extends Error {
+  status: number;
+  upstreamStatus: number;
+  upstreamMessage: string;
+  meta: ProxyFetchMeta | null;
+
+  constructor(upstreamStatus: number, upstreamMessage: string, meta?: ProxyFetchMeta) {
+    const status = upstreamStatus >= 400 && upstreamStatus <= 599 ? upstreamStatus : 502;
+    super(`Upstream body status ${upstreamStatus}: ${upstreamMessage || 'unknown error'}`);
+    this.name = 'UpstreamBodyError';
+    this.status = status;
+    this.upstreamStatus = upstreamStatus;
+    this.upstreamMessage = upstreamMessage;
+    this.meta = meta ?? null;
+  }
+}
+
 export class CloudflareError extends Error {
   meta: ProxyFetchMeta;
 
@@ -154,6 +171,35 @@ export interface ConsumedResult<T> {
   meta: ProxyFetchMeta;
 }
 
+function apiEnvelope(data: unknown): { status: number; message: string } | null {
+  if (!data || typeof data !== 'object') return null;
+  const record = data as Record<string, unknown>;
+  const rawStatus = record.status;
+  const status = typeof rawStatus === 'number'
+    ? rawStatus
+    : typeof rawStatus === 'string'
+      ? Number(rawStatus)
+      : NaN;
+
+  if (!Number.isFinite(status) || status < 400) return null;
+
+  const message = typeof record.message === 'string'
+    ? record.message
+    : Array.isArray(record.messages)
+      ? record.messages.map(String).join('; ')
+      : '';
+
+  return { status, message };
+}
+
+export function assertJsonEnvelopeOk<T>(data: T, meta?: ProxyFetchMeta): T {
+  const envelope = apiEnvelope(data);
+  if (envelope) {
+    throw new UpstreamBodyError(envelope.status, envelope.message, meta);
+  }
+  return data;
+}
+
 export async function proxyFetchJson<T = unknown>(
   url: string,
   init?: ProxyFetchOptions,
@@ -162,8 +208,9 @@ export async function proxyFetchJson<T = unknown>(
   const { response, meta } = await proxyFetch(url, init, timeout);
   try {
     const data = await response.json() as T;
-    return { data, meta };
+    return { data: assertJsonEnvelopeOk(data, meta), meta };
   } catch (e) {
+    if (e instanceof UpstreamBodyError) throw e;
     throw new ParseError(meta, e);
   }
 }

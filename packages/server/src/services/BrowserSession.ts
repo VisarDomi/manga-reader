@@ -1,6 +1,7 @@
 import { chromium, type BrowserContext, type Page } from 'playwright';
 import path from 'node:path';
 import os from 'node:os';
+import { assertJsonEnvelopeOk, UpstreamBodyError } from '../utils/proxyFetch.js';
 
 const CLOAKBROWSER_PATH = path.join(os.homedir(), '.cloakbrowser/chromium-145.0.7632.159.7/chrome');
 const PROFILE_BASE = path.join(os.homedir(), '.cloakbrowser-profiles');
@@ -29,16 +30,26 @@ export interface BrowserFetchResult {
 
 const enum Priority { USER = 0, PREWARM = 1 }
 
+function isSignedApiRejected(err: unknown): boolean {
+    return err instanceof UpstreamBodyError;
+}
+
 interface WorkItem {
     mangaId: string;
     priority: Priority;
+    forceRefresh: boolean;
     resolve: (sig: string) => void;
     reject: (err: Error) => void;
 }
 
+interface SignatureLease {
+    value: string;
+    capturedAt: number;
+}
+
 class NavigationScheduler {
     private readonly queue: WorkItem[] = [];
-    private readonly sigCache = new Map<string, string>();
+    private readonly sigCache = new Map<string, SignatureLease>();
     private readonly inflight = new Set<string>();
     private activeWorkers = 0;
     private context: BrowserContext | null = null;
@@ -49,17 +60,27 @@ class NavigationScheduler {
         this.context = ctx;
     }
 
-    getCachedSig(mangaId: string): string | undefined {
+    getCachedSig(mangaId: string): SignatureLease | undefined {
         return this.sigCache.get(mangaId);
     }
 
-    acquire(mangaId: string, priority: Priority): Promise<string> {
-        const cached = this.sigCache.get(mangaId);
-        if (cached) return Promise.resolve(cached);
+    invalidate(mangaId: string, reason: string): void {
+        const deleted = this.sigCache.delete(mangaId);
+        console.log(`[navScheduler] invalidate ${mangaId} reason=${reason} deleted=${deleted} cache=${this.sigCache.size}`);
+    }
+
+    acquire(mangaId: string, priority: Priority, forceRefresh = false): Promise<string> {
+        if (forceRefresh) {
+            this.invalidate(mangaId, 'force-refresh');
+        } else {
+            const cached = this.sigCache.get(mangaId);
+            if (cached) return Promise.resolve(cached.value);
+        }
 
         const existing = this.queue.find(w => w.mangaId === mangaId);
         if (existing) {
             if (priority < existing.priority) existing.priority = priority;
+            existing.forceRefresh = existing.forceRefresh || forceRefresh;
             return new Promise((resolve, reject) => {
                 const orig = { resolve: existing.resolve, reject: existing.reject };
                 existing.resolve = (sig) => { orig.resolve(sig); resolve(sig); };
@@ -69,12 +90,12 @@ class NavigationScheduler {
 
         if (this.inflight.has(mangaId)) {
             return new Promise((resolve, reject) => {
-                this.queue.push({ mangaId, priority, resolve, reject });
+                this.queue.push({ mangaId, priority, forceRefresh, resolve, reject });
             });
         }
 
         return new Promise((resolve, reject) => {
-            this.queue.push({ mangaId, priority, resolve, reject });
+            this.queue.push({ mangaId, priority, forceRefresh, resolve, reject });
             this.drain();
         });
     }
@@ -92,6 +113,7 @@ class NavigationScheduler {
             this.queue.push({
                 mangaId: id,
                 priority: Priority.PREWARM,
+                forceRefresh: false,
                 resolve: () => {},
                 reject: () => {},
             });
@@ -106,9 +128,9 @@ class NavigationScheduler {
             this.queue.sort((a, b) => a.priority - b.priority);
             const item = this.queue.shift()!;
 
-            const cached = this.sigCache.get(item.mangaId);
+            const cached = item.forceRefresh ? undefined : this.sigCache.get(item.mangaId);
             if (cached) {
-                item.resolve(cached);
+                item.resolve(cached.value);
                 continue;
             }
 
@@ -128,8 +150,12 @@ class NavigationScheduler {
 
             try {
                 const sig = await this.captureSignature(page, mangaId);
-                this.sigCache.set(mangaId, sig);
-                console.log(`[navScheduler] ${label} ${mangaId} sig=${sig.slice(0, 16)}… ${Date.now() - t0}ms cache=${this.sigCache.size}`);
+                const now = Date.now();
+                this.sigCache.set(mangaId, {
+                    value: sig,
+                    capturedAt: now,
+                });
+                console.log(`[navScheduler] ${label} ${mangaId} sig=${sig.slice(0, 16)}… ${Date.now() - t0}ms cache=${this.cacheSize}`);
                 item.resolve(sig);
 
                 for (let i = this.queue.length - 1; i >= 0; i--) {
@@ -233,6 +259,7 @@ export class BrowserSession {
     }
 
     async init(): Promise<void> {
+        if (this._ready) return;
         if (this.initPromise) return this.initPromise;
         this.initPromise = this.doInit();
         return this.initPromise;
@@ -242,31 +269,40 @@ export class BrowserSession {
         const start = Date.now();
         console.log(`[browserSession] init ${this.domain}`);
 
-        this.context = await chromium.launchPersistentContext(this.profileDir, {
-            executablePath: CLOAKBROWSER_PATH,
-            args: STEALTH_ARGS,
-            ignoreDefaultArgs: IGNORE_DEFAULT_ARGS,
-            headless: false,
-            viewport: { width: 1920, height: 1080 },
-        });
+        try {
+            this.context = await chromium.launchPersistentContext(this.profileDir, {
+                executablePath: CLOAKBROWSER_PATH,
+                args: STEALTH_ARGS,
+                ignoreDefaultArgs: IGNORE_DEFAULT_ARGS,
+                headless: false,
+                viewport: { width: 1920, height: 1080 },
+            });
 
-        this.scheduler.setContext(this.context);
+            this.scheduler.setContext(this.context);
 
-        this.fetchPage = this.context.pages()[0] || await this.context.newPage();
-        await this.fetchPage.goto(this.startUrl, { waitUntil: 'networkidle', timeout: 30_000 });
+            this.fetchPage = this.context.pages()[0] || await this.context.newPage();
+            await this.fetchPage.goto(this.startUrl, { waitUntil: 'networkidle', timeout: 30_000 });
 
-        const cdp = await this.context.newCDPSession(this.fetchPage);
-        await cdp.send('Emulation.setScriptExecutionDisabled', { value: true });
-        await this.fetchPage.goto(`${this.startUrl}/api/v2`, { waitUntil: 'domcontentloaded', timeout: 15_000 });
+            const cdp = await this.context.newCDPSession(this.fetchPage);
+            await cdp.send('Emulation.setScriptExecutionDisabled', { value: true });
+            await this.fetchPage.goto(`${this.startUrl}/api/v2`, { waitUntil: 'domcontentloaded', timeout: 15_000 });
 
-        console.log(`[browserSession] ready ${this.domain} ${Date.now() - start}ms`);
-        this._ready = true;
+            console.log(`[browserSession] ready ${this.domain} ${Date.now() - start}ms`);
+            this._ready = true;
+        } catch (e) {
+            this._ready = false;
+            this.initPromise = null;
+            if (this.context) {
+                await this.context.close().catch(() => {});
+                this.context = null;
+                this.fetchPage = null;
+            }
+            throw e;
+        }
     }
 
     async signedFetch(fullUrl: string): Promise<BrowserFetchResult> {
-        if (!this._ready || !this.context) {
-            throw new Error('BrowserSession not ready');
-        }
+        await this.init();
 
         const match = fullUrl.match(SIGNED_PATTERN);
         if (!match) {
@@ -297,11 +333,26 @@ export class BrowserSession {
     }
 
     private async fetchAllChapters(mangaId: string): Promise<unknown> {
+        try {
+            return await this.fetchAllChaptersWithSig(mangaId, false);
+        } catch (e) {
+            if (!isSignedApiRejected(e)) {
+                throw e;
+            }
+
+            const msg = (e as Error)?.message ?? String(e);
+            this.scheduler.invalidate(mangaId, 'signed-api-rejected');
+            console.log(`[browserSession] chapters ${mangaId} signed-api-rejected retrying: ${msg}`);
+            return this.fetchAllChaptersWithSig(mangaId, true);
+        }
+    }
+
+    private async fetchAllChaptersWithSig(mangaId: string, forceRefresh: boolean): Promise<unknown> {
         const t0 = Date.now();
-        const cachedBefore = !!this.scheduler.getCachedSig(mangaId);
-        const sig = await this.scheduler.acquire(mangaId, Priority.USER);
+        const cachedBefore = !forceRefresh && !!this.scheduler.getCachedSig(mangaId);
+        const sig = await this.scheduler.acquire(mangaId, Priority.USER, forceRefresh);
         const sigMs = Date.now() - t0;
-        const sigSource = cachedBefore ? 'cache' : (sigMs < 5 ? 'cache' : 'nav');
+        const sigSource = forceRefresh ? 'refresh' : (cachedBefore ? 'cache' : (sigMs < 5 ? 'cache' : 'nav'));
 
         const t1 = Date.now();
         const page1 = await this.fetchChapterPage(mangaId, sig, 1);
@@ -325,6 +376,7 @@ export class BrowserSession {
 
         const allItems = [...page1Items];
         let failed = 0;
+        let signedApiRejected: unknown = null;
         for (let i = 0; i < results.length; i++) {
             const r = results[i];
             const p = pageNums[i];
@@ -337,11 +389,19 @@ export class BrowserSession {
                     console.log(`[browserSession] chapters ${mangaId} page=${p}/${lastPage} items=0`);
                 }
             } else {
+                if (isSignedApiRejected(r.reason)) {
+                    signedApiRejected = r.reason;
+                }
                 failed++;
                 console.log(`[browserSession] chapters ${mangaId} page=${p}/${lastPage} error: ${r.reason?.message}`);
             }
         }
         const pNMs = Date.now() - t2;
+
+        if (signedApiRejected) {
+            console.log(`[browserSession] chapters ${mangaId} signed-api-rejected during page fanout fetched=${allItems.length} failed=${failed}`);
+            throw signedApiRejected;
+        }
 
         console.log(`[browserSession] chapters ${mangaId} done sig=${sigSource}:${sigMs}ms p1=${p1Ms}ms p2-${lastPage}=${pNMs}ms fetched=${allItems.length} failed=${failed}`);
 
@@ -360,15 +420,19 @@ export class BrowserSession {
         };
     }
 
-    private fetchChapterPage(mangaId: string, sig: string, pageNum: number): Promise<any> {
-        return this.fetchPage!.evaluate(
+    private async fetchChapterPage(mangaId: string, sig: string, pageNum: number): Promise<any> {
+        const data = await this.fetchPage!.evaluate(
             async ({ mangaId, sig, pageNum }) => {
                 const url = `/api/v2/manga/${mangaId}/chapters?limit=100&page=${pageNum}&order%5Bnumber%5D=desc&time=1&_=${sig}`;
                 const res = await fetch(url);
+                if (!res.ok) {
+                    throw new Error(`HTTP ${res.status} ${res.statusText}`);
+                }
                 return res.json();
             },
             { mangaId, sig, pageNum },
         );
+        return assertJsonEnvelopeOk(data);
     }
 
     async destroy(): Promise<void> {
