@@ -11,6 +11,22 @@ import type { ProgressState } from './progress.svelte.js';
 import type { ToastState } from './toast.svelte.js';
 import { type LoadError, toLoadError } from './errors.js';
 
+type ReaderEdge = 'next' | 'prev';
+
+type ChapterLoadRequest = {
+    manga: Manga;
+    chapter: ChapterMeta;
+};
+
+type ChapterLoadResult =
+    | { kind: 'loaded'; chapter: LoadedChapter }
+    | { kind: 'stale' }
+    | { kind: 'failed'; error: unknown };
+
+type RetryWaitResult = 'timer' | 'manual' | 'stale';
+
+const EDGE_LOAD_RETRY_DELAYS_MS = [750, 1500] as const;
+
 export interface ReaderTitleContext {
     chapterNumber: number;
     groupName: string;
@@ -22,9 +38,12 @@ export class ReaderState {
     error = $state<LoadError | null>(null);
     isLoadingNext = $state(false);
     isLoadingPrev = $state(false);
+    nextChapterRetryAvailable = $state(false);
     pendingPageRestore = $state<{ pageIndex: number; scrollOffset: number } | null>(null);
     private activeMangaId = '';
     private chapterList: ChapterMeta[] = [];
+    private loadEpoch = 0;
+    private nextRetryWake: (() => void) | null = null;
     readonly pageTracker = new PageTracker();
 
     private ui: UIState;
@@ -42,11 +61,14 @@ export class ReaderState {
     }
 
     async openReader(manga: Manga, chapter: ChapterMeta) {
+        this.loadEpoch++;
+        this.nextRetryWake = null;
         this.activeMangaId = manga.id;
         this.currentChapterId = chapter.id;
         this.loadedChapters = [];
         this.isLoadingNext = false;
         this.isLoadingPrev = false;
+        this.nextChapterRetryAvailable = false;
         this.chapterList = [...this.manga.filteredChapters].sort((a, b) => a.number - b.number);
 
         const saved = this.progress.get(manga.id);
@@ -91,11 +113,14 @@ export class ReaderState {
         const chapter = filtered.find(c => c.id === saved.chapterId);
         if (!chapter) return false;
 
+        this.loadEpoch++;
+        this.nextRetryWake = null;
         this.activeMangaId = manga.id;
         this.currentChapterId = chapter.id;
         this.loadedChapters = [];
         this.isLoadingNext = false;
         this.isLoadingPrev = false;
+        this.nextChapterRetryAvailable = false;
         this.chapterList = [...filtered].sort((a, b) => a.number - b.number);
 
         if (saved.pageIndex != null) {
@@ -194,6 +219,8 @@ export class ReaderState {
     }
 
     closeReader() {
+        this.loadEpoch++;
+        this.nextRetryWake = null;
         const mangaId = this.activeMangaId;
         const chapterId = this.currentChapterId;
 
@@ -214,6 +241,7 @@ export class ReaderState {
         this.loadedChapters = [];
         this.currentChapterId = null;
         this.error = null;
+        this.nextChapterRetryAvailable = false;
         this.ui.popView();
     }
 
@@ -222,6 +250,92 @@ export class ReaderState {
         if (idx === -1) return null;
         const targetIdx = direction === 'next' ? idx + 1 : idx - 1;
         return this.chapterList[targetIdx] ?? null;
+    }
+
+    private async loadChapter(req: ChapterLoadRequest): Promise<ChapterLoadResult> {
+        try {
+            const pages = await api.fetchChapterImages(req.manga.id, req.chapter.id, req.chapter.number);
+            const proxiedPages = pages.map(p => ({
+                ...p,
+                url: api.imageProxyUrl(p.url, req.manga.id, req.chapter.id, req.chapter.number),
+            }));
+            return {
+                kind: 'loaded',
+                chapter: {
+                    id: req.chapter.id,
+                    number: req.chapter.number,
+                    pages: proxiedPages,
+                    groupName: req.chapter.groupName,
+                },
+            };
+        } catch (error) {
+            return { kind: 'failed', error };
+        }
+    }
+
+    private async loadChapterWithRetries(edge: ReaderEdge, req: ChapterLoadRequest, epoch: number): Promise<ChapterLoadResult> {
+        let manualRetryUsed = false;
+
+        for (let attempt = 0; attempt <= EDGE_LOAD_RETRY_DELAYS_MS.length; attempt++) {
+            const result = await this.loadChapter(req);
+            if (result.kind === 'loaded') return result;
+
+            const canRetry =
+                !manualRetryUsed &&
+                attempt < EDGE_LOAD_RETRY_DELAYS_MS.length &&
+                this.loadEpoch === epoch &&
+                this.activeMangaId === req.manga.id &&
+                !this.loadedChapters.some(c => c.id === req.chapter.id);
+
+            if (!canRetry) return result;
+
+            if (edge === 'next') {
+                this.nextChapterRetryAvailable = true;
+            }
+            this.log.emit('reader-edge-retry', {
+                edge,
+                mangaId: req.manga.id,
+                chapterId: req.chapter.id,
+                attempt: attempt + 1,
+                error: String((result.error as Error)?.message ?? result.error),
+            });
+            const waitResult = await this.waitForRetry(edge, EDGE_LOAD_RETRY_DELAYS_MS[attempt], epoch);
+            if (waitResult === 'stale') return { kind: 'stale' };
+            if (waitResult === 'manual') manualRetryUsed = true;
+        }
+
+        return { kind: 'failed', error: new Error('chapter load retry exhausted') };
+    }
+
+    private async waitForRetry(edge: ReaderEdge, ms: number, epoch: number): Promise<RetryWaitResult> {
+        return await new Promise<RetryWaitResult>(resolve => {
+            let settled = false;
+            let timer: ReturnType<typeof setTimeout> | null = null;
+
+            const finish = (result: RetryWaitResult) => {
+                if (settled) return;
+                settled = true;
+                if (timer) clearTimeout(timer);
+                if (edge === 'next' && this.nextRetryWake === wake) {
+                    this.nextRetryWake = null;
+                }
+                resolve(this.loadEpoch === epoch ? result : 'stale');
+            };
+
+            const wake = () => finish('manual');
+
+            if (edge === 'next') {
+                this.nextRetryWake = wake;
+            }
+
+            timer = setTimeout(() => finish('timer'), ms);
+        });
+    }
+
+    retryNextChapterNow(): void {
+        if (!this.isLoadingNext || !this.nextChapterRetryAvailable) return;
+        this.nextChapterRetryAvailable = false;
+        this.nextRetryWake?.();
     }
 
     async appendNextChapter(): Promise<boolean> {
@@ -255,23 +369,27 @@ export class ReaderState {
             return false;
         }
 
+        const epoch = this.loadEpoch;
         this.isLoadingNext = true;
+        this.nextChapterRetryAvailable = false;
         try {
-            const pages = await api.fetchChapterImages(manga.id, next.id, next.number);
-            const proxiedPages = pages.map(p => ({
-                ...p,
-                url: api.imageProxyUrl(p.url, manga.id, next.id, next.number),
-            }));
-            this.loadedChapters = [...this.loadedChapters, {
-                id: next.id,
-                number: next.number,
-                pages: proxiedPages,
-                groupName: next.groupName,
-            }];
+            const result = await this.loadChapterWithRetries('next', { manga, chapter: next }, epoch);
+            if (result.kind === 'stale') return false;
+            if (result.kind === 'failed') {
+                this.log.emit('reader-append-failed', { mangaId: manga.id, chapterId: next.id, error: String((result.error as Error)?.message ?? result.error) });
+                this.nextChapterRetryAvailable = true;
+                this.toast.show(Msg.LOAD_NEXT_FAILED);
+                return false;
+            }
+            if (this.loadEpoch !== epoch || this.loadedChapters.some(c => c.id === result.chapter.id)) return false;
+
+            this.loadedChapters = [...this.loadedChapters, result.chapter];
+            this.nextChapterRetryAvailable = false;
             this.log.emit('reader-append-ok', { mangaId: manga.id, chapterId: next.id, chapterNumber: next.number });
             return true;
         } catch (e) {
             this.log.emit('reader-append-failed', { mangaId: manga.id, chapterId: next.id, error: String((e as Error)?.message ?? e) });
+            this.nextChapterRetryAvailable = true;
             this.toast.show(Msg.LOAD_NEXT_FAILED);
             return false;
         } finally {
@@ -310,19 +428,19 @@ export class ReaderState {
             return null;
         }
 
+        const epoch = this.loadEpoch;
         this.isLoadingPrev = true;
         try {
-            const pages = await api.fetchChapterImages(manga.id, prev.id, prev.number);
-            const proxiedPages = pages.map(p => ({
-                ...p,
-                url: api.imageProxyUrl(p.url, manga.id, prev.id, prev.number),
-            }));
-            const chapter: LoadedChapter = {
-                id: prev.id,
-                number: prev.number,
-                pages: proxiedPages,
-                groupName: prev.groupName,
-            };
+            const result = await this.loadChapterWithRetries('prev', { manga, chapter: prev }, epoch);
+            if (result.kind === 'stale') return null;
+            if (result.kind === 'failed') {
+                this.log.emit('reader-prepend-failed', { mangaId: manga.id, chapterId: prev.id, error: String((result.error as Error)?.message ?? result.error) });
+                this.toast.show(Msg.LOAD_PREV_FAILED);
+                return null;
+            }
+            if (this.loadEpoch !== epoch || this.loadedChapters.some(c => c.id === result.chapter.id)) return null;
+
+            const chapter = result.chapter;
             this.loadedChapters = [chapter, ...this.loadedChapters];
             this.log.emit('reader-prepend-ok', { mangaId: manga.id, chapterId: prev.id, chapterNumber: prev.number });
             return chapter;

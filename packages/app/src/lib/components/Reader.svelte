@@ -143,6 +143,14 @@
         checker.observe(appendSentinelEl);
     }
 
+    function handleNextRetryClick() {
+        if (appState.reader.isLoadingNext) {
+            appState.reader.retryNextChapterNow();
+            return;
+        }
+        handleAppend();
+    }
+
     async function handlePrepend() {
         const container = getReaderRoot();
         if (!container) return;
@@ -195,7 +203,11 @@
 
         <div class="sentinel" bind:this={appendSentinelEl} use:sentinel={{ getRoot: getReaderRoot, rootMargin: '500% 0px', onIntersect: handleAppend, disabled: !sentinelsReady }}></div>
 
-        {#if appState.reader.isLoadingNext}
+        {#if appState.reader.nextChapterRetryAvailable}
+            <div class="next-retry">
+                <button type="button" onclick={handleNextRetryClick}>Load next chapter</button>
+            </div>
+        {:else if appState.reader.isLoadingNext}
             <div class="empty" style="padding:20px">Loading next chapter...</div>
         {/if}
     </div>
@@ -235,5 +247,22 @@
     display: block;
     -webkit-user-drag: none;
     pointer-events: none;
+}
+
+.next-retry {
+    display: flex;
+    justify-content: center;
+    padding: 24px 16px 32px;
+}
+
+.next-retry button {
+    min-height: 44px;
+    padding: 0 18px;
+    border: 1px solid #444;
+    border-radius: 6px;
+    background: #181818;
+    color: #f3f3f3;
+    font: inherit;
+    font-weight: 700;
 }
 </style>

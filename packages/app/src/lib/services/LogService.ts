@@ -17,6 +17,7 @@ export type LogEvent =
     | { event: 'chapters-done'; mangaId: string; pages: number; failed?: number; total: number }
     | { event: 'chapter-images-result'; mangaId: string; chapterId: string; chapterNumber: number; imageCount: number }
     | { event: 'reader-open'; mangaId: string; chapterId: string; chapterNumber: number; hasRestore: boolean }
+    | { event: 'reader-edge-retry'; edge: 'next' | 'prev'; mangaId: string; chapterId: string; attempt: number; error: string }
     | { event: 'reader-append-ok'; mangaId: string; chapterId: string; chapterNumber: number }
     | { event: 'reader-append-skipped'; reason: 'loading' | 'no-manga' | 'no-loaded' | 'no-next' | 'already-loaded' }
     | { event: 'reader-append-failed'; mangaId: string; chapterId: string; error: string }
