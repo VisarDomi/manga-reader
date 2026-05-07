@@ -3,6 +3,7 @@
     import { appState } from '$lib/state/index.svelte.js';
     import { loadErrorMessage } from '$lib/state/errors.js';
     import { swipeBack } from '$lib/actions/swipeBack.js';
+    import { swipeForward } from '$lib/actions/swipeForward.js';
     import { sentinel } from '$lib/actions/sentinel.js';
     import { ReaderMemoryManager } from '$lib/services/ReaderMemoryManager.js';
     import { observePageImages, disconnectPageObserver, flushPageObserver } from '$lib/actions/observePageImages.js';
@@ -178,6 +179,7 @@
         class="reader-wrapper"
         role="application"
         use:swipeBack={{ onClose, ui: appState.ui }}
+        use:swipeForward={{ onOpen: () => appState.reader.openChapterComments() }}
     >
         <div class="sentinel" use:sentinel={{ getRoot: getReaderRoot, rootMargin: '500% 0px', onIntersect: handlePrepend, disabled: !sentinelsReady }}></div>
 

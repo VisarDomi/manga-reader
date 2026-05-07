@@ -67,6 +67,23 @@ interface CommentTreeStats {
     unavailableRoots: number;
 }
 
+interface FetchedComments {
+    thread: {
+        id: number;
+        commentCount: number;
+        mainCommentCount: number;
+        isClosed: boolean;
+    };
+    comments: NormalizedMangaComment[];
+    cursor: string | null;
+    pages: number;
+    count: number;
+    upstreamCount: number;
+    stats: CommentTreeStats;
+    lookupMs: number;
+    commentsMs: number;
+}
+
 const enum Priority { USER = 0, PREWARM = 1 }
 
 function isSignedApiRejected(err: unknown): boolean {
@@ -586,24 +603,81 @@ export class BrowserSession {
     async fetchMangaComments(mangaId: string): Promise<BrowserFetchResult> {
         await this.init();
         const start = Date.now();
-        let detail = this.getCachedMangaDetail(mangaId);
-        if (!detail) {
-            await this.scheduler.acquire(mangaId, Priority.USER, true);
-            detail = this.getCachedMangaDetail(mangaId);
-        }
-
-        const raw = this.asRecord(this.asRecord(detail)?.result) ?? this.asRecord(detail);
-        const numericId = Number(raw?.id);
-        if (!Number.isFinite(numericId) || numericId <= 0) {
-            throw new Error(`No numeric manga id available for comments ${mangaId}`);
-        }
-
+        const raw = await this.getMangaDetailRecord(mangaId, true);
+        const numericId = this.numericMangaId(raw, `comments ${mangaId}`);
         const pageUrl = typeof raw?.url === 'string' && raw.url.length > 0
             ? raw.url
             : `https://comix.to/title/${mangaId}`;
-        const headers = { Accept: 'application/json', Referer: pageUrl };
+        const fetched = await this.fetchCommentsForPage(`manga${Math.floor(numericId)}`, pageUrl, pageUrl, `manga-comments ${mangaId}`);
+        console.log(`[browserSession] manga-comments ${mangaId} thread=${fetched.thread.id} rootPages=${fetched.stats.rootPages} replyPages=${fetched.stats.replyPages} treeFills=${fetched.stats.treeFills} top=${fetched.comments.length} total=${fetched.stats.total} maxDepth=${fetched.stats.maxDepth} parents=${fetched.stats.parents} missingReplies=${fetched.stats.missingReplies} unavailable=${fetched.stats.unavailable} unavailableRoots=${fetched.stats.unavailableRoots} upstreamCount=${fetched.upstreamCount} threadCount=${fetched.thread.commentCount} mainCount=${fetched.thread.mainCommentCount} lookup=${fetched.lookupMs}ms comments=${fetched.commentsMs}ms totalMs=${Date.now() - start}`);
+
+        return {
+            data: {
+                status: 'ok',
+                result: {
+                    thread: fetched.thread,
+                    comments: fetched.comments,
+                    cursor: fetched.cursor,
+                    pages: fetched.pages,
+                    count: fetched.count,
+                    upstreamCount: fetched.upstreamCount,
+                    stats: fetched.stats,
+                },
+            },
+            durationMs: Date.now() - start,
+        };
+    }
+
+    async fetchChapterComments(mangaId: string, chapterId: string, chapterNumber: number, chapterUrl?: string): Promise<BrowserFetchResult> {
+        await this.init();
+        const start = Date.now();
+        const raw = await this.getMangaDetailRecord(mangaId, false);
+        const numericId = this.numericMangaId(raw, `chapter comments ${mangaId}/${chapterId}`);
+        const pageUrl = typeof chapterUrl === 'string' && chapterUrl.length > 0
+            ? chapterUrl
+            : `https://comix.to/title/${mangaId}/${chapterId}-chapter-${chapterNumber}`;
+        const pageIdentifier = `manga${Math.floor(numericId)}_chap${chapterNumber}_vol0`;
+        const fetched = await this.fetchCommentsForPage(pageIdentifier, pageUrl, pageUrl, `chapter-comments ${mangaId}/${chapterId}`);
+        console.log(`[browserSession] chapter-comments ${mangaId} chapter=${chapterId} number=${chapterNumber} identifier=${pageIdentifier} thread=${fetched.thread.id} rootPages=${fetched.stats.rootPages} replyPages=${fetched.stats.replyPages} treeFills=${fetched.stats.treeFills} top=${fetched.comments.length} total=${fetched.stats.total} maxDepth=${fetched.stats.maxDepth} parents=${fetched.stats.parents} missingReplies=${fetched.stats.missingReplies} unavailable=${fetched.stats.unavailable} unavailableRoots=${fetched.stats.unavailableRoots} upstreamCount=${fetched.upstreamCount} threadCount=${fetched.thread.commentCount} mainCount=${fetched.thread.mainCommentCount} lookup=${fetched.lookupMs}ms comments=${fetched.commentsMs}ms totalMs=${Date.now() - start}`);
+
+        return {
+            data: {
+                status: 'ok',
+                result: {
+                    thread: fetched.thread,
+                    comments: fetched.comments,
+                    cursor: fetched.cursor,
+                    pages: fetched.pages,
+                    count: fetched.count,
+                    upstreamCount: fetched.upstreamCount,
+                    stats: fetched.stats,
+                },
+            },
+            durationMs: Date.now() - start,
+        };
+    }
+
+    private async getMangaDetailRecord(mangaId: string, forceRefresh: boolean): Promise<Record<string, unknown>> {
+        let detail = this.getCachedMangaDetail(mangaId);
+        if (!detail) {
+            await this.scheduler.acquire(mangaId, Priority.USER, forceRefresh);
+            detail = this.getCachedMangaDetail(mangaId);
+        }
+        return this.asRecord(this.asRecord(detail)?.result) ?? this.asRecord(detail) ?? {};
+    }
+
+    private numericMangaId(raw: Record<string, unknown>, label: string): number {
+        const numericId = Number(raw?.id);
+        if (!Number.isFinite(numericId) || numericId <= 0) {
+            throw new Error(`No numeric manga id available for ${label}`);
+        }
+        return numericId;
+    }
+
+    private async fetchCommentsForPage(pageIdentifier: string, pageUrl: string, referer: string, label: string): Promise<FetchedComments> {
+        const headers = { Accept: 'application/json', Referer: referer };
         const lookupParams = new URLSearchParams({
-            page_identifier: `manga${Math.floor(numericId)}`,
+            page_identifier: pageIdentifier,
             page_url: pageUrl,
         });
         const lookupUrl = `https://comix.to/api/v1/threads/lookup?${lookupParams}`;
@@ -617,7 +691,7 @@ export class BrowserSession {
         const thread = this.asRecord(lookupResult?.thread);
         const threadId = Number(thread?.id);
         if (!Number.isFinite(threadId) || threadId <= 0) {
-            throw new Error(`No comments thread available for ${mangaId}`);
+            throw new Error(`No comments thread available for ${label}`);
         }
 
         const commentsBaseUrl = `https://comix.to/api/v1/threads/${Math.floor(threadId)}/comments`;
@@ -649,31 +723,26 @@ export class BrowserSession {
         treeFills += await this.fillMissingCommentTrees(headers, rawItems, new Set());
 
         const commentsMs = Date.now() - commentsStart;
-        const items = this.dedupeComments(rawItems);
+        const comments = this.dedupeComments(rawItems);
         const threadCount = Number(thread?.commentCount ?? 0);
-        const stats = this.commentTreeStats(items, rootPages, replyPages, treeFills, threadCount, mainCount);
-        const upstreamCount = Number.isFinite(count) ? count : items.length;
-        console.log(`[browserSession] manga-comments ${mangaId} thread=${Math.floor(threadId)} rootPages=${rootPages} replyPages=${replyPages} treeFills=${treeFills} top=${items.length} total=${stats.total} maxDepth=${stats.maxDepth} parents=${stats.parents} missingReplies=${stats.missingReplies} unavailable=${stats.unavailable} unavailableRoots=${stats.unavailableRoots} upstreamCount=${upstreamCount} threadCount=${threadCount} mainCount=${mainCount} lookup=${lookupMs}ms comments=${commentsMs}ms totalMs=${Date.now() - start}`);
+        const stats = this.commentTreeStats(comments, rootPages, replyPages, treeFills, threadCount, mainCount);
+        const upstreamCount = Number.isFinite(count) ? count : comments.length;
 
         return {
-            data: {
-                status: 'ok',
-                result: {
-                    thread: {
-                        id: Math.floor(threadId),
-                        commentCount: threadCount,
-                        mainCommentCount: mainCount,
-                        isClosed: Boolean(thread?.isClosed),
-                    },
-                    comments: items,
-                    cursor: lastCursor,
-                    pages: rootPages,
-                    count: stats.total,
-                    upstreamCount,
-                    stats,
-                },
+            thread: {
+                id: Math.floor(threadId),
+                commentCount: threadCount,
+                mainCommentCount: mainCount,
+                isClosed: Boolean(thread?.isClosed),
             },
-            durationMs: Date.now() - start,
+            comments,
+            cursor: lastCursor,
+            pages: rootPages,
+            count: stats.total,
+            upstreamCount,
+            stats,
+            lookupMs,
+            commentsMs,
         };
     }
 

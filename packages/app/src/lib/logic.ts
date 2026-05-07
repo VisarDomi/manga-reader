@@ -4,6 +4,7 @@ export const View = {
   FAVORITES: 'favorites',
   MANGA: 'manga',
   READER: 'reader',
+  CHAPTER_COMMENTS: 'chapter-comments',
 } as const;
 
 export const Filter = {

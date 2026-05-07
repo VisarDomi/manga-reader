@@ -20,6 +20,12 @@ export type LogEvent =
     | { event: 'manga-comments-result'; mangaId: string; rootPages: number; replyPages: number; treeFills: number; top: number; total: number; maxDepth: number; missingReplies: number; unavailable: number; unavailableRoots: number; count: number }
     | { event: 'manga-comments-error'; mangaId: string; error: string }
     | { event: 'manga-comments-done'; mangaId: string; ms: number }
+    | { event: 'chapter-comments-open'; mangaId: string; chapterId: string; chapterNumber: number }
+    | { event: 'chapter-comments-start'; mangaId: string; chapterId: string; chapterNumber: number }
+    | { event: 'chapter-comments-result'; mangaId: string; chapterId: string; chapterNumber: number; rootPages: number; replyPages: number; treeFills: number; top: number; total: number; maxDepth: number; missingReplies: number; unavailable: number; unavailableRoots: number; count: number }
+    | { event: 'chapter-comments-error'; mangaId: string; chapterId: string; chapterNumber: number; error: string }
+    | { event: 'chapter-comments-done'; mangaId: string; chapterId: string; chapterNumber: number; ms: number }
+    | { event: 'chapter-comments-close'; mangaId: string; chapterId: string | null }
     | { event: 'manga-chapters-start'; mangaId: string }
     | { event: 'manga-open-done'; mangaId: string; ms: number }
     | { event: 'chapters-page'; mangaId: string; page: number; items: number; lastPage?: number; total?: number }

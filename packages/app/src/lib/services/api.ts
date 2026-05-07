@@ -147,8 +147,7 @@ export interface MangaCommentsResult {
     stats: MangaCommentStats;
 }
 
-export async function fetchMangaComments(mangaId: string, signal?: AbortSignal): Promise<MangaCommentsResult> {
-    const data = await fetchJson<unknown>(`/api/manga-comments/${encodeURIComponent(mangaId)}`, { signal });
+function parseCommentsResult(data: unknown): MangaCommentsResult {
     const root = data && typeof data === 'object' ? data as Record<string, unknown> : {};
     const result = root.result && typeof root.result === 'object' ? root.result as Record<string, unknown> : root;
     const comments = Array.isArray(result.comments) ? result.comments as MangaComment[] : [];
@@ -165,19 +164,6 @@ export async function fetchMangaComments(mangaId: string, signal?: AbortSignal):
         unavailable: Number(rawStats.unavailable ?? 0),
         unavailableRoots: Number(rawStats.unavailableRoots ?? 0),
     };
-    emit('manga-comments-result', {
-        mangaId,
-        rootPages: Number.isFinite(stats.rootPages) ? stats.rootPages : 1,
-        replyPages: Number.isFinite(stats.replyPages) ? stats.replyPages : 0,
-        treeFills: Number.isFinite(stats.treeFills) ? stats.treeFills : 0,
-        top: comments.length,
-        total: Number.isFinite(stats.total) ? stats.total : comments.length,
-        maxDepth: Number.isFinite(stats.maxDepth) ? stats.maxDepth : 0,
-        missingReplies: Number.isFinite(stats.missingReplies) ? stats.missingReplies : 0,
-        unavailable: Number.isFinite(stats.unavailable) ? stats.unavailable : 0,
-        unavailableRoots: Number.isFinite(stats.unavailableRoots) ? stats.unavailableRoots : 0,
-        count: Number.isFinite(count) ? count : comments.length,
-    });
     return {
         comments,
         count: Number.isFinite(count) ? count : comments.length,
@@ -193,6 +179,48 @@ export async function fetchMangaComments(mangaId: string, signal?: AbortSignal):
             unavailableRoots: Number.isFinite(stats.unavailableRoots) ? stats.unavailableRoots : 0,
         },
     };
+}
+
+export async function fetchMangaComments(mangaId: string, signal?: AbortSignal): Promise<MangaCommentsResult> {
+    const data = await fetchJson<unknown>(`/api/manga-comments/${encodeURIComponent(mangaId)}`, { signal });
+    const parsed = parseCommentsResult(data);
+    emit('manga-comments-result', {
+        mangaId,
+        rootPages: parsed.stats.rootPages,
+        replyPages: parsed.stats.replyPages,
+        treeFills: parsed.stats.treeFills,
+        top: parsed.comments.length,
+        total: parsed.stats.total,
+        maxDepth: parsed.stats.maxDepth,
+        missingReplies: parsed.stats.missingReplies,
+        unavailable: parsed.stats.unavailable,
+        unavailableRoots: parsed.stats.unavailableRoots,
+        count: parsed.count,
+    });
+    return parsed;
+}
+
+export async function fetchChapterComments(mangaId: string, chapter: ChapterMeta, signal?: AbortSignal): Promise<MangaCommentsResult> {
+    const params = new URLSearchParams({ number: String(chapter.number) });
+    if (chapter.url) params.set('url', chapter.url);
+    const data = await fetchJson<unknown>(`/api/chapter-comments/${encodeURIComponent(mangaId)}/${encodeURIComponent(chapter.id)}?${params}`, { signal });
+    const parsed = parseCommentsResult(data);
+    emit('chapter-comments-result', {
+        mangaId,
+        chapterId: chapter.id,
+        chapterNumber: chapter.number,
+        rootPages: parsed.stats.rootPages,
+        replyPages: parsed.stats.replyPages,
+        treeFills: parsed.stats.treeFills,
+        top: parsed.comments.length,
+        total: parsed.stats.total,
+        maxDepth: parsed.stats.maxDepth,
+        missingReplies: parsed.stats.missingReplies,
+        unavailable: parsed.stats.unavailable,
+        unavailableRoots: parsed.stats.unavailableRoots,
+        count: parsed.count,
+    });
+    return parsed;
 }
 
 export async function* fetchChapterList(

@@ -116,6 +116,28 @@ export function createProxyRouter(browserSession: BrowserSession | null): Router
         res.json(result.data);
     }));
 
+    router.get('/chapter-comments/:mangaId/:chapterId', asyncHandler(async (req, res) => {
+        const rawMangaId = req.params.mangaId;
+        const rawChapterId = req.params.chapterId;
+        const mangaId = typeof rawMangaId === 'string' ? rawMangaId : undefined;
+        const chapterId = typeof rawChapterId === 'string' ? rawChapterId : undefined;
+        const chapterNumber = Number(req.query.number);
+        const chapterUrl = typeof req.query.url === 'string' ? req.query.url : undefined;
+        if (!mangaId || !chapterId || !Number.isFinite(chapterNumber)) {
+            res.status(400).json({ error: 'Missing mangaId, chapterId, or number' });
+            return;
+        }
+
+        if (!browserSession?.ready) {
+            res.status(503).json({ error: 'BrowserSession not ready' });
+            return;
+        }
+
+        const result = await browserSession.fetchChapterComments(mangaId, chapterId, chapterNumber, chapterUrl);
+        console.log(`[proxy] chapter-comments ${mangaId}/${chapterId} number=${chapterNumber} api=${jsonApiStatus(result.data)} ${commentsSummary(result.data)} ${result.durationMs}ms`);
+        res.json(result.data);
+    }));
+
     router.post('/proxy', asyncHandler(async (req, res) => {
         const { url, method = 'GET', headers = {}, body, responseType = 'json', cloudflareProtected, signingMangaId, signingPageUrl } = req.body as ProxyBody;
 

@@ -7,6 +7,7 @@
     import FavoritesView from '$lib/views/FavoritesView.svelte';
     import MangaView from '$lib/views/MangaView.svelte';
     import ReaderView from '$lib/views/ReaderView.svelte';
+    import ChapterCommentsView from '$lib/views/ChapterCommentsView.svelte';
     import Toast from '$lib/components/Toast.svelte';
 
     let readerRoot = $state<HTMLElement | null>(null);
@@ -25,6 +26,7 @@
     const backView = $derived(isSwiping ? appState.ui.peekBack() : null);
 
     const inReader = $derived(viewMode === View.READER);
+    const inChapterComments = $derived(viewMode === View.CHAPTER_COMMENTS);
     const inManga = $derived(viewMode === View.MANGA);
     const inFavorites = $derived(viewMode === View.FAVORITES);
 </script>
@@ -67,12 +69,24 @@
     bind:this={readerRoot}
     id="view-reader"
     class="view-layer"
-    class:view-hidden={!inReader}
+    class:view-hidden={!inReader && backView !== View.READER}
+    class:swipe-back={backView === View.READER}
     class:swipe-active={inReader && isSwiping}
-    class:swipe-animating={inReader && swipeAnimating}
+    class:swipe-animating={(inReader || backView === View.READER) && swipeAnimating}
     style="{inReader && isSwiping ? `transform:translateX(${swipeProgress * 100}%)` : ''}"
 >
     <ReaderView />
+</div>
+
+<div
+    id="view-chapter-comments"
+    class="view-layer"
+    class:view-hidden={!inChapterComments}
+    class:swipe-active={inChapterComments && isSwiping}
+    class:swipe-animating={inChapterComments && swipeAnimating}
+    style="{inChapterComments && isSwiping ? `transform:translateX(${swipeProgress * 100}%)` : ''}"
+>
+    <ChapterCommentsView />
 </div>
 
 <Toast />

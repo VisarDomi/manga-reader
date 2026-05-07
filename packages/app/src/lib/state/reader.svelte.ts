@@ -1,4 +1,4 @@
-import type { Manga, ChapterMeta, LoadedChapter } from '../types.js';
+import type { Manga, ChapterMeta, LoadedChapter, MangaComment, MangaCommentStats } from '../types.js';
 import { View } from '../logic.js';
 import { Msg } from '../messages.js';
 import * as api from '../services/api.js';
@@ -33,6 +33,24 @@ export interface ReaderTitleContext {
     groupName: string;
 }
 
+export interface ChapterCommentsContext extends ReaderTitleContext {
+    mangaId: string;
+    chapterId: string;
+    mangaTitle: string;
+}
+
+const EMPTY_COMMENT_STATS: MangaCommentStats = {
+    total: 0,
+    maxDepth: 0,
+    parents: 0,
+    missingReplies: 0,
+    rootPages: 0,
+    replyPages: 0,
+    treeFills: 0,
+    unavailable: 0,
+    unavailableRoots: 0,
+};
+
 export class ReaderState {
     loadedChapters = $state<LoadedChapter[]>([]);
     currentChapterId = $state<string | null>(null);
@@ -41,9 +59,17 @@ export class ReaderState {
     isLoadingPrev = $state(false);
     nextChapterRetryAvailable = $state(false);
     pendingPageRestore = $state<{ pageIndex: number; scrollOffset: number } | null>(null);
+    chapterComments = $state<MangaComment[]>([]);
+    chapterCommentsCount = $state(0);
+    chapterCommentsStats = $state<MangaCommentStats>({ ...EMPTY_COMMENT_STATS });
+    isChapterCommentsLoading = $state(false);
+    chapterCommentsError = $state<string | null>(null);
+    chapterCommentsContext = $state<ChapterCommentsContext | null>(null);
     private activeMangaId = '';
     private chapterList: ChapterMeta[] = [];
     private loadEpoch = 0;
+    private commentsEpoch = 0;
+    private commentsAbort: AbortController | null = null;
     private nextRetryWake: (() => void) | null = null;
     readonly pageTracker = new PageTracker();
 
@@ -221,8 +247,89 @@ export class ReaderState {
         };
     }
 
+    get currentChapterMeta(): ChapterMeta | null {
+        const chapterId = this.currentChapterId;
+        if (!chapterId) return null;
+        return this.chapterList.find(ch => ch.id === chapterId) ?? null;
+    }
+
+    openChapterComments(): void {
+        const manga = this.manga.activeManga;
+        const chapter = this.currentChapterMeta;
+        if (!manga || !chapter) {
+            this.log.emit('chapter-comments-error', {
+                mangaId: this.activeMangaId,
+                chapterId: this.currentChapterId ?? '',
+                chapterNumber: 0,
+                error: 'missing current chapter context',
+            });
+            return;
+        }
+
+        const context: ChapterCommentsContext = {
+            mangaId: manga.id,
+            mangaTitle: manga.title,
+            chapterId: chapter.id,
+            chapterNumber: chapter.number,
+            groupName: chapter.groupName,
+        };
+        this.chapterCommentsContext = context;
+        this.chapterComments = [];
+        this.chapterCommentsCount = 0;
+        this.chapterCommentsStats = { ...EMPTY_COMMENT_STATS };
+        this.chapterCommentsError = null;
+        this.log.emit('chapter-comments-open', { mangaId: manga.id, chapterId: chapter.id, chapterNumber: chapter.number });
+        if (this.ui.viewMode !== View.CHAPTER_COMMENTS) {
+            this.ui.pushView(View.CHAPTER_COMMENTS);
+        }
+        void this.loadChapterComments(manga, chapter);
+    }
+
+    closeChapterComments(): void {
+        this.commentsEpoch++;
+        this.commentsAbort?.abort();
+        this.commentsAbort = null;
+        this.log.emit('chapter-comments-close', {
+            mangaId: this.chapterCommentsContext?.mangaId ?? this.activeMangaId,
+            chapterId: this.chapterCommentsContext?.chapterId ?? null,
+        });
+        this.ui.popView();
+    }
+
+    private async loadChapterComments(manga: Manga, chapter: ChapterMeta): Promise<void> {
+        const epoch = ++this.commentsEpoch;
+        this.commentsAbort?.abort();
+        const controller = new AbortController();
+        this.commentsAbort = controller;
+        this.isChapterCommentsLoading = true;
+        this.chapterCommentsError = null;
+        const start = performance.now();
+        this.log.emit('chapter-comments-start', { mangaId: manga.id, chapterId: chapter.id, chapterNumber: chapter.number });
+
+        try {
+            const result = await api.fetchChapterComments(manga.id, chapter, controller.signal);
+            if (this.commentsEpoch !== epoch || controller.signal.aborted) return;
+            this.chapterComments = result.comments;
+            this.chapterCommentsCount = result.count;
+            this.chapterCommentsStats = result.stats;
+        } catch (e) {
+            if (controller.signal.aborted || this.commentsEpoch !== epoch) return;
+            const message = String((e as Error)?.message ?? e);
+            this.chapterCommentsError = message;
+            this.log.emit('chapter-comments-error', { mangaId: manga.id, chapterId: chapter.id, chapterNumber: chapter.number, error: message });
+        } finally {
+            if (this.commentsEpoch === epoch && !controller.signal.aborted) {
+                this.isChapterCommentsLoading = false;
+                this.log.emit('chapter-comments-done', { mangaId: manga.id, chapterId: chapter.id, chapterNumber: chapter.number, ms: Math.round(performance.now() - start) });
+            }
+        }
+    }
+
     closeReader() {
         this.loadEpoch++;
+        this.commentsEpoch++;
+        this.commentsAbort?.abort();
+        this.commentsAbort = null;
         this.nextRetryWake = null;
         const mangaId = this.activeMangaId;
         const chapterId = this.currentChapterId;
@@ -243,6 +350,12 @@ export class ReaderState {
         this.pageTracker.destroy();
         this.loadedChapters = [];
         this.currentChapterId = null;
+        this.chapterComments = [];
+        this.chapterCommentsCount = 0;
+        this.chapterCommentsStats = { ...EMPTY_COMMENT_STATS };
+        this.isChapterCommentsLoading = false;
+        this.chapterCommentsError = null;
+        this.chapterCommentsContext = null;
         this.error = null;
         this.nextChapterRetryAvailable = false;
         this.ui.popView();

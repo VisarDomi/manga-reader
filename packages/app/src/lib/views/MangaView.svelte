@@ -4,7 +4,7 @@
     import * as api from '$lib/services/api.js';
     import { swipeBack } from '$lib/actions/swipeBack.js';
     import ChapterList from '$lib/components/ChapterList.svelte';
-    import CommentThread from '$lib/components/CommentThread.svelte';
+    import CommentsSection from '$lib/components/CommentsSection.svelte';
     import MangaList from '$lib/components/MangaList.svelte';
 
     const manga = $derived(appState.manga.activeManga);
@@ -119,22 +119,7 @@
             </section>
         {/if}
 
-        <section class="manga-comments">
-            <h2>Comments{commentsCount > 0 ? ` (${commentsCount})` : ''}</h2>
-            {#if isCommentsLoading}
-                <div class="comments-empty">Loading comments...</div>
-            {:else if commentsError}
-                <div class="comments-empty error">Failed to load comments</div>
-            {:else if comments.length === 0}
-                <div class="comments-empty">No comments</div>
-            {:else}
-                <div class="comments-list">
-                    {#each comments as comment (comment.id)}
-                        <CommentThread {comment} />
-                    {/each}
-                </div>
-            {/if}
-        </section>
+        <CommentsSection title="Comments" {comments} count={commentsCount} isLoading={isCommentsLoading} error={commentsError} />
     </div>
 {/if}
 
@@ -268,25 +253,4 @@
     font-size: 16px;
 }
 
-.manga-comments {
-    padding: 18px 16px max(24px, env(safe-area-inset-bottom));
-    border-top: 1px solid #222;
-}
-
-.manga-comments h2 {
-    margin: 0 0 12px;
-    color: #f5f5f5;
-    font-size: 16px;
-}
-
-.comments-empty {
-    padding: 14px 0;
-    color: #888;
-    font-size: 14px;
-}
-
-.comments-list {
-    display: grid;
-    gap: 10px;
-}
 </style>

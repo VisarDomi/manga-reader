@@ -181,7 +181,7 @@ class AppState {
     }
 
     get documentTitle(): string {
-        if (this.ui.viewMode !== View.READER) {
+        if (this.ui.viewMode !== View.READER && this.ui.viewMode !== View.CHAPTER_COMMENTS) {
             return 'Manga Reader';
         }
 
@@ -191,11 +191,12 @@ class AppState {
             return 'Manga Reader';
         }
 
-        return `Chapter ${readerTitle.chapterNumber} - ${readerTitle.groupName} - ${mangaTitle}`;
+        const suffix = this.ui.viewMode === View.CHAPTER_COMMENTS ? ' Comments' : '';
+        return `Chapter ${readerTitle.chapterNumber}${suffix} - ${readerTitle.groupName} - ${mangaTitle}`;
     }
 
     private recoverScrollContainers() {
-        const ids = ['view-list', 'view-manga', 'view-reader'];
+        const ids = ['view-list', 'view-manga', 'view-reader', 'view-chapter-comments'];
         for (const id of ids) {
             const el = document.getElementById(id);
             if (!el) continue;
@@ -306,9 +307,9 @@ class AppState {
             return true;
         }
 
-        if (snapshot.viewMode === View.READER && snapshot.activeManga) {
+        if ((snapshot.viewMode === View.READER || snapshot.viewMode === View.CHAPTER_COMMENTS) && snapshot.activeManga) {
             this.manga.setNavigationStack(snapshot.mangaStack ?? []);
-            this.ui.setViewDirect(View.READER, snapshot.viewStack.length > 0 ? snapshot.viewStack : [View.LIST, View.MANGA]);
+            this.ui.setViewDirect(View.READER, snapshot.viewStack.length > 0 ? snapshot.viewStack.filter(view => view !== View.CHAPTER_COMMENTS) : [View.LIST, View.MANGA]);
 
             const ok = await this.manga.restoreManga(snapshot.activeManga);
             if (!ok) {
@@ -331,8 +332,11 @@ class AppState {
 
             if (targetId) this.restore.start(targetId);
             this.bgReplaySearch(snapshot.searchContext);
+            if (snapshot.viewMode === View.CHAPTER_COMMENTS) {
+                this.reader.openChapterComments();
+            }
             this.persistSession();
-            emit('restore-ok', { view: 'reader', mangaId: snapshot.activeManga.id });
+            emit('restore-ok', { view: snapshot.viewMode, mangaId: snapshot.activeManga.id });
             return true;
         }
 
