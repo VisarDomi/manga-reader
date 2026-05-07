@@ -209,7 +209,17 @@ Direct history state makes stack depth, restore order, and failure behavior
 clear. It also gives logs and session snapshots a concrete thing to verify
 instead of relying on fragile inference.
 
-### 21. Match the Source Product's Interaction Model
+### 21. Normalize Persisted Navigation Before Replaying It
+
+Persisted navigation is historical data, not automatically valid runtime
+state. When restoring into a nested or overlay view, rebuild the stack for the
+target view's ownership model instead of replaying the saved stack literally.
+
+Transient views and duplicate active views should be removed before restore.
+Verify the result with navigation logs so each back action lands on the owner
+it is supposed to reveal.
+
+### 22. Match the Source Product's Interaction Model
 
 When integrating with an upstream product, parity requires matching the
 interaction model, not only the first response. If the source UI supports
@@ -221,7 +231,7 @@ Treat visible upstream controls as evidence of data boundaries. A single
 successful request proves only that one boundary works; it does not prove the
 full user-visible state has been reproduced.
 
-### 22. Log Completeness, Not Only Success
+### 23. Log Completeness, Not Only Success
 
 For paginated, nested, or merged data, success logs must show completeness
 signals. Log page counts, node counts, max depth, merge/fill counts, and any
@@ -232,7 +242,7 @@ Good completeness logs make it possible to answer whether missing UI is caused
 by a failed request, an unvisited pagination path, a parser bug, a dedupe bug,
 or an upstream counter that includes data the API does not expose.
 
-### 23. Normalize Complex Upstream Shapes at the Boundary
+### 24. Normalize Complex Upstream Shapes at the Boundary
 
 When an upstream API exposes data through several shapes or endpoints, normalize
 that complexity at the integration boundary. The owner closest to the upstream
@@ -243,7 +253,7 @@ Downstream UI should receive a stable display contract. It should not need to
 know which upstream endpoint supplied each field or which recovery path filled
 missing parts of the shape.
 
-### 24. Distinguish Not Fetched from Not Available
+### 25. Distinguish Not Fetched from Not Available
 
 Missing data can mean the integration failed to fetch it, or it can mean the
 upstream counts data that is not available through its visible API. Those are
@@ -252,7 +262,7 @@ different states and must be represented separately.
 Use logs and typed stats to distinguish fetch gaps from unavailable upstream
 items. This prevents chasing false bugs and makes residual risk explicit.
 
-### 25. Use the Upstream Client as Evidence
+### 26. Use the Upstream Client as Evidence
 
 When an upstream product's behavior is unclear, inspect the client it ships.
 Its routes, query parameters, cache keys, and interaction handlers are stronger
