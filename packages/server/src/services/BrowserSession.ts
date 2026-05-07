@@ -321,14 +321,103 @@ class NavigationScheduler {
         const parseStart = Date.now();
         const parsed = JSON.parse(raw) as { queries?: Record<string, unknown> };
         const queries = parsed.queries ?? {};
+        let detail: Record<string, unknown> | undefined;
+        let recommendations: unknown[] = [];
+        let recommendationLastPage = 1;
         for (const [key, value] of Object.entries(queries)) {
-            if (key.includes('"manga"') && key.includes('"detail"') && key.includes(`"${mangaId}"`)) {
-                console.log(`[navScheduler] initial-detail-breakdown ${mangaId} source=document response=${responseMs}ms text=${textMs}ms extract=${extractMs}ms parse=${Date.now() - parseStart}ms bytes=${raw.length}`);
-                return { status: 'ok', result: value };
+            const queryKey = this.parseInitialDataQueryKey(key);
+            if (!this.isMangaInitialDataQuery(queryKey, mangaId)) continue;
+            if (queryKey[1] === 'detail') {
+                detail = value as Record<string, unknown>;
+            } else if (queryKey[1] === 'recommended') {
+                const payload = this.extractRecommendationPayload(value);
+                recommendations = payload.items;
+                recommendationLastPage = payload.lastPage;
             }
         }
-        console.log(`[navScheduler] initial-detail-breakdown ${mangaId} source=document response=${responseMs}ms text=${textMs}ms extract=${extractMs}ms parse=${Date.now() - parseStart}ms bytes=${raw.length} missing-query`);
-        return undefined;
+        if (recommendationLastPage > 1) {
+            const extra = await this.fetchRecommendationPages(page, mangaId, recommendationLastPage).catch((e) => {
+                const msg = (e as Error)?.message ?? String(e);
+                console.log(`[navScheduler] recommended-extra-error ${mangaId} pages=2-${recommendationLastPage} ${msg}`);
+                return [];
+            });
+            const seen = new Set(recommendations.map(item => this.recommendationId(item)));
+            for (const item of extra) {
+                const id = this.recommendationId(item);
+                if (id && seen.has(id)) continue;
+                if (id) seen.add(id);
+                recommendations.push(item);
+            }
+        }
+        const parseMs = Date.now() - parseStart;
+        if (!detail) {
+            console.log(`[navScheduler] initial-detail-breakdown ${mangaId} source=document response=${responseMs}ms text=${textMs}ms extract=${extractMs}ms parse=${parseMs}ms bytes=${raw.length} recommendations=${recommendations.length} missing-query`);
+            return undefined;
+        }
+        console.log(`[navScheduler] initial-detail-breakdown ${mangaId} source=document response=${responseMs}ms text=${textMs}ms extract=${extractMs}ms parse=${parseMs}ms bytes=${raw.length} recommendations=${recommendations.length}`);
+        return { status: 'ok', result: { ...detail, recommendations } };
+    }
+
+    private async fetchRecommendationPages(page: Page, mangaId: string, lastPage: number): Promise<unknown[]> {
+        const start = Date.now();
+        const pages = Array.from({ length: lastPage - 1 }, (_, i) => i + 2);
+        const settled = await Promise.allSettled(pages.map(pageNum =>
+            page.evaluate(async ({ mangaId, pageNum }) => {
+                const res = await fetch(`/api/v1/manga/${mangaId}/recommended?page=${pageNum}`);
+                if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+                return res.json();
+            }, { mangaId, pageNum })
+        ));
+
+        const items: unknown[] = [];
+        let failed = 0;
+        for (const result of settled) {
+            if (result.status === 'fulfilled') {
+                const envelope = result.value as Record<string, unknown>;
+                const payload = (envelope.result ?? envelope) as Record<string, unknown>;
+                const pageItems = payload.items;
+                if (Array.isArray(pageItems)) items.push(...pageItems);
+            } else {
+                failed++;
+            }
+        }
+        console.log(`[navScheduler] recommended-extra ${mangaId} pages=2-${lastPage} items=${items.length} failed=${failed} ${Date.now() - start}ms`);
+        return items;
+    }
+
+    private parseInitialDataQueryKey(key: string): unknown[] {
+        try {
+            const parsed = JSON.parse(key) as unknown;
+            return Array.isArray(parsed) ? parsed : [];
+        } catch {
+            return [];
+        }
+    }
+
+    private isMangaInitialDataQuery(key: unknown[], mangaId: string): boolean {
+        return key[0] === 'manga' && key[2] === mangaId;
+    }
+
+    private extractRecommendationPayload(value: unknown): { items: unknown[]; lastPage: number } {
+        const envelope = this.asRecord(value);
+        const result = this.asRecord(envelope?.result) ?? envelope;
+        const rawItems = result?.items ?? value;
+        const items = Array.isArray(rawItems) ? rawItems : [];
+        const pagination = this.asRecord(result?.pagination) ?? this.asRecord(result?.meta) ?? this.asRecord(envelope?.pagination) ?? this.asRecord(envelope?.meta);
+        const rawLastPage = Number(pagination?.lastPage ?? pagination?.last_page ?? 1);
+        const lastPage = Number.isFinite(rawLastPage) && rawLastPage > 1 ? Math.floor(rawLastPage) : 1;
+        return { items, lastPage };
+    }
+
+    private asRecord(value: unknown): Record<string, unknown> | undefined {
+        return value != null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+    }
+
+    private recommendationId(item: unknown): string {
+        if (!item || typeof item !== 'object') return '';
+        const raw = item as Record<string, unknown>;
+        const id = raw.hid ?? raw.hash_id ?? raw.id;
+        return id == null ? '' : String(id);
     }
 
     private extractInitialDataJson(html: string): string | undefined {

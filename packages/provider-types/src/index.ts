@@ -11,6 +11,7 @@ export interface Manga {
   genres?: string[];
   demographics?: string[];
   authors?: string[];
+  recommendations?: Manga[];
 }
 
 export interface ChapterMeta {

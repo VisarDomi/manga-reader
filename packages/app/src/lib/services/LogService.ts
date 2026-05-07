@@ -13,7 +13,7 @@ export type LogEvent =
     | { event: 'search-result'; query: string; page: number; resultCount: number; hasMore: boolean; currentPage?: number; lastPage?: number; total?: number }
     | { event: 'manga-open-start'; mangaId: string }
     | { event: 'manga-detail-start'; mangaId: string }
-    | { event: 'manga-detail-result'; mangaId: string; tags: number; genres: number; altTitles: number; description: boolean }
+    | { event: 'manga-detail-result'; mangaId: string; tags: number; genres: number; altTitles: number; recommendations: number; description: boolean }
     | { event: 'manga-detail-error'; mangaId: string; error: string }
     | { event: 'manga-detail-done'; mangaId: string; ms: number }
     | { event: 'manga-chapters-start'; mangaId: string }

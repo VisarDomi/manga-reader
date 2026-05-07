@@ -42,6 +42,25 @@ function detailTags(result: Record<string, unknown>, key: string): string[] {
   return titleList(result[key]);
 }
 
+function parseMangaItem(item: Record<string, unknown>): Manga {
+  const poster = item.poster as Record<string, string> | null;
+  const hashId = firstString(item.hash_id, item.hid);
+  const slug = firstString(item.slug);
+  const termIds = item.term_ids as number[] | undefined;
+  const termMap = new Map<number, string>();
+  for (const t of TERMS) termMap.set(t.id, t.name);
+  const tags = termIds?.map(id => termMap.get(id)).filter((n): n is string => n != null);
+  return {
+    id: hashId || slug,
+    title: String(item.title ?? ''),
+    cover: poster?.medium ?? poster?.large ?? poster?.small ?? '',
+    latestChapter: item.latest_chapter != null || item.latestChapter != null ? Number(item.latest_chapter ?? item.latestChapter) : null,
+    author: item.author ? String(item.author) : undefined,
+    status: item.status ? String(item.status) : undefined,
+    tags: tags?.length ? tags : undefined,
+  };
+}
+
 const provider: MangaProvider = {
   id: 'comix',
   name: 'Comix',
@@ -107,25 +126,7 @@ const provider: MangaProvider = {
     const items = (result?.items ?? (d as Record<string, unknown>).items ?? []) as Record<string, unknown>[];
     const paginationRaw = (result?.pagination ?? result?.meta ?? d.pagination ?? d.meta) as Record<string, unknown> | undefined;
 
-    const termMap = new Map<number, string>();
-    for (const t of TERMS) termMap.set(t.id, t.name);
-
-    const manga: Manga[] = items.map(item => {
-      const poster = item.poster as Record<string, string> | null;
-      const hashId = firstString(item.hash_id, item.hid);
-      const slug = firstString(item.slug);
-      const termIds = item.term_ids as number[] | undefined;
-      const tags = termIds?.map(id => termMap.get(id)).filter((n): n is string => n != null);
-      return {
-        id: hashId || slug,
-        title: String(item.title ?? ''),
-        cover: poster?.medium ?? poster?.large ?? poster?.small ?? '',
-        latestChapter: item.latest_chapter != null || item.latestChapter != null ? Number(item.latest_chapter ?? item.latestChapter) : null,
-        author: item.author ? String(item.author) : undefined,
-        status: item.status ? String(item.status) : undefined,
-        tags: tags?.length ? tags : undefined,
-      };
-    });
+    const manga: Manga[] = items.map(item => parseMangaItem(item));
 
     const pagination = paginationRaw ? paginationFrom(paginationRaw, items.length) : undefined;
 
@@ -143,6 +144,8 @@ const provider: MangaProvider = {
     const artists = detailTags(result, 'artists');
     const altTitles = titleList(result.altTitles ?? result.alt_titles);
     const authorList = [...authors, ...artists.filter(name => !authors.includes(name))];
+    const recommendationsRaw = Array.isArray(result.recommendations) ? result.recommendations as Record<string, unknown>[] : [];
+    const recommendations = recommendationsRaw.map(item => parseMangaItem(item));
 
     return {
       id: firstString(result.hid, result.hash_id, result.id),
@@ -157,6 +160,7 @@ const provider: MangaProvider = {
       tags: tags.length > 0 ? tags : undefined,
       demographics: demographics.length > 0 ? demographics : undefined,
       authors: authorList.length > 0 ? authorList : undefined,
+      recommendations: recommendations.length > 0 ? recommendations : undefined,
     };
   },
 

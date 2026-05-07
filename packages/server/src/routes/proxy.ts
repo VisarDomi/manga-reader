@@ -47,8 +47,9 @@ function detailSummary(data: unknown): string {
     const genres = Array.isArray(r.genres) ? r.genres.length : 0;
     const demographics = Array.isArray(r.demographics) ? r.demographics.length : 0;
     const altTitles = Array.isArray(r.altTitles) ? r.altTitles.length : Array.isArray(r.alt_titles) ? r.alt_titles.length : 0;
+    const recommendations = Array.isArray(r.recommendations) ? r.recommendations.length : 0;
     const description = Boolean(r.synopsis || r.description);
-    return `title=${typeof r.title === 'string' && r.title.length > 0 ? 'yes' : 'no'} genres=${genres} tags=${tags} demographics=${demographics} altTitles=${altTitles} description=${description}`;
+    return `title=${typeof r.title === 'string' && r.title.length > 0 ? 'yes' : 'no'} genres=${genres} tags=${tags} demographics=${demographics} altTitles=${altTitles} recommendations=${recommendations} description=${description}`;
 }
 
 function logJsonProxy(method: string, pathStr: string, meta: ProxyFetchMeta, data: unknown): void {

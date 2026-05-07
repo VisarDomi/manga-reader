@@ -150,6 +150,22 @@ with queues, caches, retries, cancellation, or background work should log when
 work is queued, skipped, reused, cancelled, promoted, or rejected so scheduling
 and state bugs can be reasoned about from evidence.
 
+### 15. Keep Enrichment off the Critical Path
+
+When adding richer data to an existing fast interaction, treat the new data as
+optional enrichment unless it is required for the first useful render. The core
+interaction should stay owned by the fastest existing path. Enrichment can run
+asynchronously, populate typed state when ready, and expose logs that prove
+whether it affected the critical path.
+
+### 16. Parse at the Earliest Data Owner
+
+Avoid waiting for UI-shaped artifacts when the same data exists earlier in the
+pipeline. If a document response, JSON payload, or typed cache owns the data,
+parse it there instead of waiting for DOM readiness, component rendering, or a
+downstream representation. The earlier owner is usually faster, easier to log,
+and less coupled to presentation details.
+
 ## Product Decisions
 
 These are app-level behavior decisions that drive UX, persistence, navigation,

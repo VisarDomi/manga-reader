@@ -13,6 +13,7 @@
     const coverUrl = $derived(manga?.cover ? api.coverProxyUrl(manga.cover) : '');
     const mangaState = appState.manga;
     const gf = appState.groupFilter;
+    const recommendations = $derived(manga?.recommendations ?? []);
 
     const allFiltered = $derived(
         !isLoading && chapters.length > 0 &&
@@ -103,6 +104,30 @@
             </div>
         {:else}
             <ChapterList {chapters} />
+        {/if}
+
+        {#if recommendations.length > 0}
+            <section class="manga-recommendations">
+                <h2>Recommendations</h2>
+                <div class="recommendation-grid">
+                    {#each recommendations as rec (rec.id)}
+                        {@const recCover = rec.cover ? api.coverProxyUrl(rec.cover) : ''}
+                        <button class="recommendation-card" onclick={() => appState.manga.openManga(rec)}>
+                            <div class="recommendation-cover">
+                                {#if recCover}
+                                    <img src={recCover} alt={rec.title} loading="lazy" />
+                                {/if}
+                            </div>
+                            <div class="recommendation-meta">
+                                <p>{rec.title}</p>
+                                {#if rec.latestChapter != null}
+                                    <span>{rec.latestChapter}</span>
+                                {/if}
+                            </div>
+                        </button>
+                    {/each}
+                </div>
+            </section>
         {/if}
     </div>
 {/if}
@@ -224,5 +249,71 @@
     border: 1px solid #5a2d5a;
     border-radius: 8px;
     font-size: 14px;
+}
+
+.manga-recommendations {
+    padding: 18px 16px max(24px, env(safe-area-inset-bottom));
+    border-top: 1px solid #222;
+}
+
+.manga-recommendations h2 {
+    margin: 0 0 12px;
+    color: #f5f5f5;
+    font-size: 16px;
+}
+
+.recommendation-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.recommendation-card {
+    min-width: 0;
+    text-align: left;
+}
+
+.recommendation-cover {
+    aspect-ratio: 2 / 3;
+    background: #171717;
+    overflow: hidden;
+}
+
+.recommendation-cover img {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: cover;
+}
+
+.recommendation-meta {
+    min-width: 0;
+    padding-top: 6px;
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+}
+
+.recommendation-meta p {
+    margin: 0;
+    min-width: 0;
+    flex: 1;
+    color: #ddd;
+    font-size: 12px;
+    line-height: 1.25;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.recommendation-meta span {
+    flex-shrink: 0;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: #1f3a2e;
+    color: #86efac;
+    font-size: 11px;
+    line-height: 1.4;
 }
 </style>

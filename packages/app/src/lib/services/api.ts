@@ -109,7 +109,7 @@ export async function searchManga(query: string, page = 1, filters?: SearchFilte
 export async function fetchMangaDetail(manga: Manga, signal?: AbortSignal): Promise<Manga> {
     const provider = getProvider();
     if (!provider.parseMangaDetailResponse) {
-        emit('manga-detail-result', { mangaId: manga.id, tags: manga.tags?.length ?? 0, genres: manga.genres?.length ?? 0, altTitles: manga.altTitles?.length ?? 0, description: !!manga.description });
+        emit('manga-detail-result', { mangaId: manga.id, tags: manga.tags?.length ?? 0, genres: manga.genres?.length ?? 0, altTitles: manga.altTitles?.length ?? 0, recommendations: manga.recommendations?.length ?? 0, description: !!manga.description });
         return manga;
     }
 
@@ -129,6 +129,7 @@ export async function fetchMangaDetail(manga: Manga, signal?: AbortSignal): Prom
             tags: merged.tags?.length ?? 0,
             genres: merged.genres?.length ?? 0,
             altTitles: merged.altTitles?.length ?? 0,
+            recommendations: merged.recommendations?.length ?? 0,
             description: !!merged.description,
         });
         return merged;

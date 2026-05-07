@@ -452,7 +452,21 @@ function f(e) {
 function p(e, t) {
 	return f(e[t]);
 }
-var m = {
+function m(t) {
+	let n = t.poster, r = l(t.hash_id, t.hid), i = l(t.slug), a = t.term_ids, o = /* @__PURE__ */ new Map();
+	for (let t of e) o.set(t.id, t.name);
+	let s = a?.map((e) => o.get(e)).filter((e) => e != null);
+	return {
+		id: r || i,
+		title: String(t.title ?? ""),
+		cover: n?.medium ?? n?.large ?? n?.small ?? "",
+		latestChapter: t.latest_chapter != null || t.latestChapter != null ? Number(t.latest_chapter ?? t.latestChapter) : null,
+		author: t.author ? String(t.author) : void 0,
+		status: t.status ? String(t.status) : void 0,
+		tags: s?.length ? s : void 0
+	};
+}
+var h = {
 	id: "comix",
 	name: "Comix",
 	baseUrl: o,
@@ -492,29 +506,16 @@ var m = {
 			cloudflareProtected: !0
 		};
 	},
-	parseSearchResponse(t) {
-		let n = t, r = n.result, i = r?.items ?? n.items ?? [], a = r?.pagination ?? r?.meta ?? n.pagination ?? n.meta, o = /* @__PURE__ */ new Map();
-		for (let t of e) o.set(t.id, t.name);
-		let s = i.map((e) => {
-			let t = e.poster, n = l(e.hash_id, e.hid), r = l(e.slug), i = e.term_ids?.map((e) => o.get(e)).filter((e) => e != null);
-			return {
-				id: n || r,
-				title: String(e.title ?? ""),
-				cover: t?.medium ?? t?.large ?? t?.small ?? "",
-				latestChapter: e.latest_chapter != null || e.latestChapter != null ? Number(e.latest_chapter ?? e.latestChapter) : null,
-				author: e.author ? String(e.author) : void 0,
-				status: e.status ? String(e.status) : void 0,
-				tags: i?.length ? i : void 0
-			};
-		}), d = a ? u(a, i.length) : void 0;
+	parseSearchResponse(e) {
+		let t = e, n = t.result, r = n?.items ?? t.items ?? [], i = n?.pagination ?? n?.meta ?? t.pagination ?? t.meta, a = r.map((e) => m(e)), o = i ? u(i, r.length) : void 0;
 		return {
-			items: s,
-			hasMore: d ? d.currentPage < d.lastPage : s.length >= c,
-			pagination: d
+			items: a,
+			hasMore: o ? o.currentPage < o.lastPage : a.length >= c,
+			pagination: o
 		};
 	},
 	parseMangaDetailResponse(e) {
-		let t = e, n = t.result ?? t, r = n.poster, i = p(n, "genres"), a = p(n, "tags"), o = p(n, "demographics"), s = p(n, "authors"), c = p(n, "artists"), u = f(n.altTitles ?? n.alt_titles), d = [...s, ...c.filter((e) => !s.includes(e))];
+		let t = e, n = t.result ?? t, r = n.poster, i = p(n, "genres"), a = p(n, "tags"), o = p(n, "demographics"), s = p(n, "authors"), c = p(n, "artists"), u = f(n.altTitles ?? n.alt_titles), d = [...s, ...c.filter((e) => !s.includes(e))], h = (Array.isArray(n.recommendations) ? n.recommendations : []).map((e) => m(e));
 		return {
 			id: l(n.hid, n.hash_id, n.id),
 			title: String(n.title ?? ""),
@@ -527,7 +528,8 @@ var m = {
 			genres: i.length > 0 ? i : void 0,
 			tags: a.length > 0 ? a : void 0,
 			demographics: o.length > 0 ? o : void 0,
-			authors: d.length > 0 ? d : void 0
+			authors: d.length > 0 ? d : void 0,
+			recommendations: h.length > 0 ? h : void 0
 		};
 	},
 	chapterListRequest(e, t) {
@@ -574,4 +576,4 @@ var m = {
 	}
 };
 //#endregion
-export { m as default };
+export { h as default };
