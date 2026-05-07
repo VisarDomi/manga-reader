@@ -101,10 +101,10 @@ const provider: MangaProvider = {
 
     if (filters) {
       if (filters.includeGenres) {
-        for (const id of filters.includeGenres) params.append('genres[]', id);
+        for (const id of filters.includeGenres) params.append('genres_in[]', id);
       }
       if (filters.excludeGenres) {
-        for (const id of filters.excludeGenres) params.append('genres[]', `-${id}`);
+        for (const id of filters.excludeGenres) params.append('genres_ex[]', id);
       }
       if ((filters.includeGenres?.length ?? 0) > 0 || (filters.excludeGenres?.length ?? 0) > 0) {
         params.set('genres_mode', 'and');

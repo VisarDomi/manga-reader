@@ -496,8 +496,8 @@ var h = {
 	searchRequest(e, t, n) {
 		let r = new URLSearchParams();
 		if (r.set("page", String(t)), r.set("limit", String(c)), e ? r.set("keyword", e) : r.set("order[chapter_updated_at]", "desc"), n) {
-			if (n.includeGenres) for (let e of n.includeGenres) r.append("genres[]", e);
-			if (n.excludeGenres) for (let e of n.excludeGenres) r.append("genres[]", `-${e}`);
+			if (n.includeGenres) for (let e of n.includeGenres) r.append("genres_in[]", e);
+			if (n.excludeGenres) for (let e of n.excludeGenres) r.append("genres_ex[]", e);
 			if (((n.includeGenres?.length ?? 0) > 0 || (n.excludeGenres?.length ?? 0) > 0) && r.set("genres_mode", "and"), n.types) for (let e of n.types) r.append("types[]", e);
 			if (n.statuses) for (let e of n.statuses) r.append("statuses[]", e);
 		}

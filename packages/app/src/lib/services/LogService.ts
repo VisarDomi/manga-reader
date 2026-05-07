@@ -10,7 +10,7 @@ export type LogEvent =
     | { event: 'restore-target-missed'; targetId: string; pagesSearched: number; reason: 'not-found' | 'cancelled' | 'error' | 'no-chapters' }
     | { event: 'restore-ok'; view: string; mangaId?: string }
     | { event: 'restore-fallback'; view: string; reason: string; fallback?: string }
-    | { event: 'search-result'; query: string; page: number; resultCount: number; hasMore: boolean; currentPage?: number; lastPage?: number; total?: number }
+    | { event: 'search-result'; query: string; page: number; resultCount: number; hasMore: boolean; includeGenres: number; excludeGenres: number; types: number; statuses: number; currentPage?: number; lastPage?: number; total?: number }
     | { event: 'manga-open-start'; mangaId: string }
     | { event: 'manga-detail-start'; mangaId: string }
     | { event: 'manga-detail-result'; mangaId: string; tags: number; genres: number; altTitles: number; recommendations: number; description: boolean }
