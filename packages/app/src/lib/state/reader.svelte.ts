@@ -253,7 +253,7 @@ export class ReaderState {
         return this.chapterList.find(ch => ch.id === chapterId) ?? null;
     }
 
-    openChapterComments(): void {
+    private startChapterComments(pushView: boolean): boolean {
         const manga = this.manga.activeManga;
         const chapter = this.currentChapterMeta;
         if (!manga || !chapter) {
@@ -263,7 +263,7 @@ export class ReaderState {
                 chapterNumber: 0,
                 error: 'missing current chapter context',
             });
-            return;
+            return false;
         }
 
         const context: ChapterCommentsContext = {
@@ -279,10 +279,43 @@ export class ReaderState {
         this.chapterCommentsStats = { ...EMPTY_COMMENT_STATS };
         this.chapterCommentsError = null;
         this.log.emit('chapter-comments-open', { mangaId: manga.id, chapterId: chapter.id, chapterNumber: chapter.number });
-        if (this.ui.viewMode !== View.CHAPTER_COMMENTS) {
+        if (pushView && this.ui.viewMode !== View.CHAPTER_COMMENTS) {
             this.ui.pushView(View.CHAPTER_COMMENTS);
         }
         void this.loadChapterComments(manga, chapter);
+        return true;
+    }
+
+    prepareChapterComments(): boolean {
+        return this.startChapterComments(false);
+    }
+
+    openChapterComments(): boolean {
+        return this.startChapterComments(true);
+    }
+
+    commitPreparedChapterComments(): void {
+        if (!this.chapterCommentsContext) return;
+        if (this.ui.viewMode !== View.CHAPTER_COMMENTS) {
+            this.ui.pushView(View.CHAPTER_COMMENTS);
+        }
+    }
+
+    cancelPreparedChapterComments(): void {
+        if (this.ui.viewMode === View.CHAPTER_COMMENTS) return;
+        this.commentsEpoch++;
+        this.commentsAbort?.abort();
+        this.commentsAbort = null;
+        this.chapterComments = [];
+        this.chapterCommentsCount = 0;
+        this.chapterCommentsStats = { ...EMPTY_COMMENT_STATS };
+        this.isChapterCommentsLoading = false;
+        this.chapterCommentsError = null;
+        this.log.emit('chapter-comments-close', {
+            mangaId: this.chapterCommentsContext?.mangaId ?? this.activeMangaId,
+            chapterId: this.chapterCommentsContext?.chapterId ?? null,
+        });
+        this.chapterCommentsContext = null;
     }
 
     closeChapterComments(): void {

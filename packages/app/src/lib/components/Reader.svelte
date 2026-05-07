@@ -179,7 +179,12 @@
         class="reader-wrapper"
         role="application"
         use:swipeBack={{ onClose, ui: appState.ui }}
-        use:swipeForward={{ onOpen: () => appState.reader.openChapterComments() }}
+        use:swipeForward={{
+            onPrepare: () => appState.reader.prepareChapterComments(),
+            onCommit: () => appState.reader.commitPreparedChapterComments(),
+            onCancel: () => appState.reader.cancelPreparedChapterComments(),
+            ui: appState.ui,
+        }}
     >
         <div class="sentinel" use:sentinel={{ getRoot: getReaderRoot, rootMargin: '500% 0px', onIntersect: handlePrepend, disabled: !sentinelsReady }}></div>
 

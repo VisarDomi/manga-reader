@@ -2,7 +2,10 @@ import { appDimensions } from '$lib/state/appDimensions.js';
 import { SWIPE_THRESHOLD, DEADZONE_RATIO, EDGE_ZONE_RATIO } from '../constants.js';
 
 interface SwipeForwardOptions {
-    onOpen: () => void;
+    onPrepare: () => boolean;
+    onCommit: () => void;
+    onCancel?: () => void;
+    ui: { forwardSwipeProgress: number; isForwardSwiping: boolean; forwardSwipeAnimating: boolean };
 }
 
 export function swipeForward(node: HTMLElement, options: SwipeForwardOptions) {
@@ -12,6 +15,7 @@ export function swipeForward(node: HTMLElement, options: SwipeForwardOptions) {
     let locked = false;
     let rejected = false;
     let progress = 0;
+    let opened = false;
     let opts = options;
 
     function onStart(e: TouchEvent) {
@@ -22,6 +26,7 @@ export function swipeForward(node: HTMLElement, options: SwipeForwardOptions) {
             locked = false;
             rejected = false;
             progress = 0;
+            opened = false;
             startX = touch.clientX;
             startY = touch.clientY;
         }
@@ -46,19 +51,51 @@ export function swipeForward(node: HTMLElement, options: SwipeForwardOptions) {
                 return;
             }
             locked = true;
+            opened = opts.onPrepare();
+            if (!opened) {
+                rejected = true;
+                tracking = false;
+                return;
+            }
+            opts.ui.isForwardSwiping = true;
         }
 
         e.preventDefault();
         progress = Math.max(0, Math.min(1, Math.abs(dx) / appWidth));
+        opts.ui.forwardSwipeProgress = progress;
     }
 
     function onEnd() {
-        const shouldOpen = tracking && locked && progress > SWIPE_THRESHOLD;
+        if (!tracking || !locked) {
+            tracking = false;
+            return;
+        }
+
+        const shouldKeepOpen = opened && progress > SWIPE_THRESHOLD;
         tracking = false;
         locked = false;
         rejected = false;
         progress = 0;
-        if (shouldOpen) opts.onOpen();
+        opened = false;
+
+        opts.ui.forwardSwipeAnimating = true;
+
+        if (shouldKeepOpen) {
+            opts.ui.forwardSwipeProgress = 1;
+            setTimeout(() => {
+                opts.onCommit();
+                opts.ui.isForwardSwiping = false;
+                opts.ui.forwardSwipeAnimating = false;
+                opts.ui.forwardSwipeProgress = 0;
+            }, 250);
+        } else {
+            opts.ui.forwardSwipeProgress = 0;
+            setTimeout(() => {
+                opts.onCancel?.();
+                opts.ui.isForwardSwiping = false;
+                opts.ui.forwardSwipeAnimating = false;
+            }, 250);
+        }
     }
 
     node.addEventListener('touchstart', onStart, { passive: true });

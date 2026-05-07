@@ -10,6 +10,9 @@ export class UIState {
     swipeProgress = $state(0);
     isSwiping = $state(false);
     swipeAnimating = $state(false);
+    forwardSwipeProgress = $state(0);
+    isForwardSwiping = $state(false);
+    forwardSwipeAnimating = $state(false);
     filtersExpanded = $state(false);
 
     onViewChange: (() => void) | null = null;
