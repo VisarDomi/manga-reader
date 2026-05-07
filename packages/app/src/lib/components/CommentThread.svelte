@@ -2,6 +2,7 @@
     import type { MangaComment } from '$lib/types.js';
     import * as api from '$lib/services/api.js';
     import CommentThread from './CommentThread.svelte';
+    import CommentContent from './CommentContent.svelte';
 
     interface Props {
         comment: MangaComment;
@@ -31,7 +32,7 @@
                     <span>+{comment.likeCount}</span>
                 {/if}
             </div>
-            <p>{comment.content}</p>
+            <CommentContent content={comment.content} parts={comment.parts} />
         </div>
     </div>
 
@@ -108,20 +109,6 @@
 .comment-author {
     color: #ddd;
     font-weight: 700;
-}
-
-.comment-body p {
-    margin: 5px 0 0;
-    color: #cfcfcf;
-    font-size: 14px;
-    line-height: 1.45;
-    white-space: pre-line;
-    overflow-wrap: anywhere;
-}
-
-.comment-reply .comment-body p {
-    color: #bdbdbd;
-    font-size: 13px;
 }
 
 .comment-children {

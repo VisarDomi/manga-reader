@@ -6,12 +6,18 @@ export interface MangaComment {
     author: string;
     avatar?: string;
     content: string;
+    parts?: MangaCommentPart[];
     createdAt: string;
     likeCount: number;
     dislikeCount: number;
     replyCount: number;
     replies: MangaComment[];
 }
+
+export type MangaCommentPart =
+    | { type: 'text'; text: string }
+    | { type: 'spoiler'; text: string }
+    | { type: 'image'; url: string; alt: string };
 
 export interface MangaCommentStats {
     total: number;

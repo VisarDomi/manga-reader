@@ -46,6 +46,7 @@ interface NormalizedMangaComment {
     author: string;
     avatar?: string;
     content: string;
+    parts: NormalizedCommentPart[];
     createdAt: string;
     likeCount: number;
     dislikeCount: number;
@@ -54,6 +55,11 @@ interface NormalizedMangaComment {
     cursor: string;
     replies: NormalizedMangaComment[];
 }
+
+type NormalizedCommentPart =
+    | { type: 'text'; text: string }
+    | { type: 'spoiler'; text: string }
+    | { type: 'image'; url: string; alt: string };
 
 interface CommentTreeStats {
     total: number;
@@ -791,12 +797,14 @@ export class BrowserSession {
         const replies = repliesRaw
             .map(reply => this.normalizeComment(reply))
             .filter((reply): reply is NormalizedMangaComment => reply != null);
+        const parts = this.normalizeCommentParts(raw.contentHtml ?? raw.content);
         return {
             id: Math.floor(id),
             parentId: this.safeNumber(raw.parentId ?? raw.parent_id),
             author: this.firstString(user.displayName, user.username, 'Unknown'),
             ...(typeof user.avatar === 'string' && user.avatar.length > 0 ? { avatar: user.avatar } : {}),
-            content: this.htmlToText(raw.contentHtml ?? raw.content),
+            content: this.partsToText(parts),
+            parts,
             createdAt: this.firstString(raw.createdAtFormatted),
             likeCount: this.safeNumber(raw.likeCount),
             dislikeCount: this.safeNumber(raw.dislikeCount),
@@ -951,6 +959,82 @@ export class BrowserSession {
             .replace(/&lt;/g, '<')
             .replace(/&gt;/g, '>')
             .trim();
+    }
+
+    private normalizeCommentParts(value: unknown): NormalizedCommentPart[] {
+        const raw = typeof value === 'string' ? value : '';
+        if (!raw) return [];
+
+        const parts: NormalizedCommentPart[] = [];
+        const tokenPattern = /<span\b[^>]*class=["'][^"']*\bspoil\b[^"']*["'][^>]*>([\s\S]*?)<\/span>|<img\b[^>]*>/gi;
+        let lastIndex = 0;
+        let match: RegExpExecArray | null;
+
+        const pushText = (html: string) => {
+            const text = this.htmlToText(html);
+            if (text) parts.push({ type: 'text', text });
+        };
+
+        while ((match = tokenPattern.exec(raw)) != null) {
+            pushText(raw.slice(lastIndex, match.index));
+
+            if (match[1] != null) {
+                const text = this.htmlToText(match[1]);
+                if (text) parts.push({ type: 'spoiler', text });
+            } else {
+                const img = match[0];
+                const src = this.attrValue(img, 'src');
+                if (this.isSafeImageUrl(src)) {
+                    parts.push({ type: 'image', url: src, alt: this.htmlToText(this.attrValue(img, 'alt')) });
+                }
+            }
+
+            lastIndex = tokenPattern.lastIndex;
+        }
+
+        pushText(raw.slice(lastIndex));
+
+        if (parts.length === 0) {
+            const text = this.htmlToText(raw);
+            return text ? [{ type: 'text', text }] : [];
+        }
+        return parts;
+    }
+
+    private partsToText(parts: NormalizedCommentPart[]): string {
+        return parts
+            .map(part => {
+                if (part.type === 'image') return part.alt ? `[image: ${part.alt}]` : '[image]';
+                return part.text;
+            })
+            .filter(Boolean)
+            .join('\n')
+            .trim();
+    }
+
+    private attrValue(tag: string, name: string): string {
+        const pattern = new RegExp(`${name}\\s*=\\s*["']([^"']*)["']`, 'i');
+        const match = tag.match(pattern);
+        return match ? this.decodeEntities(match[1]).trim() : '';
+    }
+
+    private isSafeImageUrl(url: string): boolean {
+        if (!url) return false;
+        try {
+            const parsed = new URL(url);
+            return parsed.protocol === 'https:' || parsed.protocol === 'http:';
+        } catch {
+            return false;
+        }
+    }
+
+    private decodeEntities(value: string): string {
+        return value
+            .replace(/&amp;/g, '&')
+            .replace(/&#039;/g, "'")
+            .replace(/&quot;/g, '"')
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>');
     }
 
     private firstString(...values: unknown[]): string {
