@@ -10,6 +10,7 @@ import type { MangaState } from './manga.svelte.js';
 import type { ProgressState } from './progress.svelte.js';
 import type { ToastState } from './toast.svelte.js';
 import { type LoadError, toLoadError } from './errors.js';
+import { CHAPTER_WARM_NEXT, CHAPTER_WARM_PREV } from '../constants.js';
 
 type ReaderEdge = 'next' | 'prev';
 
@@ -95,6 +96,7 @@ export class ReaderState {
                 pages: proxiedPages,
                 groupName: chapter.groupName,
             }];
+            this.scheduleChapterWarmup(manga, chapter.id);
 
             const progressData = { chapterId: chapter.id, chapterNumber: chapter.number };
             db.setProgress(manga.id, progressData);
@@ -144,6 +146,7 @@ export class ReaderState {
                 pages: proxiedPages,
                 groupName: chapter.groupName,
             }];
+            this.scheduleChapterWarmup(manga, chapter.id);
             return true;
         } catch (e) {
             this.error = toLoadError(e);
@@ -250,6 +253,20 @@ export class ReaderState {
         if (idx === -1) return null;
         const targetIdx = direction === 'next' ? idx + 1 : idx - 1;
         return this.chapterList[targetIdx] ?? null;
+    }
+
+    private scheduleChapterWarmup(manga: Manga, centerChapterId: string): void {
+        const idx = this.chapterList.findIndex(c => c.id === centerChapterId);
+        if (idx === -1) return;
+
+        const loadedIds = new Set(this.loadedChapters.map(ch => ch.id));
+        const start = Math.max(0, idx - CHAPTER_WARM_PREV);
+        const end = Math.min(this.chapterList.length - 1, idx + CHAPTER_WARM_NEXT);
+        const chapters = this.chapterList
+            .slice(start, end + 1)
+            .filter(chapter => chapter.id !== centerChapterId && !loadedIds.has(chapter.id));
+
+        api.prewarmChapterDetails(manga.id, chapters);
     }
 
     private async loadChapter(req: ChapterLoadRequest): Promise<ChapterLoadResult> {
@@ -385,6 +402,7 @@ export class ReaderState {
 
             this.loadedChapters = [...this.loadedChapters, result.chapter];
             this.nextChapterRetryAvailable = false;
+            this.scheduleChapterWarmup(manga, result.chapter.id);
             this.log.emit('reader-append-ok', { mangaId: manga.id, chapterId: next.id, chapterNumber: next.number });
             return true;
         } catch (e) {
@@ -442,6 +460,7 @@ export class ReaderState {
 
             const chapter = result.chapter;
             this.loadedChapters = [chapter, ...this.loadedChapters];
+            this.scheduleChapterWarmup(manga, chapter.id);
             this.log.emit('reader-prepend-ok', { mangaId: manga.id, chapterId: prev.id, chapterNumber: prev.number });
             return chapter;
         } catch (e) {

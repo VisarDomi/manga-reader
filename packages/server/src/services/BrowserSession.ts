@@ -24,6 +24,8 @@ const CHAPTER_LIST_PATTERN = /\/manga\/([^/]+)\/chapters/;
 const CHAPTER_DETAIL_PATTERN = /\/chapters\/([^/?]+)/;
 const COMIX_API_BASE_PATH = '/api/v1';
 const MAX_WORKERS = 4;
+const CHAPTER_DETAIL_CACHE_TTL_MS = 10 * 60 * 1000;
+const CHAPTER_DETAIL_CACHE_LIMIT = 24;
 
 export interface BrowserFetchResult {
     data: unknown;
@@ -58,6 +60,17 @@ interface SignedChapterDetailRequest {
 }
 
 type SignedRequest = SignedChapterRequest | SignedChapterDetailRequest;
+
+interface ChapterDetailWarmRequest {
+    mangaId: string;
+    chapterId: string;
+    signingPageUrl: string;
+}
+
+interface ChapterDetailCacheEntry {
+    data: unknown;
+    capturedAt: number;
+}
 
 interface SignatureLease {
     value: string;
@@ -259,6 +272,10 @@ export class BrowserSession {
     private initPromise: Promise<void> | null = null;
     private readonly profileDir: string;
     private readonly scheduler = new NavigationScheduler();
+    private readonly chapterDetailCache = new Map<string, ChapterDetailCacheEntry>();
+    private readonly chapterDetailInflight = new Map<string, Promise<unknown>>();
+    private chapterDetailWarmQueue = new Map<string, ChapterDetailWarmRequest>();
+    private chapterDetailWarmActive = false;
 
     constructor(
         private readonly domain: string,
@@ -327,7 +344,7 @@ export class BrowserSession {
         try {
             const data = request.kind === 'chapter-list'
                 ? await this.fetchChapterPageWithSig(request.mangaId, request.page, false)
-                : await this.fetchChapterDetailFromPage(request.mangaId, request.chapterId, request.signingPageUrl);
+                : await this.fetchChapterDetailCached(request, 'user');
             const durationMs = Date.now() - start;
             return { data, durationMs };
         } catch (e) {
@@ -363,6 +380,98 @@ export class BrowserSession {
         if (queued > 0) {
             console.log(`[browserSession] prewarm queued=${queued} skipped=${skipped} cache=${this.scheduler.cacheSize}`);
         }
+    }
+
+    prewarmChapterDetails(requests: ChapterDetailWarmRequest[]): { queued: number; skipped: number } {
+        if (!this._ready) return { queued: 0, skipped: requests.length };
+
+        this.chapterDetailWarmQueue.clear();
+        let queued = 0;
+        let skipped = 0;
+
+        for (const request of requests) {
+            const key = this.chapterDetailKey(request.mangaId, request.chapterId);
+            if (this.getCachedChapterDetail(key) || this.chapterDetailInflight.has(key)) {
+                skipped++;
+                continue;
+            }
+            this.chapterDetailWarmQueue.set(key, request);
+            queued++;
+        }
+
+        console.log(`[browserSession] chapter-warmup queued=${queued} skipped=${skipped} cache=${this.chapterDetailCache.size}`);
+        this.drainChapterDetailWarmQueue();
+        return { queued, skipped };
+    }
+
+    private drainChapterDetailWarmQueue(): void {
+        if (this.chapterDetailWarmActive) return;
+        const next = this.chapterDetailWarmQueue.entries().next();
+        if (next.done) return;
+
+        const [key, request] = next.value;
+        this.chapterDetailWarmQueue.delete(key);
+        this.chapterDetailWarmActive = true;
+
+        void this.fetchChapterDetailCached({ kind: 'chapter-detail', ...request }, 'prewarm')
+            .catch(err => {
+                const msg = (err as Error)?.message ?? String(err);
+                console.log(`[browserSession] chapter-warmup failed ${request.mangaId}/${request.chapterId}: ${msg}`);
+            })
+            .finally(() => {
+                this.chapterDetailWarmActive = false;
+                this.drainChapterDetailWarmQueue();
+            });
+    }
+
+    private chapterDetailKey(mangaId: string, chapterId: string): string {
+        return `${mangaId}/${chapterId}`;
+    }
+
+    private getCachedChapterDetail(key: string): unknown | null {
+        const cached = this.chapterDetailCache.get(key);
+        if (!cached) return null;
+        if (Date.now() - cached.capturedAt > CHAPTER_DETAIL_CACHE_TTL_MS) {
+            this.chapterDetailCache.delete(key);
+            return null;
+        }
+        this.chapterDetailCache.delete(key);
+        this.chapterDetailCache.set(key, cached);
+        return cached.data;
+    }
+
+    private rememberChapterDetail(key: string, data: unknown): void {
+        this.chapterDetailCache.set(key, { data, capturedAt: Date.now() });
+        while (this.chapterDetailCache.size > CHAPTER_DETAIL_CACHE_LIMIT) {
+            const oldest = this.chapterDetailCache.keys().next().value;
+            if (!oldest) break;
+            this.chapterDetailCache.delete(oldest);
+        }
+    }
+
+    private async fetchChapterDetailCached(request: SignedChapterDetailRequest, reason: 'user' | 'prewarm'): Promise<unknown> {
+        const key = this.chapterDetailKey(request.mangaId, request.chapterId);
+        const cached = this.getCachedChapterDetail(key);
+        if (cached) {
+            console.log(`[browserSession] chapter-cache hit ${key} reason=${reason}`);
+            return cached;
+        }
+
+        const inflight = this.chapterDetailInflight.get(key);
+        if (inflight) {
+            console.log(`[browserSession] chapter-cache join ${key} reason=${reason}`);
+            return inflight;
+        }
+
+        const promise = this.fetchChapterDetailFromPage(request.mangaId, request.chapterId, request.signingPageUrl, reason)
+            .then(data => {
+                this.rememberChapterDetail(key, data);
+                return data;
+            })
+            .finally(() => this.chapterDetailInflight.delete(key));
+
+        this.chapterDetailInflight.set(key, promise);
+        return promise;
     }
 
     private async fetchAllChapters(mangaId: string): Promise<unknown> {
@@ -409,7 +518,7 @@ export class BrowserSession {
         }
     }
 
-    private async fetchChapterDetailFromPage(mangaId: string, chapterId: string, signingPageUrl?: string): Promise<unknown> {
+    private async fetchChapterDetailFromPage(mangaId: string, chapterId: string, signingPageUrl: string | undefined, reason: 'user' | 'prewarm'): Promise<unknown> {
         if (!signingPageUrl) {
             throw new Error(`Missing signingPageUrl for chapter ${chapterId}`);
         }
@@ -446,7 +555,7 @@ export class BrowserSession {
             await page.goto(signingPageUrl, { waitUntil: 'commit', timeout: 15_000 });
             const data = await dataPromise;
             const pages = (data as any)?.result?.pages ?? [];
-            console.log(`[browserSession] chapter ${mangaId}/${chapterId} page-load pages=${pages.length} ${Date.now() - t0}ms`);
+            console.log(`[browserSession] chapter ${mangaId}/${chapterId} page-load reason=${reason} pages=${pages.length} ${Date.now() - t0}ms`);
             return data;
         } finally {
             await page.close().catch(e => {

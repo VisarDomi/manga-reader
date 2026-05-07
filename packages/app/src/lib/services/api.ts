@@ -172,6 +172,30 @@ export function prewarmChapters(mangaIds: string[]): void {
     }).catch(() => {});
 }
 
+export function prewarmChapterDetails(mangaId: string, chapters: ChapterMeta[]): void {
+    if (chapters.length === 0) return;
+    const provider = getProvider();
+    const requests = chapters
+        .map(chapter => {
+            const req = provider.chapterImagesRequest(mangaId, chapter.id, chapter.number, chapter.url);
+            if (!req.signingMangaId || !req.signingPageUrl) return null;
+            return {
+                mangaId: req.signingMangaId,
+                chapterId: chapter.id,
+                signingPageUrl: req.signingPageUrl,
+            };
+        })
+        .filter((req): req is { mangaId: string; chapterId: string; signingPageUrl: string } => req != null);
+
+    if (requests.length === 0) return;
+    emit('chapter-warmup-sent', { count: requests.length });
+    fetch('/api/prewarm-chapter-details', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ requests }),
+    }).catch(() => {});
+}
+
 export async function fetchChapterImages(mangaId: string, chapterId: string, chapterNumber: number, chapterUrl?: string): Promise<ChapterPage[]> {
     const provider = getProvider();
     const req = provider.chapterImagesRequest(mangaId, chapterId, chapterNumber, chapterUrl);
