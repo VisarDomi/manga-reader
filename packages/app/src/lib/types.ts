@@ -13,6 +13,18 @@ export interface MangaComment {
     replies: MangaComment[];
 }
 
+export interface MangaCommentStats {
+    total: number;
+    maxDepth: number;
+    parents: number;
+    missingReplies: number;
+    rootPages: number;
+    replyPages: number;
+    treeFills: number;
+    unavailable: number;
+    unavailableRoots: number;
+}
+
 export interface LoadedChapter {
     id: string;
     number: number;

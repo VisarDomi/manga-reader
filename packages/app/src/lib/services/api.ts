@@ -1,7 +1,7 @@
 import { PROXY_URL, imageProxyUrl as _imageProxyUrl } from '../config.js';
 import { fetchJson, fetchRaw, ApiError, ApiErrKind } from './fetchJson.js';
 import { getProvider } from './provider.js';
-import type { Manga, ChapterMeta, ChapterPage, MangaComment } from '../types.js';
+import type { Manga, ChapterMeta, ChapterPage, MangaComment, MangaCommentStats } from '../types.js';
 import type { SearchFilters, HttpRequest, PaginationMeta, ChapterListPage } from '@manga-reader/provider-types';
 import type { LogEmit } from './LogService.js';
 
@@ -144,6 +144,7 @@ export async function fetchMangaDetail(manga: Manga, signal?: AbortSignal): Prom
 export interface MangaCommentsResult {
     comments: MangaComment[];
     count: number;
+    stats: MangaCommentStats;
 }
 
 export async function fetchMangaComments(mangaId: string, signal?: AbortSignal): Promise<MangaCommentsResult> {
@@ -152,12 +153,46 @@ export async function fetchMangaComments(mangaId: string, signal?: AbortSignal):
     const result = root.result && typeof root.result === 'object' ? root.result as Record<string, unknown> : root;
     const comments = Array.isArray(result.comments) ? result.comments as MangaComment[] : [];
     const count = Number(result.count ?? comments.length);
+    const rawStats = result.stats && typeof result.stats === 'object' ? result.stats as Record<string, unknown> : {};
+    const stats = {
+        total: Number(rawStats.total ?? comments.length),
+        maxDepth: Number(rawStats.maxDepth ?? 0),
+        parents: Number(rawStats.parents ?? 0),
+        missingReplies: Number(rawStats.missingReplies ?? 0),
+        rootPages: Number(rawStats.rootPages ?? result.pages ?? 1),
+        replyPages: Number(rawStats.replyPages ?? 0),
+        treeFills: Number(rawStats.treeFills ?? 0),
+        unavailable: Number(rawStats.unavailable ?? 0),
+        unavailableRoots: Number(rawStats.unavailableRoots ?? 0),
+    };
     emit('manga-comments-result', {
         mangaId,
-        items: comments.length,
+        rootPages: Number.isFinite(stats.rootPages) ? stats.rootPages : 1,
+        replyPages: Number.isFinite(stats.replyPages) ? stats.replyPages : 0,
+        treeFills: Number.isFinite(stats.treeFills) ? stats.treeFills : 0,
+        top: comments.length,
+        total: Number.isFinite(stats.total) ? stats.total : comments.length,
+        maxDepth: Number.isFinite(stats.maxDepth) ? stats.maxDepth : 0,
+        missingReplies: Number.isFinite(stats.missingReplies) ? stats.missingReplies : 0,
+        unavailable: Number.isFinite(stats.unavailable) ? stats.unavailable : 0,
+        unavailableRoots: Number.isFinite(stats.unavailableRoots) ? stats.unavailableRoots : 0,
         count: Number.isFinite(count) ? count : comments.length,
     });
-    return { comments, count: Number.isFinite(count) ? count : comments.length };
+    return {
+        comments,
+        count: Number.isFinite(count) ? count : comments.length,
+        stats: {
+            total: Number.isFinite(stats.total) ? stats.total : comments.length,
+            maxDepth: Number.isFinite(stats.maxDepth) ? stats.maxDepth : 0,
+            parents: Number.isFinite(stats.parents) ? stats.parents : 0,
+            missingReplies: Number.isFinite(stats.missingReplies) ? stats.missingReplies : 0,
+            rootPages: Number.isFinite(stats.rootPages) ? stats.rootPages : 1,
+            replyPages: Number.isFinite(stats.replyPages) ? stats.replyPages : 0,
+            treeFills: Number.isFinite(stats.treeFills) ? stats.treeFills : 0,
+            unavailable: Number.isFinite(stats.unavailable) ? stats.unavailable : 0,
+            unavailableRoots: Number.isFinite(stats.unavailableRoots) ? stats.unavailableRoots : 0,
+        },
+    };
 }
 
 export async function* fetchChapterList(

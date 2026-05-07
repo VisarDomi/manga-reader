@@ -59,8 +59,18 @@ function commentsSummary(data: unknown): string {
     const r = result as Record<string, unknown>;
     const comments = Array.isArray(r.comments) ? r.comments.length : 0;
     const count = Number(r.count ?? comments);
+    const upstreamCount = Number(r.upstreamCount ?? count);
     const thread = r.thread && typeof r.thread === 'object' ? (r.thread as Record<string, unknown>).id : null;
-    return `thread=${thread == null ? 'none' : thread} comments=${comments} count=${Number.isFinite(count) ? count : comments}`;
+    const stats = r.stats && typeof r.stats === 'object' ? r.stats as Record<string, unknown> : {};
+    const rootPages = Number(stats.rootPages ?? r.pages ?? 1);
+    const replyPages = Number(stats.replyPages ?? 0);
+    const treeFills = Number(stats.treeFills ?? 0);
+    const unavailable = Number(stats.unavailable ?? 0);
+    const unavailableRoots = Number(stats.unavailableRoots ?? 0);
+    const total = Number(stats.total ?? comments);
+    const maxDepth = Number(stats.maxDepth ?? 0);
+    const missingReplies = Number(stats.missingReplies ?? 0);
+    return `thread=${thread == null ? 'none' : thread} rootPages=${Number.isFinite(rootPages) ? rootPages : 1} replyPages=${Number.isFinite(replyPages) ? replyPages : 0} treeFills=${Number.isFinite(treeFills) ? treeFills : 0} top=${comments} total=${Number.isFinite(total) ? total : comments} maxDepth=${Number.isFinite(maxDepth) ? maxDepth : 0} missingReplies=${Number.isFinite(missingReplies) ? missingReplies : 0} unavailable=${Number.isFinite(unavailable) ? unavailable : 0} unavailableRoots=${Number.isFinite(unavailableRoots) ? unavailableRoots : 0} count=${Number.isFinite(count) ? count : comments} upstreamCount=${Number.isFinite(upstreamCount) ? upstreamCount : comments}`;
 }
 
 function logJsonProxy(method: string, pathStr: string, meta: ProxyFetchMeta, data: unknown): void {
