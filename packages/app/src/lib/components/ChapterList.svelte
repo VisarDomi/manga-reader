@@ -123,15 +123,6 @@
         appState.reader.openReader(manga, chapter);
     }
 
-    function scrollIfCurrent(node: HTMLElement, isCurrent: boolean) {
-        if (isCurrent) {
-            requestAnimationFrame(() => {
-                node.scrollIntoView({ block: 'center' });
-            });
-        }
-        return {};
-    }
-
     function formatDate(ts?: number): string {
         if (!ts) return '';
         const d = new Date(ts * 1000);
@@ -203,7 +194,6 @@
                 class:chapter-filtered={manga.isShowingBlockedChapters && isChapterFiltered(chapter)}
                 style={isCurrent && progressPercent > 0 ? `background: linear-gradient(to right, rgba(45, 212, 191, 0.55) ${progressPercent}%, #1a1a1a ${progressPercent}%)` : ''}
                 data-chapter-id={chapter.id}
-                use:scrollIfCurrent={isCurrent}
                 onclick={() => handleClick(chapter)}
             >
                 <span class="chapter-number">{chapter.number}</span>
