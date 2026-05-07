@@ -1,5 +1,4 @@
 <script lang="ts">
-    import { onMount } from 'svelte';
     import { appState } from '$lib/state/index.svelte.js';
     import { searchErrorMessage } from '$lib/state/search.svelte.js';
     import { sentinel } from '$lib/actions/sentinel.js';
@@ -13,65 +12,6 @@
     const isLoading = $derived(appState.searchState.isLoading);
     const hasMore = $derived(appState.searchState.hasMore);
     const error = $derived(appState.searchState.error);
-
-    let listEl: HTMLElement | null = null;
-
-    function prewarmVisible() {
-        if (!listEl) return;
-        const ids: string[] = [];
-        const byId = new Map(results.map(manga => [manga.id, manga]));
-        const cards = listEl.querySelectorAll('[data-manga-id]');
-        const viewTop = listEl.scrollTop;
-        const viewBottom = viewTop + listEl.clientHeight;
-        for (const card of cards) {
-            const el = card as HTMLElement;
-            const top = el.offsetTop;
-            const bottom = top + el.offsetHeight;
-            if (bottom > viewTop && top < viewBottom) {
-                const id = el.getAttribute('data-manga-id');
-                if (id) ids.push(id);
-            }
-        }
-        if (ids.length > 0) {
-            appState.prewarmVisibleManga(ids.map(id => byId.get(id)).filter(manga => manga != null));
-        }
-    }
-
-    $effect(() => {
-        total;
-        requestAnimationFrame(() => prewarmVisible());
-    });
-
-    onMount(() => {
-        listEl = document.getElementById('view-list');
-        if (!listEl) return;
-
-        let ticking = false;
-
-        function onScroll() {
-            if (ticking) return;
-            ticking = true;
-            requestAnimationFrame(() => {
-                ticking = false;
-                const centerY = window.innerHeight / 2;
-                const centerX = window.innerWidth / 2;
-                const el = document.elementFromPoint(centerX, centerY);
-                if (!el) return;
-                const card = el.closest('[data-manga-id]');
-                if (card) {
-                    const id = card.getAttribute('data-manga-id');
-                    if (id) appState.trackVisibleManga(id);
-                }
-                prewarmVisible();
-            });
-        }
-
-        listEl.addEventListener('scroll', onScroll, { passive: true });
-
-        requestAnimationFrame(() => prewarmVisible());
-
-        return () => listEl.removeEventListener('scroll', onScroll);
-    });
 </script>
 
 <SearchBar />
@@ -86,7 +26,7 @@
         </div>
     {/if}
 
-    <MangaList manga={results} />
+    <MangaList manga={results} trackVisible />
 
     {#if hasMore}
         <div class="sentinel" use:sentinel={{
