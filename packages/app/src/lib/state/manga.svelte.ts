@@ -6,6 +6,7 @@ import type { LogEmit } from '../services/LogService.js';
 import type { UIState } from './ui.svelte.js';
 import type { ToastState } from './toast.svelte.js';
 import type { GroupFilterState } from './groupFilter.svelte.js';
+import type { ChapterStatsState } from './chapterStats.svelte.js';
 import { type LoadError, toLoadError } from './errors.js';
 
 export class MangaState {
@@ -22,13 +23,15 @@ export class MangaState {
     private ui: UIState;
     private toast: ToastState;
     private gf: GroupFilterState;
+    private chapterStats: ChapterStatsState;
     private emit: LogEmit;
     private onOpen: (() => void) | null;
 
-    constructor(ui: UIState, toast: ToastState, gf: GroupFilterState, emit: LogEmit, onOpen?: () => void) {
+    constructor(ui: UIState, toast: ToastState, gf: GroupFilterState, chapterStats: ChapterStatsState, emit: LogEmit, onOpen?: () => void) {
         this.ui = ui;
         this.toast = toast;
         this.gf = gf;
+        this.chapterStats = chapterStats;
         this.emit = emit;
         this.onOpen = onOpen ?? null;
     }
@@ -80,6 +83,12 @@ export class MangaState {
         this.selectedGroups = new Set(storage.getJson<string[]>(`group:${mangaId}`, []));
     }
 
+    refreshChapterStats(): void {
+        const mangaId = this.activeManga?.id;
+        if (!mangaId || this.chapters.length === 0) return;
+        this.chapterStats.update(mangaId, this.activeManga?.latestChapter ?? null, this.chapters, this.selectedGroups);
+    }
+
     toggleGroup(id: string) {
         const next = new Set(this.selectedGroups);
         if (next.has(id)) next.delete(id);
@@ -92,6 +101,7 @@ export class MangaState {
         } else {
             storage.setJson(`group:${mangaId}`, [...next]);
         }
+        this.refreshChapterStats();
     }
 
     captureScrollAnchor(ratio: number) {
@@ -107,6 +117,7 @@ export class MangaState {
         this.selectedGroups = new Set();
         const mangaId = this.activeManga?.id;
         if (mangaId) storage.remove(`group:${mangaId}`);
+        this.refreshChapterStats();
     }
 
     private async consumeChapterStream(mangaId: string): Promise<void> {
@@ -148,6 +159,7 @@ export class MangaState {
             await this.consumeChapterStream(manga.id);
             this.error = null;
             this.loadGroupSelection();
+            this.refreshChapterStats();
         } catch (e) {
             this.error = toLoadError(e);
         } finally {
@@ -166,6 +178,7 @@ export class MangaState {
             await this.consumeChapterStream(manga.id);
             this.error = null;
             this.loadGroupSelection();
+            this.refreshChapterStats();
             return true;
         } catch (e) {
             this.error = toLoadError(e);

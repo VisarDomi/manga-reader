@@ -7,7 +7,12 @@
 
     const coverUrl = $derived(manga.cover ? api.coverProxyUrl(manga.cover) : '');
     const progress = $derived(appState.progress.get(manga.id));
-    const hasProgress = $derived(progress != null && manga.latestChapter != null);
+    const latestChapter = $derived(manga.latestChapter ?? 0);
+    const readChapter = $derived(progress?.chapterNumber ?? 0);
+    const filteredMax = $derived(appState.chapterStats.getFilteredMax(manga.id, manga.latestChapter ?? null) ?? 0);
+    const filteredMaxKnown = $derived(appState.chapterStats.getFilteredMax(manga.id, manga.latestChapter ?? null) != null);
+    const filteredMaxLoading = $derived(appState.chapterStats.isLoading(manga.id, manga.latestChapter ?? null));
+    const hasProgress = $derived(progress != null);
 </script>
 
 <button class="manga-card" data-manga-id={manga.id} onclick={() => appState.manga.openManga(manga)}>
@@ -17,15 +22,13 @@
         {/if}
     </div>
     <div class="manga-card-info">
-        {#if hasProgress}
+        {#if manga.latestChapter != null}
             <div class="manga-card-chapters">
-                <span>{progress!.chapterNumber}</span>
+                <span class:started={hasProgress} class="read-chapter">{readChapter}</span>
                 <span class="chapter-divider">/</span>
-                <span>{manga.latestChapter}</span>
-            </div>
-        {:else if manga.latestChapter != null}
-            <div class="manga-card-chapters unread">
-                <span>{manga.latestChapter}</span>
+                <span class="filtered-chapter" class:loading={filteredMaxLoading} class:ready={filteredMaxKnown}>{filteredMax}</span>
+                <span class="chapter-divider">/</span>
+                <span>{latestChapter}</span>
             </div>
         {/if}
     </div>
@@ -68,17 +71,44 @@
 .manga-card-chapters {
     font-size: 10px;
     font-weight: 700;
-    background: rgba(74, 246, 38, 0.9);
-    color: #000;
-    padding: 1px 6px;
+    background: rgba(10, 10, 10, 0.8);
+    color: #fff;
+    padding: 1px 4px;
     border-radius: 4px;
     display: inline-flex;
-    gap: 4px;
+    gap: 3px;
+    align-items: center;
 }
 
-.manga-card-chapters.unread {
+.read-chapter {
     background: rgba(239, 68, 68, 0.9);
     color: #fff;
+    border-radius: 3px;
+    min-width: 14px;
+    padding: 0 3px;
+    text-align: center;
+}
+
+.read-chapter.started {
+    background: rgba(74, 246, 38, 0.9);
+    color: #000;
+}
+
+.filtered-chapter {
+    border-radius: 3px;
+    min-width: 14px;
+    padding: 0 3px;
+    text-align: center;
+}
+
+.filtered-chapter.loading {
+    background: rgba(234, 179, 8, 0.95);
+    color: #000;
+}
+
+.filtered-chapter.ready {
+    background: rgba(74, 246, 38, 0.9);
+    color: #000;
 }
 
 .chapter-divider {

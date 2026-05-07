@@ -102,6 +102,54 @@ Confidence comes from the chain of evidence matching the chain of ownership.
 The final verification should prove both that the original failure is gone and
 that the new behavior is observable.
 
+### 8. Preserve Intent over Speculation
+
+User-triggered work and background work may share machinery, caches, and
+request paths, but they do not have equal authority. Explicit user intent must
+take precedence over speculative work. Background work should speed up likely
+future actions; it must not make current user actions wait behind guesses.
+
+### 9. Treat Priority as a Resource Policy
+
+Priority is not a label. It only exists when the system can actually reorder,
+replace, pause, cancel, or otherwise yield lower-priority work. If queued or
+active work cannot be displaced by more important work, the system does not
+have real priority.
+
+### 10. Model Lifecycle State Explicitly
+
+Unknown, loading, ready, stale, failed, and empty are different states. If
+those distinctions affect user decisions or debugging, they should be modeled
+directly rather than inferred from placeholder values like `0`, `null`, or an
+empty collection.
+
+### 11. Validate Shared Work Before Reuse
+
+Joining or reusing inflight work is correct only when that work still matches
+the current intent and state. Shared work needs validity checks. Reuse without
+those checks can turn an optimization into a correctness bug.
+
+### 12. Keep Control Near the Resource
+
+The layer that owns an expensive or fragile resource should own the policy for
+using it: queueing, caching, cancellation, retry, and observability. Higher
+layers should express intent and consume typed results, not micromanage the
+mechanism.
+
+### 13. Verify the Real Interaction Pattern
+
+A feature can look correct under slow, calm usage and fail under the actual
+workflow. Verification should include the way the user naturally stresses the
+system: fast scrolling, repeated navigation, interrupted work, recovery, and
+other realistic interaction patterns.
+
+### 14. Log Decisions, Not Only Outcomes
+
+Outcome logs show what happened. Decision logs show why it happened. Systems
+with queues, caches, retries, cancellation, or background work should log when
+work is queued, skipped, reused, cancelled, promoted, or rejected so scheduling
+and state bugs can be reasoned about from evidence.
+
 ## Product Decisions
 
 These are app-level behavior decisions that drive UX, persistence, navigation,
@@ -129,9 +177,21 @@ Search results are paginated from the upstream provider. Each page append dedupl
 
 The infinite scroll sentinel fires 5 viewports before the user reaches the bottom of the list (rootMargin: 500% 0px). This aggressive prefetch means the user almost never sees a loading state during normal scrolling — new pages load well before they're visible.
 
-## AS. Manga Cards Are Cover-Only
+## AS. Manga Cards Are Cover-First
 
-Manga cards show the cover image and nothing else — no title, no author, no badges, no padding between cards. The only overlay is a reading progress bar at the bottom of the card, visible only for manga with saved progress. This is a deliberate deviation from standard manga apps (Tachiyomi, MangaDex) which show title text and metadata below each card. The tradeoff: less information per card, but more covers visible at once and faster visual scanning. The user identifies manga by cover art, not by reading titles.
+Manga cards prioritize the cover image — no title, no author, no badges, no padding between cards. The only overlay is compact chapter-progress metadata at the bottom of the card (see BS). This is a deliberate deviation from standard manga apps (Tachiyomi, MangaDex) which show title text and metadata below each card. The tradeoff: less information per card, but more covers visible at once and faster visual scanning. The user identifies manga by cover art, not by reading titles.
+
+## BS. Manga Cards Show Read, Filtered Max, and Upstream Max
+
+Manga cards show three chapter numbers as `read / filtered max / upstream max`.
+
+- **Read:** The latest locally saved reading progress for this manga. If the manga has no saved progress, this is `0` on a red badge. If it has saved progress, the badge is green.
+- **Filtered max:** The highest chapter number known after applying the current group filters. This can only be known after the manga's chapter list has been loaded or warmed. Until known for the current filter state, it is shown as `0`; while the request is in flight the badge is yellow, and once known the badge is green.
+- **Upstream max:** The max/latest chapter number returned by the provider's search/list API.
+
+Filtered max values are cached per manga in localStorage, but only displayed when their cache key matches the current provider-wide blocked groups, the manga's saved per-manga group selection, and the upstream max currently shown by the provider list. If filters or upstream max change and no fresh chapter list has been loaded for that state, the cached value is treated as unknown rather than stale.
+
+Visible manga cards may warm chapter metadata in the background. The backend owns signed chapter-list fetching, inflight joining, and short-lived chapter-list caching; the frontend owns applying local group filters and writing the filtered max cache. Opening a manga refreshes the same cache from the loaded chapter list and remains the authoritative foreground path.
 
 ## AF. Chapter Group Filtering
 

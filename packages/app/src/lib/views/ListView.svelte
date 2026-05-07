@@ -2,7 +2,6 @@
     import { onMount } from 'svelte';
     import { appState } from '$lib/state/index.svelte.js';
     import { searchErrorMessage } from '$lib/state/search.svelte.js';
-    import * as api from '$lib/services/api.js';
     import { sentinel } from '$lib/actions/sentinel.js';
     import { SENTINEL_ROOT_MARGIN } from '$lib/constants.js';
     import SearchBar from '$lib/components/SearchBar.svelte';
@@ -15,33 +14,39 @@
     const hasMore = $derived(appState.searchState.hasMore);
     const error = $derived(appState.searchState.error);
 
-    const sentToPrewarm = new Set<string>();
+    let listEl: HTMLElement | null = null;
+
+    function prewarmVisible() {
+        if (!listEl) return;
+        const ids: string[] = [];
+        const byId = new Map(results.map(manga => [manga.id, manga]));
+        const cards = listEl.querySelectorAll('[data-manga-id]');
+        const viewTop = listEl.scrollTop;
+        const viewBottom = viewTop + listEl.clientHeight;
+        for (const card of cards) {
+            const el = card as HTMLElement;
+            const top = el.offsetTop;
+            const bottom = top + el.offsetHeight;
+            if (bottom > viewTop && top < viewBottom) {
+                const id = el.getAttribute('data-manga-id');
+                if (id) ids.push(id);
+            }
+        }
+        if (ids.length > 0) {
+            appState.prewarmVisibleManga(ids.map(id => byId.get(id)).filter(manga => manga != null));
+        }
+    }
+
+    $effect(() => {
+        total;
+        requestAnimationFrame(() => prewarmVisible());
+    });
 
     onMount(() => {
-        const listEl = document.getElementById('view-list');
+        listEl = document.getElementById('view-list');
         if (!listEl) return;
 
         let ticking = false;
-
-        function prewarmVisible() {
-            const ids: string[] = [];
-            const cards = listEl!.querySelectorAll('[data-manga-id]');
-            const viewTop = listEl!.scrollTop;
-            const viewBottom = viewTop + listEl!.clientHeight;
-            for (const card of cards) {
-                const el = card as HTMLElement;
-                const top = el.offsetTop;
-                const bottom = top + el.offsetHeight;
-                if (bottom > viewTop && top < viewBottom) {
-                    const id = el.getAttribute('data-manga-id');
-                    if (id && !sentToPrewarm.has(id)) ids.push(id);
-                }
-            }
-            if (ids.length > 0) {
-                for (const id of ids) sentToPrewarm.add(id);
-                api.prewarmChapters(ids);
-            }
-        }
 
         function onScroll() {
             if (ticking) return;

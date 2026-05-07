@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { onMount } from 'svelte';
     import { appState } from '$lib/state/index.svelte.js';
     import { swipeBack } from '$lib/actions/swipeBack.js';
     import SearchBar from '$lib/components/SearchBar.svelte';
@@ -6,11 +7,57 @@
 
     const favsItems = $derived(appState.favorites.items);
     const favsLoading = $derived(appState.favorites.isLoading);
+    let listEl: HTMLElement | null = null;
 
     function handleClose() {
         appState.favorites.deactivate();
         appState.ui.popView();
     }
+
+    function prewarmVisible() {
+        if (!listEl) return;
+        const byId = new Map(favsItems.map(manga => [manga.id, manga]));
+        const ids: string[] = [];
+        const cards = listEl.querySelectorAll('[data-manga-id]');
+        const viewTop = listEl.scrollTop;
+        const viewBottom = viewTop + listEl.clientHeight;
+        for (const card of cards) {
+            const el = card as HTMLElement;
+            const top = el.offsetTop;
+            const bottom = top + el.offsetHeight;
+            if (bottom > viewTop && top < viewBottom) {
+                const id = el.getAttribute('data-manga-id');
+                if (id) ids.push(id);
+            }
+        }
+        if (ids.length === 0) return;
+        appState.prewarmVisibleManga(ids.map(id => byId.get(id)).filter(manga => manga != null));
+    }
+
+    $effect(() => {
+        favsItems.length;
+        requestAnimationFrame(() => prewarmVisible());
+    });
+
+    onMount(() => {
+        listEl = document.getElementById('view-favorites');
+        if (!listEl) return;
+
+        let ticking = false;
+        function onScroll() {
+            if (ticking) return;
+            ticking = true;
+            requestAnimationFrame(() => {
+                ticking = false;
+                prewarmVisible();
+            });
+        }
+
+        listEl.addEventListener('scroll', onScroll, { passive: true });
+        requestAnimationFrame(() => prewarmVisible());
+
+        return () => listEl.removeEventListener('scroll', onScroll);
+    });
 </script>
 
 <div class="favorites-view" use:swipeBack={{ onClose: handleClose, ui: appState.ui }}>

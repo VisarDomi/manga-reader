@@ -110,8 +110,8 @@ export function createProxyRouter(browserSession: BrowserSession | null): Router
             return;
         }
 
-        browserSession.prewarmSigs(mangaIds);
-        res.status(202).json({ queued: mangaIds.length });
+        const result = browserSession.prewarmChapterLists(mangaIds);
+        res.status(202).json(result);
     }));
 
     router.post('/prewarm-chapter-details', asyncHandler(async (req, res) => {
