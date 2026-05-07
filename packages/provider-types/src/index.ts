@@ -14,6 +14,7 @@ export interface ChapterMeta {
   groupId?: string;
   groupName: string;
   uploadedAt?: number;
+  url?: string;
 }
 
 export interface ChapterPage {
@@ -65,6 +66,8 @@ export interface HttpRequest {
   headers?: Record<string, string>;
   body?: string;
   cloudflareProtected?: boolean;
+  signingMangaId?: string;
+  signingPageUrl?: string;
 }
 
 export interface MangaProvider {
@@ -83,9 +86,9 @@ export interface MangaProvider {
   chapterListRequest(mangaId: string, page: number): HttpRequest;
   parseChapterListResponse(data: unknown): ChapterListPage;
 
-  chapterImagesRequest(mangaId: string, chapterId: string, chapterNumber: number): HttpRequest;
+  chapterImagesRequest(mangaId: string, chapterId: string, chapterNumber: number, chapterUrl?: string): HttpRequest;
   parseChapterImagesResponse(data: unknown): ChapterPage[];
   readonly chapterImagesResponseType: 'json' | 'html';
 
-  imageHeaders?(mangaId: string, chapterId: string, chapterNumber: number): Record<string, string>;
+  imageHeaders?(mangaId: string, chapterId: string, chapterNumber: number, chapterUrl?: string): Record<string, string>;
 }

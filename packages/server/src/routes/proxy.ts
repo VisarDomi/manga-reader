@@ -11,6 +11,8 @@ interface ProxyBody {
     body?: string;
     responseType?: 'json' | 'text';
     cloudflareProtected?: boolean;
+    signingMangaId?: string;
+    signingPageUrl?: string;
 }
 
 function jsonApiStatus(data: unknown): string {
@@ -25,6 +27,8 @@ function jsonResultSummary(data: unknown): string {
     if (!result || typeof result !== 'object') return `result=${result === null ? 'null' : typeof result}`;
     const items = (result as Record<string, unknown>).items;
     if (Array.isArray(items)) return `items=${items.length}`;
+    const pages = (result as Record<string, unknown>).pages;
+    if (Array.isArray(pages)) return `pages=${pages.length}`;
     return 'items=none';
 }
 
@@ -36,7 +40,7 @@ export function createProxyRouter(browserSession: BrowserSession | null): Router
     const router = Router();
 
     router.post('/proxy', asyncHandler(async (req, res) => {
-        const { url, method = 'GET', headers = {}, body, responseType = 'json', cloudflareProtected } = req.body as ProxyBody;
+        const { url, method = 'GET', headers = {}, body, responseType = 'json', cloudflareProtected, signingMangaId, signingPageUrl } = req.body as ProxyBody;
 
         if (!url || typeof url !== 'string') {
             res.status(400).json({ error: 'Missing or invalid url', status: 400 });
@@ -53,8 +57,8 @@ export function createProxyRouter(browserSession: BrowserSession | null): Router
         const parsed = new URL(url);
         const pathStr = parsed.pathname + (parsed.search ? parsed.search : '');
 
-        if (browserSession?.needsSigning(url)) {
-            const result = await browserSession.signedFetch(url);
+        if (browserSession?.needsSigning(url, signingMangaId)) {
+            const result = await browserSession.signedFetch(url, signingMangaId, signingPageUrl);
             console.log(`[proxy] signed ${pathStr} api=${jsonApiStatus(result.data)} ${jsonResultSummary(result.data)} ${result.durationMs}ms`);
             res.json(result.data);
             return;

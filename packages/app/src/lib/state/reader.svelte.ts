@@ -83,10 +83,10 @@ export class ReaderState {
         this.ui.pushView(View.READER);
 
         try {
-            const pages = await api.fetchChapterImages(manga.id, chapter.id, chapter.number);
+            const pages = await api.fetchChapterImages(manga.id, chapter.id, chapter.number, chapter.url);
             const proxiedPages = pages.map(p => ({
                 ...p,
-                url: api.imageProxyUrl(p.url, manga.id, chapter.id, chapter.number),
+                url: api.imageProxyUrl(p.url, manga.id, chapter.id, chapter.number, chapter.url),
             }));
             this.error = null;
             this.loadedChapters = [{
@@ -132,10 +132,10 @@ export class ReaderState {
         this.log.emit('reader-open', { mangaId: manga.id, chapterId: chapter.id, chapterNumber: chapter.number, hasRestore: true });
 
         try {
-            const pages = await api.fetchChapterImages(manga.id, chapter.id, chapter.number);
+            const pages = await api.fetchChapterImages(manga.id, chapter.id, chapter.number, chapter.url);
             const proxiedPages = pages.map(p => ({
                 ...p,
-                url: api.imageProxyUrl(p.url, manga.id, chapter.id, chapter.number),
+                url: api.imageProxyUrl(p.url, manga.id, chapter.id, chapter.number, chapter.url),
             }));
             this.error = null;
             this.loadedChapters = [{
@@ -254,10 +254,10 @@ export class ReaderState {
 
     private async loadChapter(req: ChapterLoadRequest): Promise<ChapterLoadResult> {
         try {
-            const pages = await api.fetchChapterImages(req.manga.id, req.chapter.id, req.chapter.number);
+            const pages = await api.fetchChapterImages(req.manga.id, req.chapter.id, req.chapter.number, req.chapter.url);
             const proxiedPages = pages.map(p => ({
                 ...p,
-                url: api.imageProxyUrl(p.url, req.manga.id, req.chapter.id, req.chapter.number),
+                url: api.imageProxyUrl(p.url, req.manga.id, req.chapter.id, req.chapter.number, req.chapter.url),
             }));
             return {
                 kind: 'loaded',

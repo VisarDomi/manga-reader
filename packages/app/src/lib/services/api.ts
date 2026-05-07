@@ -30,6 +30,8 @@ async function proxyRequest<T>(req: HttpRequest, responseType: 'json' | 'text', 
         body: req.body,
         responseType,
         cloudflareProtected: req.cloudflareProtected,
+        signingMangaId: req.signingMangaId,
+        signingPageUrl: req.signingPageUrl,
     });
 
     const fetchOpts = {
@@ -70,9 +72,9 @@ async function proxyRequest<T>(req: HttpRequest, responseType: 'json' | 'text', 
         throw e;
     }
 }
-export function imageProxyUrl(url: string, mangaId: string, chapterId: string, chapterNumber: number): string {
+export function imageProxyUrl(url: string, mangaId: string, chapterId: string, chapterNumber: number, chapterUrl?: string): string {
     const provider = getProvider();
-    const referer = provider.imageHeaders?.(mangaId, chapterId, chapterNumber)?.['Referer'];
+    const referer = provider.imageHeaders?.(mangaId, chapterId, chapterNumber, chapterUrl)?.['Referer'];
     return _imageProxyUrl(url, referer);
 }
 
@@ -170,9 +172,9 @@ export function prewarmChapters(mangaIds: string[]): void {
     }).catch(() => {});
 }
 
-export async function fetchChapterImages(mangaId: string, chapterId: string, chapterNumber: number): Promise<ChapterPage[]> {
+export async function fetchChapterImages(mangaId: string, chapterId: string, chapterNumber: number, chapterUrl?: string): Promise<ChapterPage[]> {
     const provider = getProvider();
-    const req = provider.chapterImagesRequest(mangaId, chapterId, chapterNumber);
+    const req = provider.chapterImagesRequest(mangaId, chapterId, chapterNumber, chapterUrl);
     const responseType = provider.chapterImagesResponseType === 'html' ? 'text' : 'json';
     const data = await proxyRequest(req, responseType as 'json' | 'text', { retry: true });
     const pages = provider.parseChapterImagesResponse(data);

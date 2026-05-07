@@ -3,8 +3,29 @@ import { TERMS, TYPES, STATUSES, TYPE_LABELS, STATUS_LABELS, NSFW_TERM_IDS } fro
 import { extractJsonArray } from './parse.js';
 
 const BASE_URL = 'https://comix.to';
-const API_URL = `${BASE_URL}/api/v2`;
+const API_URL = `${BASE_URL}/api/v1`;
 const SEARCH_LIMIT = 100;
+
+function firstString(...values: unknown[]): string {
+  for (const value of values) {
+    if (typeof value === 'string' && value.length > 0) return value;
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  }
+  return '';
+}
+
+function paginationFrom(raw: Record<string, unknown> | undefined, fallbackTotal: number): PaginationMeta {
+  return {
+    currentPage: Number(raw?.current_page ?? raw?.page ?? 1),
+    lastPage: Number(raw?.last_page ?? raw?.lastPage ?? 1),
+    total: Number(raw?.total ?? fallbackTotal),
+  };
+}
+
+function absoluteComixUrl(url: string): string {
+  if (!url) return '';
+  return url.startsWith('http') ? url : `${BASE_URL}${url.startsWith('/') ? '' : '/'}${url}`;
+}
 
 const provider: MangaProvider = {
   id: 'comix',
@@ -13,7 +34,7 @@ const provider: MangaProvider = {
   language: 'en',
   version: '1.0.0',
   nsfw: true,
-  chapterImagesResponseType: 'html',
+  chapterImagesResponseType: 'json',
 
   getFilters(): FilterDefinition {
     const nsfwIds = new Set(NSFW_TERM_IDS.map(Number));
@@ -69,35 +90,31 @@ const provider: MangaProvider = {
     const d = data as Record<string, unknown>;
     const result = d.result as Record<string, unknown> | undefined;
     const items = (result?.items ?? (d as Record<string, unknown>).items ?? []) as Record<string, unknown>[];
-    const paginationRaw = (result?.pagination ?? d.pagination) as Record<string, unknown> | undefined;
+    const paginationRaw = (result?.pagination ?? result?.meta ?? d.pagination ?? d.meta) as Record<string, unknown> | undefined;
 
     const termMap = new Map<number, string>();
     for (const t of TERMS) termMap.set(t.id, t.name);
 
     const manga: Manga[] = items.map(item => {
       const poster = item.poster as Record<string, string> | null;
-      const hashId = String(item.hash_id ?? '');
-      const slug = String(item.slug ?? '');
+      const hashId = firstString(item.hash_id, item.hid);
+      const slug = firstString(item.slug);
       const termIds = item.term_ids as number[] | undefined;
       const tags = termIds?.map(id => termMap.get(id)).filter((n): n is string => n != null);
       return {
         id: hashId || slug,
         title: String(item.title ?? ''),
         cover: poster?.medium ?? poster?.large ?? poster?.small ?? '',
-        latestChapter: item.latest_chapter != null ? Number(item.latest_chapter) : null,
+        latestChapter: item.latest_chapter != null || item.latestChapter != null ? Number(item.latest_chapter ?? item.latestChapter) : null,
         author: item.author ? String(item.author) : undefined,
         status: item.status ? String(item.status) : undefined,
         tags: tags?.length ? tags : undefined,
       };
     });
 
-    const pagination: PaginationMeta | undefined = paginationRaw ? {
-      currentPage: Number(paginationRaw.current_page ?? 1),
-      lastPage: Number(paginationRaw.last_page ?? 1),
-      total: Number(paginationRaw.total ?? items.length),
-    } : undefined;
+    const pagination = paginationRaw ? paginationFrom(paginationRaw, items.length) : undefined;
 
-    return { items: manga, hasMore: manga.length >= SEARCH_LIMIT, pagination };
+    return { items: manga, hasMore: pagination ? pagination.currentPage < pagination.lastPage : manga.length >= SEARCH_LIMIT, pagination };
   },
 
   chapterListRequest(mangaId: string, page: number): HttpRequest {
@@ -112,36 +129,38 @@ const provider: MangaProvider = {
     const d = data as Record<string, unknown>;
     const result = d.result as Record<string, unknown> | undefined;
     const items = (result?.items ?? []) as Record<string, unknown>[];
-    const paginationRaw = (result?.pagination ?? d.pagination) as Record<string, unknown> | undefined;
+    const paginationRaw = (result?.pagination ?? result?.meta ?? d.pagination ?? d.meta) as Record<string, unknown> | undefined;
 
     const chapters = items.map(item => {
-      const group = item.scanlation_group as Record<string, unknown> | undefined;
+      const group = (item.scanlation_group ?? item.group) as Record<string, unknown> | undefined;
       return {
-        id: String(item.chapter_id ?? ''),
+        id: firstString(item.chapter_id, item.id),
         number: parseFloat(String(item.number)),
-        groupId: item.scanlation_group_id != null ? String(item.scanlation_group_id) : undefined,
+        groupId: firstString(item.scanlation_group_id, group?.id) || undefined,
         groupName: (group?.name as string) ?? 'Unknown',
         uploadedAt: item.created_at != null ? Number(item.created_at) : undefined,
+        url: absoluteComixUrl(firstString(item.url)),
       };
     });
 
-    const pagination: PaginationMeta = {
-      currentPage: Number(paginationRaw?.current_page ?? 1),
-      lastPage: Number(paginationRaw?.last_page ?? 1),
-      total: Number(paginationRaw?.total ?? items.length),
-    };
+    const pagination = paginationFrom(paginationRaw, items.length);
 
     return { items: chapters, pagination };
   },
 
-  chapterImagesRequest(mangaId: string, chapterId: string, chapterNumber: number): HttpRequest {
-    return { url: `${BASE_URL}/title/${mangaId}/${chapterId}-chapter-${chapterNumber}`, cloudflareProtected: true };
+  chapterImagesRequest(mangaId: string, chapterId: string, chapterNumber: number, chapterUrl?: string): HttpRequest {
+    return {
+      url: `${API_URL}/chapters/${chapterId}`,
+      cloudflareProtected: true,
+      signingMangaId: mangaId,
+      signingPageUrl: absoluteComixUrl(chapterUrl ?? '') || undefined,
+    };
   },
 
   parseChapterImagesResponse(data: unknown): ChapterPage[] {
-    const html = data as string;
-    const jsonString = extractJsonArray(html, 'images');
-    const parsed = JSON.parse(jsonString) as { url: string; width?: number; height?: number }[];
+    const d = data as Record<string, unknown>;
+    const result = d.result as Record<string, unknown> | undefined;
+    const parsed = (result?.pages ?? []) as { url: string; width?: number; height?: number }[];
     return parsed.map(img => ({
       url: String(img.url ?? ''),
       width: Number(img.width ?? 0),
@@ -149,8 +168,8 @@ const provider: MangaProvider = {
     }));
   },
 
-  imageHeaders(mangaId: string, chapterId: string, chapterNumber: number): Record<string, string> {
-    return { Referer: `${BASE_URL}/title/${mangaId}/${chapterId}-chapter-${chapterNumber}` };
+  imageHeaders(mangaId: string, chapterId: string, chapterNumber: number, chapterUrl?: string): Record<string, string> {
+    return { Referer: absoluteComixUrl(chapterUrl ?? '') || `${BASE_URL}/title/${mangaId}/${chapterId}-chapter-${chapterNumber}` };
   },
 };
 

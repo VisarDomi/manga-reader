@@ -428,37 +428,32 @@ var e = [
 	87266,
 	87267,
 	87268
-];
-//#endregion
-//#region src/parse.ts
-function o(e, t) {
-	let n = t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), r = [[`\\"${n}\\"`, !0], [`"${n}"`, !1]];
-	for (let [t, n] of r) {
-		let r = e.indexOf(t);
-		if (r === -1) continue;
-		let i = e.slice(r + t.length).match(/^\s*:\s*(\[[\s\S]*?\])/);
-		if (!i) continue;
-		let a = i[1];
-		n && (a = a.replace(/\\"/g, "\"").replace(/\\\//g, "/"));
-		try {
-			JSON.parse(a);
-		} catch {
-			continue;
-		}
-		return a;
+], o = "https://comix.to", s = `${o}/api/v1`, c = 100;
+function l(...e) {
+	for (let t of e) {
+		if (typeof t == "string" && t.length > 0) return t;
+		if (typeof t == "number" && Number.isFinite(t)) return String(t);
 	}
-	throw Error(`Key "${t}" not found in HTML (tried both escaped and unescaped patterns)`);
+	return "";
 }
-//#endregion
-//#region src/index.ts
-var s = "https://comix.to", c = `${s}/api/v2`, l = 100, u = {
+function u(e, t) {
+	return {
+		currentPage: Number(e?.current_page ?? e?.page ?? 1),
+		lastPage: Number(e?.last_page ?? e?.lastPage ?? 1),
+		total: Number(e?.total ?? t)
+	};
+}
+function d(e) {
+	return e ? e.startsWith("http") ? e : `${o}${e.startsWith("/") ? "" : "/"}${e}` : "";
+}
+var f = {
 	id: "comix",
 	name: "Comix",
-	baseUrl: s,
+	baseUrl: o,
 	language: "en",
 	version: "1.0.0",
 	nsfw: !0,
-	chapterImagesResponseType: "html",
+	chapterImagesResponseType: "json",
 	getFilters() {
 		let o = new Set(a.map(Number));
 		return {
@@ -480,86 +475,80 @@ var s = "https://comix.to", c = `${s}/api/v2`, l = 100, u = {
 	},
 	searchRequest(e, t, n) {
 		let r = new URLSearchParams();
-		if (r.set("page", String(t)), r.set("limit", String(l)), e ? r.set("keyword", e) : r.set("order[chapter_updated_at]", "desc"), n) {
+		if (r.set("page", String(t)), r.set("limit", String(c)), e ? r.set("keyword", e) : r.set("order[chapter_updated_at]", "desc"), n) {
 			if (n.includeGenres) for (let e of n.includeGenres) r.append("genres[]", e);
 			if (n.excludeGenres) for (let e of n.excludeGenres) r.append("genres[]", `-${e}`);
 			if (((n.includeGenres?.length ?? 0) > 0 || (n.excludeGenres?.length ?? 0) > 0) && r.set("genres_mode", "and"), n.types) for (let e of n.types) r.append("types[]", e);
 			if (n.statuses) for (let e of n.statuses) r.append("statuses[]", e);
 		}
 		return {
-			url: `${c}/manga?${r}`,
+			url: `${s}/manga?${r}`,
 			cloudflareProtected: !0
 		};
 	},
 	parseSearchResponse(t) {
-		let n = t, r = n.result, i = r?.items ?? n.items ?? [], a = r?.pagination ?? n.pagination, o = /* @__PURE__ */ new Map();
+		let n = t, r = n.result, i = r?.items ?? n.items ?? [], a = r?.pagination ?? r?.meta ?? n.pagination ?? n.meta, o = /* @__PURE__ */ new Map();
 		for (let t of e) o.set(t.id, t.name);
 		let s = i.map((e) => {
-			let t = e.poster, n = String(e.hash_id ?? ""), r = String(e.slug ?? ""), i = e.term_ids?.map((e) => o.get(e)).filter((e) => e != null);
+			let t = e.poster, n = l(e.hash_id, e.hid), r = l(e.slug), i = e.term_ids?.map((e) => o.get(e)).filter((e) => e != null);
 			return {
 				id: n || r,
 				title: String(e.title ?? ""),
 				cover: t?.medium ?? t?.large ?? t?.small ?? "",
-				latestChapter: e.latest_chapter == null ? null : Number(e.latest_chapter),
+				latestChapter: e.latest_chapter != null || e.latestChapter != null ? Number(e.latest_chapter ?? e.latestChapter) : null,
 				author: e.author ? String(e.author) : void 0,
 				status: e.status ? String(e.status) : void 0,
 				tags: i?.length ? i : void 0
 			};
-		}), c = a ? {
-			currentPage: Number(a.current_page ?? 1),
-			lastPage: Number(a.last_page ?? 1),
-			total: Number(a.total ?? i.length)
-		} : void 0;
+		}), d = a ? u(a, i.length) : void 0;
 		return {
 			items: s,
-			hasMore: s.length >= l,
-			pagination: c
+			hasMore: d ? d.currentPage < d.lastPage : s.length >= c,
+			pagination: d
 		};
 	},
 	chapterListRequest(e, t) {
 		let n = new URLSearchParams();
 		return n.set("limit", "100"), n.set("page", String(t)), n.set("order[number]", "desc"), {
-			url: `${c}/manga/${e}/chapters?${n}`,
+			url: `${s}/manga/${e}/chapters?${n}`,
 			cloudflareProtected: !0
 		};
 	},
 	parseChapterListResponse(e) {
-		let t = e, n = t.result, r = n?.items ?? [], i = n?.pagination ?? t.pagination;
+		let t = e, n = t.result, r = n?.items ?? [], i = n?.pagination ?? n?.meta ?? t.pagination ?? t.meta;
 		return {
 			items: r.map((e) => {
-				let t = e.scanlation_group;
+				let t = e.scanlation_group ?? e.group;
 				return {
-					id: String(e.chapter_id ?? ""),
+					id: l(e.chapter_id, e.id),
 					number: parseFloat(String(e.number)),
-					groupId: e.scanlation_group_id == null ? void 0 : String(e.scanlation_group_id),
+					groupId: l(e.scanlation_group_id, t?.id) || void 0,
 					groupName: t?.name ?? "Unknown",
-					uploadedAt: e.created_at == null ? void 0 : Number(e.created_at)
+					uploadedAt: e.created_at == null ? void 0 : Number(e.created_at),
+					url: d(l(e.url))
 				};
 			}),
-			pagination: {
-				currentPage: Number(i?.current_page ?? 1),
-				lastPage: Number(i?.last_page ?? 1),
-				total: Number(i?.total ?? r.length)
-			}
+			pagination: u(i, r.length)
 		};
 	},
-	chapterImagesRequest(e, t, n) {
+	chapterImagesRequest(e, t, n, r) {
 		return {
-			url: `${s}/title/${e}/${t}-chapter-${n}`,
-			cloudflareProtected: !0
+			url: `${s}/chapters/${t}`,
+			cloudflareProtected: !0,
+			signingMangaId: e,
+			signingPageUrl: d(r ?? "") || void 0
 		};
 	},
 	parseChapterImagesResponse(e) {
-		let t = o(e, "images");
-		return JSON.parse(t).map((e) => ({
+		return (e.result?.pages ?? []).map((e) => ({
 			url: String(e.url ?? ""),
 			width: Number(e.width ?? 0),
 			height: Number(e.height ?? 0)
 		}));
 	},
-	imageHeaders(e, t, n) {
-		return { Referer: `${s}/title/${e}/${t}-chapter-${n}` };
+	imageHeaders(e, t, n, r) {
+		return { Referer: d(r ?? "") || `${o}/title/${e}/${t}-chapter-${n}` };
 	}
 };
 //#endregion
-export { u as default };
+export { f as default };

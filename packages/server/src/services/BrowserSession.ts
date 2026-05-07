@@ -20,7 +20,9 @@ const STEALTH_ARGS = [
 
 const IGNORE_DEFAULT_ARGS = ['--enable-automation', '--enable-unsafe-swiftshader'];
 
-const SIGNED_PATTERN = /\/manga\/([^/]+)\/chapters/;
+const CHAPTER_LIST_PATTERN = /\/manga\/([^/]+)\/chapters/;
+const CHAPTER_DETAIL_PATTERN = /\/chapters\/([^/?]+)/;
+const COMIX_API_BASE_PATH = '/api/v1';
 const MAX_WORKERS = 4;
 
 export interface BrowserFetchResult {
@@ -41,6 +43,21 @@ interface WorkItem {
     resolve: (sig: string) => void;
     reject: (err: Error) => void;
 }
+
+interface SignedChapterRequest {
+    kind: 'chapter-list';
+    mangaId: string;
+    page: number;
+}
+
+interface SignedChapterDetailRequest {
+    kind: 'chapter-detail';
+    mangaId: string;
+    chapterId: string;
+    signingPageUrl?: string;
+}
+
+type SignedRequest = SignedChapterRequest | SignedChapterDetailRequest;
 
 interface SignatureLease {
     value: string;
@@ -254,8 +271,8 @@ export class BrowserSession {
         return this._ready;
     }
 
-    needsSigning(url: string): boolean {
-        return SIGNED_PATTERN.test(url);
+    needsSigning(url: string, signingMangaId?: string): boolean {
+        return CHAPTER_LIST_PATTERN.test(url) || (!!signingMangaId && CHAPTER_DETAIL_PATTERN.test(url));
     }
 
     async init(): Promise<void> {
@@ -285,7 +302,7 @@ export class BrowserSession {
 
             const cdp = await this.context.newCDPSession(this.fetchPage);
             await cdp.send('Emulation.setScriptExecutionDisabled', { value: true });
-            await this.fetchPage.goto(`${this.startUrl}/api/v2`, { waitUntil: 'domcontentloaded', timeout: 15_000 });
+            await this.fetchPage.goto(`${this.startUrl}${COMIX_API_BASE_PATH}`, { waitUntil: 'domcontentloaded', timeout: 15_000 });
 
             console.log(`[browserSession] ready ${this.domain} ${Date.now() - start}ms`);
             this._ready = true;
@@ -301,26 +318,42 @@ export class BrowserSession {
         }
     }
 
-    async signedFetch(fullUrl: string): Promise<BrowserFetchResult> {
+    async signedFetch(fullUrl: string, signingMangaId?: string, signingPageUrl?: string): Promise<BrowserFetchResult> {
         await this.init();
 
-        const match = fullUrl.match(SIGNED_PATTERN);
-        if (!match) {
-            throw new Error(`Cannot extract mangaId from ${fullUrl}`);
-        }
-        const mangaId = match[1];
+        const request = this.parseSignedRequest(fullUrl, signingMangaId, signingPageUrl);
         const start = Date.now();
 
         try {
-            const data = await this.fetchAllChapters(mangaId);
+            const data = request.kind === 'chapter-list'
+                ? await this.fetchChapterPageWithSig(request.mangaId, request.page, false)
+                : await this.fetchChapterDetailFromPage(request.mangaId, request.chapterId, request.signingPageUrl);
             const durationMs = Date.now() - start;
             return { data, durationMs };
         } catch (e) {
             const durationMs = Date.now() - start;
             const msg = (e as Error)?.message ?? String(e);
-            console.log(`[browserSession] fetch-error ${mangaId} ${durationMs}ms ${msg}`);
+            const target = request.kind === 'chapter-list' ? `page=${request.page}` : `chapter=${request.chapterId}`;
+            console.log(`[browserSession] fetch-error ${request.mangaId} ${target} ${durationMs}ms ${msg}`);
             throw e;
         }
+    }
+
+    private parseSignedRequest(fullUrl: string, signingMangaId?: string, signingPageUrl?: string): SignedRequest {
+        const parsed = new URL(fullUrl);
+        const chapterListMatch = parsed.pathname.match(CHAPTER_LIST_PATTERN);
+        if (chapterListMatch) {
+            const rawPage = Number(parsed.searchParams.get('page') ?? 1);
+            const page = Number.isFinite(rawPage) && rawPage > 0 ? Math.floor(rawPage) : 1;
+            return { kind: 'chapter-list', mangaId: chapterListMatch[1], page };
+        }
+
+        const chapterDetailMatch = parsed.pathname.match(CHAPTER_DETAIL_PATTERN);
+        if (chapterDetailMatch && signingMangaId) {
+            return { kind: 'chapter-detail', mangaId: signingMangaId, chapterId: chapterDetailMatch[1], signingPageUrl };
+        }
+
+        throw new Error(`Cannot extract signed request target from ${fullUrl}`);
     }
 
     prewarmSigs(mangaIds: string[]): void {
@@ -344,6 +377,81 @@ export class BrowserSession {
             this.scheduler.invalidate(mangaId, 'signed-api-rejected');
             console.log(`[browserSession] chapters ${mangaId} signed-api-rejected retrying: ${msg}`);
             return this.fetchAllChaptersWithSig(mangaId, true);
+        }
+    }
+
+    private async fetchChapterPageWithSig(mangaId: string, page: number, forceRefresh: boolean): Promise<unknown> {
+        const t0 = Date.now();
+        const cachedBefore = !forceRefresh && !!this.scheduler.getCachedSig(mangaId);
+        const sig = await this.scheduler.acquire(mangaId, Priority.USER, forceRefresh);
+        const sigMs = Date.now() - t0;
+        const sigSource = forceRefresh ? 'refresh' : (cachedBefore ? 'cache' : (sigMs < 5 ? 'cache' : 'nav'));
+
+        try {
+            const t1 = Date.now();
+            const data = await this.fetchChapterPage(mangaId, sig, page);
+            const pageMs = Date.now() - t1;
+            const pagination = data?.result?.pagination ?? data?.result?.meta;
+            const items = data?.result?.items ?? [];
+            const currentPage = pagination?.current_page ?? pagination?.page ?? page;
+            const lastPage = pagination?.last_page ?? pagination?.lastPage ?? '?';
+            const total = pagination?.total ?? items.length;
+            console.log(`[browserSession] chapters ${mangaId} sig=${sigSource}:${sigMs}ms page=${currentPage}/${lastPage} items=${items.length} total=${total} ${pageMs}ms`);
+            return data;
+        } catch (e) {
+            if (!forceRefresh && isSignedApiRejected(e)) {
+                const msg = (e as Error)?.message ?? String(e);
+                this.scheduler.invalidate(mangaId, 'signed-api-rejected');
+                console.log(`[browserSession] chapters ${mangaId} page=${page} signed-api-rejected retrying: ${msg}`);
+                return this.fetchChapterPageWithSig(mangaId, page, true);
+            }
+            throw e;
+        }
+    }
+
+    private async fetchChapterDetailFromPage(mangaId: string, chapterId: string, signingPageUrl?: string): Promise<unknown> {
+        if (!signingPageUrl) {
+            throw new Error(`Missing signingPageUrl for chapter ${chapterId}`);
+        }
+
+        const page = await this.context!.newPage();
+        const t0 = Date.now();
+        try {
+            const dataPromise = new Promise<unknown>((resolve, reject) => {
+                const timeout = setTimeout(() => {
+                    page.off('response', handler);
+                    reject(new Error(`Timed out waiting for signed chapter detail ${chapterId}`));
+                }, 15_000);
+
+                const handler = async (res: import('playwright').Response) => {
+                    const url = res.url();
+                    if (!url.includes(`${COMIX_API_BASE_PATH}/chapters/${chapterId}`) || !url.includes('_=')) return;
+
+                    clearTimeout(timeout);
+                    page.off('response', handler);
+                    try {
+                        if (!res.ok()) {
+                            reject(new Error(`HTTP ${res.status()} ${res.statusText()}`));
+                            return;
+                        }
+                        resolve(assertJsonEnvelopeOk(await res.json()));
+                    } catch (e) {
+                        reject(e);
+                    }
+                };
+
+                page.on('response', handler);
+            });
+
+            await page.goto(signingPageUrl, { waitUntil: 'commit', timeout: 15_000 });
+            const data = await dataPromise;
+            const pages = (data as any)?.result?.pages ?? [];
+            console.log(`[browserSession] chapter ${mangaId}/${chapterId} page-load pages=${pages.length} ${Date.now() - t0}ms`);
+            return data;
+        } finally {
+            await page.close().catch(e => {
+                console.log(`[browserSession] chapter page-close failed ${mangaId}/${chapterId}: ${(e as Error)?.message ?? e}`);
+            });
         }
     }
 
@@ -422,15 +530,15 @@ export class BrowserSession {
 
     private async fetchChapterPage(mangaId: string, sig: string, pageNum: number): Promise<any> {
         const data = await this.fetchPage!.evaluate(
-            async ({ mangaId, sig, pageNum }) => {
-                const url = `/api/v2/manga/${mangaId}/chapters?limit=100&page=${pageNum}&order%5Bnumber%5D=desc&time=1&_=${sig}`;
+            async ({ apiBasePath, mangaId, sig, pageNum }) => {
+                const url = `${apiBasePath}/manga/${mangaId}/chapters?limit=100&page=${pageNum}&order%5Bnumber%5D=desc&time=1&_=${sig}`;
                 const res = await fetch(url);
                 if (!res.ok) {
                     throw new Error(`HTTP ${res.status} ${res.statusText}`);
                 }
                 return res.json();
             },
-            { mangaId, sig, pageNum },
+            { apiBasePath: COMIX_API_BASE_PATH, mangaId, sig, pageNum },
         );
         return assertJsonEnvelopeOk(data);
     }
