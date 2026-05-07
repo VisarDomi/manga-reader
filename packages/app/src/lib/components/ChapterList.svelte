@@ -1,19 +1,21 @@
 <script lang="ts">
     import { appState } from '$lib/state/index.svelte.js';
     import type { ChapterMeta } from '$lib/types.js';
+    import type { MangaEntry } from '$lib/state/manga.svelte.js';
     import FilterChip from './FilterChip.svelte';
 
-    let { chapters }: { chapters: ChapterMeta[] } = $props();
+    let { entry }: { entry: MangaEntry } = $props();
 
-    const mangaId = $derived(appState.manga.activeManga?.id ?? '');
+    const chapters = $derived(entry.chapters);
+    const mangaId = $derived(entry.manga.id);
     const gf = appState.groupFilter;
     const manga = appState.manga;
-    const selectedGroups = $derived(appState.manga.selectedGroups);
+    const selectedGroups = $derived(entry.selectedGroups);
 
     $effect(() => {
-        const target = appState.manga.scrollTarget;
+        const target = entry.scrollTarget;
         if (!target) return;
-        const container = document.getElementById('view-manga');
+        const container = document.getElementById(`view-manga-entry-${entry.key}`);
         const el = container?.querySelector(`[data-chapter-id="${CSS.escape(target.chapterId)}"]`);
         if (!container || !el) return;
         const elTop = (el as HTMLElement).offsetTop;
@@ -26,7 +28,7 @@
     );
 
     const effectiveCount = $derived.by(() => {
-        if (manga.isShowingBlockedChapters || gf.count === 0) return chapters.length;
+        if (manga.isShowingBlockedChaptersFor(entry) || gf.count === 0) return chapters.length;
         return chapters.filter(ch => !gf.isFiltered(ch.groupId ?? '')).length;
     });
 
@@ -71,7 +73,7 @@
         return [...map.values()].sort((a, b) => b.count - a.count);
     });
 
-    const filtered = $derived(appState.manga.filteredChapters);
+    const filtered = $derived(appState.manga.filteredChaptersFor(entry));
 
     type GapIndicator = { type: 'gap'; missing: number; from: number; to: number };
     type ListItem = { type: 'chapter'; chapter: ChapterMeta } | GapIndicator;
@@ -107,20 +109,18 @@
     });
 
     function handleClick(chapter: ChapterMeta) {
-        const manga = appState.manga.activeManga;
-        if (!manga) return;
-
-        const container = document.getElementById('view-manga');
+        const container = document.getElementById(`view-manga-entry-${entry.key}`);
         const el = container?.querySelector(`[data-chapter-id="${CSS.escape(chapter.id)}"]`);
         if (container && el) {
             const containerRect = container.getBoundingClientRect();
             const elRect = el.getBoundingClientRect();
             appState.manga.captureScrollAnchor(
-                (elRect.top - containerRect.top) / containerRect.height
+                (elRect.top - containerRect.top) / containerRect.height,
+                entry.key,
             );
         }
 
-        appState.reader.openReader(manga, chapter);
+        appState.reader.openReader(entry.manga, chapter, entry.key);
     }
 
     function formatDate(ts?: number): string {
@@ -147,23 +147,23 @@
     <FilterChip
         label={`All (${effectiveCount})`}
         active={selectedGroups.size === 0}
-        onclick={() => appState.manga.selectAllGroups()}
+        onclick={() => appState.manga.selectAllGroups(entry.key)}
     />
     {#each groups as group (group.id)}
         <FilterChip
             label={`${group.name} (${group.count})`}
             active={selectedGroups.has(group.id)}
             excluded={gf.isFiltered(group.id)}
-            onclick={() => appState.manga.toggleGroup(group.id)}
+            onclick={() => appState.manga.toggleGroup(group.id, entry.key)}
             onlongpress={() => handleLongPressGroup(group.id, group.name)}
         />
     {/each}
     {#if hasFilteredChapters}
         <button
             class="show-filtered-btn"
-            class:active={manga.isShowingBlockedChapters}
-            onclick={() => manga.toggleBlockedChapters()}
-        >{manga.isShowingBlockedChapters ? 'Hide filtered' : 'Show filtered'}</button>
+            class:active={manga.isShowingBlockedChaptersFor(entry)}
+            onclick={() => manga.toggleBlockedChapters(entry.key)}
+        >{manga.isShowingBlockedChaptersFor(entry) ? 'Hide filtered' : 'Show filtered'}</button>
     {/if}
     {#if pendingGroup}
         <div class="inline-confirm">
@@ -191,7 +191,7 @@
             <button
                 class="chapter-item"
                 class:chapter-current={isCurrent}
-                class:chapter-filtered={manga.isShowingBlockedChapters && isChapterFiltered(chapter)}
+                class:chapter-filtered={manga.isShowingBlockedChaptersFor(entry) && isChapterFiltered(chapter)}
                 style={isCurrent && progressPercent > 0 ? `background: linear-gradient(to right, rgba(45, 212, 191, 0.55) ${progressPercent}%, #1a1a1a ${progressPercent}%)` : ''}
                 data-chapter-id={chapter.id}
                 onclick={() => handleClick(chapter)}

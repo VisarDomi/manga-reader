@@ -66,6 +66,7 @@ export class ReaderState {
     chapterCommentsError = $state<string | null>(null);
     chapterCommentsContext = $state<ChapterCommentsContext | null>(null);
     private activeMangaId = '';
+    private mangaEntryKey: string | null = null;
     private chapterList: ChapterMeta[] = [];
     private loadEpoch = 0;
     private commentsEpoch = 0;
@@ -87,10 +88,11 @@ export class ReaderState {
         this.log = log;
     }
 
-    async openReader(manga: Manga, chapter: ChapterMeta) {
+    async openReader(manga: Manga, chapter: ChapterMeta, mangaEntryKey: string | null = this.manga.activeEntryKey) {
         this.loadEpoch++;
         this.nextRetryWake = null;
         this.activeMangaId = manga.id;
+        this.mangaEntryKey = mangaEntryKey;
         this.currentChapterId = chapter.id;
         this.loadedChapters = [];
         this.isLoadingNext = false;
@@ -144,6 +146,7 @@ export class ReaderState {
         this.loadEpoch++;
         this.nextRetryWake = null;
         this.activeMangaId = manga.id;
+        this.mangaEntryKey = this.manga.activeEntryKey;
         this.currentChapterId = chapter.id;
         this.loadedChapters = [];
         this.isLoadingNext = false;
@@ -188,7 +191,7 @@ export class ReaderState {
     syncChapterProgress(chapterId: string): void {
         const prevChapterId = this.currentChapterId;
         this.currentChapterId = chapterId;
-        this.manga.updateScrollTarget(chapterId);
+        this.manga.updateScrollTarget(chapterId, this.mangaEntryKey ?? undefined);
         if (chapterId !== prevChapterId) {
             this.log.emit('reader-chapter-change', {
                 mangaId: this.activeMangaId,
@@ -366,10 +369,12 @@ export class ReaderState {
         this.nextRetryWake = null;
         const mangaId = this.activeMangaId;
         const chapterId = this.currentChapterId;
+        const backMangaId = this.manga.activeManga?.id ?? null;
+        const backEntryKey = this.manga.activeEntryKey;
 
         this.pageTracker.flush((flushChapterId, pageIndex, scrollOffset) => {
             if (!mangaId) return;
-            const ch = this.manga.chapters.find(c => c.id === flushChapterId);
+            const ch = this.chapterList.find(c => c.id === flushChapterId);
             if (ch) {
                 const loaded = this.loadedChapters.find(lc => lc.id === flushChapterId);
                 const pageCount = loaded?.pages.length;
@@ -379,7 +384,7 @@ export class ReaderState {
                 this.log.emit('progress-save', { mangaId, chapterId: flushChapterId, chapterNumber: ch.number, pageIndex, pageCount });
             }
         });
-        this.log.emit('reader-close', { mangaId, chapterId });
+        this.log.emit('reader-close', { mangaId, chapterId, backMangaId, backEntryKey });
         this.pageTracker.destroy();
         this.loadedChapters = [];
         this.currentChapterId = null;
@@ -391,6 +396,7 @@ export class ReaderState {
         this.chapterCommentsContext = null;
         this.error = null;
         this.nextChapterRetryAvailable = false;
+        this.mangaEntryKey = null;
         this.ui.popView();
     }
 

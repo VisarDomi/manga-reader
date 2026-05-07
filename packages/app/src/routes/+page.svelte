@@ -32,6 +32,7 @@
     const inChapterComments = $derived(viewMode === View.CHAPTER_COMMENTS);
     const showingChapterComments = $derived(inChapterComments || isForwardSwiping || forwardSwipeAnimating);
     const inManga = $derived(viewMode === View.MANGA);
+    const isNestedMangaSwipe = $derived(inManga && backView === View.MANGA);
     const inFavorites = $derived(viewMode === View.FAVORITES);
 </script>
 
@@ -63,8 +64,8 @@
     class:view-hidden={viewMode !== View.MANGA && backView !== View.MANGA}
     class:swipe-back={backView === View.MANGA}
     class:swipe-animating={backView === View.MANGA && swipeAnimating}
-    class:swipe-active={inManga && isSwiping}
-    style="{inManga && isSwiping ? `transform:translateX(${swipeProgress * 100}%)` : ''}"
+    class:swipe-active={inManga && isSwiping && !isNestedMangaSwipe}
+    style="{inManga && isSwiping && !isNestedMangaSwipe ? `transform:translateX(${swipeProgress * 100}%)` : ''}"
 >
     <MangaView />
 </div>

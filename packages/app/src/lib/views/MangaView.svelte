@@ -2,54 +2,64 @@
     import { appState } from '$lib/state/index.svelte.js';
     import { loadErrorMessage } from '$lib/state/errors.js';
     import * as api from '$lib/services/api.js';
+    import { View } from '$lib/logic.js';
     import { swipeBack } from '$lib/actions/swipeBack.js';
     import ChapterList from '$lib/components/ChapterList.svelte';
     import CommentsSection from '$lib/components/CommentsSection.svelte';
     import MangaList from '$lib/components/MangaList.svelte';
+    import type { MangaEntry } from '$lib/state/manga.svelte.js';
 
-    const manga = $derived(appState.manga.activeManga);
-    const chapters = $derived(appState.manga.chapters);
-    const isLoading = $derived(appState.manga.isLoading);
-    const error = $derived(appState.manga.error);
-    const isFav = $derived(manga ? appState.favorites.isFavorited(manga.id) : false);
-    const coverUrl = $derived(manga?.cover ? api.coverProxyUrl(manga.cover) : '');
+    const entries = $derived(appState.manga.entries);
     const mangaState = appState.manga;
     const gf = appState.groupFilter;
-    const recommendations = $derived(manga?.recommendations ?? []);
-    const comments = $derived(mangaState.comments);
-    const commentsCount = $derived(mangaState.commentsCount);
-    const isCommentsLoading = $derived(mangaState.isCommentsLoading);
-    const commentsError = $derived(mangaState.commentsError);
+    const isSwiping = $derived(appState.ui.isSwiping);
+    const swipeAnimating = $derived(appState.ui.swipeAnimating);
+    const swipeProgress = $derived(appState.ui.swipeProgress);
+    const nestedBack = $derived(appState.ui.viewMode === View.MANGA && appState.ui.peekBack() === View.MANGA && entries.length > 1);
 
-    const allFiltered = $derived(
-        !isLoading && chapters.length > 0 &&
-        chapters.every(ch => gf.isFiltered(ch.groupId ?? ''))
-    );
+    function isActive(index: number) {
+        return index === entries.length - 1;
+    }
 
-    $effect(() => {
-        if (isLoading) {
-            const view = document.getElementById('view-manga');
-            if (view) view.scrollTop = 0;
-        }
-    });
+    function coverUrl(entry: MangaEntry): string {
+        return entry.manga.cover ? api.coverProxyUrl(entry.manga.cover) : '';
+    }
+
+    function allFiltered(entry: MangaEntry): boolean {
+        return !entry.isLoading && entry.chapters.length > 0 &&
+            entry.chapters.every(ch => gf.isFiltered(ch.groupId ?? ''));
+    }
 
     function handleClose() {
         appState.manga.closeManga();
     }
 </script>
 
-{#if manga}
-    <div class="manga-view" use:swipeBack={{ onClose: handleClose, ui: appState.ui }}>
+<div class="manga-stack">
+{#each entries as entry, index (entry.key)}
+    {@const manga = entry.manga}
+    {@const active = isActive(index)}
+    <div
+        id={`view-manga-entry-${entry.key}`}
+        class="manga-entry-layer"
+        class:view-hidden={!active && !(nestedBack && index === entries.length - 2)}
+        class:swipe-back={nestedBack && index === entries.length - 2}
+        class:swipe-active={active && nestedBack && isSwiping}
+        class:swipe-animating={active && nestedBack && swipeAnimating}
+        style="{active && nestedBack && isSwiping ? `transform:translateX(${swipeProgress * 100}%)` : ''}"
+        use:swipeBack={{ onClose: handleClose, ui: appState.ui }}
+    >
+    <div class="manga-view">
         <div class="manga-view-header">
             <div class="manga-view-title-row">
                 <h1>{manga.title}</h1>
-                <button class="fav-btn" class:fav-active={isFav} onclick={() => manga && appState.favorites.toggle(manga)}>
-                    {isFav ? '❤' : '♡'}
+                <button class="fav-btn" class:fav-active={appState.favorites.isFavorited(manga.id)} onclick={() => appState.favorites.toggle(manga)}>
+                    {appState.favorites.isFavorited(manga.id) ? '❤' : '♡'}
                 </button>
             </div>
-            {#if coverUrl}
+            {#if coverUrl(entry)}
                 <div class="manga-view-cover">
-                    <img src={coverUrl} alt={manga.title} />
+                    <img src={coverUrl(entry)} alt={manga.title} />
                 </div>
             {/if}
             {#if manga.altTitles?.length}
@@ -97,33 +107,67 @@
             {/if}
         </div>
 
-        {#if isLoading}
+        {#if entry.isLoading}
             <div class="empty">Loading chapters...</div>
-        {:else if error}
-            <div class="empty error">{loadErrorMessage(error)}</div>
-        {:else if chapters.length === 0}
+        {:else if entry.error}
+            <div class="empty error">{loadErrorMessage(entry.error)}</div>
+        {:else if entry.chapters.length === 0}
             <div class="empty">No chapters found</div>
-        {:else if allFiltered && !mangaState.isShowingBlockedChapters}
+        {:else if allFiltered(entry) && !mangaState.isShowingBlockedChaptersFor(entry)}
             <div class="empty">
                 <p>All chapters hidden by group filter</p>
-                <button class="show-filtered-action" onclick={() => mangaState.showBlockedChapters()}>Show filtered chapters</button>
+                <button class="show-filtered-action" onclick={() => mangaState.showBlockedChapters(entry.key)}>Show filtered chapters</button>
             </div>
         {:else}
-            <ChapterList {chapters} />
+            <ChapterList {entry} />
         {/if}
 
-        {#if recommendations.length > 0}
+        {#if (manga.recommendations ?? []).length > 0}
             <section class="manga-recommendations">
                 <h2>Recommendations</h2>
-                <MangaList manga={recommendations} />
+                <MangaList manga={manga.recommendations ?? []} />
             </section>
         {/if}
 
-        <CommentsSection title="Comments" {comments} count={commentsCount} isLoading={isCommentsLoading} error={commentsError} />
+        <CommentsSection title="Comments" comments={entry.comments} count={entry.commentsCount} isLoading={entry.isCommentsLoading} error={entry.commentsError} />
     </div>
-{/if}
+    </div>
+{/each}
+</div>
 
 <style>
+.manga-stack {
+    position: relative;
+    min-height: 100%;
+}
+
+.manga-entry-layer {
+    position: absolute;
+    inset: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    background: #000;
+}
+
+.manga-entry-layer.view-hidden {
+    visibility: hidden;
+    pointer-events: none;
+}
+
+.manga-entry-layer.swipe-active {
+    z-index: 4;
+    box-shadow: -10px 0 30px rgba(0, 0, 0, 0.3);
+}
+
+.manga-entry-layer.swipe-back {
+    visibility: visible;
+    pointer-events: none;
+}
+
+.manga-entry-layer.swipe-animating {
+    transition: transform 250ms ease-out, opacity 250ms ease-out;
+}
+
 .manga-view {
     padding: max(15px, env(safe-area-inset-top)) 0 0;
     min-height: 100%;

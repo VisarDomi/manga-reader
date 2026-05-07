@@ -9,21 +9,45 @@ import type { GroupFilterState } from './groupFilter.svelte.js';
 import type { ChapterStatsState } from './chapterStats.svelte.js';
 import { type LoadError, toLoadError } from './errors.js';
 
-export class MangaState {
-    activeManga = $state<Manga | null>(null);
-    navigationStack = $state<Manga[]>([]);
-    chapters = $state<ChapterMeta[]>([]);
-    comments = $state<MangaComment[]>([]);
-    commentsCount = $state(0);
-    isCommentsLoading = $state(false);
-    commentsError = $state<string | null>(null);
-    isLoading = $state(false);
-    error = $state<LoadError | null>(null);
-    selectedGroups = $state<Set<string>>(new Set());
-    private includeBlockedChapters = $state(false);
+export interface MangaEntry {
+    key: string;
+    manga: Manga;
+    chapters: ChapterMeta[];
+    comments: MangaComment[];
+    commentsCount: number;
+    isCommentsLoading: boolean;
+    commentsError: string | null;
+    isLoading: boolean;
+    error: LoadError | null;
+    selectedGroups: Set<string>;
+    includeBlockedChapters: boolean;
+    scrollAnchorRatio: number;
+    scrollTarget: { chapterId: string; ratio: number } | null;
+}
 
-    private scrollAnchorRatio = 0;
-    scrollTarget = $state<{ chapterId: string; ratio: number } | null>(null);
+let entrySeq = 0;
+
+function createEntry(manga: Manga): MangaEntry {
+    return {
+        key: `${manga.id}-${++entrySeq}`,
+        manga,
+        chapters: [],
+        comments: [],
+        commentsCount: 0,
+        isCommentsLoading: false,
+        commentsError: null,
+        isLoading: true,
+        error: null,
+        selectedGroups: new Set(),
+        includeBlockedChapters: false,
+        scrollAnchorRatio: 0,
+        scrollTarget: null,
+    };
+}
+
+export class MangaState {
+    entries = $state<MangaEntry[]>([]);
+    navigationStack = $state<Manga[]>([]);
 
     private ui: UIState;
     private toast: ToastState;
@@ -41,15 +65,80 @@ export class MangaState {
         this.onOpen = onOpen ?? null;
     }
 
-    get filteredChapters(): ChapterMeta[] {
-        let chs = this.includeBlockedChapters || this.gf.count === 0
-            ? this.chapters
-            : this.chapters.filter(ch => !this.gf.isFiltered(ch.groupId ?? ''));
+    get activeEntry(): MangaEntry | null {
+        return this.entries[this.entries.length - 1] ?? null;
+    }
 
-        if (this.selectedGroups.size === 0) {
+    get activeManga(): Manga | null {
+        return this.activeEntry?.manga ?? null;
+    }
+
+    get activeEntryKey(): string | null {
+        return this.activeEntry?.key ?? null;
+    }
+
+    get chapters(): ChapterMeta[] {
+        return this.activeEntry?.chapters ?? [];
+    }
+
+    get comments(): MangaComment[] {
+        return this.activeEntry?.comments ?? [];
+    }
+
+    get commentsCount(): number {
+        return this.activeEntry?.commentsCount ?? 0;
+    }
+
+    get isCommentsLoading(): boolean {
+        return this.activeEntry?.isCommentsLoading ?? false;
+    }
+
+    get commentsError(): string | null {
+        return this.activeEntry?.commentsError ?? null;
+    }
+
+    get isLoading(): boolean {
+        return this.activeEntry?.isLoading ?? false;
+    }
+
+    get error(): LoadError | null {
+        return this.activeEntry?.error ?? null;
+    }
+
+    get selectedGroups(): Set<string> {
+        return this.activeEntry?.selectedGroups ?? new Set();
+    }
+
+    get scrollTarget(): { chapterId: string; ratio: number } | null {
+        return this.activeEntry?.scrollTarget ?? null;
+    }
+
+    private replaceEntry(entry: MangaEntry): void {
+        this.entries = this.entries.map(item => item.key === entry.key ? entry : item);
+    }
+
+    private updateEntry(key: string, update: (entry: MangaEntry) => void): MangaEntry | null {
+        const current = this.entryFor(key);
+        if (!current) return null;
+        update(current);
+        this.replaceEntry(current);
+        return current;
+    }
+
+    private entryFor(key?: string): MangaEntry | null {
+        if (!key) return this.activeEntry;
+        return this.entries.find(entry => entry.key === key) ?? null;
+    }
+
+    filteredChaptersFor(entry: MangaEntry): ChapterMeta[] {
+        let chs = entry.includeBlockedChapters || this.gf.count === 0
+            ? entry.chapters
+            : entry.chapters.filter(ch => !this.gf.isFiltered(ch.groupId ?? ''));
+
+        if (entry.selectedGroups.size === 0) {
             return [...chs].sort((a, b) => b.number - a.number);
         }
-        const byGroup = chs.filter(ch => this.selectedGroups.has(ch.groupId ?? ''));
+        const byGroup = chs.filter(ch => entry.selectedGroups.has(ch.groupId ?? ''));
         const best = new Map<number, ChapterMeta>();
         for (const ch of byGroup) {
             const existing = best.get(ch.number);
@@ -59,76 +148,100 @@ export class MangaState {
         return [...best.values()].sort((a, b) => b.number - a.number);
     }
 
+    get filteredChapters(): ChapterMeta[] {
+        const entry = this.activeEntry;
+        return entry ? this.filteredChaptersFor(entry) : [];
+    }
+
+    isShowingBlockedChaptersFor(entry: MangaEntry): boolean {
+        return entry.includeBlockedChapters;
+    }
+
     get isShowingBlockedChapters(): boolean {
-        return this.includeBlockedChapters;
+        return this.activeEntry?.includeBlockedChapters ?? false;
     }
 
-    showBlockedChapters() {
-        this.includeBlockedChapters = true;
+    showBlockedChapters(entryKey?: string) {
+        const entry = this.entryFor(entryKey);
+        if (!entry) return;
+        entry.includeBlockedChapters = true;
+        this.replaceEntry(entry);
     }
 
-    hideBlockedChapters() {
-        this.includeBlockedChapters = false;
+    hideBlockedChapters(entryKey?: string) {
+        const entry = this.entryFor(entryKey);
+        if (!entry) return;
+        entry.includeBlockedChapters = false;
+        this.replaceEntry(entry);
     }
 
-    toggleBlockedChapters() {
-        this.includeBlockedChapters = !this.includeBlockedChapters;
+    toggleBlockedChapters(entryKey?: string) {
+        const entry = this.entryFor(entryKey);
+        if (!entry) return;
+        entry.includeBlockedChapters = !entry.includeBlockedChapters;
+        this.replaceEntry(entry);
     }
 
-    private resetBlockedChapterVisibility() {
-        this.includeBlockedChapters = false;
+    private resetBlockedChapterVisibility(entry: MangaEntry) {
+        entry.includeBlockedChapters = false;
     }
 
-    private loadGroupSelection() {
-        const mangaId = this.activeManga?.id;
-        if (!mangaId) {
-            this.selectedGroups = new Set();
-            return;
-        }
-        this.selectedGroups = new Set(storage.getJson<string[]>(`group:${mangaId}`, []));
+    private loadGroupSelection(entry: MangaEntry) {
+        entry.selectedGroups = new Set(storage.getJson<string[]>(`group:${entry.manga.id}`, []));
+        this.replaceEntry(entry);
     }
 
-    refreshChapterStats(): void {
-        const mangaId = this.activeManga?.id;
-        if (!mangaId || this.chapters.length === 0) return;
-        this.chapterStats.update(mangaId, this.activeManga?.latestChapter ?? null, this.chapters, this.selectedGroups);
+    refreshChapterStats(entryKey?: string): void {
+        const entry = this.entryFor(entryKey);
+        if (!entry || entry.chapters.length === 0) return;
+        this.chapterStats.update(entry.manga.id, entry.manga.latestChapter ?? null, entry.chapters, entry.selectedGroups);
     }
 
-    toggleGroup(id: string) {
-        const next = new Set(this.selectedGroups);
+    toggleGroup(id: string, entryKey?: string) {
+        const entry = this.entryFor(entryKey);
+        if (!entry) return;
+        const next = new Set(entry.selectedGroups);
         if (next.has(id)) next.delete(id);
         else next.add(id);
-        this.selectedGroups = next;
-        const mangaId = this.activeManga?.id;
-        if (!mangaId) return;
+        entry.selectedGroups = next;
         if (next.size === 0) {
-            storage.remove(`group:${mangaId}`);
+            storage.remove(`group:${entry.manga.id}`);
         } else {
-            storage.setJson(`group:${mangaId}`, [...next]);
+            storage.setJson(`group:${entry.manga.id}`, [...next]);
         }
-        this.refreshChapterStats();
+        this.replaceEntry(entry);
+        this.refreshChapterStats(entry.key);
     }
 
-    captureScrollAnchor(ratio: number) {
-        this.scrollAnchorRatio = ratio;
-        this.scrollTarget = null;
+    captureScrollAnchor(ratio: number, entryKey?: string) {
+        const entry = this.entryFor(entryKey);
+        if (!entry) return;
+        entry.scrollAnchorRatio = ratio;
+        entry.scrollTarget = null;
+        this.replaceEntry(entry);
     }
 
-    updateScrollTarget(chapterId: string) {
-        this.scrollTarget = { chapterId, ratio: this.scrollAnchorRatio };
+    updateScrollTarget(chapterId: string, entryKey?: string) {
+        const entry = this.entryFor(entryKey);
+        if (!entry) return;
+        entry.scrollTarget = { chapterId, ratio: entry.scrollAnchorRatio };
+        this.replaceEntry(entry);
     }
 
-    selectAllGroups() {
-        this.selectedGroups = new Set();
-        const mangaId = this.activeManga?.id;
-        if (mangaId) storage.remove(`group:${mangaId}`);
-        this.refreshChapterStats();
+    selectAllGroups(entryKey?: string) {
+        const entry = this.entryFor(entryKey);
+        if (!entry) return;
+        entry.selectedGroups = new Set();
+        storage.remove(`group:${entry.manga.id}`);
+        this.replaceEntry(entry);
+        this.refreshChapterStats(entry.key);
     }
 
-    private async consumeChapterStream(mangaId: string): Promise<void> {
+    private async consumeChapterStream(entry: MangaEntry): Promise<void> {
         const all: ChapterMeta[] = [];
         const seen = new Set<string>();
         let pageCount = 0;
+        const mangaId = entry.manga.id;
 
         for await (const page of api.fetchChapterList(mangaId)) {
             pageCount++;
@@ -146,43 +259,87 @@ export class MangaState {
                 seen.add(ch.id);
                 all.push(ch);
             }
-            this.chapters = [...all];
+            const current = this.updateEntry(entry.key, currentEntry => {
+                currentEntry.chapters = [...all];
+            });
+            if (current) {
+                this.emit('manga-entry-state', {
+                    mangaId,
+                    phase: 'chapters-page',
+                    recommendations: current.manga.recommendations?.length ?? 0,
+                    chapters: current.chapters.length,
+                    comments: current.comments.length,
+                });
+            }
+        }
+        const current = this.entryFor(entry.key);
+        if (current) {
+            this.emit('manga-entry-state', {
+                mangaId,
+                phase: 'chapters-done',
+                recommendations: current.manga.recommendations?.length ?? 0,
+                chapters: current.chapters.length,
+                comments: current.comments.length,
+            });
         }
         this.emit('chapters-done', { mangaId, pages: pageCount, total: all.length });
     }
 
-    private async loadMangaDetail(manga: Manga): Promise<void> {
+    private async loadMangaDetail(entry: MangaEntry): Promise<void> {
+        const manga = entry.manga;
         const start = performance.now();
         this.emit('manga-detail-start', { mangaId: manga.id });
         const detail = await api.fetchMangaDetail(manga);
-        if (this.activeManga?.id === manga.id) {
-            this.activeManga = detail;
-            void this.loadMangaComments(detail);
+        const current = this.updateEntry(entry.key, currentEntry => {
+            currentEntry.manga = detail;
+        });
+        if (current) {
+            this.emit('manga-entry-state', {
+                mangaId: current.manga.id,
+                phase: 'detail-applied',
+                recommendations: current.manga.recommendations?.length ?? 0,
+                chapters: current.chapters.length,
+                comments: current.comments.length,
+            });
+            void this.loadMangaComments(current);
         }
         this.emit('manga-detail-done', { mangaId: manga.id, ms: Math.round(performance.now() - start) });
     }
 
-    private async loadMangaComments(manga: Manga): Promise<void> {
+    private async loadMangaComments(entry: MangaEntry): Promise<void> {
         const start = performance.now();
-        this.isCommentsLoading = true;
-        this.commentsError = null;
-        this.emit('manga-comments-start', { mangaId: manga.id });
+        this.updateEntry(entry.key, current => {
+            current.isCommentsLoading = true;
+            current.commentsError = null;
+        });
+        this.emit('manga-comments-start', { mangaId: entry.manga.id });
 
         try {
-            const result = await api.fetchMangaComments(manga.id);
-            if (this.activeManga?.id !== manga.id) return;
-            this.comments = result.comments;
-            this.commentsCount = result.count;
+            const result = await api.fetchMangaComments(entry.manga.id);
+            this.updateEntry(entry.key, current => {
+                current.comments = result.comments;
+                current.commentsCount = result.count;
+            });
         } catch (e) {
-            if (this.activeManga?.id === manga.id) {
-                const message = String((e as Error)?.message ?? e);
-                this.commentsError = message;
-                this.emit('manga-comments-error', { mangaId: manga.id, error: message });
+            const current = this.updateEntry(entry.key, currentEntry => {
+                currentEntry.commentsError = String((e as Error)?.message ?? e);
+            });
+            if (current) {
+                this.emit('manga-comments-error', { mangaId: current.manga.id, error: current.commentsError });
             }
         } finally {
-            if (this.activeManga?.id === manga.id) {
-                this.isCommentsLoading = false;
-                this.emit('manga-comments-done', { mangaId: manga.id, ms: Math.round(performance.now() - start) });
+            const current = this.updateEntry(entry.key, currentEntry => {
+                currentEntry.isCommentsLoading = false;
+            });
+            if (current) {
+                this.emit('manga-entry-state', {
+                    mangaId: current.manga.id,
+                    phase: 'comments-done',
+                    recommendations: current.manga.recommendations?.length ?? 0,
+                    chapters: current.chapters.length,
+                    comments: current.comments.length,
+                });
+                this.emit('manga-comments-done', { mangaId: current.manga.id, ms: Math.round(performance.now() - start) });
             }
         }
     }
@@ -195,59 +352,92 @@ export class MangaState {
         if (this.ui.viewMode === View.MANGA && this.activeManga) {
             this.navigationStack = [...this.navigationStack, $state.snapshot(this.activeManga)];
         }
-        this.resetBlockedChapterVisibility();
-        this.activeManga = manga;
-        this.chapters = [];
-        this.comments = [];
-        this.commentsCount = 0;
-        this.commentsError = null;
-        this.isCommentsLoading = false;
-        this.selectedGroups = new Set();
-        this.isLoading = true;
+
+        const entry = createEntry(manga);
+        this.resetBlockedChapterVisibility(entry);
+        this.entries = [...this.entries, entry];
         this.ui.pushView(View.MANGA);
 
         try {
-            void this.loadMangaDetail(manga);
+            void this.loadMangaDetail(entry);
             this.emit('manga-chapters-start', { mangaId: manga.id });
-            await this.consumeChapterStream(manga.id);
-            this.error = null;
-            this.loadGroupSelection();
-            this.refreshChapterStats();
+            await this.consumeChapterStream(entry);
+            const current = this.entryFor(entry.key);
+            if (current) {
+                current.error = null;
+                this.replaceEntry(current);
+                this.loadGroupSelection(current);
+                this.refreshChapterStats(current.key);
+            }
             this.emit('manga-open-done', { mangaId: manga.id, ms: Math.round(performance.now() - start) });
         } catch (e) {
-            this.error = toLoadError(e);
+            const current = this.entryFor(entry.key);
+            if (current) {
+                current.error = toLoadError(e);
+                this.replaceEntry(current);
+            }
         } finally {
-            this.isLoading = false;
+            const current = this.entryFor(entry.key);
+            if (current) {
+                current.isLoading = false;
+                this.replaceEntry(current);
+            }
         }
     }
 
     async restoreManga(manga: Manga): Promise<boolean> {
+        const stack = $state.snapshot(this.navigationStack);
+        const restored = [...stack, manga].map(item => createEntry(item));
+        this.entries = restored;
+
+        const previous = restored.slice(0, -1);
+        for (const entry of previous) {
+            void this.restoreEntry(entry);
+        }
+
+        const active = restored[restored.length - 1];
+        return active ? this.restoreEntry(active) : false;
+    }
+
+    private async restoreEntry(entry: MangaEntry): Promise<boolean> {
         const start = performance.now();
-        this.emit('manga-open-start', { mangaId: manga.id });
-        this.resetBlockedChapterVisibility();
-        this.activeManga = manga;
-        this.chapters = [];
-        this.comments = [];
-        this.commentsCount = 0;
-        this.commentsError = null;
-        this.isCommentsLoading = false;
-        this.selectedGroups = new Set();
-        this.isLoading = true;
+        this.emit('manga-open-start', { mangaId: entry.manga.id });
+        this.resetBlockedChapterVisibility(entry);
+        entry.chapters = [];
+        entry.comments = [];
+        entry.commentsCount = 0;
+        entry.commentsError = null;
+        entry.isCommentsLoading = false;
+        entry.selectedGroups = new Set();
+        entry.isLoading = true;
+        entry.error = null;
+        this.replaceEntry(entry);
 
         try {
-            void this.loadMangaDetail(manga);
-            this.emit('manga-chapters-start', { mangaId: manga.id });
-            await this.consumeChapterStream(manga.id);
-            this.error = null;
-            this.loadGroupSelection();
-            this.refreshChapterStats();
-            this.emit('manga-open-done', { mangaId: manga.id, ms: Math.round(performance.now() - start) });
+            void this.loadMangaDetail(entry);
+            this.emit('manga-chapters-start', { mangaId: entry.manga.id });
+            await this.consumeChapterStream(entry);
+            const current = this.entryFor(entry.key);
+            if (!current) return false;
+            current.error = null;
+            this.replaceEntry(current);
+            this.loadGroupSelection(current);
+            this.refreshChapterStats(current.key);
+            this.emit('manga-open-done', { mangaId: current.manga.id, ms: Math.round(performance.now() - start) });
             return true;
         } catch (e) {
-            this.error = toLoadError(e);
+            const current = this.entryFor(entry.key);
+            if (current) {
+                current.error = toLoadError(e);
+                this.replaceEntry(current);
+            }
             return false;
         } finally {
-            this.isLoading = false;
+            const current = this.entryFor(entry.key);
+            if (current) {
+                current.isLoading = false;
+                this.replaceEntry(current);
+            }
         }
     }
 
@@ -256,45 +446,19 @@ export class MangaState {
     }
 
     private clearActiveManga() {
-        this.resetBlockedChapterVisibility();
-        this.activeManga = null;
-        this.chapters = [];
-        this.comments = [];
-        this.commentsCount = 0;
-        this.commentsError = null;
-        this.isCommentsLoading = false;
-        this.error = null;
-        this.selectedGroups = new Set();
-        this.scrollTarget = null;
-        this.scrollAnchorRatio = 0;
+        this.entries = [];
+        this.navigationStack = [];
     }
 
     async closeManga() {
         const backTarget = this.ui.peekBack();
-        if (backTarget === View.MANGA && this.navigationStack.length > 0) {
-            const previous = this.navigationStack[this.navigationStack.length - 1];
+        if (backTarget === View.MANGA && this.entries.length > 1) {
             this.navigationStack = this.navigationStack.slice(0, -1);
-            this.resetBlockedChapterVisibility();
-            this.activeManga = previous;
-            this.chapters = [];
-            this.comments = [];
-            this.commentsCount = 0;
-            this.commentsError = null;
-            this.isCommentsLoading = false;
-            this.error = null;
-            this.selectedGroups = new Set();
-            this.scrollTarget = null;
-            this.scrollAnchorRatio = 0;
+            this.entries = this.entries.slice(0, -1);
             this.ui.popView();
-            const ok = await this.restoreManga(previous);
-            if (!ok) {
-                this.clearActiveManga();
-                this.ui.resetTo(View.LIST);
-            }
             return;
         }
 
-        this.navigationStack = [];
         this.clearActiveManga();
         this.ui.popView();
     }
