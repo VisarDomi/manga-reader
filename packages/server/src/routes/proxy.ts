@@ -52,6 +52,17 @@ function detailSummary(data: unknown): string {
     return `title=${typeof r.title === 'string' && r.title.length > 0 ? 'yes' : 'no'} genres=${genres} tags=${tags} demographics=${demographics} altTitles=${altTitles} recommendations=${recommendations} description=${description}`;
 }
 
+function commentsSummary(data: unknown): string {
+    if (!data || typeof data !== 'object') return `type=${typeof data}`;
+    const result = (data as Record<string, unknown>).result;
+    if (!result || typeof result !== 'object') return `result=${result === null ? 'null' : typeof result}`;
+    const r = result as Record<string, unknown>;
+    const comments = Array.isArray(r.comments) ? r.comments.length : 0;
+    const count = Number(r.count ?? comments);
+    const thread = r.thread && typeof r.thread === 'object' ? (r.thread as Record<string, unknown>).id : null;
+    return `thread=${thread == null ? 'none' : thread} comments=${comments} count=${Number.isFinite(count) ? count : comments}`;
+}
+
 function logJsonProxy(method: string, pathStr: string, meta: ProxyFetchMeta, data: unknown): void {
     console.log(`[proxy] ${method} ${pathStr} http=${meta.status} api=${jsonApiStatus(data)} ${jsonResultSummary(data)} ${meta.durationMs}ms`);
 }
@@ -74,6 +85,24 @@ export function createProxyRouter(browserSession: BrowserSession | null): Router
 
         const result = await browserSession.fetchMangaDetail(mangaId);
         console.log(`[proxy] manga-detail ${mangaId} api=${jsonApiStatus(result.data)} ${detailSummary(result.data)} ${result.durationMs}ms`);
+        res.json(result.data);
+    }));
+
+    router.get('/manga-comments/:mangaId', asyncHandler(async (req, res) => {
+        const rawMangaId = req.params.mangaId;
+        const mangaId = typeof rawMangaId === 'string' ? rawMangaId : undefined;
+        if (!mangaId) {
+            res.status(400).json({ error: 'Missing mangaId' });
+            return;
+        }
+
+        if (!browserSession?.ready) {
+            res.status(503).json({ error: 'BrowserSession not ready' });
+            return;
+        }
+
+        const result = await browserSession.fetchMangaComments(mangaId);
+        console.log(`[proxy] manga-comments ${mangaId} api=${jsonApiStatus(result.data)} ${commentsSummary(result.data)} ${result.durationMs}ms`);
         res.json(result.data);
     }));
 

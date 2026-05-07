@@ -1,7 +1,7 @@
 import { chromium, type BrowserContext, type Page } from 'playwright';
 import path from 'node:path';
 import os from 'node:os';
-import { assertJsonEnvelopeOk, UpstreamBodyError } from '../utils/proxyFetch.js';
+import { assertJsonEnvelopeOk, proxyFetchJson, UpstreamBodyError } from '../utils/proxyFetch.js';
 
 const CLOAKBROWSER_PATH = path.join(os.homedir(), '.cloakbrowser/chromium-145.0.7632.159.7/chrome');
 const PROFILE_BASE = path.join(os.homedir(), '.cloakbrowser-profiles');
@@ -35,6 +35,19 @@ const MANGA_DETAIL_CACHE_LIMIT = 128;
 export interface BrowserFetchResult {
     data: unknown;
     durationMs: number;
+}
+
+interface NormalizedMangaComment {
+    id: number;
+    parentId: number;
+    author: string;
+    avatar?: string;
+    content: string;
+    createdAt: string;
+    likeCount: number;
+    dislikeCount: number;
+    replyCount: number;
+    replies: NormalizedMangaComment[];
 }
 
 const enum Priority { USER = 0, PREWARM = 1 }
@@ -551,6 +564,131 @@ export class BrowserSession {
             throw new Error(`No initial manga detail captured for ${mangaId}`);
         }
         return { data, durationMs: Date.now() - start };
+    }
+
+    async fetchMangaComments(mangaId: string): Promise<BrowserFetchResult> {
+        await this.init();
+        const start = Date.now();
+        let detail = this.getCachedMangaDetail(mangaId);
+        if (!detail) {
+            await this.scheduler.acquire(mangaId, Priority.USER, true);
+            detail = this.getCachedMangaDetail(mangaId);
+        }
+
+        const raw = this.asRecord(this.asRecord(detail)?.result) ?? this.asRecord(detail);
+        const numericId = Number(raw?.id);
+        if (!Number.isFinite(numericId) || numericId <= 0) {
+            throw new Error(`No numeric manga id available for comments ${mangaId}`);
+        }
+
+        const pageUrl = typeof raw?.url === 'string' && raw.url.length > 0
+            ? raw.url
+            : `https://comix.to/title/${mangaId}`;
+        const headers = { Accept: 'application/json', Referer: pageUrl };
+        const lookupParams = new URLSearchParams({
+            page_identifier: `manga${Math.floor(numericId)}`,
+            page_url: pageUrl,
+        });
+        const lookupUrl = `https://comix.to/api/v1/threads/lookup?${lookupParams}`;
+        const lookupStart = Date.now();
+        const lookup = await proxyFetchJson<Record<string, unknown>>(lookupUrl, {
+            headers,
+            cloudflareProtected: true,
+        });
+        const lookupMs = Date.now() - lookupStart;
+        const lookupResult = this.asRecord(lookup.data.result) ?? this.asRecord(lookup.data);
+        const thread = this.asRecord(lookupResult?.thread);
+        const threadId = Number(thread?.id);
+        if (!Number.isFinite(threadId) || threadId <= 0) {
+            throw new Error(`No comments thread available for ${mangaId}`);
+        }
+
+        const commentsUrl = `https://comix.to/api/v1/threads/${Math.floor(threadId)}/comments?sort=newest`;
+        const commentsStart = Date.now();
+        const comments = await proxyFetchJson<Record<string, unknown>>(commentsUrl, {
+            headers,
+            cloudflareProtected: true,
+        });
+        const commentsMs = Date.now() - commentsStart;
+        const result = this.asRecord(comments.data.result) ?? this.asRecord(comments.data);
+        const rawItems = Array.isArray(result?.items) ? result.items : [];
+        const items = rawItems
+            .map(item => this.normalizeComment(item))
+            .filter((item): item is NormalizedMangaComment => item != null);
+        const count = Number(result?.count ?? items.length);
+        console.log(`[browserSession] manga-comments ${mangaId} thread=${Math.floor(threadId)} items=${items.length} count=${Number.isFinite(count) ? count : items.length} lookup=${lookupMs}ms comments=${commentsMs}ms total=${Date.now() - start}ms`);
+
+        return {
+            data: {
+                status: 'ok',
+                result: {
+                    thread: {
+                        id: Math.floor(threadId),
+                        commentCount: Number(thread?.commentCount ?? count),
+                        mainCommentCount: Number(thread?.mainCommentCount ?? count),
+                        isClosed: Boolean(thread?.isClosed),
+                    },
+                    comments: items,
+                    cursor: result?.cursor ?? null,
+                    count: Number.isFinite(count) ? count : items.length,
+                },
+            },
+            durationMs: Date.now() - start,
+        };
+    }
+
+    private normalizeComment(value: unknown): NormalizedMangaComment | null {
+        const raw = this.asRecord(value);
+        if (!raw) return null;
+        const id = Number(raw.id);
+        if (!Number.isFinite(id) || id <= 0) return null;
+        const user = this.asRecord(raw.user) ?? {};
+        const repliesRaw = Array.isArray(raw.replies) ? raw.replies : [];
+        const replies = repliesRaw
+            .map(reply => this.normalizeComment(reply))
+            .filter((reply): reply is NormalizedMangaComment => reply != null);
+        return {
+            id: Math.floor(id),
+            parentId: this.safeNumber(raw.parentId ?? raw.parent_id),
+            author: this.firstString(user.displayName, user.username, 'Unknown'),
+            ...(typeof user.avatar === 'string' && user.avatar.length > 0 ? { avatar: user.avatar } : {}),
+            content: this.htmlToText(raw.contentHtml ?? raw.content),
+            createdAt: this.firstString(raw.createdAtFormatted),
+            likeCount: this.safeNumber(raw.likeCount),
+            dislikeCount: this.safeNumber(raw.dislikeCount),
+            replyCount: this.safeNumber(raw.replyCount ?? replies.length),
+            replies,
+        };
+    }
+
+    private htmlToText(value: unknown): string {
+        const raw = typeof value === 'string' ? value : '';
+        return raw
+            .replace(/<br\s*\/?>/gi, '\n')
+            .replace(/<[^>]*>/g, '')
+            .replace(/&amp;/g, '&')
+            .replace(/&#039;/g, "'")
+            .replace(/&quot;/g, '"')
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .trim();
+    }
+
+    private firstString(...values: unknown[]): string {
+        for (const value of values) {
+            if (typeof value === 'string' && value.length > 0) return value;
+            if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+        }
+        return '';
+    }
+
+    private safeNumber(value: unknown): number {
+        const num = Number(value ?? 0);
+        return Number.isFinite(num) ? num : 0;
+    }
+
+    private asRecord(value: unknown): Record<string, unknown> | undefined {
+        return value != null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
     }
 
     private getCachedMangaDetail(mangaId: string): unknown | null {

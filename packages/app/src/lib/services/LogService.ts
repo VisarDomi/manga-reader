@@ -16,6 +16,10 @@ export type LogEvent =
     | { event: 'manga-detail-result'; mangaId: string; tags: number; genres: number; altTitles: number; recommendations: number; description: boolean }
     | { event: 'manga-detail-error'; mangaId: string; error: string }
     | { event: 'manga-detail-done'; mangaId: string; ms: number }
+    | { event: 'manga-comments-start'; mangaId: string }
+    | { event: 'manga-comments-result'; mangaId: string; items: number; count: number }
+    | { event: 'manga-comments-error'; mangaId: string; error: string }
+    | { event: 'manga-comments-done'; mangaId: string; ms: number }
     | { event: 'manga-chapters-start'; mangaId: string }
     | { event: 'manga-open-done'; mangaId: string; ms: number }
     | { event: 'chapters-page'; mangaId: string; page: number; items: number; lastPage?: number; total?: number }

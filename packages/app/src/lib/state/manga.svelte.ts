@@ -1,4 +1,4 @@
-import type { Manga, ChapterMeta } from '../types.js';
+import type { Manga, ChapterMeta, MangaComment } from '../types.js';
 import { View } from '../logic.js';
 import * as api from '../services/api.js';
 import * as storage from '../services/storage.js';
@@ -13,6 +13,10 @@ export class MangaState {
     activeManga = $state<Manga | null>(null);
     navigationStack = $state<Manga[]>([]);
     chapters = $state<ChapterMeta[]>([]);
+    comments = $state<MangaComment[]>([]);
+    commentsCount = $state(0);
+    isCommentsLoading = $state(false);
+    commentsError = $state<string | null>(null);
     isLoading = $state(false);
     error = $state<LoadError | null>(null);
     selectedGroups = $state<Set<string>>(new Set());
@@ -153,8 +157,34 @@ export class MangaState {
         const detail = await api.fetchMangaDetail(manga);
         if (this.activeManga?.id === manga.id) {
             this.activeManga = detail;
+            void this.loadMangaComments(detail);
         }
         this.emit('manga-detail-done', { mangaId: manga.id, ms: Math.round(performance.now() - start) });
+    }
+
+    private async loadMangaComments(manga: Manga): Promise<void> {
+        const start = performance.now();
+        this.isCommentsLoading = true;
+        this.commentsError = null;
+        this.emit('manga-comments-start', { mangaId: manga.id });
+
+        try {
+            const result = await api.fetchMangaComments(manga.id);
+            if (this.activeManga?.id !== manga.id) return;
+            this.comments = result.comments;
+            this.commentsCount = result.count;
+        } catch (e) {
+            if (this.activeManga?.id === manga.id) {
+                const message = String((e as Error)?.message ?? e);
+                this.commentsError = message;
+                this.emit('manga-comments-error', { mangaId: manga.id, error: message });
+            }
+        } finally {
+            if (this.activeManga?.id === manga.id) {
+                this.isCommentsLoading = false;
+                this.emit('manga-comments-done', { mangaId: manga.id, ms: Math.round(performance.now() - start) });
+            }
+        }
     }
 
     async openManga(manga: Manga) {
@@ -168,6 +198,10 @@ export class MangaState {
         this.resetBlockedChapterVisibility();
         this.activeManga = manga;
         this.chapters = [];
+        this.comments = [];
+        this.commentsCount = 0;
+        this.commentsError = null;
+        this.isCommentsLoading = false;
         this.selectedGroups = new Set();
         this.isLoading = true;
         this.ui.pushView(View.MANGA);
@@ -193,6 +227,10 @@ export class MangaState {
         this.resetBlockedChapterVisibility();
         this.activeManga = manga;
         this.chapters = [];
+        this.comments = [];
+        this.commentsCount = 0;
+        this.commentsError = null;
+        this.isCommentsLoading = false;
         this.selectedGroups = new Set();
         this.isLoading = true;
 
@@ -221,6 +259,10 @@ export class MangaState {
         this.resetBlockedChapterVisibility();
         this.activeManga = null;
         this.chapters = [];
+        this.comments = [];
+        this.commentsCount = 0;
+        this.commentsError = null;
+        this.isCommentsLoading = false;
         this.error = null;
         this.selectedGroups = new Set();
         this.scrollTarget = null;
@@ -235,6 +277,10 @@ export class MangaState {
             this.resetBlockedChapterVisibility();
             this.activeManga = previous;
             this.chapters = [];
+            this.comments = [];
+            this.commentsCount = 0;
+            this.commentsError = null;
+            this.isCommentsLoading = false;
             this.error = null;
             this.selectedGroups = new Set();
             this.scrollTarget = null;

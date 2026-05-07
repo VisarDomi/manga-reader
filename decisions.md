@@ -166,6 +166,49 @@ parse it there instead of waiting for DOM readiness, component rendering, or a
 downstream representation. The earlier owner is usually faster, easier to log,
 and less coupled to presentation details.
 
+### 17. Put Shared Behavior at the Smallest Common Owner
+
+When behavior appears in multiple surfaces, do not duplicate it in every
+caller. Move the shared observation or mechanism to the smallest common owner,
+and keep policy in the layer that already owns policy.
+
+For example, a reusable list can own detecting which rendered items are
+visible, while application state owns what visible items mean: prewarm,
+restore tracking, cancellation, cache policy, or no action at all. The common
+owner should expose intent, not absorb unrelated policy.
+
+### 18. Separate Navigation State by Domain
+
+Navigation can span more than one state domain. A view stack should own which
+screen comes next; feature state should own feature-specific restoration data.
+Do not force domain payloads into a generic route or view stack just because
+they are needed during back navigation.
+
+When moving backward through a feature-specific chain, model that chain in the
+feature owner. This keeps view transitions simple and makes restoration
+explicit instead of inferred from incidental UI state.
+
+### 19. Persist the Entry Context, Not Only the Current Object
+
+Restore state should preserve the user's entry context as well as the current
+active object. In flows that move deeper through related items, the current
+item and the item that anchored the original list/search context can be
+different.
+
+If restore, scrolling, or recovery needs to return to the origin surface, store
+that origin intentionally. Do not assume the deepest active object is the right
+target for every recovery path.
+
+### 20. Model Important History Directly
+
+If back or restore behavior matters, store the history as typed state. Do not
+reconstruct important navigation history from DOM position, current search
+results, visible cards, or other incidental UI state.
+
+Direct history state makes stack depth, restore order, and failure behavior
+clear. It also gives logs and session snapshots a concrete thing to verify
+instead of relying on fragile inference.
+
 ## Product Decisions
 
 These are app-level behavior decisions that drive UX, persistence, navigation,

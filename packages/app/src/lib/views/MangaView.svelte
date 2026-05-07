@@ -15,6 +15,10 @@
     const mangaState = appState.manga;
     const gf = appState.groupFilter;
     const recommendations = $derived(manga?.recommendations ?? []);
+    const comments = $derived(mangaState.comments);
+    const commentsCount = $derived(mangaState.commentsCount);
+    const isCommentsLoading = $derived(mangaState.isCommentsLoading);
+    const commentsError = $derived(mangaState.commentsError);
 
     const allFiltered = $derived(
         !isLoading && chapters.length > 0 &&
@@ -113,6 +117,58 @@
                 <MangaList manga={recommendations} />
             </section>
         {/if}
+
+        <section class="manga-comments">
+            <h2>Comments{commentsCount > 0 ? ` (${commentsCount})` : ''}</h2>
+            {#if isCommentsLoading}
+                <div class="comments-empty">Loading comments...</div>
+            {:else if commentsError}
+                <div class="comments-empty error">Failed to load comments</div>
+            {:else if comments.length === 0}
+                <div class="comments-empty">No comments</div>
+            {:else}
+                <div class="comments-list">
+                    {#each comments as comment (comment.id)}
+                        <article class="comment-item">
+                            <div class="comment-main">
+                                <div class="comment-avatar">
+                                    {#if comment.avatar}
+                                        <img src={api.coverProxyUrl(comment.avatar)} alt="" loading="lazy" />
+                                    {:else}
+                                        <span>{comment.author.slice(0, 1)}</span>
+                                    {/if}
+                                </div>
+                                <div class="comment-body">
+                                    <div class="comment-meta">
+                                        <span class="comment-author">{comment.author}</span>
+                                        {#if comment.createdAt}
+                                            <span>{comment.createdAt}</span>
+                                        {/if}
+                                        {#if comment.likeCount > 0}
+                                            <span>+{comment.likeCount}</span>
+                                        {/if}
+                                    </div>
+                                    <p>{comment.content}</p>
+                                </div>
+                            </div>
+                            {#if comment.replies.length > 0}
+                                <div class="comment-replies">
+                                    {#each comment.replies.slice(0, 2) as reply (reply.id)}
+                                        <div class="comment-reply">
+                                            <span class="comment-author">{reply.author}</span>
+                                            <span>{reply.content}</span>
+                                        </div>
+                                    {/each}
+                                    {#if comment.replies.length > 2}
+                                        <div class="comment-reply-more">{comment.replies.length - 2} more replies</div>
+                                    {/if}
+                                </div>
+                            {/if}
+                        </article>
+                    {/each}
+                </div>
+            {/if}
+        </section>
     </div>
 {/if}
 
@@ -244,5 +300,104 @@
     margin: 0 16px 12px;
     color: #f5f5f5;
     font-size: 16px;
+}
+
+.manga-comments {
+    padding: 18px 16px max(24px, env(safe-area-inset-bottom));
+    border-top: 1px solid #222;
+}
+
+.manga-comments h2 {
+    margin: 0 0 12px;
+    color: #f5f5f5;
+    font-size: 16px;
+}
+
+.comments-empty {
+    padding: 14px 0;
+    color: #888;
+    font-size: 14px;
+}
+
+.comments-list {
+    display: grid;
+    gap: 10px;
+}
+
+.comment-item {
+    padding: 10px 0;
+    border-bottom: 1px solid #202020;
+}
+
+.comment-main {
+    display: grid;
+    grid-template-columns: 32px minmax(0, 1fr);
+    gap: 10px;
+}
+
+.comment-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    overflow: hidden;
+    background: #262626;
+    display: grid;
+    place-items: center;
+    color: #aaa;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.comment-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.comment-body {
+    min-width: 0;
+}
+
+.comment-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+    color: #777;
+    font-size: 12px;
+}
+
+.comment-author {
+    color: #ddd;
+    font-weight: 700;
+}
+
+.comment-body p {
+    margin: 5px 0 0;
+    color: #cfcfcf;
+    font-size: 14px;
+    line-height: 1.45;
+    white-space: pre-line;
+}
+
+.comment-replies {
+    margin: 8px 0 0 42px;
+    display: grid;
+    gap: 6px;
+}
+
+.comment-reply {
+    padding-left: 8px;
+    border-left: 2px solid #2a2a2a;
+    color: #aaa;
+    font-size: 13px;
+    line-height: 1.35;
+    display: grid;
+    gap: 2px;
+}
+
+.comment-reply-more {
+    color: #777;
+    font-size: 12px;
 }
 </style>

@@ -1,7 +1,7 @@
 import { PROXY_URL, imageProxyUrl as _imageProxyUrl } from '../config.js';
 import { fetchJson, fetchRaw, ApiError, ApiErrKind } from './fetchJson.js';
 import { getProvider } from './provider.js';
-import type { Manga, ChapterMeta, ChapterPage } from '../types.js';
+import type { Manga, ChapterMeta, ChapterPage, MangaComment } from '../types.js';
 import type { SearchFilters, HttpRequest, PaginationMeta, ChapterListPage } from '@manga-reader/provider-types';
 import type { LogEmit } from './LogService.js';
 
@@ -139,6 +139,25 @@ export async function fetchMangaDetail(manga: Manga, signal?: AbortSignal): Prom
         }
         return manga;
     }
+}
+
+export interface MangaCommentsResult {
+    comments: MangaComment[];
+    count: number;
+}
+
+export async function fetchMangaComments(mangaId: string, signal?: AbortSignal): Promise<MangaCommentsResult> {
+    const data = await fetchJson<unknown>(`/api/manga-comments/${encodeURIComponent(mangaId)}`, { signal });
+    const root = data && typeof data === 'object' ? data as Record<string, unknown> : {};
+    const result = root.result && typeof root.result === 'object' ? root.result as Record<string, unknown> : root;
+    const comments = Array.isArray(result.comments) ? result.comments as MangaComment[] : [];
+    const count = Number(result.count ?? comments.length);
+    emit('manga-comments-result', {
+        mangaId,
+        items: comments.length,
+        count: Number.isFinite(count) ? count : comments.length,
+    });
+    return { comments, count: Number.isFinite(count) ? count : comments.length };
 }
 
 export async function* fetchChapterList(
