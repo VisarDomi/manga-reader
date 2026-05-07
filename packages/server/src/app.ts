@@ -9,6 +9,7 @@ import imageRouter from './routes/image.js';
 import certRouter from './routes/cert.js';
 import { createProxyRouter } from './routes/proxy.js';
 import logRouter from './routes/log.js';
+import providerFiltersRouter from './routes/providerFilters.js';
 import type { BrowserSession } from './services/BrowserSession.js';
 import type { Request, Response } from 'express';
 
@@ -38,6 +39,7 @@ export function createApp(browserSession: BrowserSession | null): express.Expres
     app.use('/api', imageRouter);
     app.use('/api', certRouter);
     app.use('/api', createProxyRouter(browserSession));
+    app.use('/api', providerFiltersRouter);
     app.use('/api', logRouter);
 
     app.get(/^\/(?!api).*/, (_req: Request, res: Response) => {

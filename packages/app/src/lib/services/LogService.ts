@@ -3,6 +3,8 @@ export type LogEvent =
     | { event: 'boot-ready'; ms: number; view: string }
     | { event: 'init-crash'; message: string; stack: string; ms: number }
     | { event: 'provider-loaded'; name: string; version?: string; mode: string }
+    | { event: 'provider-filters-loaded'; source: string; ageMs: number; genres: number; demographics: number; types: number; statuses: number }
+    | { event: 'provider-filters-fallback'; error: string; genres: number; demographics: number; types: number; statuses: number }
     | { event: 'restore-none' }
     | { event: 'restore-start'; view: string; mangaId: string | null; targetId: string | null; hasSearch: boolean }
     | { event: 'restore-search-done'; view: string }
@@ -10,7 +12,7 @@ export type LogEvent =
     | { event: 'restore-target-missed'; targetId: string; pagesSearched: number; reason: 'not-found' | 'cancelled' | 'error' | 'no-chapters' }
     | { event: 'restore-ok'; view: string; mangaId?: string }
     | { event: 'restore-fallback'; view: string; reason: string; fallback?: string }
-    | { event: 'search-result'; query: string; page: number; resultCount: number; hasMore: boolean; includeGenres: number; excludeGenres: number; types: number; statuses: number; currentPage?: number; lastPage?: number; total?: number }
+    | { event: 'search-result'; query: string; page: number; resultCount: number; hasMore: boolean; includeGenres: number; excludeGenres: number; demographics: number; authors: number; artists: number; types: number; statuses: number; currentPage?: number; lastPage?: number; total?: number }
     | { event: 'manga-open-start'; mangaId: string }
     | { event: 'manga-detail-start'; mangaId: string }
     | { event: 'manga-detail-result'; mangaId: string; tags: number; genres: number; altTitles: number; recommendations: number; description: boolean }

@@ -13,6 +13,7 @@
     "status": "systemctl --user status manga-reader"
   },
   "dependencies": {
+    "@manga-reader/provider-types": "file:../provider-types",
     "express": "5.2.1",
     "playwright": "1.59.1"
   },

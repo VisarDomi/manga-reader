@@ -1,10 +1,12 @@
 import type { MangaProvider, Manga, ChapterMeta, ChapterPage, ChapterListPage, PaginationMeta, SearchFilters, PagedResult, FilterDefinition, HttpRequest } from '@manga-reader/provider-types';
-import { TERMS, TYPES, STATUSES, TYPE_LABELS, STATUS_LABELS, NSFW_TERM_IDS } from './terms.js';
+import { TERMS, defaultFilterDefinition } from './terms.js';
 import { extractJsonArray } from './parse.js';
 
 const BASE_URL = 'https://comix.to';
 const API_URL = `${BASE_URL}/api/v1`;
 const SEARCH_LIMIT = 100;
+
+let activeFilters: FilterDefinition = defaultFilterDefinition();
 
 function firstString(...values: unknown[]): string {
   for (const value of values) {
@@ -71,22 +73,11 @@ const provider: MangaProvider = {
   chapterImagesResponseType: 'json',
 
   getFilters(): FilterDefinition {
-    const nsfwIds = new Set(NSFW_TERM_IDS.map(Number));
-    const genres = TERMS.map(t => ({
-      id: String(t.id),
-      name: t.name,
-      group: t.category,
-      ...(nsfwIds.has(t.id) ? { nsfw: true as const } : {}),
-    }));
-    const types = TYPES.map(t => ({
-      id: t,
-      name: TYPE_LABELS[t] ?? t,
-    }));
-    const statuses = STATUSES.map(s => ({
-      id: s,
-      name: STATUS_LABELS[s] ?? s,
-    }));
-    return { genres, types, statuses };
+    return activeFilters;
+  },
+
+  setFilters(filters: FilterDefinition): void {
+    activeFilters = filters;
   },
 
   searchRequest(query: string, page: number, filters?: SearchFilters): HttpRequest {
@@ -108,6 +99,15 @@ const provider: MangaProvider = {
       }
       if ((filters.includeGenres?.length ?? 0) > 0 || (filters.excludeGenres?.length ?? 0) > 0) {
         params.set('genres_mode', 'and');
+      }
+      if (filters.demographics) {
+        for (const id of filters.demographics) params.append('demographics[]', id);
+      }
+      if (filters.authors) {
+        for (const id of filters.authors) params.append('authors[]', id);
+      }
+      if (filters.artists) {
+        for (const id of filters.artists) params.append('artists[]', id);
       }
       if (filters.types) {
         for (const t of filters.types) params.append('types[]', t);

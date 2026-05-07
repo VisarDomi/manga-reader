@@ -99,6 +99,9 @@ export async function searchManga(query: string, page = 1, filters?: SearchFilte
         hasMore: result.hasMore,
         includeGenres: filters?.includeGenres?.length ?? 0,
         excludeGenres: filters?.excludeGenres?.length ?? 0,
+        demographics: filters?.demographics?.length ?? 0,
+        authors: filters?.authors?.length ?? 0,
+        artists: filters?.artists?.length ?? 0,
         types: filters?.types?.length ?? 0,
         statuses: filters?.statuses?.length ?? 0,
         ...(result.pagination ? {

@@ -1,6 +1,6 @@
 import { ConnectionMonitor } from '../services/ConnectionMonitor.svelte.js';
 import { watchdog } from '../services/WatchdogService.js';
-import { initProvider, getProvider } from '../services/provider.js';
+import { initProvider, getProvider, refreshProviderFilters } from '../services/provider.js';
 import { LogService } from '../services/LogService.js';
 import { setDbLogger } from '../services/db.js';
 import { setCloudflareCallback, setApiLogger } from '../services/api.js';
@@ -458,7 +458,8 @@ class AppState {
 
             await initProvider('comix', emit);
 
-            const filters = getProvider().getFilters();
+            const filters = await refreshProviderFilters('comix', emit);
+            this.searchState.filters.configureDefinitions(filters);
             const nsfwIds = new Set<string>();
             for (const g of filters.genres) {
                 if (NSFW_NAMES.has(g.name)) nsfwIds.add(g.id);

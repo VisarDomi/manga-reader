@@ -428,32 +428,59 @@ var e = [
 	87266,
 	87267,
 	87268
-], o = "https://comix.to", s = `${o}/api/v1`, c = 100;
-function l(...e) {
+];
+function o() {
+	let o = new Set(a.map(Number));
+	return {
+		genres: e.filter((e) => e.category !== "demographic" && e.category !== "theme").map((e) => ({
+			id: String(e.id),
+			name: e.name,
+			group: e.category,
+			...o.has(e.id) ? { nsfw: !0 } : {}
+		})),
+		demographics: e.filter((e) => e.category === "demographic").map((e) => ({
+			id: String(e.id),
+			name: e.name,
+			group: e.category
+		})),
+		types: t.map((e) => ({
+			id: e,
+			name: i[e] ?? e
+		})),
+		statuses: n.map((e) => ({
+			id: e,
+			name: r[e] ?? e
+		}))
+	};
+}
+//#endregion
+//#region src/index.ts
+var s = "https://comix.to", c = `${s}/api/v1`, l = 100, u = o();
+function d(...e) {
 	for (let t of e) {
 		if (typeof t == "string" && t.length > 0) return t;
 		if (typeof t == "number" && Number.isFinite(t)) return String(t);
 	}
 	return "";
 }
-function u(e, t) {
+function f(e, t) {
 	return {
 		currentPage: Number(e?.current_page ?? e?.page ?? 1),
 		lastPage: Number(e?.last_page ?? e?.lastPage ?? 1),
 		total: Number(e?.total ?? t)
 	};
 }
-function d(e) {
-	return e ? e.startsWith("http") ? e : `${o}${e.startsWith("/") ? "" : "/"}${e}` : "";
+function p(e) {
+	return e ? e.startsWith("http") ? e : `${s}${e.startsWith("/") ? "" : "/"}${e}` : "";
 }
-function f(e) {
-	return Array.isArray(e) ? e.map((e) => typeof e == "string" ? e : e && typeof e == "object" ? l(e.title, e.name) : "").filter(Boolean) : [];
+function m(e) {
+	return Array.isArray(e) ? e.map((e) => typeof e == "string" ? e : e && typeof e == "object" ? d(e.title, e.name) : "").filter(Boolean) : [];
 }
-function p(e, t) {
-	return f(e[t]);
+function h(e, t) {
+	return m(e[t]);
 }
-function m(t) {
-	let n = t.poster, r = l(t.hash_id, t.hid), i = l(t.slug), a = t.term_ids, o = /* @__PURE__ */ new Map();
+function g(t) {
+	let n = t.poster, r = d(t.hash_id, t.hid), i = d(t.slug), a = t.term_ids, o = /* @__PURE__ */ new Map();
 	for (let t of e) o.set(t.id, t.name);
 	let s = a?.map((e) => o.get(e)).filter((e) => e != null);
 	return {
@@ -466,76 +493,66 @@ function m(t) {
 		tags: s?.length ? s : void 0
 	};
 }
-var h = {
+var _ = {
 	id: "comix",
 	name: "Comix",
-	baseUrl: o,
+	baseUrl: s,
 	language: "en",
 	version: "1.0.0",
 	nsfw: !0,
 	chapterImagesResponseType: "json",
 	getFilters() {
-		let o = new Set(a.map(Number));
-		return {
-			genres: e.map((e) => ({
-				id: String(e.id),
-				name: e.name,
-				group: e.category,
-				...o.has(e.id) ? { nsfw: !0 } : {}
-			})),
-			types: t.map((e) => ({
-				id: e,
-				name: i[e] ?? e
-			})),
-			statuses: n.map((e) => ({
-				id: e,
-				name: r[e] ?? e
-			}))
-		};
+		return u;
+	},
+	setFilters(e) {
+		u = e;
 	},
 	searchRequest(e, t, n) {
 		let r = new URLSearchParams();
-		if (r.set("page", String(t)), r.set("limit", String(c)), e ? r.set("keyword", e) : r.set("order[chapter_updated_at]", "desc"), n) {
+		if (r.set("page", String(t)), r.set("limit", String(l)), e ? r.set("keyword", e) : r.set("order[chapter_updated_at]", "desc"), n) {
 			if (n.includeGenres) for (let e of n.includeGenres) r.append("genres_in[]", e);
 			if (n.excludeGenres) for (let e of n.excludeGenres) r.append("genres_ex[]", e);
-			if (((n.includeGenres?.length ?? 0) > 0 || (n.excludeGenres?.length ?? 0) > 0) && r.set("genres_mode", "and"), n.types) for (let e of n.types) r.append("types[]", e);
+			if (((n.includeGenres?.length ?? 0) > 0 || (n.excludeGenres?.length ?? 0) > 0) && r.set("genres_mode", "and"), n.demographics) for (let e of n.demographics) r.append("demographics[]", e);
+			if (n.authors) for (let e of n.authors) r.append("authors[]", e);
+			if (n.artists) for (let e of n.artists) r.append("artists[]", e);
+			if (n.types) for (let e of n.types) r.append("types[]", e);
 			if (n.statuses) for (let e of n.statuses) r.append("statuses[]", e);
 		}
 		return {
-			url: `${s}/manga?${r}`,
+			url: `${c}/manga?${r}`,
 			cloudflareProtected: !0
 		};
 	},
 	parseSearchResponse(e) {
-		let t = e, n = t.result, r = n?.items ?? t.items ?? [], i = n?.pagination ?? n?.meta ?? t.pagination ?? t.meta, a = r.map((e) => m(e)), o = i ? u(i, r.length) : void 0;
+		let t = e, n = t.result, r = n?.items ?? t.items ?? [], i = n?.pagination ?? n?.meta ?? t.pagination ?? t.meta, a = r.map((e) => g(e)), o = i ? f(i, r.length) : void 0;
 		return {
 			items: a,
-			hasMore: o ? o.currentPage < o.lastPage : a.length >= c,
+			hasMore: o ? o.currentPage < o.lastPage : a.length >= l,
 			pagination: o
 		};
 	},
 	parseMangaDetailResponse(e) {
-		let t = e, n = t.result ?? t, r = n.poster, i = p(n, "genres"), a = p(n, "tags"), o = p(n, "demographics"), s = p(n, "authors"), c = p(n, "artists"), u = f(n.altTitles ?? n.alt_titles), d = [...s, ...c.filter((e) => !s.includes(e))], h = (Array.isArray(n.recommendations) ? n.recommendations : []).map((e) => m(e));
+		let t = e, n = t.result ?? t, r = n.poster, i = h(n, "genres"), a = h(n, "tags"), o = h(n, "demographics"), s = h(n, "authors"), c = h(n, "artists"), l = m(n.altTitles ?? n.alt_titles), u = [...s, ...c.filter((e) => !s.includes(e))], f = (Array.isArray(n.recommendations) ? n.recommendations : []).map((e) => g(e));
 		return {
-			id: l(n.hid, n.hash_id, n.id),
+			id: d(n.hid, n.hash_id, n.id),
 			title: String(n.title ?? ""),
 			cover: r?.large ?? r?.medium ?? r?.small ?? "",
 			latestChapter: n.latestChapter != null || n.latest_chapter != null ? Number(n.latestChapter ?? n.latest_chapter) : null,
 			status: n.status ? String(n.status) : void 0,
-			author: d.length > 0 ? d.join(", ") : void 0,
-			altTitles: u.length > 0 ? u : void 0,
-			description: l(n.synopsis, n.description),
+			author: u.length > 0 ? u.join(", ") : void 0,
+			altTitles: l.length > 0 ? l : void 0,
+			description: d(n.synopsis, n.description),
 			genres: i.length > 0 ? i : void 0,
 			tags: a.length > 0 ? a : void 0,
 			demographics: o.length > 0 ? o : void 0,
-			authors: d.length > 0 ? d : void 0,
-			recommendations: h.length > 0 ? h : void 0
+			authors: u.length > 0 ? u : void 0,
+			recommendations: f.length > 0 ? f : void 0
 		};
 	},
 	chapterListRequest(e, t) {
 		let n = new URLSearchParams();
 		return n.set("limit", "100"), n.set("page", String(t)), n.set("order[number]", "desc"), {
-			url: `${s}/manga/${e}/chapters?${n}`,
+			url: `${c}/manga/${e}/chapters?${n}`,
 			cloudflareProtected: !0
 		};
 	},
@@ -545,23 +562,23 @@ var h = {
 			items: r.map((e) => {
 				let t = e.scanlation_group ?? e.group;
 				return {
-					id: l(e.chapter_id, e.id),
+					id: d(e.chapter_id, e.id),
 					number: parseFloat(String(e.number)),
-					groupId: l(e.scanlation_group_id, t?.id) || void 0,
+					groupId: d(e.scanlation_group_id, t?.id) || void 0,
 					groupName: t?.name ?? "Unknown",
 					uploadedAt: e.created_at == null ? void 0 : Number(e.created_at),
-					url: d(l(e.url))
+					url: p(d(e.url))
 				};
 			}),
-			pagination: u(i, r.length)
+			pagination: f(i, r.length)
 		};
 	},
 	chapterImagesRequest(e, t, n, r) {
 		return {
-			url: `${s}/chapters/${t}`,
+			url: `${c}/chapters/${t}`,
 			cloudflareProtected: !0,
 			signingMangaId: e,
-			signingPageUrl: d(r ?? "") || void 0
+			signingPageUrl: p(r ?? "") || void 0
 		};
 	},
 	parseChapterImagesResponse(e) {
@@ -572,8 +589,8 @@ var h = {
 		}));
 	},
 	imageHeaders(e, t, n, r) {
-		return { Referer: d(r ?? "") || `${o}/title/${e}/${t}-chapter-${n}` };
+		return { Referer: p(r ?? "") || `${s}/title/${e}/${t}-chapter-${n}` };
 	}
 };
 //#endregion
-export { h as default };
+export { _ as default };

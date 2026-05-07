@@ -1,4 +1,4 @@
-interface Term {
+export interface Term {
   id: number;
   name: string;
   category: 'demographic' | 'genre' | 'theme' | 'format';
@@ -110,3 +110,31 @@ export const TYPE_LABELS: Record<string, string> = {
 };
 
 export const NSFW_TERM_IDS = [87264, 87265, 87266, 87267, 87268] as const;
+
+export function defaultFilterDefinition() {
+  const nsfwIds = new Set(NSFW_TERM_IDS.map(Number));
+  const genres = TERMS
+    .filter(t => t.category !== 'demographic' && t.category !== 'theme')
+    .map(t => ({
+      id: String(t.id),
+      name: t.name,
+      group: t.category,
+      ...(nsfwIds.has(t.id) ? { nsfw: true as const } : {}),
+    }));
+  const demographics = TERMS
+    .filter(t => t.category === 'demographic')
+    .map(t => ({
+      id: String(t.id),
+      name: t.name,
+      group: t.category,
+    }));
+  const types = TYPES.map(t => ({
+    id: t,
+    name: TYPE_LABELS[t] ?? t,
+  }));
+  const statuses = STATUSES.map(s => ({
+    id: s,
+    name: STATUS_LABELS[s] ?? s,
+  }));
+  return { genres, demographics, types, statuses };
+}

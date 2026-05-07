@@ -32,6 +32,9 @@ export interface ChapterPage {
 export interface SearchFilters {
   includeGenres?: string[];
   excludeGenres?: string[];
+  demographics?: string[];
+  authors?: string[];
+  artists?: string[];
   types?: string[];
   statuses?: string[];
 }
@@ -62,6 +65,7 @@ export interface FilterOption {
 
 export interface FilterDefinition {
   genres: FilterOption[];
+  demographics?: FilterOption[];
   types?: FilterOption[];
   statuses?: FilterOption[];
 }
@@ -85,6 +89,7 @@ export interface MangaProvider {
   readonly nsfw: boolean;
 
   getFilters(): FilterDefinition;
+  setFilters?(filters: FilterDefinition): void;
 
   searchRequest(query: string, page: number, filters?: SearchFilters): HttpRequest;
   parseSearchResponse(data: unknown): PagedResult<Manga>;

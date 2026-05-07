@@ -2,6 +2,7 @@
     import { appState } from '$lib/state/index.svelte.js';
     import { getProvider } from '$lib/services/provider.js';
     import FilterChip from './FilterChip.svelte';
+    import FilterSearchBox from './FilterSearchBox.svelte';
 
     const filterDef = getProvider().getFilters();
 
@@ -17,9 +18,7 @@
     });
 
     const GROUP_LABELS: Record<string, string> = {
-        demographic: 'Demographics',
         genre: 'Genres',
-        theme: 'Themes',
         format: 'Formats',
     };
 
@@ -79,6 +78,30 @@
         </div>
     {/if}
 
+    {#if filterDef.demographics && filterDef.demographics.length > 0}
+        <div class="filter-section">
+            <span class="filter-label">Demographic</span>
+            <div class="filter-chips">
+                {#each filterDef.demographics as d (d.id)}
+                    <FilterChip
+                        label={d.name}
+                        active={appState.searchState.filters.selectedDemographics.has(d.id)}
+                        onclick={() => appState.searchState.filters.toggleDemographic(d.id)}
+                    />
+                {/each}
+            </div>
+        </div>
+    {/if}
+
+    <FilterSearchBox
+        label="Tags"
+        type="tag"
+        selected={new Set([...appState.searchState.filters.termStates.keys()].filter(id => !filterDef.genres.some(g => g.id === id)))}
+        labels={appState.searchState.filters.termLabels}
+        onadd={(id, name) => appState.searchState.filters.addTag(id, name)}
+        onremove={(id) => appState.searchState.filters.removeTerm(id)}
+    />
+
 
     {#each [...genresByGroup] as [groupKey, genres] (groupKey)}
         <div class="filter-section">
@@ -95,6 +118,24 @@
             </div>
         </div>
     {/each}
+
+    <FilterSearchBox
+        label="Authors"
+        type="author"
+        selected={appState.searchState.filters.selectedAuthors}
+        labels={appState.searchState.filters.authorLabels}
+        onadd={(id, name) => appState.searchState.filters.addAuthor(id, name)}
+        onremove={(id) => appState.searchState.filters.removeAuthor(id)}
+    />
+
+    <FilterSearchBox
+        label="Artists"
+        type="artist"
+        selected={appState.searchState.filters.selectedArtists}
+        labels={appState.searchState.filters.artistLabels}
+        onadd={(id, name) => appState.searchState.filters.addArtist(id, name)}
+        onremove={(id) => appState.searchState.filters.removeArtist(id)}
+    />
 </div>
 
 <style>
