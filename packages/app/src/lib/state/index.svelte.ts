@@ -309,7 +309,10 @@ class AppState {
 
         if ((snapshot.viewMode === View.READER || snapshot.viewMode === View.CHAPTER_COMMENTS) && snapshot.activeManga) {
             this.manga.setNavigationStack(snapshot.mangaStack ?? []);
-            this.ui.setViewDirect(View.READER, snapshot.viewStack.length > 0 ? snapshot.viewStack.filter(view => view !== View.CHAPTER_COMMENTS) : [View.LIST, View.MANGA]);
+            const readerStack = snapshot.viewStack.length > 0
+                ? snapshot.viewStack.filter(view => view !== View.CHAPTER_COMMENTS && view !== View.READER)
+                : [View.LIST, View.MANGA];
+            this.ui.setViewDirect(View.READER, readerStack.length > 0 ? readerStack : [View.LIST, View.MANGA]);
 
             const ok = await this.manga.restoreManga(snapshot.activeManga);
             if (!ok) {
