@@ -31,10 +31,10 @@ export type LogEvent =
     | { event: 'chapter-comments-close'; mangaId: string; chapterId: string | null }
     | { event: 'manga-chapters-start'; mangaId: string }
     | { event: 'manga-open-done'; mangaId: string; ms: number }
-    | { event: 'chapters-page'; mangaId: string; page: number; items: number; lastPage?: number; total?: number }
+    | { event: 'chapters-page'; mangaId: string; page: number; items: number; uploadedTimes: number; lastPage?: number; total?: number }
     | { event: 'chapters-parallel'; mangaId: string; remaining: number; total: number }
     | { event: 'chapters-page-error'; mangaId: string; page: number; error: string }
-    | { event: 'chapters-done'; mangaId: string; pages: number; failed?: number; total: number }
+    | { event: 'chapters-done'; mangaId: string; pages: number; failed?: number; total: number; uploadedTimes: number }
     | { event: 'chapter-images-result'; mangaId: string; chapterId: string; chapterNumber: number; imageCount: number }
     | { event: 'reader-open'; mangaId: string; chapterId: string; chapterNumber: number; hasRestore: boolean }
     | { event: 'reader-edge-retry'; edge: 'next' | 'prev'; mangaId: string; chapterId: string; attempt: number; error: string }

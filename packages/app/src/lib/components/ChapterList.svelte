@@ -138,6 +138,10 @@
         return `${Math.floor(months / 12)}y ago`;
     }
 
+    function uploadTime(chapter: ChapterMeta): string {
+        return chapter.uploadedAtLabel ?? formatDate(chapter.uploadedAt);
+    }
+
     function isChapterFiltered(ch: ChapterMeta): boolean {
         return gf.isFiltered(ch.groupId ?? '');
     }
@@ -198,8 +202,8 @@
             >
                 <span class="chapter-number">{chapter.number}</span>
                 <span class="chapter-group">{chapter.groupName || 'No Group'}</span>
-                {#if chapter.uploadedAt}
-                    <span class="chapter-date">{formatDate(chapter.uploadedAt)}</span>
+                {#if uploadTime(chapter)}
+                    <span class="chapter-date">{uploadTime(chapter)}</span>
                 {/if}
             </button>
         {/if}

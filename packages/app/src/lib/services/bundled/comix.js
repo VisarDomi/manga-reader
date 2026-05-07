@@ -567,6 +567,7 @@ var _ = {
 					groupId: d(e.scanlation_group_id, t?.id) || void 0,
 					groupName: t?.name ?? "Unknown",
 					uploadedAt: e.created_at == null ? void 0 : Number(e.created_at),
+					uploadedAtLabel: e.createdAtFormatted == null ? void 0 : String(e.createdAtFormatted),
 					url: p(d(e.url))
 				};
 			}),

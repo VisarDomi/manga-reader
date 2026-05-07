@@ -186,6 +186,7 @@ const provider: MangaProvider = {
         groupId: firstString(item.scanlation_group_id, group?.id) || undefined,
         groupName: (group?.name as string) ?? 'Unknown',
         uploadedAt: item.created_at != null ? Number(item.created_at) : undefined,
+        uploadedAtLabel: item.createdAtFormatted != null ? String(item.createdAtFormatted) : undefined,
         url: absoluteComixUrl(firstString(item.url)),
       };
     });

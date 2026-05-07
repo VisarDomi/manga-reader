@@ -249,6 +249,7 @@ export class MangaState {
                 mangaId,
                 page: page.pagination.currentPage,
                 items: page.items.length,
+                uploadedTimes: page.items.filter(ch => ch.uploadedAt != null || ch.uploadedAtLabel).length,
                 ...(pageCount === 1 ? {
                     lastPage: page.pagination.lastPage,
                     total: page.pagination.total,
@@ -282,7 +283,12 @@ export class MangaState {
                 comments: current.comments.length,
             });
         }
-        this.emit('chapters-done', { mangaId, pages: pageCount, total: all.length });
+        this.emit('chapters-done', {
+            mangaId,
+            pages: pageCount,
+            total: all.length,
+            uploadedTimes: all.filter(ch => ch.uploadedAt != null || ch.uploadedAtLabel).length,
+        });
     }
 
     private async loadMangaDetail(entry: MangaEntry): Promise<void> {
