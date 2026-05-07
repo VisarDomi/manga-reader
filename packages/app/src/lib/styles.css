@@ -1,5 +1,20 @@
 * {
     box-sizing: border-box;
+    min-width: 0;
+}
+
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
+:where(p, h1, h2, h3, h4, h5, h6, span, a, button, label, li, dd, dt, figcaption, blockquote, code, pre) {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+:where(img, video, canvas, svg, iframe) {
+    max-width: 100%;
 }
 
 button {
@@ -19,8 +34,13 @@ html, body {
     color: #fff;
     font-family: -apple-system, sans-serif;
     overflow: hidden;
+    max-width: 100%;
     height: var(--app-height, 100vh);
     position: relative;
+}
+
+body {
+    overscroll-behavior-x: none;
 }
 
 /* ============ UTILITY ============ */

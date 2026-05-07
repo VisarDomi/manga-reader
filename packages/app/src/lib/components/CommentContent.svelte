@@ -44,10 +44,14 @@
     line-height: 1.45;
     white-space: pre-line;
     overflow-wrap: anywhere;
+    word-break: break-word;
+    max-width: 100%;
 }
 
 .comment-text {
     white-space: pre-line;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
 .comment-spoiler {

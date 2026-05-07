@@ -23,5 +23,8 @@
 <style>
     .safe-area {
         padding-top: env(safe-area-inset-top, 0px);
+        width: 100%;
+        max-width: 100%;
+        overflow-x: hidden;
     }
 </style>

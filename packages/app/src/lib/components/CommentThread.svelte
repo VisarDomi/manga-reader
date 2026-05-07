@@ -49,6 +49,8 @@
 .comment-thread {
     padding: 10px 0;
     border-bottom: 1px solid #202020;
+    max-width: 100%;
+    overflow-x: hidden;
 }
 
 .comment-thread.comment-reply {
@@ -96,6 +98,7 @@
 
 .comment-body {
     min-width: 0;
+    max-width: 100%;
 }
 
 .comment-meta {
@@ -109,6 +112,9 @@
 .comment-author {
     color: #ddd;
     font-weight: 700;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
 .comment-children {

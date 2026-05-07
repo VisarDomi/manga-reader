@@ -145,6 +145,9 @@
     position: absolute;
     inset: 0;
     overflow-y: auto;
+    overflow-x: hidden;
+    width: 100%;
+    max-width: 100%;
     -webkit-overflow-scrolling: touch;
     background: #000;
 }
@@ -171,6 +174,9 @@
 .manga-view {
     padding: max(15px, env(safe-area-inset-top)) 0 0;
     min-height: 100%;
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
 }
 
 .manga-view-header {
@@ -182,6 +188,7 @@
     display: flex;
     align-items: flex-start;
     gap: 10px;
+    min-width: 0;
 }
 
 .manga-view-header h1 {
@@ -190,6 +197,9 @@
     line-height: 1.3;
     color: #fff;
     flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
 .fav-btn {
@@ -209,6 +219,8 @@
     margin: 10px 0 0;
     font-size: 14px;
     color: #888;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
 .manga-view-cover {
@@ -236,6 +248,8 @@
     color: #aaa;
     font-size: 14px;
     line-height: 1.35;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
 .manga-view-description {
@@ -244,6 +258,8 @@
     font-size: 15px;
     line-height: 1.55;
     white-space: pre-line;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
 .manga-meta-section {
@@ -262,6 +278,7 @@
     flex-wrap: wrap;
     gap: 4px;
     margin-top: 7px;
+    max-width: 100%;
 }
 
 .manga-tag {
@@ -270,6 +287,9 @@
     background: #2a2a2a;
     color: #aaa;
     border-radius: 4px;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
 .error {
