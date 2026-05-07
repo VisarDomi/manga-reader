@@ -16,3 +16,7 @@ This subtree is the Manga Reader frontend.
   `~/Documents/memory/local-media.md`
 - Service-worker fetch rule:
   `~/Documents/memory/service-worker-fetch-noop.md`
+
+## Rules
+
+- Read `~/Documents/memory/svelte5-pitfalls.md` before editing frontend code.

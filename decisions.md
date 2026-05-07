@@ -3,6 +3,105 @@
 This file is the single source of truth for both product behavior and technical
 constraints in the root manga-reader repo.
 
+## Investigation and Change Discipline
+
+These rules guide how to investigate bugs, fix regressions, and add features.
+They are intentionally general: the goal is to preserve the debugging posture
+that keeps changes correct, scoped, and maintainable.
+
+### 1. Logs First, Then Code
+
+Start with the best available evidence before forming a theory. Check service
+logs, browser logs, proxy logs, request status codes, and emitted frontend
+events before deciding which code is wrong. Logs should tell the story of the
+failure path: what was requested, who handled it, what upstream returned, what
+was parsed, and what the user-facing state became.
+
+Only move to source code after the observed failure mode is clear enough to
+ask a focused code question. This prevents broad speculative rewrites and keeps
+the fix tied to the actual behavior.
+
+### 2. Reproduce with the Same Runtime as Production
+
+When behavior depends on browser state, cookies, Cloudflare, signed requests,
+headers, storage, or platform quirks, reproduce with the same runtime that the
+app uses in production. A local curl, a different browser, or a simplified test
+can be useful, but it is not proof if the production path uses a different
+runtime.
+
+The strongest proof comes from exercising the same owner that production uses:
+the same managed service, the same browser binary, the same proxy route, the
+same request headers, and the same parser path. This avoids fixing a simulated
+problem while the real path remains broken.
+
+### 3. Separate Observed Facts from Inference
+
+Keep the debugging loop explicit:
+
+1. Record observed facts from logs, runtime output, network traces, or source.
+2. State the inference those facts support.
+3. Make the smallest change that follows from that inference.
+4. Verify the claim through the same path that failed.
+
+Do not present an inference as a fact. If a claim depends on reading between
+two facts, label it as an inference until it is verified.
+
+### 4. Fix the Owning Boundary
+
+A good fix changes the layer that owns the broken contract. Do not patch around
+bad data in a downstream consumer if an upstream parser owns that data. Do not
+make UI state responsible for protocol details. Do not make a generic proxy
+understand product behavior. Do not make a provider responsible for cache,
+retry, or resource policy that belongs to the server.
+
+Before editing, identify:
+
+- the data contract that changed or was misunderstood
+- the component that owns that contract
+- the consumers that should remain ignorant of the implementation detail
+- the single place where the invariant should be enforced
+
+The result should make later changes easier to reason about, not merely make
+the current symptom disappear.
+
+### 5. Avoid Monkey Patches
+
+A monkey patch is any fix that makes one observed case pass while leaving the
+model of the system wrong. Examples include fallback URL guessing, hardcoded
+IDs, duplicated parsing logic, silent retries with unclear ownership, or passing
+raw provider-specific details through layers that should not know about them.
+
+If the only apparent fix requires threading a detail through many layers,
+pause and reconsider the abstraction. Prefer a small typed capability or
+owned request object over prop drilling. The caller should describe intent; the
+owner should decide how that intent becomes concrete work.
+
+### 6. Make Logs Match Actual Behavior
+
+Every non-trivial path should log the behavior it actually performed, not a
+rough approximation. If a request asks for page 4, logs must distinguish page
+4 from page 1. If a response returns pages rather than items, logs must say
+pages. If a background warmup skips work because it is cached or already
+in-flight, logs must say so.
+
+The question "is it broken, or is it unlogged?" should be answerable quickly.
+When it is not, the missing log is itself a bug.
+
+### 7. Proof Before Confidence
+
+Do not stop at "the code looks right." Verify each major claim through a path
+close to the user-visible behavior:
+
+- direct upstream checks when upstream behavior is in question
+- local proxy checks when proxy behavior is in question
+- parser checks against real payloads when schemas change
+- service logs after restart when server behavior changes
+- runtime interaction when UI behavior or performance is in question
+
+Confidence comes from the chain of evidence matching the chain of ownership.
+The final verification should prove both that the original failure is gone and
+that the new behavior is observable.
+
 ## Product Decisions
 
 These are app-level behavior decisions that drive UX, persistence, navigation,

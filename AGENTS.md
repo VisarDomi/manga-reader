@@ -17,4 +17,5 @@ Monorepo (npm workspaces). Packages: `provider-types`, `extensions`, `server`, `
 ## Specs
 
 - Root `decisions.md` holds both app-level product decisions and technical constraints.
+- Read root `decisions.md` before investigating/debugging regressions, designing fixes, or adding features.
 - `packages/extensions/providers/comix/business.md` holds provider-specific product rules.
