@@ -13,6 +13,7 @@ export interface SessionSnapshot {
     viewMode: ViewMode;
     viewStack: ViewMode[];
     activeManga?: Manga;
+    mangaStack?: Manga[];
     targetMangaId?: string;
     searchContext?: SearchContext;
 }

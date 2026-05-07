@@ -11,6 +11,7 @@ import { type LoadError, toLoadError } from './errors.js';
 
 export class MangaState {
     activeManga = $state<Manga | null>(null);
+    navigationStack = $state<Manga[]>([]);
     chapters = $state<ChapterMeta[]>([]);
     isLoading = $state(false);
     error = $state<LoadError | null>(null);
@@ -157,9 +158,13 @@ export class MangaState {
     }
 
     async openManga(manga: Manga) {
+        if (this.activeManga?.id === manga.id && this.ui.viewMode === View.MANGA) return;
         const start = performance.now();
         this.emit('manga-open-start', { mangaId: manga.id });
         this.onOpen?.();
+        if (this.ui.viewMode === View.MANGA && this.activeManga) {
+            this.navigationStack = [...this.navigationStack, $state.snapshot(this.activeManga)];
+        }
         this.resetBlockedChapterVisibility();
         this.activeManga = manga;
         this.chapters = [];
@@ -208,7 +213,11 @@ export class MangaState {
         }
     }
 
-    closeManga() {
+    setNavigationStack(stack: Manga[]): void {
+        this.navigationStack = stack;
+    }
+
+    private clearActiveManga() {
         this.resetBlockedChapterVisibility();
         this.activeManga = null;
         this.chapters = [];
@@ -216,6 +225,31 @@ export class MangaState {
         this.selectedGroups = new Set();
         this.scrollTarget = null;
         this.scrollAnchorRatio = 0;
+    }
+
+    async closeManga() {
+        const backTarget = this.ui.peekBack();
+        if (backTarget === View.MANGA && this.navigationStack.length > 0) {
+            const previous = this.navigationStack[this.navigationStack.length - 1];
+            this.navigationStack = this.navigationStack.slice(0, -1);
+            this.resetBlockedChapterVisibility();
+            this.activeManga = previous;
+            this.chapters = [];
+            this.error = null;
+            this.selectedGroups = new Set();
+            this.scrollTarget = null;
+            this.scrollAnchorRatio = 0;
+            this.ui.popView();
+            const ok = await this.restoreManga(previous);
+            if (!ok) {
+                this.clearActiveManga();
+                this.ui.resetTo(View.LIST);
+            }
+            return;
+        }
+
+        this.navigationStack = [];
+        this.clearActiveManga();
         this.ui.popView();
     }
 }

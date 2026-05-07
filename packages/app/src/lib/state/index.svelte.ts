@@ -217,8 +217,11 @@ class AppState {
         if (this.manga.activeManga) {
             snapshot.activeManga = $state.snapshot(this.manga.activeManga);
         }
+        if (this.manga.navigationStack.length > 0) {
+            snapshot.mangaStack = $state.snapshot(this.manga.navigationStack);
+        }
 
-        const target = this.manga.activeManga?.id ?? this.lastVisibleMangaId;
+        const target = this.manga.navigationStack[0]?.id ?? this.manga.activeManga?.id ?? this.lastVisibleMangaId;
         if (target) {
             snapshot.targetMangaId = target;
         }
@@ -258,6 +261,7 @@ class AppState {
         });
 
         if (snapshot.viewMode === View.LIST) {
+            this.manga.setNavigationStack([]);
             if (targetId) this.restore.start(targetId);
             if (snapshot.searchContext) {
                 this.searchState.filters.restoreFromContext(snapshot.searchContext.filters);
@@ -275,6 +279,7 @@ class AppState {
         }
 
         if (snapshot.viewMode === View.FAVORITES) {
+            this.manga.setNavigationStack([]);
             this.ui.setViewDirect(View.FAVORITES, [View.LIST]);
             if (targetId) this.restore.start(targetId);
             this.bgReplaySearch(snapshot.searchContext);
@@ -284,9 +289,11 @@ class AppState {
         }
 
         if (snapshot.viewMode === View.MANGA && snapshot.activeManga) {
-            this.ui.setViewDirect(View.MANGA, [View.LIST]);
+            this.manga.setNavigationStack(snapshot.mangaStack ?? []);
+            this.ui.setViewDirect(View.MANGA, snapshot.viewStack.length > 0 ? snapshot.viewStack : [View.LIST]);
             const ok = await this.manga.restoreManga(snapshot.activeManga);
             if (!ok) {
+                this.manga.setNavigationStack([]);
                 this.ui.setViewDirect(View.LIST, []);
                 this.persistSession();
                 emit('restore-fallback', { view: 'manga', reason: 'manga-load-failed' });
@@ -300,10 +307,12 @@ class AppState {
         }
 
         if (snapshot.viewMode === View.READER && snapshot.activeManga) {
-            this.ui.setViewDirect(View.READER, [View.LIST, View.MANGA]);
+            this.manga.setNavigationStack(snapshot.mangaStack ?? []);
+            this.ui.setViewDirect(View.READER, snapshot.viewStack.length > 0 ? snapshot.viewStack : [View.LIST, View.MANGA]);
 
             const ok = await this.manga.restoreManga(snapshot.activeManga);
             if (!ok) {
+                this.manga.setNavigationStack([]);
                 this.ui.setViewDirect(View.LIST, []);
                 this.persistSession();
                 emit('restore-fallback', { view: 'reader', reason: 'manga-load-failed' });
