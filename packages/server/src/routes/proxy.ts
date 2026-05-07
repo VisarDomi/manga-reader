@@ -38,12 +38,43 @@ function jsonResultSummary(data: unknown): string {
     return 'items=none';
 }
 
+function detailSummary(data: unknown): string {
+    if (!data || typeof data !== 'object') return `type=${typeof data}`;
+    const result = (data as Record<string, unknown>).result;
+    if (!result || typeof result !== 'object') return `result=${result === null ? 'null' : typeof result}`;
+    const r = result as Record<string, unknown>;
+    const tags = Array.isArray(r.tags) ? r.tags.length : 0;
+    const genres = Array.isArray(r.genres) ? r.genres.length : 0;
+    const demographics = Array.isArray(r.demographics) ? r.demographics.length : 0;
+    const altTitles = Array.isArray(r.altTitles) ? r.altTitles.length : Array.isArray(r.alt_titles) ? r.alt_titles.length : 0;
+    const description = Boolean(r.synopsis || r.description);
+    return `title=${typeof r.title === 'string' && r.title.length > 0 ? 'yes' : 'no'} genres=${genres} tags=${tags} demographics=${demographics} altTitles=${altTitles} description=${description}`;
+}
+
 function logJsonProxy(method: string, pathStr: string, meta: ProxyFetchMeta, data: unknown): void {
     console.log(`[proxy] ${method} ${pathStr} http=${meta.status} api=${jsonApiStatus(data)} ${jsonResultSummary(data)} ${meta.durationMs}ms`);
 }
 
 export function createProxyRouter(browserSession: BrowserSession | null): Router {
     const router = Router();
+
+    router.get('/manga-detail/:mangaId', asyncHandler(async (req, res) => {
+        const rawMangaId = req.params.mangaId;
+        const mangaId = typeof rawMangaId === 'string' ? rawMangaId : undefined;
+        if (!mangaId) {
+            res.status(400).json({ error: 'Missing mangaId' });
+            return;
+        }
+
+        if (!browserSession?.ready) {
+            res.status(503).json({ error: 'BrowserSession not ready' });
+            return;
+        }
+
+        const result = await browserSession.fetchMangaDetail(mangaId);
+        console.log(`[proxy] manga-detail ${mangaId} api=${jsonApiStatus(result.data)} ${detailSummary(result.data)} ${result.durationMs}ms`);
+        res.json(result.data);
+    }));
 
     router.post('/proxy', asyncHandler(async (req, res) => {
         const { url, method = 'GET', headers = {}, body, responseType = 'json', cloudflareProtected, signingMangaId, signingPageUrl } = req.body as ProxyBody;

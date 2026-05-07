@@ -29,6 +29,8 @@ const CHAPTER_DETAIL_CACHE_LIMIT = 24;
 const CHAPTER_LIST_CACHE_TTL_MS = 5 * 60 * 1000;
 const CHAPTER_LIST_CACHE_LIMIT = 64;
 const CHAPTER_LIST_WARM_WORKERS = 2;
+const MANGA_DETAIL_CACHE_TTL_MS = 10 * 60 * 1000;
+const MANGA_DETAIL_CACHE_LIMIT = 128;
 
 export interface BrowserFetchResult {
     data: unknown;
@@ -47,6 +49,11 @@ interface WorkItem {
     forceRefresh: boolean;
     resolve: (sig: string) => void;
     reject: (err: Error) => void;
+}
+
+interface CapturedTitleData {
+    sig: string;
+    detail?: unknown;
 }
 
 interface SignedChapterRequest {
@@ -80,6 +87,11 @@ interface ChapterListCacheEntry {
     capturedAt: number;
 }
 
+interface MangaDetailCacheEntry {
+    data: unknown;
+    capturedAt: number;
+}
+
 interface SignatureLease {
     value: string;
     capturedAt: number;
@@ -91,11 +103,16 @@ class NavigationScheduler {
     private readonly inflight = new Set<string>();
     private activeWorkers = 0;
     private context: BrowserContext | null = null;
+    private onDetail: ((mangaId: string, detail: unknown) => void) | null = null;
 
     get cacheSize(): number { return this.sigCache.size; }
 
     setContext(ctx: BrowserContext): void {
         this.context = ctx;
+    }
+
+    setDetailCallback(fn: (mangaId: string, detail: unknown) => void): void {
+        this.onDetail = fn;
     }
 
     getCachedSig(mangaId: string): SignatureLease | undefined {
@@ -187,18 +204,19 @@ class NavigationScheduler {
             const t0 = Date.now();
 
             try {
-                const sig = await this.captureSignature(page, mangaId);
+                const captured = await this.captureSignature(page, mangaId);
                 const now = Date.now();
                 this.sigCache.set(mangaId, {
-                    value: sig,
+                    value: captured.sig,
                     capturedAt: now,
                 });
-                console.log(`[navScheduler] ${label} ${mangaId} sig=${sig.slice(0, 16)}… ${Date.now() - t0}ms cache=${this.cacheSize}`);
-                item.resolve(sig);
+                if (captured.detail) this.onDetail?.(mangaId, captured.detail);
+                console.log(`[navScheduler] ${label} ${mangaId} sig=${captured.sig.slice(0, 16)}… detail=${captured.detail ? 'yes' : 'no'} ${Date.now() - t0}ms cache=${this.cacheSize}`);
+                item.resolve(captured.sig);
 
                 for (let i = this.queue.length - 1; i >= 0; i--) {
                     if (this.queue[i].mangaId === mangaId) {
-                        this.queue[i].resolve(sig);
+                        this.queue[i].resolve(captured.sig);
                         this.queue.splice(i, 1);
                     }
                 }
@@ -225,9 +243,11 @@ class NavigationScheduler {
         }
     }
 
-    private captureSignature(page: Page, mangaId: string): Promise<string> {
-        return new Promise<string>((resolve, reject) => {
+    private captureSignature(page: Page, mangaId: string): Promise<CapturedTitleData> {
+        return new Promise<CapturedTitleData>((resolve, reject) => {
             let settled = false;
+            const startedAt = Date.now();
+            const detailPromise = this.captureInitialMangaDetailFromDocument(page, mangaId, startedAt);
 
             const timeout = setTimeout(() => {
                 if (settled) return;
@@ -236,19 +256,29 @@ class NavigationScheduler {
                 reject(new Error('Timed out waiting for signed chapters request'));
             }, 15_000);
 
-            const handler = (req: import('playwright').Request) => {
+            const handler = async (req: import('playwright').Request) => {
                 if (settled) return;
                 const url = req.url();
                 if (!url.includes(`/manga/${mangaId}/chapters`) || !url.includes('_=')) return;
 
-                settled = true;
                 clearTimeout(timeout);
                 page.off('request', handler);
 
                 const sig = new URL(url).searchParams.get('_');
                 if (sig) {
-                    resolve(sig);
+                    const signedAtMs = Date.now() - startedAt;
+                    console.log(`[navScheduler] signed-request ${mangaId} after=${signedAtMs}ms`);
+                    const detailStart = Date.now();
+                    const detail = await detailPromise.catch((e) => {
+                        const msg = (e as Error)?.message ?? String(e);
+                        console.log(`[navScheduler] initial-detail-error ${mangaId} after=${Date.now() - detailStart}ms ${msg}`);
+                        return undefined;
+                    });
+                    console.log(`[navScheduler] initial-detail ${mangaId} found=${detail ? 'yes' : 'no'} after=${Date.now() - detailStart}ms total=${Date.now() - startedAt}ms`);
+                    settled = true;
+                    resolve({ sig, detail });
                 } else {
+                    settled = true;
                     reject(new Error('Signed request found but _ param missing'));
                 }
             };
@@ -268,6 +298,50 @@ class NavigationScheduler {
         });
     }
 
+    private async captureInitialMangaDetailFromDocument(page: Page, mangaId: string, startedAt: number): Promise<unknown | undefined> {
+        const response = await page.waitForResponse(res => {
+            const url = res.url();
+            if (res.request().resourceType() !== 'document') return false;
+            if (!url.startsWith(`https://comix.to/title/${mangaId}`)) return false;
+            return res.status() >= 200 && res.status() < 400;
+        }, { timeout: 15_000 });
+
+        const responseMs = Date.now() - startedAt;
+        const textStart = Date.now();
+        const html = await response.text();
+        const textMs = Date.now() - textStart;
+        const extractStart = Date.now();
+        const raw = this.extractInitialDataJson(html);
+        const extractMs = Date.now() - extractStart;
+        if (!raw) {
+            console.log(`[navScheduler] initial-detail-breakdown ${mangaId} source=document response=${responseMs}ms text=${textMs}ms extract=${extractMs}ms bytes=${html.length} missing-script`);
+            return undefined;
+        }
+
+        const parseStart = Date.now();
+        const parsed = JSON.parse(raw) as { queries?: Record<string, unknown> };
+        const queries = parsed.queries ?? {};
+        for (const [key, value] of Object.entries(queries)) {
+            if (key.includes('"manga"') && key.includes('"detail"') && key.includes(`"${mangaId}"`)) {
+                console.log(`[navScheduler] initial-detail-breakdown ${mangaId} source=document response=${responseMs}ms text=${textMs}ms extract=${extractMs}ms parse=${Date.now() - parseStart}ms bytes=${raw.length}`);
+                return { status: 'ok', result: value };
+            }
+        }
+        console.log(`[navScheduler] initial-detail-breakdown ${mangaId} source=document response=${responseMs}ms text=${textMs}ms extract=${extractMs}ms parse=${Date.now() - parseStart}ms bytes=${raw.length} missing-query`);
+        return undefined;
+    }
+
+    private extractInitialDataJson(html: string): string | undefined {
+        const scriptStart = html.search(/<script\b[^>]*\bid=["']initial-data["'][^>]*>/i);
+        if (scriptStart < 0) return undefined;
+        const openEnd = html.indexOf('>', scriptStart);
+        if (openEnd < 0) return undefined;
+        const contentStart = openEnd + 1;
+        const end = html.indexOf('</script>', contentStart);
+        if (end < 0) return undefined;
+        return html.slice(contentStart, end);
+    }
+
     async destroy(): Promise<void> {
         console.log(`[navScheduler] destroyed cache=${this.sigCache.size} queue=${this.queue.length}`);
     }
@@ -280,6 +354,7 @@ export class BrowserSession {
     private initPromise: Promise<void> | null = null;
     private readonly profileDir: string;
     private readonly scheduler = new NavigationScheduler();
+    private readonly mangaDetailCache = new Map<string, MangaDetailCacheEntry>();
     private readonly chapterListCache = new Map<string, ChapterListCacheEntry>();
     private readonly chapterListInflight = new Map<string, Promise<unknown>>();
     private chapterListWarmQueue = new Map<string, true>();
@@ -295,6 +370,7 @@ export class BrowserSession {
         private readonly startUrl: string,
     ) {
         this.profileDir = path.join(PROFILE_BASE, `${domain}-session`);
+        this.scheduler.setDetailCallback((mangaId, detail) => this.rememberMangaDetail(mangaId, detail));
     }
 
     get ready(): boolean {
@@ -368,6 +444,44 @@ export class BrowserSession {
             const target = request.kind === 'chapter-list' ? `page=${request.page}` : `chapter=${request.chapterId}`;
             console.log(`[browserSession] fetch-error ${request.mangaId} ${target} ${durationMs}ms ${msg}`);
             throw e;
+        }
+    }
+
+    async fetchMangaDetail(mangaId: string): Promise<BrowserFetchResult> {
+        await this.init();
+        const start = Date.now();
+        const cached = this.getCachedMangaDetail(mangaId);
+        if (cached) {
+            console.log(`[browserSession] manga-detail-cache hit ${mangaId}`);
+            return { data: cached, durationMs: Date.now() - start };
+        }
+
+        await this.scheduler.acquire(mangaId, Priority.USER, true);
+        const data = this.getCachedMangaDetail(mangaId);
+        if (!data) {
+            throw new Error(`No initial manga detail captured for ${mangaId}`);
+        }
+        return { data, durationMs: Date.now() - start };
+    }
+
+    private getCachedMangaDetail(mangaId: string): unknown | null {
+        const cached = this.mangaDetailCache.get(mangaId);
+        if (!cached) return null;
+        if (Date.now() - cached.capturedAt > MANGA_DETAIL_CACHE_TTL_MS) {
+            this.mangaDetailCache.delete(mangaId);
+            return null;
+        }
+        this.mangaDetailCache.delete(mangaId);
+        this.mangaDetailCache.set(mangaId, cached);
+        return cached.data;
+    }
+
+    private rememberMangaDetail(mangaId: string, data: unknown): void {
+        this.mangaDetailCache.set(mangaId, { data, capturedAt: Date.now() });
+        while (this.mangaDetailCache.size > MANGA_DETAIL_CACHE_LIMIT) {
+            const oldest = this.mangaDetailCache.keys().next().value;
+            if (!oldest) break;
+            this.mangaDetailCache.delete(oldest);
         }
     }
 

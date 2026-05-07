@@ -146,7 +146,19 @@ export class MangaState {
         this.emit('chapters-done', { mangaId, pages: pageCount, total: all.length });
     }
 
+    private async loadMangaDetail(manga: Manga): Promise<void> {
+        const start = performance.now();
+        this.emit('manga-detail-start', { mangaId: manga.id });
+        const detail = await api.fetchMangaDetail(manga);
+        if (this.activeManga?.id === manga.id) {
+            this.activeManga = detail;
+        }
+        this.emit('manga-detail-done', { mangaId: manga.id, ms: Math.round(performance.now() - start) });
+    }
+
     async openManga(manga: Manga) {
+        const start = performance.now();
+        this.emit('manga-open-start', { mangaId: manga.id });
         this.onOpen?.();
         this.resetBlockedChapterVisibility();
         this.activeManga = manga;
@@ -156,10 +168,13 @@ export class MangaState {
         this.ui.pushView(View.MANGA);
 
         try {
+            void this.loadMangaDetail(manga);
+            this.emit('manga-chapters-start', { mangaId: manga.id });
             await this.consumeChapterStream(manga.id);
             this.error = null;
             this.loadGroupSelection();
             this.refreshChapterStats();
+            this.emit('manga-open-done', { mangaId: manga.id, ms: Math.round(performance.now() - start) });
         } catch (e) {
             this.error = toLoadError(e);
         } finally {
@@ -168,6 +183,8 @@ export class MangaState {
     }
 
     async restoreManga(manga: Manga): Promise<boolean> {
+        const start = performance.now();
+        this.emit('manga-open-start', { mangaId: manga.id });
         this.resetBlockedChapterVisibility();
         this.activeManga = manga;
         this.chapters = [];
@@ -175,10 +192,13 @@ export class MangaState {
         this.isLoading = true;
 
         try {
+            void this.loadMangaDetail(manga);
+            this.emit('manga-chapters-start', { mangaId: manga.id });
             await this.consumeChapterStream(manga.id);
             this.error = null;
             this.loadGroupSelection();
             this.refreshChapterStats();
+            this.emit('manga-open-done', { mangaId: manga.id, ms: Math.round(performance.now() - start) });
             return true;
         } catch (e) {
             this.error = toLoadError(e);

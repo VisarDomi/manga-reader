@@ -27,6 +27,21 @@ function absoluteComixUrl(url: string): string {
   return url.startsWith('http') ? url : `${BASE_URL}${url.startsWith('/') ? '' : '/'}${url}`;
 }
 
+function titleList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map(item => {
+      if (typeof item === 'string') return item;
+      if (item && typeof item === 'object') return firstString((item as Record<string, unknown>).title, (item as Record<string, unknown>).name);
+      return '';
+    })
+    .filter(Boolean);
+}
+
+function detailTags(result: Record<string, unknown>, key: string): string[] {
+  return titleList(result[key]);
+}
+
 const provider: MangaProvider = {
   id: 'comix',
   name: 'Comix',
@@ -115,6 +130,34 @@ const provider: MangaProvider = {
     const pagination = paginationRaw ? paginationFrom(paginationRaw, items.length) : undefined;
 
     return { items: manga, hasMore: pagination ? pagination.currentPage < pagination.lastPage : manga.length >= SEARCH_LIMIT, pagination };
+  },
+
+  parseMangaDetailResponse(data: unknown): Partial<Manga> {
+    const d = data as Record<string, unknown>;
+    const result = (d.result ?? d) as Record<string, unknown>;
+    const poster = result.poster as Record<string, string> | null;
+    const genres = detailTags(result, 'genres');
+    const tags = detailTags(result, 'tags');
+    const demographics = detailTags(result, 'demographics');
+    const authors = detailTags(result, 'authors');
+    const artists = detailTags(result, 'artists');
+    const altTitles = titleList(result.altTitles ?? result.alt_titles);
+    const authorList = [...authors, ...artists.filter(name => !authors.includes(name))];
+
+    return {
+      id: firstString(result.hid, result.hash_id, result.id),
+      title: String(result.title ?? ''),
+      cover: poster?.large ?? poster?.medium ?? poster?.small ?? '',
+      latestChapter: result.latestChapter != null || result.latest_chapter != null ? Number(result.latestChapter ?? result.latest_chapter) : null,
+      status: result.status ? String(result.status) : undefined,
+      author: authorList.length > 0 ? authorList.join(', ') : undefined,
+      altTitles: altTitles.length > 0 ? altTitles : undefined,
+      description: firstString(result.synopsis, result.description),
+      genres: genres.length > 0 ? genres : undefined,
+      tags: tags.length > 0 ? tags : undefined,
+      demographics: demographics.length > 0 ? demographics : undefined,
+      authors: authorList.length > 0 ? authorList : undefined,
+    };
   },
 
   chapterListRequest(mangaId: string, page: number): HttpRequest {

@@ -11,6 +11,13 @@ export type LogEvent =
     | { event: 'restore-ok'; view: string; mangaId?: string }
     | { event: 'restore-fallback'; view: string; reason: string; fallback?: string }
     | { event: 'search-result'; query: string; page: number; resultCount: number; hasMore: boolean; currentPage?: number; lastPage?: number; total?: number }
+    | { event: 'manga-open-start'; mangaId: string }
+    | { event: 'manga-detail-start'; mangaId: string }
+    | { event: 'manga-detail-result'; mangaId: string; tags: number; genres: number; altTitles: number; description: boolean }
+    | { event: 'manga-detail-error'; mangaId: string; error: string }
+    | { event: 'manga-detail-done'; mangaId: string; ms: number }
+    | { event: 'manga-chapters-start'; mangaId: string }
+    | { event: 'manga-open-done'; mangaId: string; ms: number }
     | { event: 'chapters-page'; mangaId: string; page: number; items: number; lastPage?: number; total?: number }
     | { event: 'chapters-parallel'; mangaId: string; remaining: number; total: number }
     | { event: 'chapters-page-error'; mangaId: string; page: number; error: string }

@@ -6,6 +6,11 @@ export interface Manga {
   author?: string;
   status?: string;
   tags?: string[];
+  altTitles?: string[];
+  description?: string;
+  genres?: string[];
+  demographics?: string[];
+  authors?: string[];
 }
 
 export interface ChapterMeta {
@@ -82,6 +87,8 @@ export interface MangaProvider {
 
   searchRequest(query: string, page: number, filters?: SearchFilters): HttpRequest;
   parseSearchResponse(data: unknown): PagedResult<Manga>;
+
+  parseMangaDetailResponse?(data: unknown): Partial<Manga>;
 
   chapterListRequest(mangaId: string, page: number): HttpRequest;
   parseChapterListResponse(data: unknown): ChapterListPage;

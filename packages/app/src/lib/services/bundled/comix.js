@@ -446,7 +446,13 @@ function u(e, t) {
 function d(e) {
 	return e ? e.startsWith("http") ? e : `${o}${e.startsWith("/") ? "" : "/"}${e}` : "";
 }
-var f = {
+function f(e) {
+	return Array.isArray(e) ? e.map((e) => typeof e == "string" ? e : e && typeof e == "object" ? l(e.title, e.name) : "").filter(Boolean) : [];
+}
+function p(e, t) {
+	return f(e[t]);
+}
+var m = {
 	id: "comix",
 	name: "Comix",
 	baseUrl: o,
@@ -507,6 +513,23 @@ var f = {
 			pagination: d
 		};
 	},
+	parseMangaDetailResponse(e) {
+		let t = e, n = t.result ?? t, r = n.poster, i = p(n, "genres"), a = p(n, "tags"), o = p(n, "demographics"), s = p(n, "authors"), c = p(n, "artists"), u = f(n.altTitles ?? n.alt_titles), d = [...s, ...c.filter((e) => !s.includes(e))];
+		return {
+			id: l(n.hid, n.hash_id, n.id),
+			title: String(n.title ?? ""),
+			cover: r?.large ?? r?.medium ?? r?.small ?? "",
+			latestChapter: n.latestChapter != null || n.latest_chapter != null ? Number(n.latestChapter ?? n.latest_chapter) : null,
+			status: n.status ? String(n.status) : void 0,
+			author: d.length > 0 ? d.join(", ") : void 0,
+			altTitles: u.length > 0 ? u : void 0,
+			description: l(n.synopsis, n.description),
+			genres: i.length > 0 ? i : void 0,
+			tags: a.length > 0 ? a : void 0,
+			demographics: o.length > 0 ? o : void 0,
+			authors: d.length > 0 ? d : void 0
+		};
+	},
 	chapterListRequest(e, t) {
 		let n = new URLSearchParams();
 		return n.set("limit", "100"), n.set("page", String(t)), n.set("order[number]", "desc"), {
@@ -551,4 +574,4 @@ var f = {
 	}
 };
 //#endregion
-export { f as default };
+export { m as default };
