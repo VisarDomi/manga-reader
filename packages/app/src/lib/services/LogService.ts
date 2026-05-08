@@ -59,6 +59,7 @@ export type LogEvent =
     | { event: 'reader-window-fetch-stale'; source: 'initial' | 'scroll' | 'visible' | 'retry'; mangaId: string; chapterId: string; reason: 'epoch' | 'slot-missing' }
     | { event: 'reader-window-fetch-failed'; source: 'initial' | 'scroll' | 'visible' | 'retry'; mangaId: string; chapterId: string; error: string }
     | { event: 'reader-image-schedule'; wanted: number; mounted: number; started: number; revoked?: number; scrollTop: number; clientHeight: number }
+    | { event: 'reader-visual-snapshot'; source: 'initial' | 'scroll' | 'images' | 'close'; mangaId: string | null; currentChapterId: string | null; scrollTop: number; clientHeight: number; sections: string; pages: string; visiblePageCount: number; visibleImageCount: number; loadedImageCount: number; emptyImageCount: number }
     | { event: 'reader-chapter-change'; mangaId: string; fromChapterId: string | null; toChapterId: string }
     | { event: 'reader-visible-page'; source: 'scroll' | 'close'; mangaId: string; currentChapterId: string | null; visibleChapterId: string; pageIndex: number; rootScrollTop: number; pageTop: number; pageBottom: number; probeY: number }
     | { event: 'reader-close-snapshot'; mangaId: string; currentChapterId: string | null; visibleChapterId: string | null; pageIndex?: number; rootScrollTop?: number; pageTop?: number; pageBottom?: number; loadedChapterIds: string }

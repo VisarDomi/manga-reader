@@ -163,3 +163,8 @@ Before rewrite, current dirty files include logging and experimental fixes:
 - `experiments/prepend-pwa-test/*`
 
 Do not accidentally commit/remove unrelated user changes. The test PWA is experimental and separate from the app.
+
+## Known Good Return Point
+
+- 2026-05-08: Commit `293e912` (`Pin reader virtual slot estimates`) is the current good-enough baseline before testing measured layout reconciliation / slot height rebasing. Return here if the next architecture direction causes worse reader behavior.
+- At the time this marker was added, there were uncommitted observability changes in `packages/app/src/lib/components/Reader.svelte` and `packages/app/src/lib/services/LogService.ts`; treat them as debugging context, not part of the committed baseline.

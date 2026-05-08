@@ -45,6 +45,7 @@
 
     let initialized = false;
     let windowRaf: number | null = null;
+    let lastVisualSnapshotAt = 0;
 
     function reconcileReaderWindow(source: 'initial' | 'scroll' | 'visible' | 'retry', scrollTopOverride?: number) {
         const root = getReaderRoot();
@@ -61,6 +62,57 @@
     function scheduleVirtualImages(root = getReaderRoot()) {
         if (!root) return;
         memory.loadVirtualWindow(chapters, root.scrollTop, root.clientHeight, root.clientWidth);
+        logVisualSnapshot(root, 'images');
+    }
+
+    function logVisualSnapshot(root: HTMLElement, source: 'initial' | 'scroll' | 'images' | 'close', force = false) {
+        const now = performance.now();
+        if (!force && now - lastVisualSnapshotAt < 750) return;
+        lastVisualSnapshotAt = now;
+
+        const rootRect = root.getBoundingClientRect();
+        const sectionParts: string[] = [];
+        for (const section of root.querySelectorAll<HTMLElement>('.reader-chapter')) {
+            const rect = section.getBoundingClientRect();
+            if (rect.bottom < rootRect.top || rect.top > rootRect.bottom) continue;
+            const chapterId = section.dataset.chapterId ?? '';
+            sectionParts.push(`${chapterId}:top=${Math.round(rect.top - rootRect.top)},bottom=${Math.round(rect.bottom - rootRect.top)},h=${Math.round(rect.height)}`);
+        }
+
+        let visiblePageCount = 0;
+        let visibleImageCount = 0;
+        let loadedImageCount = 0;
+        let emptyImageCount = 0;
+        const pageParts: string[] = [];
+        for (const page of root.querySelectorAll<HTMLElement>('.reader-page')) {
+            const rect = page.getBoundingClientRect();
+            if (rect.bottom < rootRect.top || rect.top > rootRect.bottom) continue;
+            visiblePageCount++;
+            const data = memory.pageDataMap.get(page);
+            const img = page.querySelector('img');
+            const hasSrc = !!img?.getAttribute('src');
+            const loaded = !!img?.complete && (img.naturalWidth ?? 0) > 0 && (img.naturalHeight ?? 0) > 0;
+            if (img) visibleImageCount++;
+            if (loaded) loadedImageCount++;
+            if (!hasSrc || !loaded) emptyImageCount++;
+            if (pageParts.length < 8) {
+                pageParts.push(`${data?.key ?? 'unknown'}:top=${Math.round(rect.top - rootRect.top)},bottom=${Math.round(rect.bottom - rootRect.top)},src=${hasSrc ? 1 : 0},complete=${img?.complete ? 1 : 0},natural=${img?.naturalWidth ?? 0}x${img?.naturalHeight ?? 0}`);
+            }
+        }
+
+        appState.log.emit('reader-visual-snapshot', {
+            source,
+            mangaId: appState.manga.activeManga?.id ?? null,
+            currentChapterId: appState.reader.currentChapterId,
+            scrollTop: Math.round(root.scrollTop),
+            clientHeight: Math.round(root.clientHeight),
+            sections: sectionParts.slice(0, 6).join('|'),
+            pages: pageParts.join('|'),
+            visiblePageCount,
+            visibleImageCount,
+            loadedImageCount,
+            emptyImageCount,
+        });
     }
 
     function queueWindowReconcile(source: 'scroll' | 'visible' | 'retry' = 'scroll') {
@@ -195,6 +247,7 @@
         const root = getReaderRoot();
         if (!root) return;
         scrollCoordinator.noteUserScroll(root);
+        logVisualSnapshot(root, 'scroll');
         queueWindowReconcile('scroll');
         pageTracker.handleScroll(root, memory.pageDataMap, (visible) => {
             appState.reader.trackVisiblePage(visible.chapterId, visible.pageIndex, visible.scrollOffset, 'scroll', visible);
@@ -203,6 +256,7 @@
 
     function handleClose() {
         const root = getReaderRoot();
+        if (root) logVisualSnapshot(root, 'close', true);
         const visible = root ? pageTracker.findVisible(root, memory.pageDataMap) : null;
         appState.reader.logCloseSnapshot(visible);
         if (visible) appState.reader.trackVisiblePage(visible.chapterId, visible.pageIndex, visible.scrollOffset, 'close', visible);
@@ -213,10 +267,11 @@
         const count = chapters.length;
         if (count === 0) {
             if (initialized) {
-                memory.revokeAll();
-                appState.reader.clearHistorySync();
-                pageTracker.clearScroll();
-                initialized = false;
+            memory.revokeAll();
+            appState.reader.clearHistorySync();
+            pageTracker.clearScroll();
+            initialized = false;
+            lastVisualSnapshotAt = 0;
                 failureTimestamps = [];
                 slowToastShown = false;
                 scrollCoordinator.cancelInitialPosition();
