@@ -87,6 +87,7 @@ export class ReaderState {
     private lastViewportWidth = 0;
     private lastViewportHeight = 0;
     private measuredChapterHeights = new Map<string, number>();
+    private pendingMeasuredChapterHeights = new Map<string, number>();
     private estimatedChapterHeights = new Map<string, number>();
     private mangaAverageChapterHeight: number | null = null;
     private windowManager = new ReaderWindowManager();
@@ -113,6 +114,7 @@ export class ReaderState {
         this.lastViewportWidth = 0;
         this.lastViewportHeight = 0;
         this.measuredChapterHeights.clear();
+        this.pendingMeasuredChapterHeights.clear();
         this.estimatedChapterHeights.clear();
         this.mangaAverageChapterHeight = null;
         this.nextRetryWake = null;
@@ -181,6 +183,7 @@ export class ReaderState {
         this.lastViewportWidth = 0;
         this.lastViewportHeight = 0;
         this.measuredChapterHeights.clear();
+        this.pendingMeasuredChapterHeights.clear();
         this.estimatedChapterHeights.clear();
         this.mangaAverageChapterHeight = null;
         this.nextRetryWake = null;
@@ -248,6 +251,8 @@ export class ReaderState {
                 pageTop: 0,
                 pageBottom: 0,
                 probeY: 0,
+                selection: 'probe',
+                ownerChapterId: null,
             };
             this.log.emit('reader-visible-page', {
                 source,
@@ -259,6 +264,8 @@ export class ReaderState {
                 pageTop: Math.round(visible.pageTop),
                 pageBottom: Math.round(visible.pageBottom),
                 probeY: Math.round(visible.probeY),
+                selection: visible.selection,
+                ownerChapterId: visible.ownerChapterId,
             });
         }
         this.scheduleProgressSync(chapterId);
@@ -468,6 +475,7 @@ export class ReaderState {
         this.lastViewportWidth = 0;
         this.lastViewportHeight = 0;
         this.measuredChapterHeights.clear();
+        this.pendingMeasuredChapterHeights.clear();
         this.estimatedChapterHeights.clear();
         this.mangaAverageChapterHeight = null;
         this.commentsEpoch++;
@@ -563,16 +571,28 @@ export class ReaderState {
         this.scheduleWindowFetches(manga, plan.candidates, source);
     }
 
-    recordChapterMeasurements(measurements: Array<{ chapterId: string; height: number }>): void {
+    recordChapterMeasurements(measurements: Array<{ chapterId: string; contentHeight: number; slotHeight: number }>): void {
         if (measurements.length === 0) return;
 
         let total = 0;
         let count = 0;
         for (const measurement of measurements) {
-            if (!Number.isFinite(measurement.height) || measurement.height <= 0) continue;
-            this.measuredChapterHeights.set(measurement.chapterId, measurement.height);
-            total += measurement.height;
+            if (!Number.isFinite(measurement.contentHeight) || measurement.contentHeight <= 0) continue;
+            const contentHeight = Math.max(1, Math.round(measurement.contentHeight));
+            const slotHeight = Math.max(1, Math.round(measurement.slotHeight));
+            this.pendingMeasuredChapterHeights.set(measurement.chapterId, contentHeight);
+            total += contentHeight;
             count++;
+            const delta = contentHeight - slotHeight;
+            if (Math.abs(delta) > 2) {
+                this.log.emit('reader-layout-measurement', {
+                    mangaId: this.manga.activeManga?.id ?? this.activeMangaId,
+                    chapterId: measurement.chapterId,
+                    contentHeight,
+                    slotHeight,
+                    delta,
+                });
+            }
         }
         if (count === 0) return;
 
@@ -580,6 +600,66 @@ export class ReaderState {
         this.mangaAverageChapterHeight = this.mangaAverageChapterHeight == null
             ? measuredAverage
             : this.mangaAverageChapterHeight * 0.7 + measuredAverage * 0.3;
+    }
+
+    promotePendingMeasurements(anchorKey: string | null): { changed: boolean; changedCount: number; totalDelta: number } {
+        if (this.pendingMeasuredChapterHeights.size === 0) return { changed: false, changedCount: 0, totalDelta: 0 };
+
+        const pending = new Map(this.pendingMeasuredChapterHeights);
+        this.pendingMeasuredChapterHeights.clear();
+
+        let changedCount = 0;
+        let totalDelta = 0;
+        const nextChapters = this.loadedChapters.map(slot => {
+            const measuredHeight = pending.get(slot.id);
+            if (!measuredHeight || slot.slotState !== 'ready') return slot;
+            const oldHeight = Math.max(1, Math.round(slot.virtualHeight ?? slot.estimatedHeight ?? measuredHeight));
+            const delta = measuredHeight - oldHeight;
+            this.measuredChapterHeights.set(slot.id, measuredHeight);
+            if (Math.abs(delta) <= 2) return slot;
+            changedCount++;
+            totalDelta += delta;
+            this.estimatedChapterHeights.set(slot.id, measuredHeight);
+            return {
+                ...slot,
+                estimatedHeight: measuredHeight,
+                virtualHeight: measuredHeight,
+            };
+        });
+
+        if (changedCount === 0) return { changed: false, changedCount: 0, totalDelta: 0 };
+        this.loadedChapters = this.positionExistingVirtualSlots(nextChapters, this.layoutViewportWidth());
+        this.log.emit('reader-layout-idle-promote', {
+            mangaId: this.manga.activeManga?.id ?? this.activeMangaId,
+            changedCount,
+            totalDelta: Math.round(totalDelta),
+            anchorKey,
+        });
+        return { changed: true, changedCount, totalDelta };
+    }
+
+    private positionExistingVirtualSlots(slots: LoadedChapter[], viewportWidth: number): LoadedChapter[] {
+        if (slots.length === 0 || this.chapterList.length === 0) return slots;
+        const byId = new Map(slots.map(slot => [slot.id, slot]));
+        let top = 0;
+        const positioned = new Map<string, LoadedChapter>();
+
+        for (const chapter of this.chapterList) {
+            const slot = byId.get(chapter.id);
+            const height = Math.max(1, slot?.virtualHeight ?? slot?.estimatedHeight ?? this.estimateChapterHeight(chapter.id, viewportWidth));
+            if (slot) {
+                positioned.set(slot.id, {
+                    ...slot,
+                    estimatedHeight: height,
+                    virtualTop: top,
+                    virtualHeight: height,
+                });
+            }
+            top += height;
+        }
+
+        this.virtualTotalHeight = Math.max(this.virtualTotalHeight, top);
+        return slots.map(slot => positioned.get(slot.id) ?? slot);
     }
 
     private scrollDirection(scrollTop: number): ReaderScrollDirection {

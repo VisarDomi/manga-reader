@@ -45,7 +45,15 @@
 
     let initialized = false;
     let windowRaf: number | null = null;
+    let idleLayoutTimer: ReturnType<typeof setTimeout> | null = null;
     let lastVisualSnapshotAt = 0;
+
+    type VisualAnchor = {
+        key: string;
+        top: number;
+        selection: 'owner' | 'probe';
+        ownerChapterId: string | null;
+    };
 
     function reconcileReaderWindow(source: 'initial' | 'scroll' | 'visible' | 'retry', scrollTopOverride?: number) {
         const root = getReaderRoot();
@@ -123,16 +131,122 @@
         });
     }
 
-    function measureChapterHeights(root: HTMLElement): Array<{ chapterId: string; height: number }> {
+    function queueIdleLayoutPromotion() {
+        if (idleLayoutTimer != null) clearTimeout(idleLayoutTimer);
+        idleLayoutTimer = setTimeout(() => {
+            idleLayoutTimer = null;
+            void runIdleLayoutPromotion();
+        }, 450);
+    }
+
+    async function runIdleLayoutPromotion() {
+        const root = getReaderRoot();
+        if (!root) return;
+        appState.reader.recordChapterMeasurements(measureChapterHeights(root));
+        const anchor = findVisualAnchor(root);
+        appState.log.emit('reader-layout-anchor-choice', {
+            mangaId: appState.manga.activeManga?.id ?? null,
+            currentChapterId: appState.reader.currentChapterId,
+            layoutChapterId: appState.reader.layoutChapterId,
+            anchorKey: anchor?.key ?? null,
+            selection: anchor?.selection ?? 'none',
+            ownerChapterId: anchor?.ownerChapterId ?? null,
+        });
+        const result = appState.reader.promotePendingMeasurements(anchor?.key ?? null);
+        if (!result.changed) return;
+        await tick();
+        restoreVisualAnchor(root, anchor);
+        reconcileReaderWindow('visible');
+    }
+
+    function findVisualAnchor(root: HTMLElement): VisualAnchor | null {
+        const rootRect = root.getBoundingClientRect();
+        const probeY = rootRect.top + rootRect.height * 0.35;
+        const pages: Array<{ element: HTMLElement; key: string; chapterId: string; distance: number }> = [];
+        for (const page of root.querySelectorAll<HTMLElement>('.reader-page')) {
+            const rect = page.getBoundingClientRect();
+            if (rect.bottom < rootRect.top || rect.top > rootRect.bottom) continue;
+            const data = memory.pageDataMap.get(page);
+            if (!data) continue;
+            const distance = rect.top <= probeY && rect.bottom >= probeY
+                ? 0
+                : Math.min(Math.abs(rect.top - probeY), Math.abs(rect.bottom - probeY));
+            pages.push({
+                element: page,
+                key: data.key,
+                chapterId: chapterIdFromPageKey(data.key),
+                distance,
+            });
+        }
+        const ownerChapterIds = [
+            appState.reader.layoutChapterId,
+            appState.reader.currentChapterId,
+        ].filter((id): id is string => !!id);
+        for (const ownerChapterId of ownerChapterIds) {
+            const owned = pages
+                .filter(page => page.chapterId === ownerChapterId)
+                .sort((a, b) => a.distance - b.distance)[0];
+            if (owned) {
+                return {
+                    key: owned.key,
+                    top: owned.element.getBoundingClientRect().top - rootRect.top,
+                    selection: 'owner',
+                    ownerChapterId,
+                };
+            }
+        }
+        const best = pages.sort((a, b) => a.distance - b.distance)[0];
+        if (!best) return null;
+        return {
+            key: best.key,
+            top: best.element.getBoundingClientRect().top - rootRect.top,
+            selection: 'probe',
+            ownerChapterId: null,
+        };
+    }
+
+    function chapterIdFromPageKey(key: string): string {
+        const separator = key.lastIndexOf('-');
+        return separator < 0 ? key : key.slice(0, separator);
+    }
+
+    function restoreVisualAnchor(root: HTMLElement, anchor: VisualAnchor | null) {
+        if (!anchor) return;
+        const rootRect = root.getBoundingClientRect();
+        for (const page of root.querySelectorAll<HTMLElement>('.reader-page')) {
+            const data = memory.pageDataMap.get(page);
+            if (data?.key !== anchor.key) continue;
+            const from = root.scrollTop;
+            const currentTop = page.getBoundingClientRect().top - rootRect.top;
+            const delta = currentTop - anchor.top;
+            if (Math.abs(delta) <= 1) return;
+            root.scrollTop = Math.max(0, root.scrollTop + delta);
+            if (Math.abs(root.scrollTop - from) > 1) {
+                appState.log.emit('reader-scroll-write', {
+                    source: 'layout-idle-anchor',
+                    from: Math.round(from),
+                    to: Math.round(root.scrollTop),
+                    delta: Math.round(root.scrollTop - from),
+                });
+            }
+            return;
+        }
+    }
+
+    function measureChapterHeights(root: HTMLElement): Array<{ chapterId: string; contentHeight: number; slotHeight: number }> {
         const rootRect = root.getBoundingClientRect();
         const sections = root.querySelectorAll<HTMLElement>('.reader-chapter');
-        const measurements: Array<{ chapterId: string; height: number }> = [];
+        const measurements: Array<{ chapterId: string; contentHeight: number; slotHeight: number }> = [];
         for (const section of sections) {
             const chapterId = section.dataset.chapterId;
             if (!chapterId) continue;
             const rect = section.getBoundingClientRect();
             if (rect.bottom < rootRect.top || rect.top > rootRect.bottom) continue;
-            measurements.push({ chapterId, height: rect.height });
+            let contentHeight = 0;
+            for (const child of Array.from(section.children)) {
+                contentHeight += child.getBoundingClientRect().height;
+            }
+            measurements.push({ chapterId, contentHeight, slotHeight: rect.height });
         }
         return measurements;
     }
@@ -248,8 +362,9 @@
         if (!root) return;
         scrollCoordinator.noteUserScroll(root);
         logVisualSnapshot(root, 'scroll');
+        queueIdleLayoutPromotion();
         queueWindowReconcile('scroll');
-        pageTracker.handleScroll(root, memory.pageDataMap, (visible) => {
+        pageTracker.handleScroll(root, memory.pageDataMap, [appState.reader.layoutChapterId, appState.reader.currentChapterId], (visible) => {
             appState.reader.trackVisiblePage(visible.chapterId, visible.pageIndex, visible.scrollOffset, 'scroll', visible);
         });
     }
@@ -257,7 +372,7 @@
     function handleClose() {
         const root = getReaderRoot();
         if (root) logVisualSnapshot(root, 'close', true);
-        const visible = root ? pageTracker.findVisible(root, memory.pageDataMap) : null;
+        const visible = root ? pageTracker.findVisible(root, memory.pageDataMap, [appState.reader.layoutChapterId, appState.reader.currentChapterId]) : null;
         appState.reader.logCloseSnapshot(visible);
         if (visible) appState.reader.trackVisiblePage(visible.chapterId, visible.pageIndex, visible.scrollOffset, 'close', visible);
         onClose();
@@ -279,6 +394,10 @@
                 if (windowRaf != null) {
                     cancelAnimationFrame(windowRaf);
                     windowRaf = null;
+                }
+                if (idleLayoutTimer != null) {
+                    clearTimeout(idleLayoutTimer);
+                    idleLayoutTimer = null;
                 }
 
                 const root = getReaderRoot();

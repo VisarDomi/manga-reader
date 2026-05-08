@@ -168,3 +168,40 @@ Do not accidentally commit/remove unrelated user changes. The test PWA is experi
 
 - 2026-05-08: Commit `41b1894` (`Add reader visual diagnostics`) is the current good-enough baseline before testing measured layout reconciliation / slot height rebasing. Return here if the next architecture direction causes worse reader behavior.
 - This baseline includes the reader visual diagnostics in `packages/app/src/lib/components/Reader.svelte` and `packages/app/src/lib/services/LogService.ts`.
+
+## Next Architecture: Idle-Epoch Layout Reconciliation
+
+Live slot-height rebasing during scroll breaks iOS momentum and can move viewport ownership to the wrong chapter. The reader must not mutate the virtual address space while the user is actively scrolling or while Safari momentum is still producing scroll events.
+
+Required ownership model:
+
+- `ReaderWindowManager` owns virtual address space and slot positions.
+- `ReaderState` may collect measured content heights during active scrolling, but must not promote those measurements into `virtualHeight` immediately.
+- A new idle layout epoch promotes measured heights only after scroll has been quiet long enough.
+- The idle promotion must run as one layout transaction:
+  - capture the visible page anchor before promotion
+  - promote measured heights for ready slots
+  - let Svelte commit DOM
+  - restore the same page anchor to the same screen Y
+  - reconcile the reader window from the resulting scroll position
+- During active scroll, fetched chapters may hydrate into existing pinned slots, but the pinned slot height remains stable until the idle layout epoch.
+- If active scroll resumes before the idle epoch fires, cancel/defer the epoch.
+- Logs must distinguish passive measurement from actual height promotion.
+
+Implementation checklist:
+
+1. [done] Revert live rebase experiment and keep the `41b1894` baseline behavior.
+2. [done] Change chapter measurement to report actual child content height, but store it as pending measurement only.
+3. [done] Add idle detection in `Reader.svelte` after scroll events.
+4. [done] Add `ReaderState.promotePendingMeasurements()` as the single writer that mutates `virtualHeight` from measurements.
+5. [done] Implement visible page anchor capture/restore around idle promotion.
+6. [done] Log `reader-layout-measurement` for passive measurements and `reader-layout-idle-promote` for actual address-space changes.
+7. [done] Build, restart service, and leave manual iOS validation to the user.
+
+## Boundary Ownership Follow-up
+
+Latest logs showed the section overlap was fixed, but page/window ownership still flipped at the chapter boundary while both chapters were visible. The reader must treat chapter visibility as observation, not authority.
+
+- [done] Make visible-page selection owner-first: prefer a page from the existing layout/current owner while that chapter is still visible, then fall back to the probe page only after the owner leaves the viewport.
+- [done] Make idle layout anchor selection use the same owner-first rule, so measured-height promotion cannot anchor to the neighboring chapter just because a tall boundary page crosses the probe line.
+- [done] Log `reader-layout-anchor-choice` and include selection metadata in `reader-visible-page`, so future logs show whether ownership was retained or transferred.

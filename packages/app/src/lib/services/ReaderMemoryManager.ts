@@ -59,29 +59,43 @@ export class ReaderMemoryManager {
         if (!this.abortController || clientHeight <= 0 || clientWidth <= 0) return;
 
         const radiusPx = clientHeight * READER_IMAGE_KEEP_RADIUS_VIEWPORTS;
-        const rangeStart = scrollTop - radiusPx;
-        const rangeEnd = scrollTop + clientHeight + radiusPx;
-        const viewportProbe = scrollTop + clientHeight * VISIBLE_PAGE_RATIO;
         const jobs: Array<{ key: string; url: string; priority: number }> = [];
         const keepKeys = new Set<string>();
 
-        for (const chapter of chapters) {
-            if (chapter.pages.length === 0) continue;
-            const chapterTop = chapter.virtualTop ?? 0;
-            let pageTop = chapterTop + READER_CHAPTER_SEPARATOR_HEIGHT;
-            for (let pageIndex = 0; pageIndex < chapter.pages.length; pageIndex++) {
-                const page = chapter.pages[pageIndex];
-                const pageHeight = page.width && page.height
-                    ? clientWidth * page.height / page.width
-                    : clientWidth * 1.5;
-                const pageBottom = pageTop + pageHeight;
-                if (pageBottom >= rangeStart && pageTop <= rangeEnd) {
-                    const key = this.pageKey(chapter.id, pageIndex);
-                    const center = pageTop + pageHeight / 2;
-                    keepKeys.add(key);
-                    jobs.push({ key, url: page.url, priority: Math.abs(center - viewportProbe) });
+        if (this.root) {
+            const rootRect = this.root.getBoundingClientRect();
+            const rangeTop = rootRect.top - radiusPx;
+            const rangeBottom = rootRect.bottom + radiusPx;
+            const viewportProbe = rootRect.top + clientHeight * VISIBLE_PAGE_RATIO;
+            for (const [node, data] of this.pageDataMap) {
+                const rect = node.getBoundingClientRect();
+                if (rect.bottom < rangeTop || rect.top > rangeBottom) continue;
+                const center = rect.top + rect.height / 2;
+                keepKeys.add(data.key);
+                jobs.push({ key: data.key, url: data.url, priority: Math.abs(center - viewportProbe) });
+            }
+        } else {
+            const rangeStart = scrollTop - radiusPx;
+            const rangeEnd = scrollTop + clientHeight + radiusPx;
+            const viewportProbe = scrollTop + clientHeight * VISIBLE_PAGE_RATIO;
+            for (const chapter of chapters) {
+                if (chapter.pages.length === 0) continue;
+                const chapterTop = chapter.virtualTop ?? 0;
+                let pageTop = chapterTop + READER_CHAPTER_SEPARATOR_HEIGHT;
+                for (let pageIndex = 0; pageIndex < chapter.pages.length; pageIndex++) {
+                    const page = chapter.pages[pageIndex];
+                    const pageHeight = page.width && page.height
+                        ? clientWidth * page.height / page.width
+                        : clientWidth * 1.5;
+                    const pageBottom = pageTop + pageHeight;
+                    if (pageBottom >= rangeStart && pageTop <= rangeEnd) {
+                        const key = this.pageKey(chapter.id, pageIndex);
+                        const center = pageTop + pageHeight / 2;
+                        keepKeys.add(key);
+                        jobs.push({ key, url: page.url, priority: Math.abs(center - viewportProbe) });
+                    }
+                    pageTop = pageBottom;
                 }
-                pageTop = pageBottom;
             }
         }
 
