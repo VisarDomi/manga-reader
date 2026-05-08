@@ -4,7 +4,7 @@ import { Msg } from '../messages.js';
 import * as api from '../services/api.js';
 import * as db from '../services/db.js';
 import type { LogService } from '../services/LogService.js';
-import { PageTracker } from '../services/PageTracker.js';
+import { PageTracker, type VisiblePageSnapshot } from '../services/PageTracker.js';
 import type { UIState } from './ui.svelte.js';
 import type { MangaState } from './manga.svelte.js';
 import type { ProgressState } from './progress.svelte.js';
@@ -185,8 +185,30 @@ export class ReaderState {
         }
     }
 
-    trackVisiblePage(chapterId: string, pageIndex: number, scrollOffset: number): void {
+    trackVisiblePage(chapterId: string, pageIndex: number, scrollOffset: number, source: 'scroll' | 'close' = 'scroll', snapshot?: VisiblePageSnapshot): void {
         this.pageTracker.track(chapterId, pageIndex, scrollOffset);
+        if (snapshot || source === 'close') {
+            const visible = snapshot ?? {
+                chapterId,
+                pageIndex,
+                scrollOffset,
+                rootScrollTop: 0,
+                pageTop: 0,
+                pageBottom: 0,
+                probeY: 0,
+            };
+            this.log.emit('reader-visible-page', {
+                source,
+                mangaId: this.activeMangaId,
+                currentChapterId: this.currentChapterId,
+                visibleChapterId: visible.chapterId,
+                pageIndex: visible.pageIndex,
+                rootScrollTop: Math.round(visible.rootScrollTop),
+                pageTop: Math.round(visible.pageTop),
+                pageBottom: Math.round(visible.pageBottom),
+                probeY: Math.round(visible.probeY),
+            });
+        }
         this.scheduleProgressSync(chapterId);
     }
 

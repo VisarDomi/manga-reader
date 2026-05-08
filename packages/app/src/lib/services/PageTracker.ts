@@ -1,6 +1,16 @@
 import type { ReaderPageData } from '../types.js';
 import { VISIBLE_PAGE_RATIO, SCROLL_DEBOUNCE_MS, HISTORY_SYNC_MS } from '../constants.js';
 
+export type VisiblePageSnapshot = {
+    chapterId: string;
+    pageIndex: number;
+    scrollOffset: number;
+    rootScrollTop: number;
+    pageTop: number;
+    pageBottom: number;
+    probeY: number;
+};
+
 export class PageTracker {
     private lastVisible: { chapterId: string; pageIndex: number; scrollOffset: number } | null = null;
     private syncTimer: ReturnType<typeof setTimeout> | undefined;
@@ -42,19 +52,41 @@ export class PageTracker {
     ): void {
         clearTimeout(this.scrollTimer);
         this.scrollTimer = setTimeout(() => {
-            const rootRect = root.getBoundingClientRect();
-            const midY = rootRect.top + rootRect.height * VISIBLE_PAGE_RATIO;
-
-            for (const [node, data] of pageDataMap) {
-                const rect = node.getBoundingClientRect();
-                if (rect.top <= midY && rect.bottom > midY) {
-                    const parts = data.key.split('-');
-                    const scrollOffset = rootRect.top - rect.top;
-                    onVisible(parts[0], Number(parts[1]), scrollOffset);
-                    return;
-                }
-            }
+            this.captureVisible(root, pageDataMap, onVisible);
         }, SCROLL_DEBOUNCE_MS);
+    }
+
+    captureVisible(
+        root: HTMLElement,
+        pageDataMap: Map<HTMLElement, ReaderPageData>,
+        onVisible: (chapterId: string, pageIndex: number, scrollOffset: number) => void,
+    ): boolean {
+        const visible = this.findVisible(root, pageDataMap);
+        if (!visible) return false;
+        onVisible(visible.chapterId, visible.pageIndex, visible.scrollOffset);
+        return true;
+    }
+
+    findVisible(root: HTMLElement, pageDataMap: Map<HTMLElement, ReaderPageData>): VisiblePageSnapshot | null {
+        const rootRect = root.getBoundingClientRect();
+        const midY = rootRect.top + rootRect.height * VISIBLE_PAGE_RATIO;
+
+        for (const [node, data] of pageDataMap) {
+            const rect = node.getBoundingClientRect();
+            if (rect.top <= midY && rect.bottom > midY) {
+                const parts = data.key.split('-');
+                return {
+                    chapterId: parts[0],
+                    pageIndex: Number(parts[1]),
+                    scrollOffset: rootRect.top - rect.top,
+                    rootScrollTop: root.scrollTop,
+                    pageTop: rect.top - rootRect.top,
+                    pageBottom: rect.bottom - rootRect.top,
+                    probeY: midY - rootRect.top,
+                };
+            }
+        }
+        return null;
     }
 
     clearScroll(): void {

@@ -48,6 +48,7 @@ export type LogEvent =
     | { event: 'reader-prepend-failed'; mangaId: string; chapterId: string; error: string }
     | { event: 'reader-prepend-scroll'; action: 'adjusted' | 'cancelled' | 'none'; reason?: string; diff?: number; delta?: number }
     | { event: 'reader-chapter-change'; mangaId: string; fromChapterId: string | null; toChapterId: string }
+    | { event: 'reader-visible-page'; source: 'scroll' | 'close'; mangaId: string; currentChapterId: string | null; visibleChapterId: string; pageIndex: number; rootScrollTop: number; pageTop: number; pageBottom: number; probeY: number }
     | { event: 'reader-close'; mangaId: string; chapterId: string | null; backMangaId: string | null; backEntryKey: string | null }
     | { event: 'progress-save'; mangaId: string; chapterId: string; chapterNumber: number; pageIndex?: number; pageCount?: number }
     | { event: 'view-push'; from: string; to: string }

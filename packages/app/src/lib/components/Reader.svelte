@@ -70,8 +70,17 @@
         if (!root) return;
         scrollCoordinator.noteUserScroll(root);
         pageTracker.handleScroll(root, memory.pageDataMap, (chapterId, pageIndex, scrollOffset) => {
-            appState.reader.trackVisiblePage(chapterId, pageIndex, scrollOffset);
+            appState.reader.trackVisiblePage(chapterId, pageIndex, scrollOffset, 'scroll');
         });
+    }
+
+    function handleClose() {
+        const root = getReaderRoot();
+        if (root) {
+            const visible = pageTracker.findVisible(root, memory.pageDataMap);
+            if (visible) appState.reader.trackVisiblePage(visible.chapterId, visible.pageIndex, visible.scrollOffset, 'close', visible);
+        }
+        onClose();
     }
 
     $effect(() => {
@@ -174,7 +183,7 @@
     <div
         class="reader-wrapper"
         role="application"
-        use:swipeBack={{ onClose, ui: appState.ui }}
+        use:swipeBack={{ onClose: handleClose, ui: appState.ui }}
         use:swipeForward={{
             onPrepare: () => appState.reader.prepareChapterComments(),
             onCommit: () => appState.reader.commitPreparedChapterComments(),
