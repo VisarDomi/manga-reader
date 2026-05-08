@@ -145,6 +145,7 @@ Logs proved:
 ## Current Implementation Notes
 
 - `ReaderWindowManager` owns desired chapter candidates, priority ordering, DOM keep-slot reconciliation, and virtual slot geometry.
+- `ReaderWindowManager` now plans from the global virtual scroll coordinate (`scrollTop`) rather than from the originally opened chapter. The opened/restored chapter is only the initial positioning target; ongoing loading/unloading is owned by the virtual layout window.
 - `ReaderState` owns app state, persistence, fetch side effects, and logging orchestration.
 - `ReaderMemoryManager` owns page image loading and revokes blob URLs outside the virtual image keep radius.
 - `ReaderScrollCoordinator` no longer performs ongoing reader window management; current open/restore positioning is explicit and logged.

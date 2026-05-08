@@ -316,6 +316,16 @@ export class ReaderState {
         this.pageTracker.clearSync();
     }
 
+    chapterScrollTop(chapterId: string, viewportWidth: number): number | null {
+        return this.windowManager.chapterTop(
+            this.chapterList,
+            this.loadedChapters,
+            chapterId,
+            viewportWidth,
+            (id, width) => this.estimateChapterHeight(id, width),
+        );
+    }
+
     get titleContext(): ReaderTitleContext | null {
         const chapterId = this.currentChapterId;
         if (!chapterId) return null;
@@ -505,15 +515,12 @@ export class ReaderState {
         this.lastViewportWidth = viewport.clientWidth;
         this.lastViewportHeight = viewport.clientHeight;
 
-        const currentIdx = this.chapterList.findIndex(ch => ch.id === layoutId);
-        if (currentIdx < 0) return;
-
         const radiusPx = viewport.clientHeight * READER_WINDOW_RADIUS_VIEWPORTS;
         const keepPx = viewport.clientHeight * READER_DOM_KEEP_RADIUS_VIEWPORTS;
         const plan = this.windowManager.plan({
             chapterList: this.chapterList,
             loadedChapters: this.loadedChapters,
-            currentIdx,
+            scrollTop: viewport.scrollTop,
             radiusPx,
             keepPx,
             viewportWidth: viewport.clientWidth,
@@ -525,13 +532,13 @@ export class ReaderState {
         const beforeIds = this.loadedChapters.map(ch => ch.id);
         const nextSlots = plan.nextSlots;
         const afterIds = nextSlots.map(ch => ch.id);
+        this.virtualTotalHeight = Math.max(plan.totalHeight, viewport.clientHeight);
         if (afterIds.join(',') !== beforeIds.join(',')) {
             this.loadedChapters = nextSlots;
-            this.virtualTotalHeight = this.windowManager.totalVirtualHeight(nextSlots, viewport.clientHeight);
             this.log.emit('reader-window-slots', {
                 source,
                 mangaId: manga.id,
-                currentChapterId: layoutId,
+                currentChapterId: plan.probeChapterId ?? layoutId,
                 direction,
                 radiusPx: Math.round(radiusPx),
                 loadedChapterIds: afterIds.join(','),
@@ -542,7 +549,7 @@ export class ReaderState {
         this.log.emit('reader-window-reconcile', {
             source,
             mangaId: manga.id,
-            currentChapterId: layoutId,
+            currentChapterId: plan.probeChapterId ?? layoutId,
             direction,
             scrollTop: Math.round(viewport.scrollTop),
             clientHeight: Math.round(viewport.clientHeight),
@@ -575,99 +582,6 @@ export class ReaderState {
         const delta = scrollTop - this.lastWindowScrollTop;
         if (Math.abs(delta) < 2) return 'idle';
         return delta > 0 ? 'down' : 'up';
-    }
-
-    private buildWindowCandidates(
-        currentIdx: number,
-        radiusPx: number,
-        viewportWidth: number,
-        direction: ReaderScrollDirection,
-    ): WindowCandidate[] {
-        const candidates: WindowCandidate[] = [{
-            chapter: this.chapterList[currentIdx],
-            side: 'current',
-            distance: 0,
-            priority: 0,
-            viewportWidth,
-        }];
-        let prevDistance = 0;
-        let nextDistance = 0;
-        let step = 1;
-
-        while (currentIdx - step >= 0 || currentIdx + step < this.chapterList.length) {
-            const prev = this.chapterList[currentIdx - step];
-            if (prev && prevDistance < radiusPx) {
-                prevDistance += this.estimateChapterHeight(prev.id, viewportWidth);
-                candidates.push({
-                    chapter: prev,
-                    side: 'prev',
-                    distance: prevDistance,
-                    priority: this.windowPriority('prev', prevDistance, step, direction),
-                    viewportWidth,
-                });
-            }
-
-            const next = this.chapterList[currentIdx + step];
-            if (next && nextDistance < radiusPx) {
-                nextDistance += this.estimateChapterHeight(next.id, viewportWidth);
-                candidates.push({
-                    chapter: next,
-                    side: 'next',
-                    distance: nextDistance,
-                    priority: this.windowPriority('next', nextDistance, step, direction),
-                    viewportWidth,
-                });
-            }
-
-            if (prevDistance >= radiusPx && nextDistance >= radiusPx) break;
-            step++;
-        }
-
-        return candidates.sort((a, b) => a.priority - b.priority);
-    }
-
-    private windowPriority(side: 'prev' | 'next', distance: number, step: number, direction: ReaderScrollDirection): number {
-        const directionBias =
-            direction === 'up' && side === 'prev' ? -10_000 :
-            direction === 'down' && side === 'next' ? -10_000 :
-            direction === 'idle' ? 0 : 10_000;
-        const roundRobinBias = side === 'prev' ? 0 : 1;
-        return distance + directionBias + step * 100 + roundRobinBias;
-    }
-
-    private reconcileSlots(wantedIds: Set<string>, keepPx: number, currentIdx: number, viewportWidth: number): LoadedChapter[] {
-        const existing = new Map(this.loadedChapters.map(ch => [ch.id, ch]));
-        const currentMeta = this.chapterList[currentIdx];
-        const currentHeight = this.estimateChapterHeight(currentMeta.id, viewportWidth);
-        let prevDistance = 0;
-        let nextDistance = 0;
-        const keepIds = new Set<string>([...wantedIds, currentMeta.id]);
-
-        for (let i = currentIdx - 1; i >= 0 && prevDistance < keepPx; i--) {
-            const meta = this.chapterList[i];
-            prevDistance += this.estimateChapterHeight(meta.id, viewportWidth);
-            if (wantedIds.has(meta.id) || prevDistance <= keepPx + currentHeight) keepIds.add(meta.id);
-        }
-        for (let i = currentIdx + 1; i < this.chapterList.length && nextDistance < keepPx; i++) {
-            const meta = this.chapterList[i];
-            nextDistance += this.estimateChapterHeight(meta.id, viewportWidth);
-            if (wantedIds.has(meta.id) || nextDistance <= keepPx + currentHeight) keepIds.add(meta.id);
-        }
-
-        return this.chapterList
-            .filter(meta => keepIds.has(meta.id))
-            .map(meta => existing.get(meta.id) ?? this.createPlaceholderSlot(meta, viewportWidth));
-    }
-
-    private createPlaceholderSlot(chapter: ChapterMeta, viewportWidth: number): LoadedChapter {
-        return {
-            id: chapter.id,
-            number: chapter.number,
-            groupName: chapter.groupName,
-            pages: [],
-            slotState: 'placeholder',
-            estimatedHeight: this.estimateChapterHeight(chapter.id, viewportWidth),
-        };
     }
 
     private scheduleWindowFetches(manga: Manga, candidates: WindowCandidate[], source: ReaderWindowSource): void {
@@ -721,14 +635,9 @@ export class ReaderState {
                 return;
             }
             if (result.kind === 'failed') {
-                this.loadedChapters = this.positionVirtualSlots(
-                    this.loadedChapters.map(slot => (
-                        slot.id === candidate.chapter.id ? { ...slot, slotState: 'placeholder' } : slot
-                    )),
-                    this.layoutChapterId ?? candidate.chapter.id,
-                    this.layoutViewportWidth(candidate.viewportWidth),
-                    this.layoutViewportHeight(),
-                );
+                this.loadedChapters = this.loadedChapters.map(slot => (
+                    slot.id === candidate.chapter.id ? { ...slot, slotState: 'placeholder' } : slot
+                ));
                 this.log.emit('reader-window-fetch-failed', {
                     source,
                     mangaId: manga.id,
@@ -777,12 +686,7 @@ export class ReaderState {
             estimatedHeight,
             virtualHeight: estimatedHeight,
         };
-        this.loadedChapters = this.positionVirtualSlots(
-            this.loadedChapters.map(slot => slot.id === readyChapter.id ? positionedReadyChapter : slot),
-            this.layoutChapterId ?? readyChapter.id,
-            this.layoutViewportWidth(readyChapter.pages[0]?.width ?? 0),
-            this.layoutViewportHeight(),
-        );
+        this.loadedChapters = this.loadedChapters.map(slot => slot.id === readyChapter.id ? positionedReadyChapter : slot);
         this.scheduleChapterWarmup(manga, readyChapter.id);
         this.log.emit('reader-window-height-delta', {
             source,
@@ -799,7 +703,7 @@ export class ReaderState {
             chapterNumber: readyChapter.number,
             reason,
             currentChapterId: this.currentChapterId,
-            currentVirtualTop: this.loadedChapters.find(slot => slot.id === this.layoutChapterId)?.virtualTop ?? null,
+            currentVirtualTop: this.chapterScrollTop(this.layoutChapterId ?? readyChapter.id, this.layoutViewportWidth(readyChapter.pages[0]?.width ?? 0)),
             layoutViewportHeight: Math.round(this.layoutViewportHeight()),
         });
         this.log.emit('reader-window-fetch-ok', {
@@ -825,22 +729,25 @@ export class ReaderState {
             ?? Math.round(viewportWidth * READER_FALLBACK_PAGE_ASPECT_RATIO * 24 + READER_CHAPTER_SEPARATOR_HEIGHT);
     }
 
-    private positionVirtualSlots(slots: LoadedChapter[], currentId: string, viewportWidth: number, clientHeight: number): LoadedChapter[] {
+    private positionVirtualSlots(slots: LoadedChapter[], _currentId: string, viewportWidth: number, clientHeight: number): LoadedChapter[] {
         if (slots.length === 0) {
             this.virtualTotalHeight = 0;
             return slots;
         }
 
-        const positioned = this.windowManager.positionVirtualSlots(
-            slots,
-            currentId,
+        const plan = this.windowManager.plan({
+            chapterList: this.chapterList,
+            loadedChapters: slots,
+            scrollTop: this.chapterScrollTop(_currentId, viewportWidth) ?? 0,
+            radiusPx: Math.max(clientHeight, 1) * READER_WINDOW_RADIUS_VIEWPORTS,
+            keepPx: Math.max(clientHeight, 1) * READER_DOM_KEEP_RADIUS_VIEWPORTS,
             viewportWidth,
-            clientHeight,
-            this.chapterList,
-            (chapterId, width) => this.estimateChapterHeight(chapterId, width),
-        );
-        this.virtualTotalHeight = this.windowManager.totalVirtualHeight(positioned, clientHeight);
-        return positioned;
+            clientHeight: Math.max(clientHeight, 1),
+            direction: 'idle',
+            estimateChapterHeight: (chapterId, width) => this.estimateChapterHeight(chapterId, width),
+        });
+        this.virtualTotalHeight = plan.totalHeight;
+        return plan.nextSlots;
     }
 
     private layoutViewportWidth(fallbackWidth = 0): number {

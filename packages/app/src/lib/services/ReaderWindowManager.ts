@@ -1,6 +1,4 @@
 import type { ChapterMeta, LoadedChapter } from '$lib/types.js';
-import { READER_WINDOW_RADIUS_VIEWPORTS } from '$lib/constants.js';
-
 export type ReaderWindowSource = 'initial' | 'scroll' | 'visible' | 'retry';
 export type ReaderScrollDirection = 'up' | 'down' | 'idle';
 
@@ -18,13 +16,23 @@ export type ReaderWindowPlan = {
     candidates: WindowCandidate[];
     nextSlots: LoadedChapter[];
     wantedIds: Set<string>;
+    totalHeight: number;
+    probeChapterId: string | null;
+};
+
+type ChapterLayout = {
+    chapter: ChapterMeta;
+    index: number;
+    top: number;
+    height: number;
+    bottom: number;
 };
 
 export class ReaderWindowManager {
     plan({
         chapterList,
         loadedChapters,
-        currentIdx,
+        scrollTop,
         radiusPx,
         keepPx,
         viewportWidth,
@@ -34,7 +42,7 @@ export class ReaderWindowManager {
     }: {
         chapterList: ChapterMeta[];
         loadedChapters: LoadedChapter[];
-        currentIdx: number;
+        scrollTop: number;
         radiusPx: number;
         keepPx: number;
         viewportWidth: number;
@@ -42,153 +50,122 @@ export class ReaderWindowManager {
         direction: ReaderScrollDirection;
         estimateChapterHeight: EstimateChapterHeight;
     }): ReaderWindowPlan {
-        const candidates = this.buildCandidates(chapterList, currentIdx, radiusPx, viewportWidth, direction, estimateChapterHeight);
-        const currentId = chapterList[currentIdx].id;
+        const layouts = this.buildLayout(chapterList, loadedChapters, viewportWidth, estimateChapterHeight);
+        const totalHeight = layouts.at(-1)?.bottom ?? Math.max(clientHeight, 1);
+        const viewportTop = Math.max(0, Math.min(scrollTop, Math.max(0, totalHeight - clientHeight)));
+        const viewportBottom = viewportTop + clientHeight;
+        const probeY = viewportTop + clientHeight * 0.35;
+        const probe = this.findLayoutAt(layouts, probeY) ?? this.nearestLayout(layouts, probeY);
+        const probeIndex = probe?.index ?? 0;
+        const loadTop = Math.max(0, viewportTop - radiusPx);
+        const loadBottom = Math.min(totalHeight, viewportBottom + radiusPx);
+        const keepTop = Math.max(0, viewportTop - keepPx);
+        const keepBottom = Math.min(totalHeight, viewportBottom + keepPx);
+
+        const candidates = layouts
+            .filter(layout => this.intersects(layout.top, layout.bottom, loadTop, loadBottom))
+            .map(layout => this.toCandidate(layout, probeIndex, viewportTop, viewportBottom, direction, viewportWidth))
+            .sort((a, b) => a.priority - b.priority);
         const wantedIds = new Set(candidates.map(candidate => candidate.chapter.id));
-        wantedIds.add(currentId);
-        const slots = this.reconcileSlots(chapterList, loadedChapters, wantedIds, keepPx, currentIdx, viewportWidth, estimateChapterHeight);
-        const nextSlots = this.positionVirtualSlots(slots, currentId, viewportWidth, clientHeight, chapterList, estimateChapterHeight);
-        return { candidates, nextSlots, wantedIds };
+        if (probe) wantedIds.add(probe.chapter.id);
+
+        const existing = new Map(loadedChapters.map(ch => [ch.id, ch]));
+        const nextSlots = layouts
+            .filter(layout => this.intersects(layout.top, layout.bottom, keepTop, keepBottom) || wantedIds.has(layout.chapter.id))
+            .map(layout => {
+                const slot = existing.get(layout.chapter.id) ?? this.createPlaceholderSlot(layout.chapter, viewportWidth, estimateChapterHeight);
+                return {
+                    ...slot,
+                    estimatedHeight: layout.height,
+                    virtualTop: layout.top,
+                    virtualHeight: layout.height,
+                };
+            });
+
+        return { candidates, nextSlots, wantedIds, totalHeight, probeChapterId: probe?.chapter.id ?? null };
     }
 
-    positionVirtualSlots(
-        slots: LoadedChapter[],
-        currentId: string,
-        viewportWidth: number,
-        clientHeight: number,
+    chapterTop(
         chapterList: ChapterMeta[],
+        loadedChapters: LoadedChapter[],
+        chapterId: string,
+        viewportWidth: number,
         estimateChapterHeight: EstimateChapterHeight,
-    ): LoadedChapter[] {
-        if (slots.length === 0) return slots;
-
-        const ordered = [...slots].sort((a, b) => {
-            const ai = chapterList.findIndex(ch => ch.id === a.id);
-            const bi = chapterList.findIndex(ch => ch.id === b.id);
-            return ai - bi;
-        });
-        const currentIndex = ordered.findIndex(slot => slot.id === currentId);
-        const anchorIndex = currentIndex >= 0 ? currentIndex : Math.floor(ordered.length / 2);
-        const bufferPx = Math.max(clientHeight, 1) * READER_WINDOW_RADIUS_VIEWPORTS;
-        const heights = ordered.map(slot => slot.virtualHeight ?? slot.estimatedHeight ?? estimateChapterHeight(slot.id, viewportWidth));
-        const tops = new Map<string, number>();
-
-        tops.set(ordered[anchorIndex].id, bufferPx);
-        for (let i = anchorIndex - 1; i >= 0; i--) {
-            const nextTop = tops.get(ordered[i + 1].id) ?? bufferPx;
-            tops.set(ordered[i].id, nextTop - heights[i]);
-        }
-        for (let i = anchorIndex + 1; i < ordered.length; i++) {
-            const prevTop = tops.get(ordered[i - 1].id) ?? bufferPx;
-            tops.set(ordered[i].id, prevTop + heights[i - 1]);
-        }
-
-        return ordered.map((slot, i) => ({
-            ...slot,
-            estimatedHeight: heights[i],
-            virtualTop: tops.get(slot.id) ?? bufferPx,
-            virtualHeight: heights[i],
-        }));
+    ): number | null {
+        return this.buildLayout(chapterList, loadedChapters, viewportWidth, estimateChapterHeight)
+            .find(layout => layout.chapter.id === chapterId)?.top ?? null;
     }
 
-    totalVirtualHeight(slots: LoadedChapter[], clientHeight: number): number {
-        const bufferPx = Math.max(clientHeight, 1) * READER_WINDOW_RADIUS_VIEWPORTS;
-        const minHeight = Math.max(clientHeight, 1) * (READER_WINDOW_RADIUS_VIEWPORTS * 2 + 1);
-        return Math.max(
-            minHeight,
-            ...slots.map(slot => (slot.virtualTop ?? 0) + (slot.virtualHeight ?? slot.estimatedHeight ?? 0) + bufferPx),
-        );
-    }
-
-    private buildCandidates(
+    private buildLayout(
         chapterList: ChapterMeta[],
-        currentIdx: number,
-        radiusPx: number,
+        loadedChapters: LoadedChapter[],
         viewportWidth: number,
+        estimateChapterHeight: EstimateChapterHeight,
+    ): ChapterLayout[] {
+        const existing = new Map(loadedChapters.map(ch => [ch.id, ch]));
+        let top = 0;
+        const layouts: ChapterLayout[] = [];
+        for (let index = 0; index < chapterList.length; index++) {
+            const chapter = chapterList[index];
+            const slot = existing.get(chapter.id);
+            const height = Math.max(1, slot?.virtualHeight ?? slot?.estimatedHeight ?? estimateChapterHeight(chapter.id, viewportWidth));
+            const bottom = top + height;
+            layouts.push({ chapter, index, top, height, bottom });
+            top = bottom;
+        }
+        return layouts;
+    }
+
+    private findLayoutAt(layouts: ChapterLayout[], y: number): ChapterLayout | null {
+        return layouts.find(layout => y >= layout.top && y < layout.bottom) ?? null;
+    }
+
+    private nearestLayout(layouts: ChapterLayout[], y: number): ChapterLayout | null {
+        if (layouts.length === 0) return null;
+        return layouts.reduce((best, layout) => {
+            const bestDistance = this.distanceToRange(y, best.top, best.bottom);
+            const distance = this.distanceToRange(y, layout.top, layout.bottom);
+            return distance < bestDistance ? layout : best;
+        }, layouts[0]);
+    }
+
+    private toCandidate(
+        layout: ChapterLayout,
+        probeIndex: number,
+        viewportTop: number,
+        viewportBottom: number,
         direction: ReaderScrollDirection,
-        estimateChapterHeight: EstimateChapterHeight,
-    ): WindowCandidate[] {
-        const candidates: WindowCandidate[] = [{
-            chapter: chapterList[currentIdx],
-            side: 'current',
-            distance: 0,
-            priority: 0,
-            viewportWidth,
-        }];
-        let prevDistance = 0;
-        let nextDistance = 0;
-        let step = 1;
-
-        while (currentIdx - step >= 0 || currentIdx + step < chapterList.length) {
-            const prev = chapterList[currentIdx - step];
-            if (prev && prevDistance < radiusPx) {
-                prevDistance += estimateChapterHeight(prev.id, viewportWidth);
-                candidates.push({
-                    chapter: prev,
-                    side: 'prev',
-                    distance: prevDistance,
-                    priority: this.priority('prev', prevDistance, step, direction),
-                    viewportWidth,
-                });
-            }
-
-            const next = chapterList[currentIdx + step];
-            if (next && nextDistance < radiusPx) {
-                nextDistance += estimateChapterHeight(next.id, viewportWidth);
-                candidates.push({
-                    chapter: next,
-                    side: 'next',
-                    distance: nextDistance,
-                    priority: this.priority('next', nextDistance, step, direction),
-                    viewportWidth,
-                });
-            }
-
-            if (prevDistance >= radiusPx && nextDistance >= radiusPx) break;
-            step++;
-        }
-
-        return candidates.sort((a, b) => a.priority - b.priority);
-    }
-
-    private priority(side: 'prev' | 'next', distance: number, step: number, direction: ReaderScrollDirection): number {
+        viewportWidth: number,
+    ): WindowCandidate {
+        const side = layout.index < probeIndex ? 'prev' : layout.index > probeIndex ? 'next' : 'current';
+        const distance = this.distanceBetweenRanges(layout.top, layout.bottom, viewportTop, viewportBottom);
+        const step = Math.abs(layout.index - probeIndex);
         const directionBias =
             direction === 'up' && side === 'prev' ? -10_000 :
             direction === 'down' && side === 'next' ? -10_000 :
             direction === 'idle' ? 0 : 10_000;
         const roundRobinBias = side === 'prev' ? 0 : 1;
-        return distance + directionBias + step * 100 + roundRobinBias;
+        return {
+            chapter: layout.chapter,
+            side,
+            distance,
+            priority: distance + directionBias + step * 100 + roundRobinBias,
+            viewportWidth,
+        };
     }
 
-    private reconcileSlots(
-        chapterList: ChapterMeta[],
-        loadedChapters: LoadedChapter[],
-        wantedIds: Set<string>,
-        keepPx: number,
-        currentIdx: number,
-        viewportWidth: number,
-        estimateChapterHeight: EstimateChapterHeight,
-    ): LoadedChapter[] {
-        const existing = new Map(loadedChapters.map(ch => [ch.id, ch]));
-        const currentMeta = chapterList[currentIdx];
-        const currentHeight = estimateChapterHeight(currentMeta.id, viewportWidth);
-        let prevDistance = 0;
-        let nextDistance = 0;
-        const keepIds = new Set<string>([...wantedIds, currentMeta.id]);
+    private intersects(top: number, bottom: number, rangeTop: number, rangeBottom: number): boolean {
+        return bottom >= rangeTop && top <= rangeBottom;
+    }
 
-        for (let i = currentIdx - 1; i >= 0 && prevDistance < keepPx; i--) {
-            const meta = chapterList[i];
-            prevDistance += estimateChapterHeight(meta.id, viewportWidth);
-            if (wantedIds.has(meta.id) || prevDistance <= keepPx + currentHeight) keepIds.add(meta.id);
-        }
-        for (let i = currentIdx + 1; i < chapterList.length && nextDistance < keepPx; i++) {
-            const meta = chapterList[i];
-            nextDistance += estimateChapterHeight(meta.id, viewportWidth);
-            if (wantedIds.has(meta.id) || nextDistance <= keepPx + currentHeight) keepIds.add(meta.id);
-        }
+    private distanceBetweenRanges(top: number, bottom: number, rangeTop: number, rangeBottom: number): number {
+        if (this.intersects(top, bottom, rangeTop, rangeBottom)) return 0;
+        return top > rangeBottom ? top - rangeBottom : rangeTop - bottom;
+    }
 
-        return chapterList
-            .filter(meta => keepIds.has(meta.id))
-            .map(meta => existing.get(meta.id) ?? this.createPlaceholderSlot(meta, viewportWidth, estimateChapterHeight));
+    private distanceToRange(y: number, top: number, bottom: number): number {
+        if (y >= top && y <= bottom) return 0;
+        return y < top ? top - y : y - bottom;
     }
 
     private createPlaceholderSlot(

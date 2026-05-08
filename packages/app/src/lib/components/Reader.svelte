@@ -10,7 +10,6 @@
     import {
         READER_CHAPTER_SEPARATOR_HEIGHT,
         READER_FALLBACK_PAGE_ASPECT_RATIO,
-        READER_WINDOW_RADIUS_VIEWPORTS,
     } from '$lib/constants.js';
     import type { LoadedChapter } from '$lib/types.js';
 
@@ -47,12 +46,12 @@
     let initialized = false;
     let windowRaf: number | null = null;
 
-    function reconcileReaderWindow(source: 'initial' | 'scroll' | 'visible' | 'retry') {
+    function reconcileReaderWindow(source: 'initial' | 'scroll' | 'visible' | 'retry', scrollTopOverride?: number) {
         const root = getReaderRoot();
         if (!root) return;
         appState.reader.recordChapterMeasurements(measureChapterHeights(root));
         appState.reader.reconcileReaderWindow({
-            scrollTop: root.scrollTop,
+            scrollTop: scrollTopOverride ?? root.scrollTop,
             clientHeight: root.clientHeight,
             clientWidth: root.clientWidth,
         }, source);
@@ -90,7 +89,7 @@
         const currentId = appState.reader.layoutChapterId;
         if (!currentId || appState.reader.pageRestoreTarget) return;
         const from = root.scrollTop;
-        const target = root.clientHeight * READER_WINDOW_RADIUS_VIEWPORTS;
+        const target = appState.reader.chapterScrollTop(currentId, root.clientWidth) ?? 0;
         root.scrollTop = target;
         if (Math.abs(root.scrollTop - from) > 1) {
             appState.log.emit('reader-scroll-write', {
@@ -107,7 +106,7 @@
         const chapter = chapters.find(ch => ch.id === currentId);
         if (!chapter || target.pageIndex < 0 || target.pageIndex >= chapter.pages.length) return null;
 
-        let top = chapter.virtualTop ?? 0;
+        let top = appState.reader.chapterScrollTop(currentId, root.clientWidth) ?? chapter.virtualTop ?? 0;
         top += READER_CHAPTER_SEPARATOR_HEIGHT;
         for (let i = 0; i < target.pageIndex; i++) {
             const page = chapter.pages[i];
@@ -125,12 +124,14 @@
         }
 
         scrollCoordinator.beginInitialPosition(root);
-        reconcileReaderWindow('initial');
-        await tick();
 
         const restore = appState.reader.pageRestoreTarget;
         if (!restore) {
             const from = root.scrollTop;
+            const currentId = appState.reader.layoutChapterId;
+            const target = currentId ? appState.reader.chapterScrollTop(currentId, root.clientWidth) ?? 0 : 0;
+            reconcileReaderWindow('initial', target);
+            await tick();
             scrollToCurrentChapterAnchor(root);
             scrollCoordinator.cancelInitialPosition();
             appState.log.emit('reader-restore-scroll', {
@@ -149,6 +150,10 @@
         const restoreTop = restoredPageScrollTop(root, restore);
         scrollCoordinator.cancelInitialPosition();
         if (restoreTop == null) {
+            const currentId = appState.reader.layoutChapterId;
+            const target = currentId ? appState.reader.chapterScrollTop(currentId, root.clientWidth) ?? 0 : 0;
+            reconcileReaderWindow('initial', target);
+            await tick();
             scrollToCurrentChapterAnchor(root);
             appState.log.emit('reader-restore-scroll', {
                 action: 'fallback',
@@ -161,6 +166,8 @@
             return;
         }
 
+        reconcileReaderWindow('initial', restoreTop);
+        await tick();
         root.scrollTop = restoreTop;
         if (Math.abs(root.scrollTop - from) > 1) {
             appState.log.emit('reader-scroll-write', {
