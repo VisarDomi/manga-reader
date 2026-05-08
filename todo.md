@@ -166,5 +166,5 @@ Do not accidentally commit/remove unrelated user changes. The test PWA is experi
 
 ## Known Good Return Point
 
-- 2026-05-08: Commit `293e912` (`Pin reader virtual slot estimates`) is the current good-enough baseline before testing measured layout reconciliation / slot height rebasing. Return here if the next architecture direction causes worse reader behavior.
-- At the time this marker was added, there were uncommitted observability changes in `packages/app/src/lib/components/Reader.svelte` and `packages/app/src/lib/services/LogService.ts`; treat them as debugging context, not part of the committed baseline.
+- 2026-05-08: Commit `41b1894` (`Add reader visual diagnostics`) is the current good-enough baseline before testing measured layout reconciliation / slot height rebasing. Return here if the next architecture direction causes worse reader behavior.
+- This baseline includes the reader visual diagnostics in `packages/app/src/lib/components/Reader.svelte` and `packages/app/src/lib/services/LogService.ts`.
