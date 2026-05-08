@@ -23,15 +23,6 @@
         container.scrollTop = Math.max(0, desiredScrollTop);
     });
 
-    const hasFilteredChapters = $derived(
-        gf.count > 0 && chapters.some(ch => gf.isFiltered(ch.groupId ?? ''))
-    );
-
-    const effectiveCount = $derived.by(() => {
-        if (manga.isShowingBlockedChaptersFor(entry) || gf.count === 0) return chapters.length;
-        return chapters.filter(ch => !gf.isFiltered(ch.groupId ?? '')).length;
-    });
-
     let pendingGroup = $state<{ id: string; name: string } | null>(null);
 
     function handleLongPressGroup(groupId: string, groupName: string) {
@@ -55,7 +46,41 @@
         pendingGroup = null;
     }
 
-    const groups = $derived.by(() => {
+    type GapIndicator = { type: 'gap'; missing: number; from: number; to: number };
+    type ListItem = { type: 'chapter'; chapter: ChapterMeta } | GapIndicator;
+    type ChapterListView = {
+        groups: { id: string; name: string; count: number }[];
+        filtered: ChapterMeta[];
+        listItems: ListItem[];
+        hasFilteredChapters: boolean;
+        effectiveCount: number;
+    };
+
+    let lastViewChapters: ChapterMeta[] | null = null;
+    let lastViewKey = '';
+    let lastView: ChapterListView = {
+        groups: [],
+        filtered: [],
+        listItems: [],
+        hasFilteredChapters: false,
+        effectiveCount: 0,
+    };
+
+    function selectedKey(groups: Set<string>): string {
+        return [...groups].sort().join(',');
+    }
+
+    function buildView(): ChapterListView {
+        const blockedKey = gf.key;
+        const selectionKey = selectedKey(selectedGroups);
+        const showBlocked = manga.isShowingBlockedChaptersFor(entry);
+        const key = [
+            blockedKey,
+            selectionKey,
+            showBlocked ? 'show-blocked' : 'hide-blocked',
+        ].join('|');
+        if (chapters === lastViewChapters && key === lastViewKey) return lastView;
+
         const map = new Map<string, { id: string; name: string; count: number }>();
         for (const ch of chapters) {
             const gid = ch.groupId ?? '';
@@ -70,24 +95,21 @@
                 });
             }
         }
-        return [...map.values()].sort((a, b) => b.count - a.count);
-    });
-
-    const filtered = $derived(appState.manga.filteredChaptersFor(entry));
-
-    type GapIndicator = { type: 'gap'; missing: number; from: number; to: number };
-    type ListItem = { type: 'chapter'; chapter: ChapterMeta } | GapIndicator;
-
-    const listItems = $derived.by((): ListItem[] => {
-        const result: ListItem[] = [];
+        const groups = [...map.values()].sort((a, b) => b.count - a.count);
+        const hasFilteredChapters = gf.count > 0 && chapters.some(ch => gf.isFiltered(ch.groupId ?? ''));
+        const effectiveCount = showBlocked || gf.count === 0
+            ? chapters.length
+            : chapters.filter(ch => !gf.isFiltered(ch.groupId ?? '')).length;
+        const filtered = appState.manga.filteredChaptersFor(entry);
+        const listItems: ListItem[] = [];
         for (let i = 0; i < filtered.length; i++) {
-            result.push({ type: 'chapter', chapter: filtered[i] });
+            listItems.push({ type: 'chapter', chapter: filtered[i] });
             if (i < filtered.length - 1) {
                 const cur = Math.floor(filtered[i].number);
                 const next = Math.floor(filtered[i + 1].number);
                 const missing = cur - next - 1;
                 if (missing > 0) {
-                    result.push({ type: 'gap', missing, from: next + 1, to: cur - 1 });
+                    listItems.push({ type: 'gap', missing, from: next + 1, to: cur - 1 });
                 }
             }
         }
@@ -95,11 +117,21 @@
             const lowest = Math.floor(filtered[filtered.length - 1].number);
             if (lowest > 1) {
                 const missing = lowest - 1;
-                result.push({ type: 'gap', missing, from: 1, to: lowest - 1 });
+                listItems.push({ type: 'gap', missing, from: 1, to: lowest - 1 });
             }
         }
-        return result;
-    });
+
+        lastViewChapters = chapters;
+        lastViewKey = key;
+        lastView = { groups, filtered, listItems, hasFilteredChapters, effectiveCount };
+        return lastView;
+    }
+
+    const view = $derived.by(buildView);
+    const groups = $derived(view.groups);
+    const listItems = $derived(view.listItems);
+    const hasFilteredChapters = $derived(view.hasFilteredChapters);
+    const effectiveCount = $derived(view.effectiveCount);
 
     const currentProgress = $derived(appState.progress.get(mangaId));
     const currentChapterId = $derived(currentProgress?.chapterId ?? null);

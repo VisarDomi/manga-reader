@@ -1,18 +1,36 @@
 <script lang="ts">
+    import { onMount } from 'svelte';
     import { appState } from '$lib/state/index.svelte.js';
     import * as api from '$lib/services/api.js';
     import type { Manga } from '$lib/types.js';
+    import type { ProgressData } from '$lib/state/progress.svelte.js';
 
     let { manga }: { manga: Manga } = $props();
 
     const coverUrl = $derived(manga.cover ? api.coverProxyUrl(manga.cover) : '');
-    const progress = $derived(appState.progress.get(manga.id));
     const latestChapter = $derived(manga.latestChapter ?? 0);
+    let progress = $state<ProgressData | null>(null);
+    let filteredMaxSnapshot = $state({ filteredMax: null as number | null, isLoading: false });
     const readChapter = $derived(progress?.chapterNumber ?? 0);
-    const filteredMax = $derived(appState.chapterStats.getFilteredMax(manga.id, manga.latestChapter ?? null) ?? 0);
-    const filteredMaxKnown = $derived(appState.chapterStats.getFilteredMax(manga.id, manga.latestChapter ?? null) != null);
-    const filteredMaxLoading = $derived(appState.chapterStats.isLoading(manga.id, manga.latestChapter ?? null));
+    const filteredMax = $derived(filteredMaxSnapshot.filteredMax ?? 0);
+    const filteredMaxKnown = $derived(filteredMaxSnapshot.filteredMax != null);
+    const filteredMaxLoading = $derived(filteredMaxSnapshot.isLoading);
     const hasProgress = $derived(progress != null);
+
+    function syncStats() {
+        filteredMaxSnapshot = appState.chapterStats.snapshot(manga.id, manga.latestChapter ?? null);
+    }
+
+    onMount(() => {
+        const unsubscribeProgress = appState.progress.subscribe(manga.id, value => {
+            progress = value;
+        });
+        const unsubscribeStats = appState.chapterStats.subscribe(manga.id, syncStats);
+        return () => {
+            unsubscribeProgress();
+            unsubscribeStats();
+        };
+    });
 </script>
 
 <button class="manga-card" data-manga-id={manga.id} onclick={() => appState.manga.openManga(manga)}>

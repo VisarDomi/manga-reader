@@ -11,10 +11,16 @@ interface ChapterStatsEntry {
     updatedAt: number;
 }
 
+export interface ChapterStatsSnapshot {
+    filteredMax: number | null;
+    isLoading: boolean;
+}
+
 export class ChapterStatsState {
     private entries = $state<Record<string, ChapterStatsEntry>>({});
     private loading = $state<Record<string, string>>({});
     private gf: GroupFilterState;
+    private listeners = new Map<string, Set<() => void>>();
 
     constructor(gf: GroupFilterState) {
         this.gf = gf;
@@ -39,6 +45,13 @@ export class ChapterStatsState {
         return this.loading[mangaId] === this.keyFor(mangaId) && this.needsRefresh(mangaId, upstreamMax);
     }
 
+    snapshot(mangaId: string, upstreamMax: number | null): ChapterStatsSnapshot {
+        return {
+            filteredMax: this.getFilteredMax(mangaId, upstreamMax),
+            isLoading: this.isLoading(mangaId, upstreamMax),
+        };
+    }
+
     needsRefresh(mangaId: string, upstreamMax: number | null): boolean {
         const entry = this.entries[mangaId];
         return !entry || entry.key !== this.keyFor(mangaId) || entry.upstreamMax !== upstreamMax;
@@ -46,10 +59,12 @@ export class ChapterStatsState {
 
     markLoading(mangaId: string): void {
         this.loading[mangaId] = this.keyFor(mangaId);
+        this.notify(mangaId);
     }
 
     clearLoading(mangaId: string): void {
         delete this.loading[mangaId];
+        this.notify(mangaId);
     }
 
     update(mangaId: string, upstreamMax: number | null, chapters: ChapterMeta[], selectedGroups: Set<string>): void {
@@ -70,5 +85,26 @@ export class ChapterStatsState {
         };
         storage.setJson(STORAGE_KEY, $state.snapshot(this.entries));
         this.clearLoading(mangaId);
+        this.notify(mangaId);
+    }
+
+    subscribe(mangaId: string, callback: () => void): () => void {
+        let listeners = this.listeners.get(mangaId);
+        if (!listeners) {
+            listeners = new Set();
+            this.listeners.set(mangaId, listeners);
+        }
+        listeners.add(callback);
+        callback();
+        return () => {
+            listeners?.delete(callback);
+            if (listeners?.size === 0) this.listeners.delete(mangaId);
+        };
+    }
+
+    private notify(mangaId: string): void {
+        const listeners = this.listeners.get(mangaId);
+        if (!listeners) return;
+        for (const listener of listeners) listener();
     }
 }

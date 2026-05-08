@@ -321,6 +321,21 @@ export class MangaState {
         let pageCount = 0;
         const mangaId = entry.manga.id;
 
+        const commitChapters = (phase: 'chapters-page' | 'chapters-done'): void => {
+            const current = this.updateEntry(entry.key, currentEntry => {
+                currentEntry.chapters = [...all];
+            });
+            if (current) {
+                this.emit('manga-entry-state', {
+                    mangaId,
+                    phase,
+                    recommendations: current.manga.recommendations?.length ?? 0,
+                    chapters: current.chapters.length,
+                    comments: current.comments.length,
+                });
+            }
+        };
+
         for await (const page of api.fetchChapterList(mangaId)) {
             pageCount++;
             this.emit('chapters-page', {
@@ -338,29 +353,11 @@ export class MangaState {
                 seen.add(ch.id);
                 all.push(ch);
             }
-            const current = this.updateEntry(entry.key, currentEntry => {
-                currentEntry.chapters = [...all];
-            });
-            if (current) {
-                this.emit('manga-entry-state', {
-                    mangaId,
-                    phase: 'chapters-page',
-                    recommendations: current.manga.recommendations?.length ?? 0,
-                    chapters: current.chapters.length,
-                    comments: current.comments.length,
-                });
+            if (pageCount === 1) {
+                commitChapters('chapters-page');
             }
         }
-        const current = this.entryFor(entry.key);
-        if (current) {
-            this.emit('manga-entry-state', {
-                mangaId,
-                phase: 'chapters-done',
-                recommendations: current.manga.recommendations?.length ?? 0,
-                chapters: current.chapters.length,
-                comments: current.comments.length,
-            });
-        }
+        commitChapters('chapters-done');
         this.emit('chapters-done', {
             mangaId,
             pages: pageCount,
