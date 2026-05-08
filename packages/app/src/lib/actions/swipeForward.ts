@@ -18,6 +18,17 @@ export function swipeForward(node: HTMLElement, options: SwipeForwardOptions) {
     let opened = false;
     let opts = options;
 
+    function setProgress(next: number) {
+        progress = Math.max(0, Math.min(1, next));
+        document.documentElement.style.setProperty('--forward-swipe-progress', `${(1 - progress) * 100}%`);
+    }
+
+    function clearProgress() {
+        progress = 0;
+        opts.ui.forwardSwipeProgress = 0;
+        document.documentElement.style.removeProperty('--forward-swipe-progress');
+    }
+
     function onStart(e: TouchEvent) {
         const touch = e.touches[0];
         const edgeZone = appDimensions.width * EDGE_ZONE_RATIO;
@@ -27,6 +38,7 @@ export function swipeForward(node: HTMLElement, options: SwipeForwardOptions) {
             rejected = false;
             progress = 0;
             opened = false;
+            document.documentElement.style.removeProperty('--forward-swipe-progress');
             startX = touch.clientX;
             startY = touch.clientY;
         }
@@ -55,14 +67,15 @@ export function swipeForward(node: HTMLElement, options: SwipeForwardOptions) {
             if (!opened) {
                 rejected = true;
                 tracking = false;
+                clearProgress();
                 return;
             }
+            setProgress(0);
             opts.ui.isForwardSwiping = true;
         }
 
         e.preventDefault();
-        progress = Math.max(0, Math.min(1, Math.abs(dx) / appWidth));
-        opts.ui.forwardSwipeProgress = progress;
+        setProgress(Math.abs(dx) / appWidth);
     }
 
     function onEnd() {
@@ -81,19 +94,20 @@ export function swipeForward(node: HTMLElement, options: SwipeForwardOptions) {
         opts.ui.forwardSwipeAnimating = true;
 
         if (shouldKeepOpen) {
-            opts.ui.forwardSwipeProgress = 1;
+            setProgress(1);
             setTimeout(() => {
                 opts.onCommit();
                 opts.ui.isForwardSwiping = false;
                 opts.ui.forwardSwipeAnimating = false;
-                opts.ui.forwardSwipeProgress = 0;
+                clearProgress();
             }, 250);
         } else {
-            opts.ui.forwardSwipeProgress = 0;
+            setProgress(0);
             setTimeout(() => {
                 opts.onCancel?.();
                 opts.ui.isForwardSwiping = false;
                 opts.ui.forwardSwipeAnimating = false;
+                clearProgress();
             }, 250);
         }
     }
@@ -110,6 +124,7 @@ export function swipeForward(node: HTMLElement, options: SwipeForwardOptions) {
             node.removeEventListener('touchstart', onStart);
             node.removeEventListener('touchmove', onMove);
             node.removeEventListener('touchend', onEnd);
+            clearProgress();
         }
     };
 }

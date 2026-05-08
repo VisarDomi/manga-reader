@@ -23,7 +23,6 @@
     const swipeAnimating = $derived(appState.ui.swipeAnimating);
     const isForwardSwiping = $derived(appState.ui.isForwardSwiping);
     const forwardSwipeAnimating = $derived(appState.ui.forwardSwipeAnimating);
-    const forwardSwipeProgress = $derived(appState.ui.forwardSwipeProgress);
 
     const backView = $derived(isSwiping ? appState.ui.peekBack() : null);
 
@@ -88,7 +87,7 @@
     class:view-hidden={!showingChapterComments}
     class:swipe-active={inChapterComments && isSwiping || isForwardSwiping || forwardSwipeAnimating}
     class:swipe-animating={inChapterComments && swipeAnimating || forwardSwipeAnimating}
-    style="{isForwardSwiping || forwardSwipeAnimating ? `transform:translateX(${(1 - forwardSwipeProgress) * 100}%)` : inChapterComments && isSwiping ? 'transform:translateX(var(--swipe-progress, 0%))' : ''}"
+    style="{isForwardSwiping || forwardSwipeAnimating ? 'transform:translateX(var(--forward-swipe-progress, 100%))' : inChapterComments && isSwiping ? 'transform:translateX(var(--swipe-progress, 0%))' : ''}"
 >
     <ChapterCommentsView />
 </div>
