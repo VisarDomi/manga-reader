@@ -331,6 +331,71 @@ verify the complete interaction path. The production path may include planner
 state, hydration timing, saved progress, virtual windows, image loading, and
 navigation ownership that the reduced test does not model.
 
+### 32. Treat Large Restored State as a Stress Test
+
+Large restored state can expose real main-thread costs even when it is not the
+root cause of a regression. A 1000-result search list, a 3000-chapter detail
+view, or a large comments tree is useful evidence about broad reactive
+invalidation, DOM cost, and gesture sensitivity.
+
+Do not confuse the stressor with the owner of the bug. If a heavy search result
+set is restored while favorites owns the route, the fix is restore ownership,
+not hiding or hibernating views. Keep the stress case as performance evidence,
+but fix the state owner that caused the wrong work to run.
+
+### 33. Top-Level Views Stay Mounted Unless Behavior Explicitly Changes
+
+The list, favorites, manga detail, reader, and comments surfaces are navigation
+layers, not disposable route pages. They may be visually covered by a higher
+layer and still need to preserve scroll, gesture continuity, and peek-back
+behavior.
+
+Do not add hibernation, parking, inert modes, or conditional mounting for a
+top-level view as a performance fix unless the behavior change is explicitly
+approved. If a covered view is doing expensive work, fix the owner that is
+committing the work; do not make mount lifetime responsible for correctness.
+
+### 34. Avoid Broad Svelte State Broadcasts
+
+In Svelte 5, a single broad `$state` write can wake many `$derived` chains and
+component instances. High-volume producers should commit deliberate snapshots,
+and consumers should subscribe to keyed data when they only need one key.
+
+Known good patterns in this app:
+
+- collect chapter pages in a local owner and commit page 1 plus the final full
+  chapter snapshot, instead of writing every fetched page into broad state
+- keep chapter-list grouping/filter/gap work memoized around the chapter list
+  and filter inputs
+- subscribe manga cards to keyed progress and chapter-stat snapshots instead
+  of whole progress/stat records
+- keep reader-visible observations reader-owned during scroll and commit
+  manga-detail scroll targets at discrete boundaries
+
+### 35. Gestures Own the Frame Budget While Active
+
+During an active swipe or momentum scroll, gesture movement should be direct
+DOM/CSS variable work. Other owners must avoid large `$state` commits, DOM
+scans, image-start bursts, or result application that can compete with the
+interaction.
+
+`pauseBackgroundWork` and related foreground gates are about frontend commit
+ownership. Backend work does not directly block the frontend main thread, but
+frontend application of backend results can. Logs should distinguish queued,
+deferred, resumed, skipped, and committed work so jank windows can be tied to
+the owner that spent the frame budget.
+
+### 36. Restore Only the Owning Surface
+
+Search and favorites are sibling roots. Restoring favorites must not replay
+search just because an older session contains search context. Restoring search
+may replay search. Restoring manga or reader may replay search only when the
+back stack says search/list owns the origin path.
+
+Persisted search context is domain state for the search surface, not global app
+state. A restore path must first identify the current surface and back stack,
+then replay only the domain owners needed for that path.
+
 ## Product Decisions
 
 These are app-level behavior decisions that drive UX, persistence, navigation,
@@ -385,9 +450,19 @@ Chapter filtering is a single pipeline: raw chapters in, filtered/deduped/sorted
 
 Tests assert the pipeline's end state for each behavior.
 
-## AG. Chapters Are Yielded Progressively
+## AG. Chapters Commit Page 1 Then the Final Snapshot
 
-When opening a manga, the provider yields chapters in descending order (newest first) as soon as each page arrives — the app renders them immediately without waiting for the full list. The app expects descending order so that page 1 fills the top of the chapter list (what the user sees) and subsequent pages append below without causing scroll jumps. The provider handles the pagination strategy (how many requests, what page size, parallel or sequential). The app owns deduplication: it deduplicates by chapter ID on each batch and re-applies group filtering and sorting on each update. If some pages fail but others succeed, the app shows what it got — partial data is better than nothing.
+When opening a manga, the provider yields chapters in descending order (newest
+first). The app commits page 1 immediately so the visible top of the chapter
+list appears fast, then keeps later pages in a local chapter-ingestion owner
+until the full list is ready. The final full list is committed once.
+
+This avoids writing thousands of intermediate chapter-list states into Svelte
+while preserving the useful first render. The provider owns the pagination
+strategy. The app owns deduplication by chapter ID and re-applies group
+filtering and sorting when it commits the display snapshots. If some pages fail
+but others succeed, the app shows what it got; partial data is better than
+nothing.
 
 ## AH. Progress Is Tracked Per Manga
 
@@ -474,84 +549,74 @@ IDB operations follow these rules:
 - **Writes** (saving progress, adding/removing favorites): reject on failure so callers can handle it. Callers decide how to handle the rejection — favorites reverts the optimistic update (rule AM), progress shows a toast on first failure per session.
 - **Database initialization failure**: show a clear error state (e.g. "Storage unavailable" toast), do not crash the app. The app should remain usable for browsing and reading — just without persistence.
 
-## AO. View Stack Has Exactly 7 Valid Configurations
+## AO. View Mode Owns the Current Surface, View Stack Owns Back
 
-The view stack is fixed — no skipping levels, no duplicates, max depth 4. The valid stacks are:
+`viewMode` is the current surface. `viewStack` contains only the back stack
+behind that surface. Search and favorites are sibling roots: switching between
+them resets the stack instead of placing one behind the other.
 
-- `[list]` — browsing search results
-- `[list, repos]` — managing repos and providers (list is behind)
-- `[list, favorites]` — viewing favorites (list is behind)
-- `[list, manga]` — viewing details from search (list is behind)
-- `[list, favorites, manga]` — viewing details from favorites (favorites and list are behind)
-- `[list, manga, reader]` — reading from search path (details and list are behind)
-- `[list, favorites, manga, reader]` — reading from favorites path (details, favorites, and list are behind)
+Valid common states are:
 
-Back (swipe or button) always pops one level. The repos view is a leaf — you can only go back to list from it, not deeper. On session restore, every view below the current one is also restored with correct content so swipe-back reveals the right screen.
+- `viewMode=list`, `viewStack=[]` — browsing search results
+- `viewMode=favorites`, `viewStack=[]` — browsing favorites
+- `viewMode=manga`, `viewStack=[list]` — details opened from search
+- `viewMode=manga`, `viewStack=[favorites]` — details opened from favorites
+- `viewMode=reader`, `viewStack=[list, manga]` — reader opened from a search details path
+- `viewMode=reader`, `viewStack=[favorites, manga]` — reader opened from a favorites details path
+- `viewMode=chapter-comments`, `viewStack=[..., manga, reader]` — comments opened from the reader path
 
-## AP. Session Snapshot Has Two Save Triggers
+Back (swipe or button) pops one level from `viewStack`. Peek-back uses the same
+stack, so the covered surface must remain mounted and visually stable during a
+gesture. Session restore may rebuild stacks for the target surface, but it must
+not invent a search owner behind favorites.
 
-The session snapshot is a single object in localStorage with these fields: viewMode, viewStack, activeProviderKey, activeManga, listTargetMangaId, favoritesTargetMangaId, and searchContext. Two triggers update different parts of it:
+## AP. Session Snapshot Saves Navigation and the Owning Search Context
 
-- **View transition** (immediate): any view change (push or pop) saves viewMode, viewStack, activeProviderKey, activeManga, and searchContext immediately.
-- **Scroll tracking** (debounced 1s): while on the list view, the app tracks which manga card is at the center of the viewport and updates listTargetMangaId. While on the favorites view, it updates favoritesTargetMangaId. These are separate fields because list and favorites contain different manga — a scroll target from one view may not exist in the other.
+The session snapshot is a single object in localStorage with these fields:
+`viewMode`, `viewStack`, `activeManga`, `mangaStack`, `targetMangaId`, and
+`searchContext`.
 
-Both triggers write to the same snapshot. View transitions capture *what view you're on*, scroll tracking captures *where you were looking* in each scrollable view.
+View transitions save immediately. Visible manga tracking is debounced and
+updates `targetMangaId`, which points to the origin manga for restore or
+back-stack recovery. `mangaStack` stores nested manga-detail history directly
+instead of reconstructing it from DOM state.
 
-Scroll position has two layers: within a session, the app caches the exact pixel scroll position of the list view in memory — when swiping back from manga details to the list, it restores pixel-perfect. Across sessions, only `listTargetMangaId` (a card ID) is persisted — on cold start, the app paginates to find that card and scrolls to it (card-level precision, not pixel-perfect). The same applies to `favoritesTargetMangaId` for the favorites view.
+`searchContext` is saved only when search/list owns the current path:
+`viewMode === list` or `viewStack` contains `list`. Favorites does not own
+search context. Restoring favorites must not replay a stale 1000-result search
+behind it.
 
 ## AQ. Session Restore Is Automatic and Abortable
 
 On app launch, if a session snapshot exists, the app restores it automatically. While restoring, a passive "Restoring last position..." toast is shown. If the user takes any action during restore (scrolls, taps a manga, changes view, or starts a new search), the restore is cancelled silently — user action always wins. Each phase is independently abortable.
 
-All restore sequences require the active provider to be loaded first (see BI). Each stack configuration (see AO) has its own restore sequence:
+All restore sequences require the active provider to be loaded first (see BI).
+Each sequence restores only the owners implied by `viewMode` and `viewStack`:
 
-**`[list]` — restore list view:**
-- Read session snapshot → get searchContext (query + filters) and listTargetMangaId (last visible card)
-- Replay search with saved context
-- Paginate until listTargetMangaId found in results
-- Auto-scroll to that card
+**Search/list restore:**
+- Replay the saved search context, or run the current empty/default search.
+- If `targetMangaId` exists, paginate until the target is found and scroll to it.
 
-**`[list, repos]` — restore repos view:**
-- Read session snapshot → get searchContext, listTargetMangaId
-- Show repos view with current repo list and installed providers from IDB
-- In background: replay search with saved context, paginate to listTargetMangaId (so list behind has content for swipe-back)
+**Favorites restore:**
+- Set `viewMode=favorites` with an empty back stack.
+- Load favorites from IDB.
+- Do not replay search. Favorites is a root surface, not a child of search.
 
-**`[list, favorites]` — restore favorites view:**
-- Read session snapshot → get searchContext and favoritesTargetMangaId
-- Load favorites from IDB
-- Show favorites view, scroll to favoritesTargetMangaId
-- In background: replay search with saved context (so list behind favorites has content for swipe-back)
+**Manga restore:**
+- Restore `activeManga`, `mangaStack`, group selection, and chapters per AG.
+- Preserve the saved back stack when present.
+- Replay search in the background only if the back stack contains `list`.
 
-**`[list, manga]` — restore details from search:**
-- Read session snapshot → get activeManga, searchContext, listTargetMangaId
-- Fetch chapter list for activeManga (progressive yield, descending)
-- Restore group selection from localStorage
-- Show details view
-- In background: replay search + paginate to listTargetMangaId (so list behind has content for swipe-back)
+**Reader or chapter-comments restore:**
+- Rebuild the stack without transient reader/comments entries, then set the
+  foreground reader path.
+- Restore manga detail for the reader path, then restore reader position from
+  IDB progress (see AR).
+- Replay search in the background only if the rebuilt stack contains `list`.
+- If the snapshot was comments, open comments after reader restore.
 
-**`[list, favorites, manga]` — restore details from favorites:**
-- Read session snapshot → get activeManga, searchContext, favoritesTargetMangaId, listTargetMangaId
-- Fetch chapter list for activeManga (progressive yield, descending)
-- Restore group selection from localStorage
-- Show details view
-- In background: load favorites from IDB, scroll to favoritesTargetMangaId. Replay search with saved context, paginate to listTargetMangaId (so both views behind have content for swipe-back)
-
-**`[list, manga, reader]` — restore reader from search (bottom-up, parallel):**
-
-Three layers restore independently and in parallel — the reader shows immediately once its chapter loads, the views behind it restore in the background:
-
-- **Reader (foreground, highest priority):** Read IDB progress → get chapterId, pageIndex, scrollOffset. Fetch chapter images for the saved chapterId. Scroll to saved pageIndex + pixel offset. Show reader view immediately. Then load adjacent chapters per BM.
-- **Details (background):** Fetch chapter list for activeManga using progressive yield (AG). Restore group selection from localStorage. Scroll details list to the chapter the reader is on. If the reader moves to a different chapter during restore, details syncs per BN.
-- **List (background):** Replay search with saved searchContext. Paginate to listTargetMangaId. Restore scroll position.
-
-**`[list, favorites, manga, reader]` — restore reader from favorites (bottom-up, parallel):**
-
-Four layers restore independently and in parallel — the reader shows immediately, everything else restores in the background:
-
-- **Reader (foreground, highest priority):** Same as above — IDB progress → fetch chapter images → pixel-perfect scroll → load adjacent chapters.
-- **Details (background):** Same as above — fetch chapters, restore group selection, sync scroll to reader's chapter.
-- **Favorites (background):** Load favorites from IDB. Scroll to favoritesTargetMangaId.
-- **List (background):** Replay search with saved searchContext. Paginate to listTargetMangaId. Restore scroll position.
+User action still cancels restore. Search replay and pagination are abortable,
+and foreground reader work takes priority over background restore work.
 
 ## AR. IDB Progress Is the Source of Truth for Reader Position
 
@@ -698,9 +763,13 @@ When iOS backgrounds a PWA, it freezes the JS event loop entirely. On resume, `v
 
 After an iOS PWA warm resume, WebKit's internal touch event handler can desync from the scroll container. Toggling `overflow: hidden` then back forces WebKit to recreate the handler. Without this, scroll containers appear frozen after resume despite the DOM being intact.
 
-## D5. Shared IntersectionObserver for Reader Pages
+## D5. Reader Does Not Use IntersectionObserver for Image Ownership
 
-Creating one IntersectionObserver per page element degrades performance with 100+ elements. A single shared observer instance is reused for all elements in a reader session, recreated only when the root element changes.
+Reader image and chapter loading are driven by virtual geometry and the reader
+memory manager, not by per-page IntersectionObservers. The app may still use
+IntersectionObserver for simple sentinels or boundary observations elsewhere,
+but reader page image ownership comes from the virtual window described in AK
+and BL.
 
 ## D6. comix.to Embeds Chapter Images in Two HTML Formats
 
