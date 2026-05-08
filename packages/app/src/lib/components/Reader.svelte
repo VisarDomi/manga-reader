@@ -11,7 +11,6 @@
         READER_CHAPTER_SEPARATOR_HEIGHT,
         READER_FALLBACK_PAGE_ASPECT_RATIO,
         READER_WINDOW_RADIUS_VIEWPORTS,
-        VISIBLE_PAGE_RATIO,
     } from '$lib/constants.js';
     import type { LoadedChapter } from '$lib/types.js';
 
@@ -56,7 +55,6 @@
             scrollTop: root.scrollTop,
             clientHeight: root.clientHeight,
             clientWidth: root.clientWidth,
-            chapterId: findViewportChapterId(root),
         }, source);
         scheduleVirtualImages(root);
     }
@@ -88,20 +86,8 @@
         return measurements;
     }
 
-    function findViewportChapterId(root: HTMLElement): string | null {
-        const rootRect = root.getBoundingClientRect();
-        const probeY = rootRect.top + rootRect.height * VISIBLE_PAGE_RATIO;
-        for (const section of root.querySelectorAll<HTMLElement>('.reader-chapter')) {
-            const rect = section.getBoundingClientRect();
-            if (rect.top <= probeY && rect.bottom > probeY) {
-                return section.dataset.chapterId ?? null;
-            }
-        }
-        return null;
-    }
-
     function scrollToCurrentChapterAnchor(root: HTMLElement) {
-        const currentId = appState.reader.currentChapterId;
+        const currentId = appState.reader.layoutChapterId;
         if (!currentId || appState.reader.pageRestoreTarget) return;
         const from = root.scrollTop;
         const target = root.clientHeight * READER_WINDOW_RADIUS_VIEWPORTS;
@@ -117,7 +103,7 @@
     }
 
     function restoredPageScrollTop(root: HTMLElement, target: { pageIndex: number; scrollOffset: number }): number | null {
-        const currentId = appState.reader.currentChapterId;
+        const currentId = appState.reader.layoutChapterId;
         const chapter = chapters.find(ch => ch.id === currentId);
         if (!chapter || target.pageIndex < 0 || target.pageIndex >= chapter.pages.length) return null;
 
@@ -205,7 +191,6 @@
         queueWindowReconcile('scroll');
         pageTracker.handleScroll(root, memory.pageDataMap, (visible) => {
             appState.reader.trackVisiblePage(visible.chapterId, visible.pageIndex, visible.scrollOffset, 'scroll', visible);
-            queueWindowReconcile('visible');
         });
     }
 
