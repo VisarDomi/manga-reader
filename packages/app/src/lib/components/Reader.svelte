@@ -44,7 +44,7 @@
     };
 
     let initialized = false;
-    let windowRaf: number | null = null;
+    let windowReconcileTimer: ReturnType<typeof setTimeout> | null = null;
     let idleLayoutTimer: ReturnType<typeof setTimeout> | null = null;
     let idleLayoutSequence = 0;
     let idleLayoutQueuedAt = 0;
@@ -55,9 +55,14 @@
     let lastScrollPerfAt = 0;
     let lastScrollAt = 0;
     let lastScrollTop = 0;
+    let lastReconcileScrollTop = Number.NaN;
+    let lastReconcileClientHeight = 0;
+    let lastPageTrackAt = 0;
     let frameRaf: number | null = null;
     let lastFrameAt = 0;
     const IDLE_LAYOUT_DELAY_MS = 450;
+    const SCROLL_RECONCILE_STEP_VIEWPORTS = 0.75;
+    const PAGE_TRACK_INTERVAL_MS = 250;
 
     type VisualAnchor = {
         key: string;
@@ -71,14 +76,21 @@
         const root = getReaderRoot();
         if (!root) return;
         const measureStart = performance.now();
-        appState.reader.recordChapterMeasurements(measureChapterHeights(root));
+        if (source !== 'scroll') {
+            appState.reader.recordChapterMeasurements(measureChapterHeights(root));
+        }
         const measureMs = performance.now() - measureStart;
         if (appState.reader.pendingLayoutMeasurementCount > 0) {
             queueIdleLayoutPromotion('layout');
         }
+        const scrollTop = scrollTopOverride ?? root.scrollTop;
+        if (source === 'scroll') {
+            lastReconcileScrollTop = scrollTop;
+            lastReconcileClientHeight = root.clientHeight;
+        }
         const stateStart = performance.now();
         appState.reader.reconcileReaderWindow({
-            scrollTop: scrollTopOverride ?? root.scrollTop,
+            scrollTop,
             clientHeight: root.clientHeight,
             clientWidth: root.clientWidth,
         }, source);
@@ -90,7 +102,7 @@
             const totalMs = performance.now() - startedAt;
             const queuedForMs = queuedAt == null ? 0 : startedAt - queuedAt;
             if (totalMs < 8 && queuedForMs < 24 && source === 'scroll') return;
-            appState.log.emit('reader-raf-perf', {
+            appState.log.emit('reader-reconcile-perf', {
                 source,
                 queuedForMs: Math.round(queuedForMs),
                 totalMs: Math.round(totalMs),
@@ -106,8 +118,13 @@
 
     function scheduleVirtualImages(root = getReaderRoot()) {
         if (!root) return null;
-        const perf = memory.loadVirtualWindow(chapters, root.scrollTop, root.clientHeight, root.clientWidth);
-        logVisualSnapshot(root, 'images');
+        const perf = memory.loadVirtualWindow(
+            chapters,
+            root.scrollTop,
+            root.clientHeight,
+            root.clientWidth,
+            appState.reader.pageGeometry(root.clientWidth),
+        );
         return perf;
     }
 
@@ -162,15 +179,24 @@
     }
 
     function queueWindowReconcile(source: 'scroll' | 'visible' | 'retry' = 'scroll') {
-        if (windowRaf != null) return;
+        if (windowReconcileTimer != null) return;
+        const root = getReaderRoot();
+        if (source === 'scroll' && root) {
+            const threshold = Math.max(240, root.clientHeight * SCROLL_RECONCILE_STEP_VIEWPORTS);
+            const sameViewport = root.clientHeight === lastReconcileClientHeight;
+            if (sameViewport && Number.isFinite(lastReconcileScrollTop) && Math.abs(root.scrollTop - lastReconcileScrollTop) < threshold) {
+                return;
+            }
+        }
         const queuedAt = performance.now();
-        windowRaf = requestAnimationFrame(() => {
-            windowRaf = null;
+        windowReconcileTimer = setTimeout(() => {
+            windowReconcileTimer = null;
             reconcileReaderWindow(source, undefined, queuedAt);
-        });
+        }, 0);
     }
 
     function startFrameProbe() {
+        if (!appState.log.isEnabled) return;
         if (frameRaf != null) return;
         lastFrameAt = performance.now();
         const loop = () => {
@@ -196,6 +222,16 @@
         cancelAnimationFrame(frameRaf);
         frameRaf = null;
         lastFrameAt = 0;
+    }
+
+    function queuePageTrack(now = performance.now()) {
+        if (now - lastPageTrackAt < PAGE_TRACK_INTERVAL_MS) return;
+        const currentRoot = getReaderRoot();
+        if (!currentRoot) return;
+        lastPageTrackAt = now;
+        pageTracker.handleScroll(currentRoot, appState.reader.pageGeometry(currentRoot.clientWidth), [appState.reader.layoutChapterId, appState.reader.currentChapterId], (visible) => {
+            appState.reader.trackVisiblePage(visible.chapterId, visible.pageIndex, visible.scrollOffset, 'scroll', visible);
+        });
     }
 
     function queueIdleLayoutPromotion(source: 'scroll' | 'layout' = 'scroll') {
@@ -486,16 +522,12 @@
         lastScrollAt = startedAt;
         lastScrollTop = root.scrollTop;
         scrollCoordinator.noteUserScroll(root);
-        const visualStart = performance.now();
-        logVisualSnapshot(root, 'scroll');
-        const visualMs = performance.now() - visualStart;
+        const visualMs = 0;
         const queueStart = performance.now();
         queueWindowReconcile('scroll');
         const queueMs = performance.now() - queueStart;
         const trackerStart = performance.now();
-        pageTracker.handleScroll(root, memory.pageDataMap, [appState.reader.layoutChapterId, appState.reader.currentChapterId], (visible) => {
-            appState.reader.trackVisiblePage(visible.chapterId, visible.pageIndex, visible.scrollOffset, 'scroll', visible);
-        });
+        queuePageTrack(startedAt);
         const trackerMs = performance.now() - trackerStart;
         const totalMs = performance.now() - startedAt;
         const sinceLastMs = previousScrollAt === 0 ? 0 : startedAt - previousScrollAt;
@@ -519,7 +551,7 @@
     function handleClose() {
         const root = getReaderRoot();
         if (root) logVisualSnapshot(root, 'close', true);
-        const visible = root ? pageTracker.findVisible(root, memory.pageDataMap, [appState.reader.layoutChapterId, appState.reader.currentChapterId]) : null;
+        const visible = root ? pageTracker.findVisible(root, appState.reader.pageGeometry(root.clientWidth), [appState.reader.layoutChapterId, appState.reader.currentChapterId]) : null;
         appState.reader.logCloseSnapshot(visible);
         if (visible) appState.reader.trackVisiblePage(visible.chapterId, visible.pageIndex, visible.scrollOffset, 'close', visible);
         onClose();
@@ -539,9 +571,9 @@
                 scrollCoordinator.cancelInitialPosition();
                 scrollCoordinator.cancelPrepend();
                 stopFrameProbe();
-                if (windowRaf != null) {
-                    cancelAnimationFrame(windowRaf);
-                    windowRaf = null;
+                if (windowReconcileTimer != null) {
+                    clearTimeout(windowReconcileTimer);
+                    windowReconcileTimer = null;
                 }
                 if (idleLayoutTimer != null) {
                     clearTimeout(idleLayoutTimer);
@@ -558,6 +590,9 @@
             memory.root = getReaderRoot();
             memory.startSession();
             initialized = true;
+            lastReconcileScrollTop = Number.NaN;
+            lastReconcileClientHeight = 0;
+            lastPageTrackAt = 0;
 
             const root = getReaderRoot();
             if (root) {

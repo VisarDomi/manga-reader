@@ -13,7 +13,19 @@ export function swipeBack(node: HTMLElement, options: SwipeBackOptions) {
     let locked = false;
     let rejected = false;
     let lockDx = 0;
+    let progress = 0;
     let opts = options;
+
+    function setProgress(next: number) {
+        progress = Math.max(0, Math.min(1, next));
+        document.documentElement.style.setProperty('--swipe-progress', `${progress * 100}%`);
+    }
+
+    function clearProgress() {
+        progress = 0;
+        opts.ui.swipeProgress = 0;
+        document.documentElement.style.removeProperty('--swipe-progress');
+    }
 
     function onStart(e: TouchEvent) {
         const touch = e.touches[0];
@@ -23,6 +35,7 @@ export function swipeBack(node: HTMLElement, options: SwipeBackOptions) {
             locked = false;
             rejected = false;
             lockDx = 0;
+            progress = 0;
             startX = touch.clientX;
             startY = touch.clientY;
         }
@@ -48,6 +61,7 @@ export function swipeBack(node: HTMLElement, options: SwipeBackOptions) {
             }
             locked = true;
             lockDx = dx;
+            setProgress(0);
             opts.ui.isSwiping = true;
         }
 
@@ -55,7 +69,7 @@ export function swipeBack(node: HTMLElement, options: SwipeBackOptions) {
 
         const travel = dx - lockDx;
         const maxTravel = appWidth - lockDx;
-        opts.ui.swipeProgress = Math.max(0, Math.min(1, travel / maxTravel));
+        setProgress(travel / maxTravel);
     }
 
     function onEnd() {
@@ -65,23 +79,22 @@ export function swipeBack(node: HTMLElement, options: SwipeBackOptions) {
         }
 
         tracking = false;
-        const progress = opts.ui.swipeProgress;
-
         opts.ui.swipeAnimating = true;
 
         if (progress > SWIPE_THRESHOLD) {
-            opts.ui.swipeProgress = 1;
+            setProgress(1);
             setTimeout(() => {
                 opts.ui.isSwiping = false;
                 opts.ui.swipeAnimating = false;
-                opts.ui.swipeProgress = 0;
+                clearProgress();
                 opts.onClose();
             }, 250);
         } else {
-            opts.ui.swipeProgress = 0;
+            setProgress(0);
             setTimeout(() => {
                 opts.ui.isSwiping = false;
                 opts.ui.swipeAnimating = false;
+                clearProgress();
             }, 250);
         }
     }
@@ -98,6 +111,7 @@ export function swipeBack(node: HTMLElement, options: SwipeBackOptions) {
             node.removeEventListener('touchstart', onStart);
             node.removeEventListener('touchmove', onMove);
             node.removeEventListener('touchend', onEnd);
+            clearProgress();
         }
     };
 }

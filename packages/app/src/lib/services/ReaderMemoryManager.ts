@@ -1,4 +1,4 @@
-import type { LoadedChapter, ReaderPageData } from '$lib/types.js';
+import type { LoadedChapter, ReaderPageData, ReaderPageGeometry } from '$lib/types.js';
 import type { LogEmit } from '$lib/services/LogService.js';
 import {
     READER_CHAPTER_SEPARATOR_HEIGHT,
@@ -58,6 +58,7 @@ export class ReaderMemoryManager {
         scrollTop: number,
         clientHeight: number,
         clientWidth: number,
+        geometry?: ReaderPageGeometry[],
     ): { totalMs: number; pageCount: number; jobs: number; kept: number; mounted: number; started: number; revoked: number } | null {
         if (!this.abortController || clientHeight <= 0 || clientWidth <= 0) return null;
 
@@ -72,18 +73,16 @@ export class ReaderMemoryManager {
         let cleanupMs = 0;
 
         const scanStart = performance.now();
-        if (this.root) {
-            const rootRect = this.root.getBoundingClientRect();
-            const rangeTop = rootRect.top - radiusPx;
-            const rangeBottom = rootRect.bottom + radiusPx;
-            const viewportProbe = rootRect.top + clientHeight * VISIBLE_PAGE_RATIO;
-            for (const [node, data] of this.pageDataMap) {
+        if (geometry) {
+            const rangeStart = scrollTop - radiusPx;
+            const rangeEnd = scrollTop + clientHeight + radiusPx;
+            const viewportProbe = scrollTop + clientHeight * VISIBLE_PAGE_RATIO;
+            for (const page of geometry) {
                 pageCount++;
-                const rect = node.getBoundingClientRect();
-                if (rect.bottom < rangeTop || rect.top > rangeBottom) continue;
-                const center = rect.top + rect.height / 2;
-                keepKeys.add(data.key);
-                jobs.push({ key: data.key, url: data.url, priority: Math.abs(center - viewportProbe) });
+                if (page.bottom < rangeStart || page.top > rangeEnd) continue;
+                const center = page.top + page.height / 2;
+                keepKeys.add(page.key);
+                jobs.push({ key: page.key, url: page.url, priority: Math.abs(center - viewportProbe) });
             }
         } else {
             const rangeStart = scrollTop - radiusPx;

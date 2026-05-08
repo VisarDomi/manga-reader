@@ -253,6 +253,7 @@ class AppState {
     }
 
     private pauseBackgroundWork(reason = 'foreground-reader'): void {
+        this.restore.cancel();
         this.chapterStatsWarmAbort?.abort();
         this.searchState.recover();
         this.manga.pauseBackgroundWork();

@@ -49,3 +49,13 @@ export interface ReaderPageData {
     key: string;
     url: string;
 }
+
+export interface ReaderPageGeometry {
+    key: string;
+    url: string;
+    chapterId: string;
+    pageIndex: number;
+    top: number;
+    bottom: number;
+    height: number;
+}

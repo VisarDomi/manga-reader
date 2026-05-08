@@ -1,4 +1,4 @@
-import type { ReaderPageData } from '../types.js';
+import type { ReaderPageData, ReaderPageGeometry } from '../types.js';
 import { VISIBLE_PAGE_RATIO, SCROLL_DEBOUNCE_MS, HISTORY_SYNC_MS } from '../constants.js';
 
 export type VisiblePageSnapshot = {
@@ -49,23 +49,23 @@ export class PageTracker {
 
     handleScroll(
         root: HTMLElement,
-        pageDataMap: Map<HTMLElement, ReaderPageData>,
+        pages: ReaderPageGeometry[],
         ownerChapterIds: Array<string | null | undefined>,
         onVisible: (snapshot: VisiblePageSnapshot) => void,
     ): void {
         clearTimeout(this.scrollTimer);
         this.scrollTimer = setTimeout(() => {
-            this.captureVisible(root, pageDataMap, ownerChapterIds, onVisible);
+            this.captureVisible(root, pages, ownerChapterIds, onVisible);
         }, SCROLL_DEBOUNCE_MS);
     }
 
     captureVisible(
         root: HTMLElement,
-        pageDataMap: Map<HTMLElement, ReaderPageData>,
+        pages: ReaderPageGeometry[] | Map<HTMLElement, ReaderPageData>,
         ownerChapterIds: Array<string | null | undefined>,
         onVisible: (snapshot: VisiblePageSnapshot) => void,
     ): boolean {
-        const visible = this.findVisible(root, pageDataMap, ownerChapterIds);
+        const visible = this.findVisible(root, pages, ownerChapterIds);
         if (!visible) return false;
         onVisible(visible);
         return true;
@@ -73,15 +73,17 @@ export class PageTracker {
 
     findVisible(
         root: HTMLElement,
-        pageDataMap: Map<HTMLElement, ReaderPageData>,
+        pages: ReaderPageGeometry[] | Map<HTMLElement, ReaderPageData>,
         ownerChapterIds: Array<string | null | undefined> = [],
     ): VisiblePageSnapshot | null {
+        if (Array.isArray(pages)) return this.findVisibleFromGeometry(root, pages, ownerChapterIds);
+
         const rootRect = root.getBoundingClientRect();
         const midY = rootRect.top + rootRect.height * VISIBLE_PAGE_RATIO;
         const owners = ownerChapterIds.filter((id): id is string => !!id);
         const visiblePages: Array<{ node: HTMLElement; data: ReaderPageData; rect: DOMRect; chapterId: string; pageIndex: number; distance: number }> = [];
 
-        for (const [node, data] of pageDataMap) {
+        for (const [node, data] of pages) {
             const rect = node.getBoundingClientRect();
             if (rect.bottom < rootRect.top || rect.top > rootRect.bottom) continue;
             const { chapterId, pageIndex } = this.parsePageKey(data.key);
@@ -103,6 +105,58 @@ export class PageTracker {
             .sort((a, b) => a.distance - b.distance)[0];
         if (probe) return this.toSnapshot(root, rootRect, midY, probe, 'probe', null);
         return null;
+    }
+
+    private findVisibleFromGeometry(
+        root: HTMLElement,
+        pages: ReaderPageGeometry[],
+        ownerChapterIds: Array<string | null | undefined>,
+    ): VisiblePageSnapshot | null {
+        const clientHeight = root.clientHeight;
+        const rootScrollTop = root.scrollTop;
+        const probeY = rootScrollTop + clientHeight * VISIBLE_PAGE_RATIO;
+        const owners = ownerChapterIds.filter((id): id is string => !!id);
+        const visiblePages = pages
+            .filter(page => page.bottom >= rootScrollTop && page.top <= rootScrollTop + clientHeight)
+            .map(page => {
+                const distance = page.top <= probeY && page.bottom >= probeY
+                    ? 0
+                    : Math.min(Math.abs(page.top - probeY), Math.abs(page.bottom - probeY));
+                return { page, distance };
+            });
+
+        for (const ownerChapterId of owners) {
+            const owned = visiblePages
+                .filter(item => item.page.chapterId === ownerChapterId)
+                .sort((a, b) => a.distance - b.distance)[0];
+            if (owned) return this.geometrySnapshot(rootScrollTop, probeY, owned.page, 'owner', ownerChapterId);
+        }
+
+        const probe = visiblePages
+            .filter(item => item.page.top <= probeY && item.page.bottom > probeY)
+            .sort((a, b) => a.distance - b.distance)[0];
+        if (probe) return this.geometrySnapshot(rootScrollTop, probeY, probe.page, 'probe', null);
+        return null;
+    }
+
+    private geometrySnapshot(
+        rootScrollTop: number,
+        probeY: number,
+        page: ReaderPageGeometry,
+        selection: 'owner' | 'probe',
+        ownerChapterId: string | null,
+    ): VisiblePageSnapshot {
+        return {
+            chapterId: page.chapterId,
+            pageIndex: page.pageIndex,
+            scrollOffset: rootScrollTop - page.top,
+            rootScrollTop,
+            pageTop: page.top - rootScrollTop,
+            pageBottom: page.bottom - rootScrollTop,
+            probeY: probeY - rootScrollTop,
+            selection,
+            ownerChapterId,
+        };
     }
 
     private parsePageKey(key: string): { chapterId: string; pageIndex: number } {

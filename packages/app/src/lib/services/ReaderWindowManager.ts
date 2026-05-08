@@ -1,4 +1,5 @@
-import type { ChapterMeta, LoadedChapter } from '$lib/types.js';
+import type { ChapterMeta, LoadedChapter, ReaderPageGeometry } from '$lib/types.js';
+import { READER_CHAPTER_SEPARATOR_HEIGHT, READER_FALLBACK_PAGE_ASPECT_RATIO } from '$lib/constants.js';
 export type ReaderWindowSource = 'initial' | 'scroll' | 'visible' | 'retry';
 export type ReaderScrollDirection = 'up' | 'down' | 'idle';
 
@@ -29,6 +30,9 @@ type ChapterLayout = {
 };
 
 export class ReaderWindowManager {
+    private layoutCacheKey = '';
+    private layoutCache: ChapterLayout[] = [];
+
     plan({
         chapterList,
         loadedChapters,
@@ -38,6 +42,7 @@ export class ReaderWindowManager {
         viewportWidth,
         clientHeight,
         direction,
+        heightRevision,
         estimateChapterHeight,
     }: {
         chapterList: ChapterMeta[];
@@ -48,9 +53,10 @@ export class ReaderWindowManager {
         viewportWidth: number;
         clientHeight: number;
         direction: ReaderScrollDirection;
+        heightRevision: number;
         estimateChapterHeight: EstimateChapterHeight;
     }): ReaderWindowPlan {
-        const layouts = this.buildLayout(chapterList, loadedChapters, viewportWidth, estimateChapterHeight);
+        const layouts = this.getLayout(chapterList, loadedChapters, viewportWidth, heightRevision, estimateChapterHeight);
         const totalHeight = layouts.at(-1)?.bottom ?? Math.max(clientHeight, 1);
         const viewportTop = Math.max(0, Math.min(scrollTop, Math.max(0, totalHeight - clientHeight)));
         const viewportBottom = viewportTop + clientHeight;
@@ -90,10 +96,78 @@ export class ReaderWindowManager {
         loadedChapters: LoadedChapter[],
         chapterId: string,
         viewportWidth: number,
+        heightRevision: number,
         estimateChapterHeight: EstimateChapterHeight,
     ): number | null {
-        return this.buildLayout(chapterList, loadedChapters, viewportWidth, estimateChapterHeight)
+        return this.getLayout(chapterList, loadedChapters, viewportWidth, heightRevision, estimateChapterHeight)
             .find(layout => layout.chapter.id === chapterId)?.top ?? null;
+    }
+
+    pageGeometry(
+        chapterList: ChapterMeta[],
+        loadedChapters: LoadedChapter[],
+        viewportWidth: number,
+        heightRevision: number,
+        estimateChapterHeight: EstimateChapterHeight,
+    ): ReaderPageGeometry[] {
+        const layouts = this.getLayout(chapterList, loadedChapters, viewportWidth, heightRevision, estimateChapterHeight);
+        const ready = new Map(loadedChapters.filter(chapter => chapter.pages.length > 0).map(chapter => [chapter.id, chapter]));
+        const pages: ReaderPageGeometry[] = [];
+        for (const layout of layouts) {
+            const chapter = ready.get(layout.chapter.id);
+            if (!chapter) continue;
+            let top = layout.top + READER_CHAPTER_SEPARATOR_HEIGHT;
+            for (let pageIndex = 0; pageIndex < chapter.pages.length; pageIndex++) {
+                const page = chapter.pages[pageIndex];
+                const height = page.width && page.height
+                    ? viewportWidth * page.height / page.width
+                    : viewportWidth * READER_FALLBACK_PAGE_ASPECT_RATIO;
+                const bottom = top + height;
+                pages.push({
+                    key: `${chapter.id}-${pageIndex}`,
+                    url: page.url,
+                    chapterId: chapter.id,
+                    pageIndex,
+                    top,
+                    bottom,
+                    height,
+                });
+                top = bottom;
+            }
+        }
+        return pages;
+    }
+
+    clear(): void {
+        this.layoutCacheKey = '';
+        this.layoutCache = [];
+    }
+
+    private getLayout(
+        chapterList: ChapterMeta[],
+        loadedChapters: LoadedChapter[],
+        viewportWidth: number,
+        heightRevision: number,
+        estimateChapterHeight: EstimateChapterHeight,
+    ): ChapterLayout[] {
+        const key = this.layoutKey(chapterList, loadedChapters, viewportWidth, heightRevision);
+        if (key === this.layoutCacheKey) return this.layoutCache;
+        this.layoutCacheKey = key;
+        this.layoutCache = this.buildLayout(chapterList, loadedChapters, viewportWidth, estimateChapterHeight);
+        return this.layoutCache;
+    }
+
+    private layoutKey(chapterList: ChapterMeta[], loadedChapters: LoadedChapter[], viewportWidth: number, heightRevision: number): string {
+        const slots = loadedChapters
+            .map(chapter => `${chapter.id}:${Math.round(chapter.virtualHeight ?? chapter.estimatedHeight ?? 0)}:${chapter.slotState ?? 'ready'}:${chapter.pages.length}`)
+            .join(',');
+        return [
+            Math.round(viewportWidth),
+            heightRevision,
+            chapterList.length,
+            chapterList.map(chapter => chapter.id).join(','),
+            slots,
+        ].join('|');
     }
 
     private buildLayout(

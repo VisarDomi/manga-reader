@@ -14,7 +14,6 @@
     const gf = appState.groupFilter;
     const isSwiping = $derived(appState.ui.isSwiping);
     const swipeAnimating = $derived(appState.ui.swipeAnimating);
-    const swipeProgress = $derived(appState.ui.swipeProgress);
     const nestedBack = $derived(appState.ui.viewMode === View.MANGA && appState.ui.peekBack() === View.MANGA && entries.length > 1);
 
     function isActive(index: number) {
@@ -46,7 +45,7 @@
         class:swipe-back={nestedBack && index === entries.length - 2}
         class:swipe-active={active && nestedBack && isSwiping}
         class:swipe-animating={active && nestedBack && swipeAnimating}
-        style="{active && nestedBack && isSwiping ? `transform:translateX(${swipeProgress * 100}%)` : ''}"
+        style="{active && nestedBack && isSwiping ? 'transform:translateX(var(--swipe-progress, 0%))' : ''}"
         use:swipeBack={{ onClose: handleClose, ui: appState.ui }}
     >
     <div class="manga-view">

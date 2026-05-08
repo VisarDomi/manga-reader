@@ -21,7 +21,6 @@
     const viewMode = $derived(appState.ui.viewMode);
     const isSwiping = $derived(appState.ui.isSwiping);
     const swipeAnimating = $derived(appState.ui.swipeAnimating);
-    const swipeProgress = $derived(appState.ui.swipeProgress);
     const isForwardSwiping = $derived(appState.ui.isForwardSwiping);
     const forwardSwipeAnimating = $derived(appState.ui.forwardSwipeAnimating);
     const forwardSwipeProgress = $derived(appState.ui.forwardSwipeProgress);
@@ -53,7 +52,7 @@
     class:swipe-back={backView === View.FAVORITES}
     class:swipe-animating={backView === View.FAVORITES && swipeAnimating}
     class:swipe-active={inFavorites && isSwiping}
-    style="{inFavorites && isSwiping ? `transform:translateX(${swipeProgress * 100}%)` : ''}"
+    style="{inFavorites && isSwiping ? 'transform:translateX(var(--swipe-progress, 0%))' : ''}"
 >
     <FavoritesView />
 </div>
@@ -65,7 +64,7 @@
     class:swipe-back={backView === View.MANGA}
     class:swipe-animating={backView === View.MANGA && swipeAnimating}
     class:swipe-active={inManga && isSwiping && !isNestedMangaSwipe}
-    style="{inManga && isSwiping && !isNestedMangaSwipe ? `transform:translateX(${swipeProgress * 100}%)` : ''}"
+    style="{inManga && isSwiping && !isNestedMangaSwipe ? 'transform:translateX(var(--swipe-progress, 0%))' : ''}"
 >
     <MangaView />
 </div>
@@ -78,7 +77,7 @@
     class:swipe-back={backView === View.READER}
     class:swipe-active={inReader && isSwiping}
     class:swipe-animating={(inReader || backView === View.READER) && swipeAnimating}
-    style="{inReader && isSwiping ? `transform:translateX(${swipeProgress * 100}%)` : ''}"
+    style="{inReader && isSwiping ? 'transform:translateX(var(--swipe-progress, 0%))' : ''}"
 >
     <ReaderView />
 </div>
@@ -89,7 +88,7 @@
     class:view-hidden={!showingChapterComments}
     class:swipe-active={inChapterComments && isSwiping || isForwardSwiping || forwardSwipeAnimating}
     class:swipe-animating={inChapterComments && swipeAnimating || forwardSwipeAnimating}
-    style="{isForwardSwiping || forwardSwipeAnimating ? `transform:translateX(${(1 - forwardSwipeProgress) * 100}%)` : inChapterComments && isSwiping ? `transform:translateX(${swipeProgress * 100}%)` : ''}"
+    style="{isForwardSwiping || forwardSwipeAnimating ? `transform:translateX(${(1 - forwardSwipeProgress) * 100}%)` : inChapterComments && isSwiping ? 'transform:translateX(var(--swipe-progress, 0%))' : ''}"
 >
     <ChapterCommentsView />
 </div>

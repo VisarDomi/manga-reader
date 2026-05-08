@@ -66,6 +66,7 @@ export type LogEvent =
     | { event: 'reader-image-schedule-perf'; scrollTop: number; pages: number; jobs: number; kept: number; mounted: number; started: number; revoked: number; totalMs: number; scanMs: number; sortMs: number; startMs: number; cleanupMs: number }
     | { event: 'reader-scroll-perf'; scrollTop: number; deltaScroll: number; sinceLastMs: number; totalMs: number; visualMs: number; queueMs: number; trackerMs: number; pageCount: number; pendingMeasurements: number }
     | { event: 'reader-raf-perf'; source: 'initial' | 'scroll' | 'visible' | 'retry'; queuedForMs: number; totalMs: number; measureMs: number; stateMs: number; tickMs: number; imagesMs: number; scrollTop: number; pendingMeasurements: number }
+    | { event: 'reader-reconcile-perf'; source: 'initial' | 'scroll' | 'visible' | 'retry'; queuedForMs: number; totalMs: number; measureMs: number; stateMs: number; tickMs: number; imagesMs: number; scrollTop: number; pendingMeasurements: number }
     | { event: 'reader-frame-gap'; source: 'raf'; gapMs: number; scrollTop: number; pendingMeasurements: number }
     | { event: 'reader-visual-snapshot'; source: 'initial' | 'scroll' | 'images' | 'close'; mangaId: string | null; currentChapterId: string | null; scrollTop: number; clientHeight: number; sections: string; pages: string; visiblePageCount: number; visibleImageCount: number; loadedImageCount: number; emptyImageCount: number }
     | { event: 'reader-chapter-change'; mangaId: string; fromChapterId: string | null; toChapterId: string }
@@ -100,6 +101,10 @@ export type LogEmit = <E extends EventName>(
 export class LogService {
     private cleanups: (() => void)[] = [];
     private enabled = false;
+
+    get isEnabled(): boolean {
+        return this.enabled;
+    }
 
     async start(): Promise<void> {
         if (typeof window === 'undefined') return;
