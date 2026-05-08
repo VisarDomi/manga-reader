@@ -55,7 +55,7 @@
             clientHeight: root.clientHeight,
             clientWidth: root.clientWidth,
         }, source);
-        scheduleVirtualImages(root);
+        tick().then(() => scheduleVirtualImages(root));
     }
 
     function scheduleVirtualImages(root = getReaderRoot()) {
