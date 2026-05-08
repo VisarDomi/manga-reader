@@ -23,7 +23,6 @@
     }
 
     function deactivateFavs() {
-        appState.favorites.deactivate();
         appState.ui.resetTo(View.LIST);
     }
 

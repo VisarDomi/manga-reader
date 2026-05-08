@@ -295,12 +295,6 @@ class AppState {
         }
     }
 
-    private normalizeSavedStack(stack: typeof this.ui.viewStack, fallback: typeof this.ui.viewStack): typeof this.ui.viewStack {
-        const saved = stack.filter(view => view !== View.READER && view !== View.CHAPTER_COMMENTS);
-        if (saved.includes(View.FAVORITES)) return saved.filter(view => view !== View.LIST);
-        return saved.length > 0 ? saved : fallback;
-    }
-
     private ownsSearchContext(viewMode = this.ui.viewMode, viewStack = this.ui.viewStack): boolean {
         return viewMode === View.LIST || viewStack.includes(View.LIST);
     }
@@ -384,7 +378,7 @@ class AppState {
         }
 
         if (snapshot.viewMode === View.MANGA && snapshot.activeManga) {
-            const viewStack = this.normalizeSavedStack(snapshot.viewStack, [View.LIST]);
+            const viewStack = snapshot.viewStack.length > 0 ? snapshot.viewStack : [View.LIST];
             const shouldReplaySearch = this.ownsSearchContext(snapshot.viewMode, viewStack);
             this.manga.setNavigationStack(snapshot.mangaStack ?? []);
             this.ui.setViewDirect(View.MANGA, viewStack);
@@ -406,7 +400,9 @@ class AppState {
         }
 
         if ((snapshot.viewMode === View.READER || snapshot.viewMode === View.CHAPTER_COMMENTS) && snapshot.activeManga) {
-            const readerStack = this.normalizeSavedStack(snapshot.viewStack, [View.LIST, View.MANGA]);
+            const readerStack = snapshot.viewStack.length > 0
+                ? snapshot.viewStack.filter(view => view !== View.CHAPTER_COMMENTS && view !== View.READER)
+                : [View.LIST, View.MANGA];
             const mangaFallbackStack = readerStack[readerStack.length - 1] === View.MANGA
                 ? readerStack.slice(0, -1)
                 : readerStack;

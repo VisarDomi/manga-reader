@@ -6,7 +6,6 @@ import type { ToastState } from './toast.svelte.js';
 
 export class FavoritesState {
     items = $state<Manga[]>([]);
-    isActive = $state(false);
     isLoading = $state(false);
 
     private toast: ToastState;
@@ -56,7 +55,6 @@ export class FavoritesState {
     }
 
     async activate() {
-        this.isActive = true;
         this.isLoading = true;
         try {
             this.items = await db.getAllFavorites();
@@ -67,7 +65,4 @@ export class FavoritesState {
         }
     }
 
-    deactivate() {
-        this.isActive = false;
-    }
 }
