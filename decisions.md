@@ -393,9 +393,9 @@ When opening a manga, the provider yields chapters in descending order (newest f
 
 Reading progress stores chapterId, chapterNumber, pageIndex, and scrollOffset (pixel offset within the current page), keyed by `repoUrl:providerId:mangaId` (see BH). This means progress remembers which chapter you were on, which page, and exactly where on that page — but only the latest position per manga per provider, not per chapter.
 
-## AI. Progress Synced with 3s Debounce
+## AI. Progress Synced with 500ms Debounce
 
-Scroll-based progress updates are debounced at 3s before writing to IndexedDB. This prevents thrashing the database during continuous scrolling while still capturing position reliably when the user pauses or leaves.
+Scroll-based progress updates are debounced at 500ms before writing to IndexedDB. This keeps progress close to the user's visible position without writing on every scroll event. Closing the reader flushes the latest tracked page immediately, so swipe-back does not wait for the debounce.
 
 ## AJ. Current Page Detected at 1/3 Down the Viewport
 
@@ -403,27 +403,36 @@ The visible page is determined by which page element sits at 1/3 of the viewport
 
 ## BL. Reader Image Prefetch Margin
 
-Individual page images in the reader are lazy-loaded via IntersectionObserver with a 1500% rootMargin — images start loading 15 viewports before they become visible. This is separate from the infinite scroll sentinel on the list view (rule AE, 500%). A typical chapter is 100+ viewports tall, so 1500% prefetches roughly 15% ahead within the current chapter without reaching into adjacent chapters.
+Reader page images are scheduled by the reader memory manager from current virtual geometry, not by per-chapter IntersectionObservers. On each reader render or scroll pass, mounted page elements inside a 14-viewport image window are prioritized by distance from the visible-page probe. Blob URLs outside that image window are revoked and removed from their image elements.
 
-## AK. Reader Has Two Chapter Windows: Fetch (±1) and Cache (±2)
+This image window is separate from the reader chapter window in AK and from list-view infinite scroll in AE. Chapter slots decide which chapters exist in the DOM; the memory manager decides which mounted page images should hold blob URLs.
 
-The reader uses two windows around the current chapter:
+## AK. Reader Uses Virtual Chapter Windows
 
-- **Fetch window (±1):** The current chapter plus its immediate neighbors (3 chapters) are eligible for image loading. Each chapter in the fetch window owns its own IntersectionObserver (with the rootMargin from BL). Priority is enforced by gated activation: only the current chapter's observer is connected initially. When the observer is first connected, it synchronously fires for all elements already intersecting the root margin — this is the initial batch. On the next idle callback after the initial batch, the next-closest chapter's observer is connected, then the far one on the following idle callback. "Next-closest" is based on scroll position — if the user is in the top half of the chapter, the previous chapter connects first; if in the bottom half, the next chapter connects first. When a chapter leaves the fetch window, its observer is disconnected. When a new chapter becomes current, its observer is connected immediately and the gating sequence restarts.
-- **Cache window (±2):** Blob URLs are kept in memory for 5 chapters (current ±2). Chapters that leave the fetch window but are still in the cache window keep their blobs — images are already loaded, just not actively fetching new ones. Blob URLs are only revoked when a chapter exits the cache window.
+The reader lays out all chapters in one virtual coordinate space, but only mounts chapter slots near the viewport. Slot planning is owned by `ReaderWindowManager`:
 
-This gives jitter protection at chapter boundaries. Scrolling back and forth between ch 11 and ch 12 never triggers re-fetches — both chapters' blobs stay cached. Only when you reach ch 14 does ch 11's blobs get revoked.
+- **Load window:** chapters whose virtual slot intersects 10 viewports before or after the current viewport are wanted. Wanted placeholder slots are fetched by priority.
+- **DOM keep window:** slots are kept mounted while they intersect 12 viewports before or after the current viewport, or while they are wanted by the load window.
+- **Image window:** mounted page images are loaded and retained within the 14-viewport image window described in BL.
+
+Priority is recalculated from the current virtual viewport. Distance to the viewport is the base priority; the current scroll direction biases work toward previous chapters while scrolling up and next chapters while scrolling down. Nearby placeholder slots are fetched concurrently up to the current scheduler limit.
+
+When a chapter hydrates, its reserved virtual height is preserved first so hydration does not mutate scroll geometry. Actual measured heights are promoted later by the layout owner during idle layout promotion.
 
 ## BM. Chapter Loading Priority and Boundaries
 
-When opening a chapter, observer activation follows the gating sequence defined in AK — current chapter's observer connects first, adjacent chapters connect after the initial batch fires and the idle callback runs. No counting or tracking is needed — the gate is purely timing-based (synchronous observer fire → idle callback). This applies to both fresh opens from details and restores that land mid-chapter. Chapter change is detected when a chapter boundary crosses 50% of the viewport — this is position-based, not time-based, so small scroll jitter at boundaries doesn't trigger chapter changes. A visual divider separates chapters in the reader.
+When opening a chapter, the selected chapter loads first and is placed into the virtual layout. The reader then reconciles the virtual window from the restored or initial scroll position and fetches nearby placeholder chapters according to AK. Fresh opens, restores, fast upward scrolls, and fast downward scrolls all use the same virtual-window planner.
+
+Chapter change is detected from the visible page probe at one-third down the viewport (see AJ), with `layoutChapterId` and `currentChapterId` used as preferred ownership hints. Visibility is an observation; it can update progress and title context, but it does not own virtual layout.
+
+A visual divider separates chapters in the reader.
 
 ## BP. Image Fetch Failure Recovery
 
 Image fetch failures are handled differently based on the error:
 
-- **404 (permanent):** The image is treated as done — show a placeholder, do not retry. It does not block adjacent chapter loading.
-- **Network/timeout (recoverable):** The image is marked as failed but eligible for retry. On internet reconnection (via `online` event) or warm resume, the app re-triggers all failed images by resetting the IntersectionObserver so it re-fires for visible elements.
+- **Image blob fetch failure:** The failure is logged with `img-fail`, the image is left without a blob URL, and it does not block adjacent chapter loading.
+- **Retry path:** Because image loading is geometry-driven, a later render or scroll pass can attempt the image again if the page is still inside the image window and no blob URL or in-flight load exists for that page.
 - **Slow connection detection:** If 3+ image fetches fail within 10 seconds, show a one-time "Slow connection — images may not load" toast per session.
 
 ## BQ. Image Proxy Responses Are HTTP-Cached for 24 Hours
@@ -439,9 +448,9 @@ When entering the reader, the details view captures its current scroll position 
 When the user swipes back from the reader, cleanup happens in a specific order to avoid visual glitches:
 
 1. **During swipe animation:** nothing happens — the reader stays visually intact while sliding away.
-2. **Animation completes:** pop the view stack (details becomes active).
-3. **Immediately after pop:** write progress to IDB immediately instead of waiting for the 3s debounce — save the exact position now. Abort all in-flight image fetches.
-4. **Deferred (next idle frame):** revoke all blob URLs, clear loaded chapter data, destroy the page tracker.
+2. **Animation completes:** the reader close handler runs.
+3. **Close snapshot:** capture the visible page, track it with `source: close`, and flush progress immediately instead of waiting for the 500ms scroll debounce.
+4. **Reader state cleanup:** abort image work, revoke blob URLs, clear loaded chapter data, destroy the page tracker, then pop the view stack back to manga details.
 
 This ensures the reader never shows blank images during the swipe animation, progress is never lost, and memory is freed when the user isn't looking.
 
