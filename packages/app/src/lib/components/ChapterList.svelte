@@ -1,7 +1,9 @@
 <script lang="ts">
+    import { onMount } from 'svelte';
     import { appState } from '$lib/state/index.svelte.js';
     import type { ChapterMeta } from '$lib/types.js';
     import type { MangaEntry } from '$lib/state/manga.svelte.js';
+    import type { ProgressData } from '$lib/state/progress.svelte.js';
     import FilterChip from './FilterChip.svelte';
 
     let { entry }: { entry: MangaEntry } = $props();
@@ -133,11 +135,17 @@
     const hasFilteredChapters = $derived(view.hasFilteredChapters);
     const effectiveCount = $derived(view.effectiveCount);
 
-    const currentProgress = $derived(appState.progress.get(mangaId));
+    let currentProgress = $state<ProgressData | null>(null);
     const currentChapterId = $derived(currentProgress?.chapterId ?? null);
     const progressPercent = $derived.by(() => {
         if (currentProgress?.pageIndex == null || !currentProgress?.pageCount) return 0;
         return Math.round(((currentProgress.pageIndex + 1) / currentProgress.pageCount) * 100);
+    });
+
+    onMount(() => {
+        return appState.progress.subscribe(mangaId, value => {
+            currentProgress = value;
+        });
     });
 
     function handleClick(chapter: ChapterMeta) {

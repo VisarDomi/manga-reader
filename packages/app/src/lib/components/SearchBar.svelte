@@ -13,22 +13,18 @@
 
     function handleSubmit(e: Event) {
         e.preventDefault();
-        if (favoritesMode) {
-            appState.favorites.deactivate();
-            appState.ui.popView();
-        }
         appState.ui.resetTo(View.LIST);
         appState.searchState.search(appState.searchState.inputQuery);
     }
 
     function activateFavs() {
         appState.favorites.activate();
-        appState.ui.pushView(View.FAVORITES);
+        appState.ui.resetTo(View.FAVORITES);
     }
 
     function deactivateFavs() {
         appState.favorites.deactivate();
-        appState.ui.popView();
+        appState.ui.resetTo(View.LIST);
     }
 
     const gf = appState.groupFilter;

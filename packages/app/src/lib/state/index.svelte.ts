@@ -285,7 +285,7 @@ class AppState {
 
         const searchContext = this.deferredSearchContext;
         this.deferredSearchContext = undefined;
-        if (searchContext || this.searchState.results.length === 0) {
+        if (this.ownsSearchContext() && (searchContext || this.searchState.results.length === 0)) {
             this.log.emit('foreground-work', {
                 owner: 'search',
                 action: 'resume',
@@ -294,6 +294,17 @@ class AppState {
             void this.bgReplaySearch(searchContext);
         }
     }
+
+    private normalizeSavedStack(stack: typeof this.ui.viewStack, fallback: typeof this.ui.viewStack): typeof this.ui.viewStack {
+        const saved = stack.filter(view => view !== View.READER && view !== View.CHAPTER_COMMENTS);
+        if (saved.includes(View.FAVORITES)) return saved.filter(view => view !== View.LIST);
+        return saved.length > 0 ? saved : fallback;
+    }
+
+    private ownsSearchContext(viewMode = this.ui.viewMode, viewStack = this.ui.viewStack): boolean {
+        return viewMode === View.LIST || viewStack.includes(View.LIST);
+    }
+
     private persistSession() {
         const snapshot: SessionSnapshot = {
             viewMode: this.ui.viewMode,
@@ -312,7 +323,7 @@ class AppState {
             snapshot.targetMangaId = target;
         }
 
-        if (this.searchState.context) {
+        if (this.searchState.context && this.ownsSearchContext()) {
             snapshot.searchContext = this.searchState.context;
         }
 
@@ -366,38 +377,42 @@ class AppState {
 
         if (snapshot.viewMode === View.FAVORITES) {
             this.manga.setNavigationStack([]);
-            this.ui.setViewDirect(View.FAVORITES, [View.LIST]);
-            if (targetId) this.restore.start(targetId);
-            this.bgReplaySearch(snapshot.searchContext);
+            this.ui.setViewDirect(View.FAVORITES, []);
             this.persistSession();
             emit('restore-ok', { view: 'favorites' });
             return true;
         }
 
         if (snapshot.viewMode === View.MANGA && snapshot.activeManga) {
+            const viewStack = this.normalizeSavedStack(snapshot.viewStack, [View.LIST]);
+            const shouldReplaySearch = this.ownsSearchContext(snapshot.viewMode, viewStack);
             this.manga.setNavigationStack(snapshot.mangaStack ?? []);
-            this.ui.setViewDirect(View.MANGA, snapshot.viewStack.length > 0 ? snapshot.viewStack : [View.LIST]);
+            this.ui.setViewDirect(View.MANGA, viewStack);
             const ok = await this.manga.restoreManga(snapshot.activeManga);
             if (!ok) {
                 this.manga.setNavigationStack([]);
-                this.ui.setViewDirect(View.LIST, []);
+                this.ui.setViewDirect(viewStack[0] ?? View.LIST, viewStack.slice(0, -1));
                 this.persistSession();
                 emit('restore-fallback', { view: 'manga', reason: 'manga-load-failed' });
                 return false;
             }
-            if (targetId) this.restore.start(targetId);
-            this.bgReplaySearch(snapshot.searchContext);
+            if (targetId && shouldReplaySearch) this.restore.start(targetId);
+            if (shouldReplaySearch) {
+                this.bgReplaySearch(snapshot.searchContext);
+            }
             this.persistSession();
             emit('restore-ok', { view: 'manga', mangaId: snapshot.activeManga.id });
             return true;
         }
 
         if ((snapshot.viewMode === View.READER || snapshot.viewMode === View.CHAPTER_COMMENTS) && snapshot.activeManga) {
+            const readerStack = this.normalizeSavedStack(snapshot.viewStack, [View.LIST, View.MANGA]);
+            const mangaFallbackStack = readerStack[readerStack.length - 1] === View.MANGA
+                ? readerStack.slice(0, -1)
+                : readerStack;
+            const shouldReplaySearch = this.ownsSearchContext(snapshot.viewMode, readerStack);
             this.manga.setNavigationStack(snapshot.mangaStack ?? []);
-            const readerStack = snapshot.viewStack.length > 0
-                ? snapshot.viewStack.filter(view => view !== View.CHAPTER_COMMENTS && view !== View.READER)
-                : [View.LIST, View.MANGA];
-            this.ui.setViewDirect(View.READER, readerStack.length > 0 ? readerStack : [View.LIST, View.MANGA]);
+            this.ui.setViewDirect(View.READER, readerStack);
 
             const saved = this.progress.get(snapshot.activeManga.id);
             const ok = await this.manga.restoreMangaForReader(snapshot.activeManga, saved?.chapterId ?? null);
@@ -411,16 +426,20 @@ class AppState {
 
             const readerOk = await this.reader.restoreReader(snapshot.activeManga);
             if (!readerOk) {
-                this.ui.setViewDirect(View.MANGA, [View.LIST]);
-                if (targetId) this.restore.start(targetId);
-                this.bgReplaySearch(snapshot.searchContext);
+                this.ui.setViewDirect(View.MANGA, mangaFallbackStack.length > 0 ? mangaFallbackStack : [View.LIST]);
+                if (targetId && shouldReplaySearch) this.restore.start(targetId);
+                if (shouldReplaySearch) {
+                    this.bgReplaySearch(snapshot.searchContext);
+                }
                 this.persistSession();
                 emit('restore-fallback', { view: 'reader', reason: 'reader-load-failed', fallback: 'manga' });
                 return true;
             }
 
-            if (targetId) this.restore.start(targetId);
-            this.bgReplaySearch(snapshot.searchContext);
+            if (targetId && shouldReplaySearch) this.restore.start(targetId);
+            if (shouldReplaySearch) {
+                this.bgReplaySearch(snapshot.searchContext);
+            }
             if (snapshot.viewMode === View.CHAPTER_COMMENTS) {
                 this.reader.openChapterComments();
             }

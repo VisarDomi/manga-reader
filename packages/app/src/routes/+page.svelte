@@ -32,8 +32,11 @@
     const inManga = $derived(viewMode === View.MANGA);
     const isNestedMangaSwipe = $derived(inManga && backView === View.MANGA);
     const inFavorites = $derived(viewMode === View.FAVORITES);
+    const mountList = $derived(viewMode === View.LIST || backView === View.LIST);
+    const mountFavorites = $derived(viewMode === View.FAVORITES || backView === View.FAVORITES);
 </script>
 
+{#if mountList}
 <div
     id="view-list"
     class="view-layer"
@@ -43,7 +46,9 @@
 >
     <ListView />
 </div>
+{/if}
 
+{#if mountFavorites}
 <div
     id="view-favorites"
     class="view-layer"
@@ -55,6 +60,7 @@
 >
     <FavoritesView />
 </div>
+{/if}
 
 <div
     id="view-manga"

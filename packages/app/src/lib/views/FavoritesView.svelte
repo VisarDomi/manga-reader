@@ -1,19 +1,13 @@
 <script lang="ts">
     import { appState } from '$lib/state/index.svelte.js';
-    import { swipeBack } from '$lib/actions/swipeBack.js';
     import SearchBar from '$lib/components/SearchBar.svelte';
     import MangaList from '$lib/components/MangaList.svelte';
 
     const favsItems = $derived(appState.favorites.items);
     const favsLoading = $derived(appState.favorites.isLoading);
-
-    function handleClose() {
-        appState.favorites.deactivate();
-        appState.ui.popView();
-    }
 </script>
 
-<div class="favorites-view" use:swipeBack={{ onClose: handleClose, ui: appState.ui }}>
+<div class="favorites-view">
     <SearchBar favoritesMode />
 
     <div class="content-wrapper">
