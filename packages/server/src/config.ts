@@ -11,6 +11,7 @@ export const STATE_DIR = process.env.STATE_DIR || path.join(os.homedir(), '.loca
 export const FRONTEND_BUILD_DIR = process.env.FRONTEND_BUILD_DIR || path.join(__dirname, '..', '..', 'app', 'build');
 export const CACHE_MAX_AGE = parseInt(process.env.CACHE_MAX_AGE || '86400', 10);
 export const PROXY_TIMEOUT = parseInt(process.env.PROXY_TIMEOUT || '10000', 10);
+export const FRONTEND_LOGS_ENABLED = true;
 export const CERT_KEY_PATH = process.env.CERT_KEY_PATH || path.join(SSL_DIR, 'key.pem');
 export const CERT_PEM_PATH = process.env.CERT_PEM_PATH || path.join(SSL_DIR, 'cert.pem');
 export const ROOT_CA_PATH = process.env.ROOT_CA_PATH || path.join(os.homedir(), '.local/share/mkcert/rootCA.pem');

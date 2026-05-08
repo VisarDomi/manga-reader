@@ -90,6 +90,8 @@ export class ReaderState {
     private pendingMeasuredChapterHeights = new Map<string, number>();
     private estimatedChapterHeights = new Map<string, number>();
     private mangaAverageChapterHeight: number | null = null;
+    private lastWindowReconcileLogAt = 0;
+    private lastWindowReconcileSignature = '';
     private windowManager = new ReaderWindowManager();
     readonly pageTracker = new PageTracker();
 
@@ -117,6 +119,8 @@ export class ReaderState {
         this.pendingMeasuredChapterHeights.clear();
         this.estimatedChapterHeights.clear();
         this.mangaAverageChapterHeight = null;
+        this.lastWindowReconcileLogAt = 0;
+        this.lastWindowReconcileSignature = '';
         this.nextRetryWake = null;
         this.activeMangaId = manga.id;
         this.mangaEntryKey = mangaEntryKey;
@@ -186,6 +190,8 @@ export class ReaderState {
         this.pendingMeasuredChapterHeights.clear();
         this.estimatedChapterHeights.clear();
         this.mangaAverageChapterHeight = null;
+        this.lastWindowReconcileLogAt = 0;
+        this.lastWindowReconcileSignature = '';
         this.nextRetryWake = null;
         this.activeMangaId = manga.id;
         this.mangaEntryKey = this.manga.activeEntryKey;
@@ -482,6 +488,8 @@ export class ReaderState {
         this.pendingMeasuredChapterHeights.clear();
         this.estimatedChapterHeights.clear();
         this.mangaAverageChapterHeight = null;
+        this.lastWindowReconcileLogAt = 0;
+        this.lastWindowReconcileSignature = '';
         this.commentsEpoch++;
         this.commentsAbort?.abort();
         this.commentsAbort = null;
@@ -562,7 +570,7 @@ export class ReaderState {
             });
         }
 
-        this.log.emit('reader-window-reconcile', {
+        this.logWindowReconcile({
             source,
             mangaId: manga.id,
             currentChapterId: plan.probeChapterId ?? layoutId,
@@ -571,8 +579,49 @@ export class ReaderState {
             clientHeight: Math.round(viewport.clientHeight),
             wantedCount: plan.wantedIds.size,
             fetchingCount: this.windowFetches.size,
+            loadedChapterIds: afterIds.join(','),
+            placeholderCount: nextSlots.filter(slot => slot.slotState !== 'ready').length,
         });
         this.scheduleWindowFetches(manga, plan.candidates, source);
+    }
+
+    private logWindowReconcile(data: {
+        source: ReaderWindowSource;
+        mangaId: string;
+        currentChapterId: string;
+        direction: ReaderScrollDirection;
+        scrollTop: number;
+        clientHeight: number;
+        wantedCount: number;
+        fetchingCount: number;
+        loadedChapterIds: string;
+        placeholderCount: number;
+    }): void {
+        const signature = [
+            data.currentChapterId,
+            data.direction,
+            data.wantedCount,
+            data.fetchingCount,
+            data.loadedChapterIds,
+            data.placeholderCount,
+        ].join(':');
+        const now = performance.now();
+        const changed = signature !== this.lastWindowReconcileSignature;
+        const shouldLog = data.source !== 'scroll' || changed || data.fetchingCount > 0 || now - this.lastWindowReconcileLogAt > 2_000;
+        if (!shouldLog) return;
+
+        this.lastWindowReconcileLogAt = now;
+        this.lastWindowReconcileSignature = signature;
+        this.log.emit('reader-window-reconcile', {
+            source: data.source,
+            mangaId: data.mangaId,
+            currentChapterId: data.currentChapterId,
+            direction: data.direction,
+            scrollTop: data.scrollTop,
+            clientHeight: data.clientHeight,
+            wantedCount: data.wantedCount,
+            fetchingCount: data.fetchingCount,
+        });
     }
 
     recordChapterMeasurements(measurements: Array<{ chapterId: string; contentHeight: number; slotHeight: number }>): void {

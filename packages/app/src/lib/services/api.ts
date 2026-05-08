@@ -287,6 +287,14 @@ export async function* fetchChapterList(
     }
 
 }
+
+export async function fetchChapterListPage(mangaId: string, page: number, signal?: AbortSignal): Promise<ChapterListPage> {
+    const provider = getProvider();
+    const req = provider.chapterListRequest(mangaId, page);
+    const data = await proxyRequest(req, 'json', { signal });
+    return provider.parseChapterListResponse(data);
+}
+
 export function prewarmChapters(mangaIds: string[]): void {
     if (mangaIds.length === 0) return;
     emit('prewarm-sent', { count: mangaIds.length });

@@ -84,6 +84,8 @@ class AppState {
     private chapterStatsWarmActive = false;
     private chapterStatsWarmActiveId: string | null = null;
     private chapterStatsWarmAbort: AbortController | null = null;
+    private deferredSearchContext: SearchContext | undefined;
+    private deferredVisibleManga: Manga[] = [];
 
     constructor() {
         const emit = this.log.emit;
@@ -105,7 +107,16 @@ class AppState {
                 this.restore.cancel();
             }
         };
-        this.manga = new MangaState(this.ui, this.toast, this.groupFilter, this.chapterStats, this.progress, emit, () => this.restore.cancel());
+        this.manga = new MangaState(
+            this.ui,
+            this.toast,
+            this.groupFilter,
+            this.chapterStats,
+            this.progress,
+            emit,
+            () => this.restore.cancel(),
+            () => this.canRunBackgroundWork(),
+        );
         this.groupFilter.setOnChange(() => {
             this.manga.refreshChapterStats();
             this.manga.warmLikelyDetailChapter();
@@ -116,6 +127,17 @@ class AppState {
 
     prewarmVisibleManga(manga: Manga[]): void {
         if (manga.length === 0) return;
+        if (!this.canRunBackgroundWork()) {
+            this.deferredVisibleManga = manga;
+            this.log.emit('foreground-work', {
+                owner: 'visible-prewarm',
+                action: 'defer',
+                view: this.ui.viewMode,
+                count: manga.length,
+                reason: 'foreground-reader',
+            });
+            return;
+        }
         const visibleIds = new Set(manga.map(item => item.id));
         if (this.chapterStatsWarmActiveId && !visibleIds.has(this.chapterStatsWarmActiveId)) {
             this.chapterStatsWarmAbort?.abort();
@@ -139,6 +161,19 @@ class AppState {
     }
 
     private drainChapterStatsWarmQueue(): void {
+        if (!this.canRunBackgroundWork()) {
+            if (this.chapterStatsWarmActive) this.chapterStatsWarmAbort?.abort();
+            if (this.chapterStatsWarmQueue.size > 0) {
+                this.log.emit('foreground-work', {
+                    owner: 'chapter-stats',
+                    action: 'defer',
+                    view: this.ui.viewMode,
+                    count: this.chapterStatsWarmQueue.size,
+                    reason: 'foreground-reader',
+                });
+            }
+            return;
+        }
         if (this.chapterStatsWarmActive) return;
         const next = this.chapterStatsWarmQueue.entries().next();
         if (next.done) return;
@@ -156,7 +191,7 @@ class AppState {
                 this.chapterStatsWarmActive = false;
                 this.chapterStatsWarmActiveId = null;
                 this.chapterStatsWarmAbort = null;
-                this.drainChapterStatsWarmQueue();
+                if (this.canRunBackgroundWork()) this.drainChapterStatsWarmQueue();
             });
     }
 
@@ -211,6 +246,52 @@ class AppState {
                 if (el) el.style.overflow = '';
             }
         });
+    }
+
+    private canRunBackgroundWork(): boolean {
+        return this.ui.viewMode !== View.READER && this.ui.viewMode !== View.CHAPTER_COMMENTS;
+    }
+
+    private pauseBackgroundWork(reason = 'foreground-reader'): void {
+        this.chapterStatsWarmAbort?.abort();
+        this.searchState.recover();
+        this.manga.pauseBackgroundWork();
+        this.log.emit('foreground-work', {
+            owner: 'search',
+            action: 'cancel',
+            view: this.ui.viewMode,
+            reason,
+        });
+    }
+
+    private resumeBackgroundWork(): void {
+        if (!this.canRunBackgroundWork()) return;
+        this.manga.resumeBackgroundWork();
+
+        const visible = this.deferredVisibleManga;
+        this.deferredVisibleManga = [];
+        if (visible.length > 0) {
+            this.log.emit('foreground-work', {
+                owner: 'visible-prewarm',
+                action: 'resume',
+                view: this.ui.viewMode,
+                count: visible.length,
+            });
+            this.prewarmVisibleManga(visible);
+        } else {
+            this.drainChapterStatsWarmQueue();
+        }
+
+        const searchContext = this.deferredSearchContext;
+        this.deferredSearchContext = undefined;
+        if (searchContext || this.searchState.results.length === 0) {
+            this.log.emit('foreground-work', {
+                owner: 'search',
+                action: 'resume',
+                view: this.ui.viewMode,
+            });
+            void this.bgReplaySearch(searchContext);
+        }
     }
     private persistSession() {
         const snapshot: SessionSnapshot = {
@@ -317,7 +398,8 @@ class AppState {
                 : [View.LIST, View.MANGA];
             this.ui.setViewDirect(View.READER, readerStack.length > 0 ? readerStack : [View.LIST, View.MANGA]);
 
-            const ok = await this.manga.restoreManga(snapshot.activeManga);
+            const saved = this.progress.get(snapshot.activeManga.id);
+            const ok = await this.manga.restoreMangaForReader(snapshot.activeManga, saved?.chapterId ?? null);
             if (!ok) {
                 this.manga.setNavigationStack([]);
                 this.ui.setViewDirect(View.LIST, []);
@@ -352,6 +434,16 @@ class AppState {
     }
 
     private async bgReplaySearch(searchContext?: SearchContext) {
+        if (!this.canRunBackgroundWork()) {
+            this.deferredSearchContext = searchContext;
+            this.log.emit('foreground-work', {
+                owner: 'search',
+                action: 'defer',
+                view: this.ui.viewMode,
+                reason: 'foreground-reader',
+            });
+            return;
+        }
         if (searchContext) {
             this.searchState.filters.restoreFromContext(searchContext.filters);
             await this.searchState.replayFromContext(searchContext);
@@ -364,6 +456,15 @@ class AppState {
     }
 
     private async bgPaginateToTarget() {
+        if (!this.canRunBackgroundWork()) {
+            this.log.emit('foreground-work', {
+                owner: 'search',
+                action: 'defer',
+                view: this.ui.viewMode,
+                reason: 'foreground-reader',
+            });
+            return;
+        }
         const emit = this.log.emit;
         const targetId = this.restore.targetMangaId;
         if (!targetId || !this.restore.isActive) {
@@ -450,7 +551,7 @@ class AppState {
         const emit = this.log.emit;
         const t0 = Date.now();
 
-        this.log.start();
+        await this.log.start();
         emit('boot-start');
 
         setDbLogger((op, error) => emit('db-error', { op, error }));
@@ -506,6 +607,12 @@ class AppState {
     }
 
     private handleViewChanged() {
+        if (!this.canRunBackgroundWork()) {
+            this.pauseBackgroundWork();
+            return;
+        }
+        this.resumeBackgroundWork();
+
         if (this.ui.viewMode === 'list' && this.restore.phase === 'scrolling') {
             const targetId = this.restore.targetMangaId;
             if (targetId) this.showScrollToast(targetId);

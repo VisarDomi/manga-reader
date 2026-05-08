@@ -15,6 +15,9 @@ export class ReaderMemoryManager {
     readonly pageDataMap = new Map<HTMLElement, ReaderPageData>();
     root: HTMLElement | null = null;
     onLoadFailure: ((key: string) => void) | undefined;
+    private lastScheduleLogAt = 0;
+    private lastScheduleLogSignature = '';
+    private lastSchedulePerfLogAt = 0;
 
     constructor(emit: LogEmit) {
         this.emit = emit;
@@ -55,19 +58,27 @@ export class ReaderMemoryManager {
         scrollTop: number,
         clientHeight: number,
         clientWidth: number,
-    ): void {
-        if (!this.abortController || clientHeight <= 0 || clientWidth <= 0) return;
+    ): { totalMs: number; pageCount: number; jobs: number; kept: number; mounted: number; started: number; revoked: number } | null {
+        if (!this.abortController || clientHeight <= 0 || clientWidth <= 0) return null;
 
+        const t0 = performance.now();
         const radiusPx = clientHeight * READER_IMAGE_KEEP_RADIUS_VIEWPORTS;
         const jobs: Array<{ key: string; url: string; priority: number }> = [];
         const keepKeys = new Set<string>();
+        let pageCount = 0;
+        let scanMs = 0;
+        let sortMs = 0;
+        let startMs = 0;
+        let cleanupMs = 0;
 
+        const scanStart = performance.now();
         if (this.root) {
             const rootRect = this.root.getBoundingClientRect();
             const rangeTop = rootRect.top - radiusPx;
             const rangeBottom = rootRect.bottom + radiusPx;
             const viewportProbe = rootRect.top + clientHeight * VISIBLE_PAGE_RATIO;
             for (const [node, data] of this.pageDataMap) {
+                pageCount++;
                 const rect = node.getBoundingClientRect();
                 if (rect.bottom < rangeTop || rect.top > rangeBottom) continue;
                 const center = rect.top + rect.height / 2;
@@ -84,6 +95,7 @@ export class ReaderMemoryManager {
                 let pageTop = chapterTop + READER_CHAPTER_SEPARATOR_HEIGHT;
                 for (let pageIndex = 0; pageIndex < chapter.pages.length; pageIndex++) {
                     const page = chapter.pages[pageIndex];
+                    pageCount++;
                     const pageHeight = page.width && page.height
                         ? clientWidth * page.height / page.width
                         : clientWidth * 1.5;
@@ -98,26 +110,92 @@ export class ReaderMemoryManager {
                 }
             }
         }
+        scanMs = performance.now() - scanStart;
 
+        const sortStart = performance.now();
         jobs.sort((a, b) => a.priority - b.priority);
+        sortMs = performance.now() - sortStart;
         let started = 0;
+        let mounted = 0;
+        const startStart = performance.now();
         for (const job of jobs) {
             const wrapper = this.pageElementsByKey.get(job.key);
             if (!wrapper) continue;
+            mounted++;
             const img = wrapper.querySelector('img');
             if (!img || img.src) continue;
             this.loadImage(job.url, job.key, img);
             started++;
         }
+        startMs = performance.now() - startStart;
+        const cleanupStart = performance.now();
         const revoked = this.cleanupOutsideVirtualWindow(keepKeys);
+        cleanupMs = performance.now() - cleanupStart;
+        const totalMs = performance.now() - t0;
 
-        this.emit('reader-image-schedule', {
+        this.logSchedule({
             wanted: jobs.length,
-            mounted: jobs.filter(job => this.pageElementsByKey.has(job.key)).length,
+            mounted,
             started,
             revoked,
             scrollTop: Math.round(scrollTop),
             clientHeight: Math.round(clientHeight),
+        });
+        this.logSchedulePerf({
+            scrollTop: Math.round(scrollTop),
+            pages: pageCount,
+            jobs: jobs.length,
+            kept: keepKeys.size,
+            mounted,
+            started,
+            revoked,
+            totalMs,
+            scanMs,
+            sortMs,
+            startMs,
+            cleanupMs,
+        });
+
+        return { totalMs, pageCount, jobs: jobs.length, kept: keepKeys.size, mounted, started, revoked };
+    }
+
+    private logSchedule(data: { wanted: number; mounted: number; started: number; revoked: number; scrollTop: number; clientHeight: number }): void {
+        const signature = `${data.wanted}:${data.mounted}:${data.started}:${data.revoked}`;
+        const now = performance.now();
+        const changed = signature !== this.lastScheduleLogSignature;
+        const active = data.started > 0 || data.revoked > 0;
+        if (!active && !changed && now - this.lastScheduleLogAt < 2_000) return;
+
+        this.lastScheduleLogAt = now;
+        this.lastScheduleLogSignature = signature;
+        this.emit('reader-image-schedule', data);
+    }
+
+    private logSchedulePerf(data: {
+        scrollTop: number;
+        pages: number;
+        jobs: number;
+        kept: number;
+        mounted: number;
+        started: number;
+        revoked: number;
+        totalMs: number;
+        scanMs: number;
+        sortMs: number;
+        startMs: number;
+        cleanupMs: number;
+    }): void {
+        const now = performance.now();
+        if (data.totalMs < 8 && now - this.lastSchedulePerfLogAt < 2_000) return;
+
+        this.lastSchedulePerfLogAt = now;
+        this.emit('reader-image-schedule-perf', {
+            ...data,
+            totalMs: Math.round(data.totalMs),
+            scanMs: Math.round(data.scanMs),
+            sortMs: Math.round(data.sortMs),
+            startMs: Math.round(data.startMs),
+            cleanupMs: Math.round(data.cleanupMs),
         });
     }
 
@@ -176,5 +254,8 @@ export class ReaderMemoryManager {
         this.loadingKeys.clear();
         this.pageElementsByKey.clear();
         this.pageDataMap.clear();
+        this.lastScheduleLogAt = 0;
+        this.lastScheduleLogSignature = '';
+        this.lastSchedulePerfLogAt = 0;
     }
 }

@@ -57,9 +57,12 @@ export class MangaState {
     private progress: ProgressState;
     private emit: LogEmit;
     private onOpen: (() => void) | null;
+    private canRunBackgroundWork: (() => boolean);
     private detailChapterWarmKey = new Map<string, string>();
+    private pendingComments = new Set<string>();
+    private commentControllers = new Map<string, AbortController>();
 
-    constructor(ui: UIState, toast: ToastState, gf: GroupFilterState, chapterStats: ChapterStatsState, progress: ProgressState, emit: LogEmit, onOpen?: () => void) {
+    constructor(ui: UIState, toast: ToastState, gf: GroupFilterState, chapterStats: ChapterStatsState, progress: ProgressState, emit: LogEmit, onOpen?: () => void, canRunBackgroundWork?: () => boolean) {
         this.ui = ui;
         this.toast = toast;
         this.gf = gf;
@@ -67,6 +70,7 @@ export class MangaState {
         this.progress = progress;
         this.emit = emit;
         this.onOpen = onOpen ?? null;
+        this.canRunBackgroundWork = canRunBackgroundWork ?? (() => true);
     }
 
     get activeEntry(): MangaEntry | null {
@@ -181,6 +185,16 @@ export class MangaState {
     warmLikelyDetailChapter(entryKey?: string): void {
         const entry = this.entryFor(entryKey);
         if (!entry || entry.chapters.length === 0) return;
+        if (!this.canRunBackgroundWork()) {
+            this.emit('foreground-work', {
+                owner: 'detail-chapter-prewarm',
+                action: 'defer',
+                view: this.ui.viewMode,
+                mangaId: entry.manga.id,
+                reason: 'foreground-reader',
+            });
+            return;
+        }
 
         const chapters = this.readableChaptersFor(entry);
         const target = this.chooseHistoryWarmupChapter(entry, chapters) ?? this.chooseUnreadWarmupChapter(chapters);
@@ -371,13 +385,73 @@ export class MangaState {
                 chapters: current.chapters.length,
                 comments: current.comments.length,
             });
-            void this.loadMangaComments(current);
+            this.queueMangaComments(current);
         }
         this.emit('manga-detail-done', { mangaId: manga.id, ms: Math.round(performance.now() - start) });
     }
 
+    private queueMangaComments(entry: MangaEntry): void {
+        if (entry.comments.length > 0 || entry.isCommentsLoading) return;
+        if (!this.canRunBackgroundWork()) {
+            this.pendingComments.add(entry.key);
+            this.emit('foreground-work', {
+                owner: 'manga-comments',
+                action: 'defer',
+                view: this.ui.viewMode,
+                mangaId: entry.manga.id,
+                reason: 'foreground-reader',
+            });
+            return;
+        }
+        void this.loadMangaComments(entry);
+    }
+
+    pauseBackgroundWork(): void {
+        for (const [key, controller] of this.commentControllers) {
+            controller.abort();
+            const entry = this.entryFor(key);
+            if (entry) {
+                this.pendingComments.add(key);
+                this.updateEntry(key, current => {
+                    current.isCommentsLoading = false;
+                });
+                this.emit('foreground-work', {
+                    owner: 'manga-comments',
+                    action: 'cancel',
+                    view: this.ui.viewMode,
+                    mangaId: entry.manga.id,
+                    reason: 'foreground-reader',
+                });
+            }
+        }
+        this.commentControllers.clear();
+    }
+
+    resumeBackgroundWork(): void {
+        if (!this.canRunBackgroundWork()) return;
+        const pending = [...this.pendingComments];
+        this.pendingComments.clear();
+        for (const key of pending) {
+            const entry = this.entryFor(key);
+            if (!entry || entry.comments.length > 0 || entry.isCommentsLoading) continue;
+            this.emit('foreground-work', {
+                owner: 'manga-comments',
+                action: 'resume',
+                view: this.ui.viewMode,
+                mangaId: entry.manga.id,
+            });
+            void this.loadMangaComments(entry);
+        }
+    }
+
     private async loadMangaComments(entry: MangaEntry): Promise<void> {
+        if (!this.canRunBackgroundWork()) {
+            this.pendingComments.add(entry.key);
+            return;
+        }
         const start = performance.now();
+        const controller = new AbortController();
+        this.commentControllers.set(entry.key, controller);
         this.updateEntry(entry.key, current => {
             current.isCommentsLoading = true;
             current.commentsError = null;
@@ -385,12 +459,14 @@ export class MangaState {
         this.emit('manga-comments-start', { mangaId: entry.manga.id });
 
         try {
-            const result = await api.fetchMangaComments(entry.manga.id);
+            const result = await api.fetchMangaComments(entry.manga.id, controller.signal);
+            if (controller.signal.aborted) return;
             this.updateEntry(entry.key, current => {
                 current.comments = result.comments;
                 current.commentsCount = result.count;
             });
         } catch (e) {
+            if (controller.signal.aborted) return;
             const current = this.updateEntry(entry.key, currentEntry => {
                 currentEntry.commentsError = String((e as Error)?.message ?? e);
             });
@@ -398,10 +474,11 @@ export class MangaState {
                 this.emit('manga-comments-error', { mangaId: current.manga.id, error: current.commentsError });
             }
         } finally {
+            this.commentControllers.delete(entry.key);
             const current = this.updateEntry(entry.key, currentEntry => {
                 currentEntry.isCommentsLoading = false;
             });
-            if (current) {
+            if (current && !controller.signal.aborted) {
                 this.emit('manga-entry-state', {
                     mangaId: current.manga.id,
                     phase: 'comments-done',
@@ -468,6 +545,102 @@ export class MangaState {
 
         const active = restored[restored.length - 1];
         return active ? this.restoreEntry(active) : false;
+    }
+
+    async restoreMangaForReader(manga: Manga, targetChapterId: string | null): Promise<boolean> {
+        const restored = [$state.snapshot(manga)].map(item => createEntry(item));
+        this.entries = restored;
+        const active = restored[0];
+        if (!active) return false;
+
+        const start = performance.now();
+        this.emit('manga-open-start', { mangaId: active.manga.id });
+        this.resetBlockedChapterVisibility(active);
+        active.chapters = [];
+        active.comments = [];
+        active.commentsCount = 0;
+        active.commentsError = null;
+        active.isCommentsLoading = false;
+        active.selectedGroups = new Set();
+        active.isLoading = true;
+        active.error = null;
+        this.replaceEntry(active);
+
+        try {
+            void this.loadMangaDetail(active);
+            this.emit('manga-chapters-start', { mangaId: active.manga.id });
+            const chapters = await this.fetchReaderChapterIndex(active.manga.id, targetChapterId);
+            const current = this.entryFor(active.key);
+            if (!current) return false;
+            current.chapters = chapters;
+            current.error = null;
+            this.replaceEntry(current);
+            this.loadGroupSelection(current);
+            this.refreshChapterStats(current.key);
+            this.warmLikelyDetailChapter(current.key);
+            this.emit('manga-entry-state', {
+                mangaId: current.manga.id,
+                phase: 'chapters-done',
+                recommendations: current.manga.recommendations?.length ?? 0,
+                chapters: current.chapters.length,
+                comments: current.comments.length,
+            });
+            this.emit('chapters-done', {
+                mangaId: current.manga.id,
+                pages: Math.max(1, Math.ceil(chapters.length / 100)),
+                total: chapters.length,
+                uploadedTimes: chapters.filter(ch => ch.uploadedAt != null || ch.uploadedAtLabel).length,
+            });
+            this.emit('manga-open-done', { mangaId: current.manga.id, ms: Math.round(performance.now() - start) });
+            return true;
+        } catch (e) {
+            const current = this.entryFor(active.key);
+            if (current) {
+                current.error = toLoadError(e);
+                this.replaceEntry(current);
+            }
+            return false;
+        } finally {
+            const current = this.entryFor(active.key);
+            if (current) {
+                current.isLoading = false;
+                this.replaceEntry(current);
+            }
+        }
+    }
+
+    private async fetchReaderChapterIndex(mangaId: string, targetChapterId: string | null): Promise<ChapterMeta[]> {
+        const all: ChapterMeta[] = [];
+        const seen = new Set<string>();
+        let page = await api.fetchChapterListPage(mangaId, 1);
+        let currentPage = page.pagination.currentPage || 1;
+        let lastPage = page.pagination.lastPage || 1;
+
+        while (true) {
+            this.emit('chapters-page', {
+                mangaId,
+                page: page.pagination.currentPage,
+                items: page.items.length,
+                uploadedTimes: page.items.filter(ch => ch.uploadedAt != null || ch.uploadedAtLabel).length,
+                ...(currentPage === 1 ? {
+                    lastPage: page.pagination.lastPage,
+                    total: page.pagination.total,
+                } : {}),
+            });
+            for (const ch of page.items) {
+                if (seen.has(ch.id)) continue;
+                seen.add(ch.id);
+                all.push(ch);
+            }
+
+            if (!targetChapterId || seen.has(targetChapterId) || currentPage >= lastPage) {
+                return all;
+            }
+
+            currentPage++;
+            page = await api.fetchChapterListPage(mangaId, currentPage);
+            lastPage = page.pagination.lastPage || lastPage;
+        }
     }
 
     private async restoreEntry(entry: MangaEntry): Promise<boolean> {

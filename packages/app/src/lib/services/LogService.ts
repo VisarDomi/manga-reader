@@ -63,6 +63,10 @@ export type LogEvent =
     | { event: 'reader-window-fetch-stale'; source: 'initial' | 'scroll' | 'visible' | 'retry'; mangaId: string; chapterId: string; reason: 'epoch' | 'slot-missing' }
     | { event: 'reader-window-fetch-failed'; source: 'initial' | 'scroll' | 'visible' | 'retry'; mangaId: string; chapterId: string; error: string }
     | { event: 'reader-image-schedule'; wanted: number; mounted: number; started: number; revoked?: number; scrollTop: number; clientHeight: number }
+    | { event: 'reader-image-schedule-perf'; scrollTop: number; pages: number; jobs: number; kept: number; mounted: number; started: number; revoked: number; totalMs: number; scanMs: number; sortMs: number; startMs: number; cleanupMs: number }
+    | { event: 'reader-scroll-perf'; scrollTop: number; deltaScroll: number; sinceLastMs: number; totalMs: number; visualMs: number; queueMs: number; trackerMs: number; pageCount: number; pendingMeasurements: number }
+    | { event: 'reader-raf-perf'; source: 'initial' | 'scroll' | 'visible' | 'retry'; queuedForMs: number; totalMs: number; measureMs: number; stateMs: number; tickMs: number; imagesMs: number; scrollTop: number; pendingMeasurements: number }
+    | { event: 'reader-frame-gap'; source: 'raf'; gapMs: number; scrollTop: number; pendingMeasurements: number }
     | { event: 'reader-visual-snapshot'; source: 'initial' | 'scroll' | 'images' | 'close'; mangaId: string | null; currentChapterId: string | null; scrollTop: number; clientHeight: number; sections: string; pages: string; visiblePageCount: number; visibleImageCount: number; loadedImageCount: number; emptyImageCount: number }
     | { event: 'reader-chapter-change'; mangaId: string; fromChapterId: string | null; toChapterId: string }
     | { event: 'reader-visible-page'; source: 'scroll' | 'close'; mangaId: string; currentChapterId: string | null; visibleChapterId: string; pageIndex: number; rootScrollTop: number; pageTop: number; pageBottom: number; probeY: number; selection?: 'owner' | 'probe'; ownerChapterId?: string | null }
@@ -82,7 +86,8 @@ export type LogEvent =
     | { event: 'db-error'; op: string; error: string }
     | { event: 'favorites-toggle-failed'; message: string }
     | { event: 'prewarm-sent'; count: number }
-    | { event: 'chapter-warmup-sent'; count: number };
+    | { event: 'chapter-warmup-sent'; count: number }
+    | { event: 'foreground-work'; owner: 'search' | 'visible-prewarm' | 'chapter-stats' | 'manga-comments' | 'detail-chapter-prewarm'; action: 'run' | 'defer' | 'resume' | 'cancel'; view: string; reason?: string; count?: number; mangaId?: string };
 
 type EventName = LogEvent['event'];
 type PayloadOf<E extends EventName> = Omit<Extract<LogEvent, { event: E }>, 'event'>;
@@ -94,9 +99,18 @@ export type LogEmit = <E extends EventName>(
 
 export class LogService {
     private cleanups: (() => void)[] = [];
+    private enabled = false;
 
-    start(): void {
+    async start(): Promise<void> {
         if (typeof window === 'undefined') return;
+
+        try {
+            const response = await fetch('/api/log/config', { cache: 'no-store' });
+            const config = await response.json();
+            this.enabled = config?.enabled === true;
+        } catch {
+            this.enabled = false;
+        }
 
         const onError = (event: ErrorEvent) => {
             this.emit('uncaught-error', {
@@ -125,6 +139,7 @@ export class LogService {
     }
 
     emit: LogEmit = ((event: string, data?: Record<string, unknown>) => {
+        if (!this.enabled) return;
         fetch('/api/log', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -135,5 +150,6 @@ export class LogService {
     destroy(): void {
         for (const cleanup of this.cleanups) cleanup();
         this.cleanups = [];
+        this.enabled = false;
     }
 }

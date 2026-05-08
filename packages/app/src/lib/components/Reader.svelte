@@ -52,6 +52,11 @@
     let idleLayoutResetCount = 0;
     let idleLayoutSource: 'scroll' | 'layout' = 'layout';
     let lastVisualSnapshotAt = 0;
+    let lastScrollPerfAt = 0;
+    let lastScrollAt = 0;
+    let lastScrollTop = 0;
+    let frameRaf: number | null = null;
+    let lastFrameAt = 0;
     const IDLE_LAYOUT_DELAY_MS = 450;
 
     type VisualAnchor = {
@@ -61,22 +66,49 @@
         ownerChapterId: string | null;
     };
 
-    function reconcileReaderWindow(source: 'initial' | 'scroll' | 'visible' | 'retry', scrollTopOverride?: number) {
+    function reconcileReaderWindow(source: 'initial' | 'scroll' | 'visible' | 'retry', scrollTopOverride?: number, queuedAt?: number) {
+        const startedAt = performance.now();
         const root = getReaderRoot();
         if (!root) return;
+        const measureStart = performance.now();
         appState.reader.recordChapterMeasurements(measureChapterHeights(root));
+        const measureMs = performance.now() - measureStart;
+        if (appState.reader.pendingLayoutMeasurementCount > 0) {
+            queueIdleLayoutPromotion('layout');
+        }
+        const stateStart = performance.now();
         appState.reader.reconcileReaderWindow({
             scrollTop: scrollTopOverride ?? root.scrollTop,
             clientHeight: root.clientHeight,
             clientWidth: root.clientWidth,
         }, source);
-        tick().then(() => scheduleVirtualImages(root));
+        const stateMs = performance.now() - stateStart;
+        tick().then(() => {
+            const tickStart = performance.now();
+            const imagePerf = scheduleVirtualImages(root);
+            const imagesMs = imagePerf?.totalMs ?? performance.now() - tickStart;
+            const totalMs = performance.now() - startedAt;
+            const queuedForMs = queuedAt == null ? 0 : startedAt - queuedAt;
+            if (totalMs < 8 && queuedForMs < 24 && source === 'scroll') return;
+            appState.log.emit('reader-raf-perf', {
+                source,
+                queuedForMs: Math.round(queuedForMs),
+                totalMs: Math.round(totalMs),
+                measureMs: Math.round(measureMs),
+                stateMs: Math.round(stateMs),
+                tickMs: Math.round(tickStart - startedAt),
+                imagesMs: Math.round(imagesMs),
+                scrollTop: Math.round(root.scrollTop),
+                pendingMeasurements: appState.reader.pendingLayoutMeasurementCount,
+            });
+        });
     }
 
     function scheduleVirtualImages(root = getReaderRoot()) {
-        if (!root) return;
-        memory.loadVirtualWindow(chapters, root.scrollTop, root.clientHeight, root.clientWidth);
+        if (!root) return null;
+        const perf = memory.loadVirtualWindow(chapters, root.scrollTop, root.clientHeight, root.clientWidth);
         logVisualSnapshot(root, 'images');
+        return perf;
     }
 
     function logVisualSnapshot(root: HTMLElement, source: 'initial' | 'scroll' | 'images' | 'close', force = false) {
@@ -131,10 +163,39 @@
 
     function queueWindowReconcile(source: 'scroll' | 'visible' | 'retry' = 'scroll') {
         if (windowRaf != null) return;
+        const queuedAt = performance.now();
         windowRaf = requestAnimationFrame(() => {
             windowRaf = null;
-            reconcileReaderWindow(source);
+            reconcileReaderWindow(source, undefined, queuedAt);
         });
+    }
+
+    function startFrameProbe() {
+        if (frameRaf != null) return;
+        lastFrameAt = performance.now();
+        const loop = () => {
+            const now = performance.now();
+            const gapMs = now - lastFrameAt;
+            lastFrameAt = now;
+            if (gapMs > 45) {
+                const root = getReaderRoot();
+                appState.log.emit('reader-frame-gap', {
+                    source: 'raf',
+                    gapMs: Math.round(gapMs),
+                    scrollTop: Math.round(root?.scrollTop ?? 0),
+                    pendingMeasurements: appState.reader.pendingLayoutMeasurementCount,
+                });
+            }
+            frameRaf = requestAnimationFrame(loop);
+        };
+        frameRaf = requestAnimationFrame(loop);
+    }
+
+    function stopFrameProbe() {
+        if (frameRaf == null) return;
+        cancelAnimationFrame(frameRaf);
+        frameRaf = null;
+        lastFrameAt = 0;
     }
 
     function queueIdleLayoutPromotion(source: 'scroll' | 'layout' = 'scroll') {
@@ -417,15 +478,42 @@
     }
 
     function handleScroll() {
+        const startedAt = performance.now();
         const root = getReaderRoot();
         if (!root) return;
+        const previousScrollAt = lastScrollAt;
+        const previousScrollTop = lastScrollTop;
+        lastScrollAt = startedAt;
+        lastScrollTop = root.scrollTop;
         scrollCoordinator.noteUserScroll(root);
+        const visualStart = performance.now();
         logVisualSnapshot(root, 'scroll');
-        queueIdleLayoutPromotion('scroll');
+        const visualMs = performance.now() - visualStart;
+        const queueStart = performance.now();
         queueWindowReconcile('scroll');
+        const queueMs = performance.now() - queueStart;
+        const trackerStart = performance.now();
         pageTracker.handleScroll(root, memory.pageDataMap, [appState.reader.layoutChapterId, appState.reader.currentChapterId], (visible) => {
             appState.reader.trackVisiblePage(visible.chapterId, visible.pageIndex, visible.scrollOffset, 'scroll', visible);
         });
+        const trackerMs = performance.now() - trackerStart;
+        const totalMs = performance.now() - startedAt;
+        const sinceLastMs = previousScrollAt === 0 ? 0 : startedAt - previousScrollAt;
+        const shouldLog = totalMs > 8 || sinceLastMs > 40 || startedAt - lastScrollPerfAt > 1_000;
+        if (shouldLog) {
+            lastScrollPerfAt = startedAt;
+            appState.log.emit('reader-scroll-perf', {
+                scrollTop: Math.round(root.scrollTop),
+                deltaScroll: Math.round(root.scrollTop - previousScrollTop),
+                sinceLastMs: Math.round(sinceLastMs),
+                totalMs: Math.round(totalMs),
+                visualMs: Math.round(visualMs),
+                queueMs: Math.round(queueMs),
+                trackerMs: Math.round(trackerMs),
+                pageCount: memory.pageDataMap.size,
+                pendingMeasurements: appState.reader.pendingLayoutMeasurementCount,
+            });
+        }
     }
 
     function handleClose() {
@@ -450,6 +538,7 @@
                 slowToastShown = false;
                 scrollCoordinator.cancelInitialPosition();
                 scrollCoordinator.cancelPrepend();
+                stopFrameProbe();
                 if (windowRaf != null) {
                     cancelAnimationFrame(windowRaf);
                     windowRaf = null;
@@ -471,7 +560,10 @@
             initialized = true;
 
             const root = getReaderRoot();
-            if (root) root.addEventListener('scroll', handleScroll, { passive: true });
+            if (root) {
+                root.addEventListener('scroll', handleScroll, { passive: true });
+                startFrameProbe();
+            }
 
             restoreScrollPosition();
         }
