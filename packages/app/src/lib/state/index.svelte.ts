@@ -105,8 +105,11 @@ class AppState {
                 this.restore.cancel();
             }
         };
-        this.manga = new MangaState(this.ui, this.toast, this.groupFilter, this.chapterStats, emit, () => this.restore.cancel());
-        this.groupFilter.setOnChange(() => this.manga.refreshChapterStats());
+        this.manga = new MangaState(this.ui, this.toast, this.groupFilter, this.chapterStats, this.progress, emit, () => this.restore.cancel());
+        this.groupFilter.setOnChange(() => {
+            this.manga.refreshChapterStats();
+            this.manga.warmLikelyDetailChapter();
+        });
         this.reader = new ReaderState(this.ui, this.manga, this.progress, this.toast, this.log);
         this.favorites = new FavoritesState(this.toast, this.log);
     }

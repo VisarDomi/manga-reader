@@ -7,6 +7,7 @@ import type { UIState } from './ui.svelte.js';
 import type { ToastState } from './toast.svelte.js';
 import type { GroupFilterState } from './groupFilter.svelte.js';
 import type { ChapterStatsState } from './chapterStats.svelte.js';
+import type { ProgressState } from './progress.svelte.js';
 import { type LoadError, toLoadError } from './errors.js';
 
 export interface MangaEntry {
@@ -53,14 +54,17 @@ export class MangaState {
     private toast: ToastState;
     private gf: GroupFilterState;
     private chapterStats: ChapterStatsState;
+    private progress: ProgressState;
     private emit: LogEmit;
     private onOpen: (() => void) | null;
+    private detailChapterWarmKey = new Map<string, string>();
 
-    constructor(ui: UIState, toast: ToastState, gf: GroupFilterState, chapterStats: ChapterStatsState, emit: LogEmit, onOpen?: () => void) {
+    constructor(ui: UIState, toast: ToastState, gf: GroupFilterState, chapterStats: ChapterStatsState, progress: ProgressState, emit: LogEmit, onOpen?: () => void) {
         this.ui = ui;
         this.toast = toast;
         this.gf = gf;
         this.chapterStats = chapterStats;
+        this.progress = progress;
         this.emit = emit;
         this.onOpen = onOpen ?? null;
     }
@@ -148,6 +152,61 @@ export class MangaState {
         return [...best.values()].sort((a, b) => b.number - a.number);
     }
 
+    private readableChaptersFor(entry: MangaEntry): ChapterMeta[] {
+        return this.filteredChaptersFor(entry).sort((a, b) => a.number - b.number);
+    }
+
+    private chooseUnreadWarmupChapter(chapters: ChapterMeta[]): ChapterMeta | null {
+        const chapterOne = chapters.find(ch => ch.number === 1);
+        if (chapterOne) return chapterOne;
+
+        const firstOnePoint = chapters.find(ch => ch.number > 1 && ch.number < 2);
+        if (firstOnePoint) return firstOnePoint;
+
+        return chapters.find(ch => ch.number >= 1) ?? chapters[0] ?? null;
+    }
+
+    private chooseHistoryWarmupChapter(entry: MangaEntry, chapters: ChapterMeta[]): ChapterMeta | null {
+        const saved = this.progress.get(entry.manga.id);
+        if (!saved) return null;
+
+        const savedIdx = chapters.findIndex(ch => ch.id === saved.chapterId);
+        if (savedIdx !== -1) {
+            return chapters[savedIdx + 1] ?? chapters[savedIdx];
+        }
+
+        return chapters.find(ch => ch.number > saved.chapterNumber) ?? null;
+    }
+
+    warmLikelyDetailChapter(entryKey?: string): void {
+        const entry = this.entryFor(entryKey);
+        if (!entry || entry.chapters.length === 0) return;
+
+        const chapters = this.readableChaptersFor(entry);
+        const target = this.chooseHistoryWarmupChapter(entry, chapters) ?? this.chooseUnreadWarmupChapter(chapters);
+        if (!target) return;
+
+        const progressKind = this.progress.get(entry.manga.id) ? 'history' : 'unread';
+        const groupKey = entry.selectedGroups.size === 0 ? 'all' : [...entry.selectedGroups].sort().join(',');
+        const warmKey = [
+            entry.manga.id,
+            target.id,
+            progressKind,
+            entry.includeBlockedChapters ? 'blocked-visible' : `blocked-hidden:${this.gf.key}`,
+            groupKey,
+        ].join('|');
+        if (this.detailChapterWarmKey.get(entry.key) === warmKey) return;
+        this.detailChapterWarmKey.set(entry.key, warmKey);
+
+        this.emit('chapter-detail-prewarm-choice', {
+            mangaId: entry.manga.id,
+            chapterId: target.id,
+            chapterNumber: target.number,
+            reason: progressKind,
+        });
+        api.prewarmChapterDetails(entry.manga.id, [target]);
+    }
+
     get filteredChapters(): ChapterMeta[] {
         const entry = this.activeEntry;
         return entry ? this.filteredChaptersFor(entry) : [];
@@ -166,6 +225,7 @@ export class MangaState {
         if (!entry) return;
         entry.includeBlockedChapters = true;
         this.replaceEntry(entry);
+        this.warmLikelyDetailChapter(entry.key);
     }
 
     hideBlockedChapters(entryKey?: string) {
@@ -173,6 +233,7 @@ export class MangaState {
         if (!entry) return;
         entry.includeBlockedChapters = false;
         this.replaceEntry(entry);
+        this.warmLikelyDetailChapter(entry.key);
     }
 
     toggleBlockedChapters(entryKey?: string) {
@@ -180,6 +241,7 @@ export class MangaState {
         if (!entry) return;
         entry.includeBlockedChapters = !entry.includeBlockedChapters;
         this.replaceEntry(entry);
+        this.warmLikelyDetailChapter(entry.key);
     }
 
     private resetBlockedChapterVisibility(entry: MangaEntry) {
@@ -211,6 +273,7 @@ export class MangaState {
         }
         this.replaceEntry(entry);
         this.refreshChapterStats(entry.key);
+        this.warmLikelyDetailChapter(entry.key);
     }
 
     captureScrollAnchor(ratio: number, entryKey?: string) {
@@ -235,6 +298,7 @@ export class MangaState {
         storage.remove(`group:${entry.manga.id}`);
         this.replaceEntry(entry);
         this.refreshChapterStats(entry.key);
+        this.warmLikelyDetailChapter(entry.key);
     }
 
     private async consumeChapterStream(entry: MangaEntry): Promise<void> {
@@ -374,6 +438,7 @@ export class MangaState {
                 this.replaceEntry(current);
                 this.loadGroupSelection(current);
                 this.refreshChapterStats(current.key);
+                this.warmLikelyDetailChapter(current.key);
             }
             this.emit('manga-open-done', { mangaId: manga.id, ms: Math.round(performance.now() - start) });
         } catch (e) {
@@ -429,6 +494,7 @@ export class MangaState {
             this.replaceEntry(current);
             this.loadGroupSelection(current);
             this.refreshChapterStats(current.key);
+            this.warmLikelyDetailChapter(current.key);
             this.emit('manga-open-done', { mangaId: current.manga.id, ms: Math.round(performance.now() - start) });
             return true;
         } catch (e) {
