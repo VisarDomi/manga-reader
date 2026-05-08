@@ -9,6 +9,7 @@
     import { observePageImages, disconnectPageObserver, flushPageObserver } from '$lib/actions/observePageImages.js';
     import { observeChapterBoundary, disconnectChapterObserver } from '$lib/actions/observeChapterBoundary.js';
     import { MAX_CHAPTER_DISTANCE } from '$lib/constants.js';
+    import { ReaderScrollCoordinator } from '$lib/services/ReaderScrollCoordinator.js';
     import type { LoadedChapter } from '$lib/types.js';
 
     const getReaderRoot = getContext<() => HTMLElement | null>('readerRoot');
@@ -22,6 +23,7 @@
     } = $props();
 
     const memory = new ReaderMemoryManager(appState.log.emit);
+    const scrollCoordinator = new ReaderScrollCoordinator();
     const { pageTracker } = appState.reader;
     const mangaTitle = $derived(appState.manga.activeManga?.title ?? 'Unknown Manga');
 
@@ -43,26 +45,19 @@
     let sentinelsReady = $state(false);
 
     async function restoreScrollPosition() {
-        await tick();
         const root = getReaderRoot();
         if (!root) {
             sentinelsReady = true;
             return;
         }
 
+        scrollCoordinator.beginInitialPosition(root);
+        await tick();
+
         const restore = appState.reader.pageRestoreTarget;
-        if (restore && (restore.pageIndex > 0 || restore.scrollOffset > 0)) {
-            const pages = root.querySelectorAll('.reader-page');
-            const target = pages[restore.pageIndex];
-            if (target) {
-                target.scrollIntoView({ block: 'start' });
-                root.scrollTop += restore.scrollOffset;
-            } else {
-                root.scrollTop = 0;
-            }
-        } else {
-            root.scrollTop = 0;
-        }
+        const pages = root.querySelectorAll('.reader-page');
+        const result = scrollCoordinator.commitInitialPosition(root, restore, pages);
+        appState.log.emit('reader-restore-scroll', result);
 
         requestAnimationFrame(() => {
             sentinelsReady = true;
@@ -73,6 +68,7 @@
     function handleScroll() {
         const root = getReaderRoot();
         if (!root) return;
+        scrollCoordinator.noteUserScroll(root);
         pageTracker.handleScroll(root, memory.pageDataMap, (chapterId, pageIndex, scrollOffset) => {
             appState.reader.trackVisiblePage(chapterId, pageIndex, scrollOffset);
         });
@@ -91,6 +87,8 @@
                 initialized = false;
                 failureTimestamps = [];
                 slowToastShown = false;
+                scrollCoordinator.cancelInitialPosition();
+                scrollCoordinator.cancelPrepend();
 
                 const root = getReaderRoot();
                 if (root) root.removeEventListener('scroll', handleScroll);
@@ -157,20 +155,18 @@
         if (!container) return;
 
         const firstSep = container.querySelector('.chapter-separator');
-        const anchorRect = firstSep?.getBoundingClientRect();
+        scrollCoordinator.beginPrepend(container, firstSep);
 
         const prepended = await appState.reader.prependPrevChapter();
-        if (!prepended) return;
+        if (!prepended) {
+            scrollCoordinator.cancelPrepend();
+            return;
+        }
 
         await tick();
 
-        if (firstSep && anchorRect) {
-            const newRect = firstSep.getBoundingClientRect();
-            const diff = newRect.top - anchorRect.top;
-            if (Math.abs(diff) > 1) {
-                container.scrollTop += diff;
-            }
-        }
+        const result = scrollCoordinator.commitPrepend(container);
+        appState.log.emit('reader-prepend-scroll', result);
     }
 </script>
 

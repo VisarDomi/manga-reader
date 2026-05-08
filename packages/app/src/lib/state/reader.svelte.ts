@@ -126,10 +126,12 @@ export class ReaderState {
             }];
             this.scheduleChapterWarmup(manga, chapter.id);
 
-            const progressData = { chapterId: chapter.id, chapterNumber: chapter.number };
-            db.setProgress(manga.id, progressData);
-            this.progress.update(manga.id, progressData);
-            this.log.emit('progress-save', { mangaId: manga.id, ...progressData });
+            if (!hasRestore) {
+                const progressData = { chapterId: chapter.id, chapterNumber: chapter.number };
+                db.setProgress(manga.id, progressData);
+                this.progress.update(manga.id, progressData);
+                this.log.emit('progress-save', { mangaId: manga.id, ...progressData });
+            }
         } catch (e) {
             this.error = toLoadError(e);
         }

@@ -38,6 +38,7 @@ export type LogEvent =
     | { event: 'chapter-detail-prewarm-choice'; mangaId: string; chapterId: string; chapterNumber: number; reason: 'history' | 'unread' }
     | { event: 'chapter-images-result'; mangaId: string; chapterId: string; chapterNumber: number; imageCount: number }
     | { event: 'reader-open'; mangaId: string; chapterId: string; chapterNumber: number; hasRestore: boolean }
+    | { event: 'reader-restore-scroll'; action: 'restored' | 'reset' | 'cancelled' | 'fallback'; target: 'page' | 'top'; reason?: string; pageIndex?: number; scrollOffset?: number; from?: number; to?: number; delta?: number }
     | { event: 'reader-edge-retry'; edge: 'next' | 'prev'; mangaId: string; chapterId: string; attempt: number; error: string }
     | { event: 'reader-append-ok'; mangaId: string; chapterId: string; chapterNumber: number }
     | { event: 'reader-append-skipped'; reason: 'loading' | 'no-manga' | 'no-loaded' | 'no-next' | 'already-loaded' }
@@ -45,6 +46,7 @@ export type LogEvent =
     | { event: 'reader-prepend-ok'; mangaId: string; chapterId: string; chapterNumber: number }
     | { event: 'reader-prepend-skipped'; reason: 'loading' | 'no-manga' | 'no-loaded' | 'no-prev' | 'already-loaded' }
     | { event: 'reader-prepend-failed'; mangaId: string; chapterId: string; error: string }
+    | { event: 'reader-prepend-scroll'; action: 'adjusted' | 'cancelled' | 'none'; reason?: string; diff?: number; delta?: number }
     | { event: 'reader-chapter-change'; mangaId: string; fromChapterId: string | null; toChapterId: string }
     | { event: 'reader-close'; mangaId: string; chapterId: string | null; backMangaId: string | null; backEntryKey: string | null }
     | { event: 'progress-save'; mangaId: string; chapterId: string; chapterNumber: number; pageIndex?: number; pageCount?: number }
