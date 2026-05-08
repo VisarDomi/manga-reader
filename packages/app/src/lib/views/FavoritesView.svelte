@@ -26,7 +26,7 @@
         {:else if favsItems.length === 0}
             <div class="empty">No favorites yet</div>
         {:else}
-            <MangaList manga={favsItems} />
+            <MangaList manga={favsItems} trackVisible />
         {/if}
     </div>
 </div>

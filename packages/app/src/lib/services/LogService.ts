@@ -28,6 +28,7 @@ export type LogEvent =
     | { event: 'chapter-comments-result'; mangaId: string; chapterId: string; chapterNumber: number; rootPages: number; replyPages: number; treeFills: number; top: number; total: number; maxDepth: number; missingReplies: number; unavailable: number; unavailableRoots: number; count: number }
     | { event: 'chapter-comments-error'; mangaId: string; chapterId: string; chapterNumber: number; error: string }
     | { event: 'chapter-comments-done'; mangaId: string; chapterId: string; chapterNumber: number; ms: number }
+    | { event: 'chapter-comments-commit'; mangaId: string; chapterId: string; chapterNumber: number; mode: 'immediate'; comments: number; commitMs: number }
     | { event: 'chapter-comments-close'; mangaId: string; chapterId: string | null }
     | { event: 'manga-chapters-start'; mangaId: string }
     | { event: 'manga-open-done'; mangaId: string; ms: number }

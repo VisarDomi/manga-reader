@@ -52,19 +52,53 @@ rebuild/restart, let the user test, then check logs before moving on.
      parent-owned projected card state.
    - Verify progress saves no longer wake the visible card grid.
 
-4. [pending] Audit reader-visible observations that write manga state.
+4. [completed] Audit reader-visible observations that write manga state.
    - `trackVisiblePage` currently writes `currentChapterId` and calls
      `manga.updateScrollTarget`.
    - Keep reader observation as reader-owned hot data; commit manga-detail
      scroll target only at discrete, needed boundaries.
    - Verify reader scroll/momentum does not cause manga-detail state writes.
 
-5. [pending] Audit list/favorites visible-prewarm scanning.
+5. [completed] Audit list/favorites visible-prewarm scanning.
    - `MangaList` scans DOM rects in RAF after scroll and when manga IDs change.
    - Ensure this work only runs when the owning list view is active and does not
      compete with swipe gestures or foreground reader/comments.
 
-6. [pending] Make logs prove ownership boundaries.
+6. [pending] Reduce comments render cost without delaying visible comments.
+   - Keep the current behavior where chapter comment network loading starts
+     when the forward swipe gesture registers.
+   - Keep comments visible as soon as the fetch result is available, including
+     while the swipe is halfway open.
+   - Do not buffer the whole result behind the swipe commit boundary unless the
+     user explicitly approves that behavior change.
+   - Find an ownership design that makes the visible comments tree cheaper:
+     smaller committed view models, incremental rendering, or a component-owned
+     render window for comments.
+   - Logs should show how long the immediate `$state` commit took and whether
+     the later DOM render is the expensive part.
+
+7. [pending] Prove or disprove image scheduling as main-thread work.
+   - Current logs include `reader-image-schedule-perf startMs`, and one observed
+     run showed about 10ms in image start work.
+   - That is proof that image scheduling can spend measurable time on the main
+     thread, but not yet proof that it is a dominant source of swipe jank.
+   - Add ownership logs around image start batches before changing behavior.
+   - If confirmed, cap image `src` starts into small owned batches so virtual
+     window decisions can stay eager without one frame doing all DOM/image work.
+
+8. [pending] Clarify background/prewarm ownership.
+   - Backend work does not directly block the frontend UI thread. Treat it as a
+     problem only when frontend commits, browser networking/image work, or
+     shared browser-session side effects are allowed to compete with foreground
+     gestures.
+   - `pauseBackgroundWork` should mean "foreground UI owns the main thread":
+     no large frontend `$state` commits, no DOM scans, and no image/comment/list
+     result application from background owners during active reader/comments
+     gestures.
+   - Server-side cancellation may still be useful to avoid stale frontend work,
+     but it is secondary to making frontend commit ownership explicit.
+
+9. [pending] Make logs prove ownership boundaries.
    - Add targeted logs only where needed: state commit counts, skipped/queued
      background work, and gesture-time reactive work.
    - Logs should answer whether a jank window had chapter commits, card-grid

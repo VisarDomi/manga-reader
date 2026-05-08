@@ -46,6 +46,7 @@
     }
 
     function prewarmVisible() {
+        if (!trackVisible) return;
         const root = scrollRoot();
         if (!root) return;
         const visible = visibleManga(root);
@@ -53,6 +54,7 @@
     }
 
     $effect(() => {
+        if (!trackVisible) return;
         mangaIds;
         requestAnimationFrame(() => prewarmVisible());
     });

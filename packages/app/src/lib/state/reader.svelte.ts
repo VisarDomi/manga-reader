@@ -94,6 +94,7 @@ export class ReaderState {
     private lastWindowReconcileLogAt = 0;
     private lastWindowReconcileSignature = '';
     private windowManager = new ReaderWindowManager();
+    private pendingMangaScrollTargetChapterId: string | null = null;
     readonly pageTracker = new PageTracker();
 
     private ui: UIState;
@@ -128,6 +129,7 @@ export class ReaderState {
         this.mangaAverageChapterHeight = null;
         this.lastWindowReconcileLogAt = 0;
         this.lastWindowReconcileSignature = '';
+        this.pendingMangaScrollTargetChapterId = null;
         this.nextRetryWake = null;
         this.activeMangaId = manga.id;
         this.mangaEntryKey = mangaEntryKey;
@@ -200,6 +202,7 @@ export class ReaderState {
         this.mangaAverageChapterHeight = null;
         this.lastWindowReconcileLogAt = 0;
         this.lastWindowReconcileSignature = '';
+        this.pendingMangaScrollTargetChapterId = null;
         this.nextRetryWake = null;
         this.activeMangaId = manga.id;
         this.mangaEntryKey = this.manga.activeEntryKey;
@@ -249,12 +252,15 @@ export class ReaderState {
         if (chapterId !== this.currentChapterId) {
             const prevChapterId = this.currentChapterId;
             this.currentChapterId = chapterId;
-            this.manga.updateScrollTarget(chapterId, this.mangaEntryKey ?? undefined);
+            this.pendingMangaScrollTargetChapterId = chapterId;
             this.log.emit('reader-chapter-change', {
                 mangaId: this.activeMangaId,
                 fromChapterId: prevChapterId,
                 toChapterId: chapterId,
             });
+        }
+        if (source === 'close') {
+            this.pendingMangaScrollTargetChapterId = chapterId;
         }
         if (snapshot || source === 'close') {
             const visible = snapshot ?? {
@@ -301,7 +307,7 @@ export class ReaderState {
     syncChapterProgress(chapterId: string): void {
         const prevChapterId = this.currentChapterId;
         this.currentChapterId = chapterId;
-        this.manga.updateScrollTarget(chapterId, this.mangaEntryKey ?? undefined);
+        this.pendingMangaScrollTargetChapterId = chapterId;
         if (chapterId !== prevChapterId) {
             this.log.emit('reader-chapter-change', {
                 mangaId: this.activeMangaId,
@@ -310,6 +316,13 @@ export class ReaderState {
             });
         }
         this.scheduleProgressSync(chapterId);
+    }
+
+    private commitMangaScrollTarget(): void {
+        const chapterId = this.pendingMangaScrollTargetChapterId ?? this.currentChapterId;
+        if (!chapterId) return;
+        this.manga.updateScrollTarget(chapterId, this.mangaEntryKey ?? undefined);
+        this.pendingMangaScrollTargetChapterId = null;
     }
 
     private scheduleProgressSync(chapterId: string): void {
@@ -481,9 +494,18 @@ export class ReaderState {
         try {
             const result = await api.fetchChapterComments(manga.id, chapter, controller.signal);
             if (this.commentsEpoch !== epoch || controller.signal.aborted) return;
+            const commitStart = performance.now();
             this.chapterComments = result.comments;
             this.chapterCommentsCount = result.count;
             this.chapterCommentsStats = result.stats;
+            this.log.emit('chapter-comments-commit', {
+                mangaId: manga.id,
+                chapterId: chapter.id,
+                chapterNumber: chapter.number,
+                mode: 'immediate',
+                comments: result.comments.length,
+                commitMs: Math.round(performance.now() - commitStart),
+            });
         } catch (e) {
             if (controller.signal.aborted || this.commentsEpoch !== epoch) return;
             const message = String((e as Error)?.message ?? e);
@@ -531,6 +553,7 @@ export class ReaderState {
                 this.log.emit('progress-save', { source: 'close', mangaId, chapterId: flushChapterId, chapterNumber: ch.number, pageIndex, pageCount });
             }
         });
+        this.commitMangaScrollTarget();
         this.log.emit('reader-close', { mangaId, chapterId, backMangaId, backEntryKey });
         this.pageTracker.destroy();
         this.loadedChapters = [];
