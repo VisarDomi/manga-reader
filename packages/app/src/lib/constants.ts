@@ -10,12 +10,17 @@ export const SEARCH_DEBOUNCE_MS = 500;            // debounce for search inputs 
 export const VISIBLE_MANGA_DEBOUNCE_MS = 1_000;   // debounce for visible manga card tracking
 
 export const VISIBLE_PAGE_RATIO = 1 / 3;        // fraction down viewport to probe for current page
-export const MAX_CHAPTER_DISTANCE = 2;           // chapters kept loaded around current (±2)
 export const CHAPTER_WARM_PREV = 1;              // signed chapter metadata warm window behind current
 export const CHAPTER_WARM_NEXT = 2;              // signed chapter metadata warm window ahead of current
 export const SCROLL_DEBOUNCE_MS = 500;           // debounce for scroll-based page tracking
 export const HISTORY_SYNC_MS = 500;              // debounce for progress sync to DB + API
 
 export const SENTINEL_ROOT_MARGIN = '500% 0px'; // preload trigger zone for infinite scroll
+export const READER_WINDOW_RADIUS_VIEWPORTS = 10;
+export const READER_DOM_KEEP_RADIUS_VIEWPORTS = 12;
+export const READER_IMAGE_KEEP_RADIUS_VIEWPORTS = 14;
+export const READER_IMAGE_ROOT_MARGIN = '1000% 0px';
+export const READER_CHAPTER_SEPARATOR_HEIGHT = 52;
+export const READER_FALLBACK_PAGE_ASPECT_RATIO = 1.5;
 
 export const LOADING_TIMEOUT_MS = 15_000;       // max time isLoading can stay true before force-reset

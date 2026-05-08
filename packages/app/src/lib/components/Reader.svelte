@@ -4,12 +4,15 @@
     import { loadErrorMessage } from '$lib/state/errors.js';
     import { swipeBack } from '$lib/actions/swipeBack.js';
     import { swipeForward } from '$lib/actions/swipeForward.js';
-    import { sentinel } from '$lib/actions/sentinel.js';
     import { ReaderMemoryManager } from '$lib/services/ReaderMemoryManager.js';
-    import { observePageImages, disconnectPageObserver, flushPageObserver } from '$lib/actions/observePageImages.js';
-    import { observeChapterBoundary, disconnectChapterObserver } from '$lib/actions/observeChapterBoundary.js';
-    import { MAX_CHAPTER_DISTANCE } from '$lib/constants.js';
+    import { registerPageImage } from '$lib/actions/observePageImages.js';
     import { ReaderScrollCoordinator } from '$lib/services/ReaderScrollCoordinator.js';
+    import {
+        READER_CHAPTER_SEPARATOR_HEIGHT,
+        READER_FALLBACK_PAGE_ASPECT_RATIO,
+        READER_WINDOW_RADIUS_VIEWPORTS,
+        VISIBLE_PAGE_RATIO,
+    } from '$lib/constants.js';
     import type { LoadedChapter } from '$lib/types.js';
 
     const getReaderRoot = getContext<() => HTMLElement | null>('readerRoot');
@@ -26,6 +29,7 @@
     const scrollCoordinator = new ReaderScrollCoordinator();
     const { pageTracker } = appState.reader;
     const mangaTitle = $derived(appState.manga.activeManga?.title ?? 'Unknown Manga');
+    const virtualHeight = $derived(Math.max(appState.reader.virtualTotalHeight, chapters.reduce((sum, chapter) => sum + (chapter.virtualHeight ?? chapter.estimatedHeight ?? 0), 0)));
 
     let failureTimestamps: number[] = [];
     let slowToastShown = false;
@@ -42,25 +46,154 @@
     };
 
     let initialized = false;
-    let sentinelsReady = $state(false);
+    let windowRaf: number | null = null;
+
+    function reconcileReaderWindow(source: 'initial' | 'scroll' | 'visible' | 'retry') {
+        const root = getReaderRoot();
+        if (!root) return;
+        appState.reader.recordChapterMeasurements(measureChapterHeights(root));
+        appState.reader.reconcileReaderWindow({
+            scrollTop: root.scrollTop,
+            clientHeight: root.clientHeight,
+            clientWidth: root.clientWidth,
+            chapterId: findViewportChapterId(root),
+        }, source);
+        scheduleVirtualImages(root);
+    }
+
+    function scheduleVirtualImages(root = getReaderRoot()) {
+        if (!root) return;
+        memory.loadVirtualWindow(chapters, root.scrollTop, root.clientHeight, root.clientWidth);
+    }
+
+    function queueWindowReconcile(source: 'scroll' | 'visible' | 'retry' = 'scroll') {
+        if (windowRaf != null) return;
+        windowRaf = requestAnimationFrame(() => {
+            windowRaf = null;
+            reconcileReaderWindow(source);
+        });
+    }
+
+    function measureChapterHeights(root: HTMLElement): Array<{ chapterId: string; height: number }> {
+        const rootRect = root.getBoundingClientRect();
+        const sections = root.querySelectorAll<HTMLElement>('.reader-chapter');
+        const measurements: Array<{ chapterId: string; height: number }> = [];
+        for (const section of sections) {
+            const chapterId = section.dataset.chapterId;
+            if (!chapterId) continue;
+            const rect = section.getBoundingClientRect();
+            if (rect.bottom < rootRect.top || rect.top > rootRect.bottom) continue;
+            measurements.push({ chapterId, height: rect.height });
+        }
+        return measurements;
+    }
+
+    function findViewportChapterId(root: HTMLElement): string | null {
+        const rootRect = root.getBoundingClientRect();
+        const probeY = rootRect.top + rootRect.height * VISIBLE_PAGE_RATIO;
+        for (const section of root.querySelectorAll<HTMLElement>('.reader-chapter')) {
+            const rect = section.getBoundingClientRect();
+            if (rect.top <= probeY && rect.bottom > probeY) {
+                return section.dataset.chapterId ?? null;
+            }
+        }
+        return null;
+    }
+
+    function scrollToCurrentChapterAnchor(root: HTMLElement) {
+        const currentId = appState.reader.currentChapterId;
+        if (!currentId || appState.reader.pageRestoreTarget) return;
+        const from = root.scrollTop;
+        const target = root.clientHeight * READER_WINDOW_RADIUS_VIEWPORTS;
+        root.scrollTop = target;
+        if (Math.abs(root.scrollTop - from) > 1) {
+            appState.log.emit('reader-scroll-write', {
+                source: 'initial-current-anchor',
+                from: Math.round(from),
+                to: Math.round(root.scrollTop),
+                delta: Math.round(root.scrollTop - from),
+            });
+        }
+    }
+
+    function restoredPageScrollTop(root: HTMLElement, target: { pageIndex: number; scrollOffset: number }): number | null {
+        const currentId = appState.reader.currentChapterId;
+        const chapter = chapters.find(ch => ch.id === currentId);
+        if (!chapter || target.pageIndex < 0 || target.pageIndex >= chapter.pages.length) return null;
+
+        let top = chapter.virtualTop ?? 0;
+        top += READER_CHAPTER_SEPARATOR_HEIGHT;
+        for (let i = 0; i < target.pageIndex; i++) {
+            const page = chapter.pages[i];
+            top += page.width && page.height
+                ? root.clientWidth * page.height / page.width
+                : root.clientWidth * READER_FALLBACK_PAGE_ASPECT_RATIO;
+        }
+        return top + target.scrollOffset;
+    }
 
     async function restoreScrollPosition() {
         const root = getReaderRoot();
         if (!root) {
-            sentinelsReady = true;
             return;
         }
 
         scrollCoordinator.beginInitialPosition(root);
+        reconcileReaderWindow('initial');
         await tick();
 
         const restore = appState.reader.pageRestoreTarget;
-        const pages = root.querySelectorAll('.reader-page');
-        const result = scrollCoordinator.commitInitialPosition(root, restore, pages);
-        appState.log.emit('reader-restore-scroll', result);
+        if (!restore) {
+            const from = root.scrollTop;
+            scrollToCurrentChapterAnchor(root);
+            scrollCoordinator.cancelInitialPosition();
+            appState.log.emit('reader-restore-scroll', {
+                action: 'reset',
+                target: 'top',
+                from: Math.round(from),
+                to: Math.round(root.scrollTop),
+            });
+            requestAnimationFrame(() => {
+                appState.reader.clearPageRestore();
+            });
+            return;
+        }
+
+        const from = root.scrollTop;
+        const restoreTop = restoredPageScrollTop(root, restore);
+        scrollCoordinator.cancelInitialPosition();
+        if (restoreTop == null) {
+            scrollToCurrentChapterAnchor(root);
+            appState.log.emit('reader-restore-scroll', {
+                action: 'fallback',
+                reason: 'missing-page',
+                target: 'page',
+                pageIndex: restore.pageIndex,
+                from: Math.round(from),
+                to: Math.round(root.scrollTop),
+            });
+            return;
+        }
+
+        root.scrollTop = restoreTop;
+        if (Math.abs(root.scrollTop - from) > 1) {
+            appState.log.emit('reader-scroll-write', {
+                source: 'initial-restore-into-view',
+                from: Math.round(from),
+                to: Math.round(root.scrollTop),
+                delta: Math.round(root.scrollTop - from),
+            });
+        }
+        appState.log.emit('reader-restore-scroll', {
+            action: 'restored',
+            target: 'page',
+            pageIndex: restore.pageIndex,
+            scrollOffset: restore.scrollOffset,
+            from: Math.round(from),
+            to: Math.round(root.scrollTop),
+        });
 
         requestAnimationFrame(() => {
-            sentinelsReady = true;
             appState.reader.clearPageRestore();
         });
     }
@@ -69,17 +202,18 @@
         const root = getReaderRoot();
         if (!root) return;
         scrollCoordinator.noteUserScroll(root);
-        pageTracker.handleScroll(root, memory.pageDataMap, (chapterId, pageIndex, scrollOffset) => {
-            appState.reader.trackVisiblePage(chapterId, pageIndex, scrollOffset, 'scroll');
+        queueWindowReconcile('scroll');
+        pageTracker.handleScroll(root, memory.pageDataMap, (visible) => {
+            appState.reader.trackVisiblePage(visible.chapterId, visible.pageIndex, visible.scrollOffset, 'scroll', visible);
+            queueWindowReconcile('visible');
         });
     }
 
     function handleClose() {
         const root = getReaderRoot();
-        if (root) {
-            const visible = pageTracker.findVisible(root, memory.pageDataMap);
-            if (visible) appState.reader.trackVisiblePage(visible.chapterId, visible.pageIndex, visible.scrollOffset, 'close', visible);
-        }
+        const visible = root ? pageTracker.findVisible(root, memory.pageDataMap) : null;
+        appState.reader.logCloseSnapshot(visible);
+        if (visible) appState.reader.trackVisiblePage(visible.chapterId, visible.pageIndex, visible.scrollOffset, 'close', visible);
         onClose();
     }
 
@@ -88,16 +222,17 @@
         if (count === 0) {
             if (initialized) {
                 memory.revokeAll();
-                disconnectPageObserver();
-                disconnectChapterObserver();
                 appState.reader.clearHistorySync();
                 pageTracker.clearScroll();
-                sentinelsReady = false;
                 initialized = false;
                 failureTimestamps = [];
                 slowToastShown = false;
                 scrollCoordinator.cancelInitialPosition();
                 scrollCoordinator.cancelPrepend();
+                if (windowRaf != null) {
+                    cancelAnimationFrame(windowRaf);
+                    windowRaf = null;
+                }
 
                 const root = getReaderRoot();
                 if (root) root.removeEventListener('scroll', handleScroll);
@@ -113,69 +248,19 @@
             const root = getReaderRoot();
             if (root) root.addEventListener('scroll', handleScroll, { passive: true });
 
-            flushPageObserver(memory, getReaderRoot);
-
             restoreScrollPosition();
         }
         memory.ensureAbortController();
+        tick().then(() => scheduleVirtualImages());
     });
-
-    function handleChapterChange(chapterId: string) {
-        if (chapterId === appState.reader.currentChapterId) return;
-        const root = getReaderRoot();
-        if (!root) return;
-        const pages = root.querySelectorAll<HTMLElement>('.reader-page');
-        memory.cleanupDistantChapters(chapterId, chapters, pages);
-        const curIdx = chapters.findIndex(c => c.id === chapterId);
-        for (let i = Math.max(0, curIdx - MAX_CHAPTER_DISTANCE); i <= Math.min(chapters.length - 1, curIdx + MAX_CHAPTER_DISTANCE); i++) {
-            memory.reloadChapterImages(chapters[i].id, pages);
-        }
-        appState.reader.syncChapterProgress(chapterId);
-    }
-
-    let appendSentinelEl = $state<HTMLElement>();
-
-    async function handleAppend() {
-        const loaded = await appState.reader.appendNextChapter();
-        if (!loaded) return;
-        await tick();
-        const root = getReaderRoot();
-        if (!root || !appendSentinelEl?.isConnected) return;
-        const checker = new IntersectionObserver(
-            (entries) => {
-                checker.disconnect();
-                if (entries[0]?.isIntersecting) handleAppend();
-            },
-            { rootMargin: '500% 0px', root },
-        );
-        checker.observe(appendSentinelEl);
-    }
 
     function handleNextRetryClick() {
         if (appState.reader.isLoadingNext) {
             appState.reader.retryNextChapterNow();
             return;
         }
-        handleAppend();
-    }
-
-    async function handlePrepend() {
-        const container = getReaderRoot();
-        if (!container) return;
-
-        const firstSep = container.querySelector('.chapter-separator');
-        scrollCoordinator.beginPrepend(container, firstSep);
-
-        const prepended = await appState.reader.prependPrevChapter();
-        if (!prepended) {
-            scrollCoordinator.cancelPrepend();
-            return;
-        }
-
-        await tick();
-
-        const result = scrollCoordinator.commitPrepend(container);
-        appState.log.emit('reader-prepend-scroll', result);
+        appState.reader.retryNextChapterNow();
+        queueWindowReconcile('retry');
     }
 </script>
 
@@ -191,29 +276,40 @@
             ui: appState.ui,
         }}
     >
-        <div class="sentinel" use:sentinel={{ getRoot: getReaderRoot, rootMargin: '500% 0px', onIntersect: handlePrepend, disabled: !sentinelsReady }}></div>
-
-        {#each chapters as chapter (chapter.id)}
-            <div
-                class="chapter-separator"
-                data-chapter-id={chapter.id}
-                use:observeChapterBoundary={{ getRoot: getReaderRoot, onChapterChange: handleChapterChange }}
-            >
-                Chapter {chapter.number} - {chapter.groupName} - {mangaTitle}
-            </div>
-            {#each chapter.pages as page, i}
-                {@const aspectRatio = page.width && page.height ? `${page.width}/${page.height}` : '2/3'}
-                <div
-                    class="reader-page"
-                    use:observePageImages={() => ({ memory, getRoot: getReaderRoot, chapterId: chapter.id, pageIndex: i, url: page.url })}
-                    style="aspect-ratio:{aspectRatio}"
+        <div class="reader-virtual-stage" style="height:{virtualHeight}px">
+            {#each chapters as chapter (chapter.id)}
+                {@const chapterTop = chapter.virtualTop ?? 0}
+                {@const chapterHeight = Math.max(240, chapter.virtualHeight ?? chapter.estimatedHeight ?? 0)}
+                <section
+                    class="reader-chapter"
+                    data-chapter-id={chapter.id}
+                    style="height:{chapterHeight}px; transform:translateY({chapterTop}px)"
                 >
-                    <img alt="Ch.{chapter.number} P.{i + 1}" decoding="async" />
-                </div>
+                    <div
+                        class="chapter-separator"
+                        data-chapter-id={chapter.id}
+                    >
+                        Chapter {chapter.number} - {chapter.groupName} - {mangaTitle}
+                    </div>
+                    {#if chapter.slotState === 'ready' || chapter.pages.length > 0}
+                        {#each chapter.pages as page, i}
+                            {@const aspectRatio = page.width && page.height ? `${page.width}/${page.height}` : '2/3'}
+                            <div
+                                class="reader-page"
+                                use:registerPageImage={() => ({ memory, chapterId: chapter.id, pageIndex: i, url: page.url })}
+                                style="aspect-ratio:{aspectRatio}"
+                            >
+                                <img alt="Ch.{chapter.number} P.{i + 1}" decoding="async" />
+                            </div>
+                        {/each}
+                    {:else}
+                        <div class="chapter-placeholder" style="height:{chapterHeight}px">
+                            Loading chapter {chapter.number}...
+                        </div>
+                    {/if}
+                </section>
             {/each}
-        {/each}
-
-        <div class="sentinel" bind:this={appendSentinelEl} use:sentinel={{ getRoot: getReaderRoot, rootMargin: '500% 0px', onIntersect: handleAppend, disabled: !sentinelsReady }}></div>
+        </div>
 
         {#if appState.reader.nextChapterRetryAvailable}
             <div class="next-retry">
@@ -249,9 +345,34 @@
     overflow-anchor: none;
 }
 
+.reader-virtual-stage {
+    position: relative;
+    width: 100%;
+    min-height: 100vh;
+    overflow: hidden;
+}
+
+.reader-chapter {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    overflow: visible;
+    contain: layout style;
+}
+
 .reader-page {
     width: 100%;
     display: block;
+}
+
+.chapter-placeholder {
+    width: 100%;
+    display: grid;
+    place-items: center;
+    color: #777;
+    background: #050505;
+    font-size: 14px;
 }
 
 .reader-page img {

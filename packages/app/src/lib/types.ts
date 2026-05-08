@@ -36,6 +36,10 @@ export interface LoadedChapter {
     number: number;
     pages: import('@manga-reader/provider-types').ChapterPage[];
     groupName: string;
+    slotState?: 'placeholder' | 'loading' | 'ready' | 'cold' | 'unloaded';
+    estimatedHeight?: number;
+    virtualTop?: number;
+    virtualHeight?: number;
     unloaded?: boolean;
 }
 

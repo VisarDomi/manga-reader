@@ -48,7 +48,7 @@ export class PageTracker {
     handleScroll(
         root: HTMLElement,
         pageDataMap: Map<HTMLElement, ReaderPageData>,
-        onVisible: (chapterId: string, pageIndex: number, scrollOffset: number) => void,
+        onVisible: (snapshot: VisiblePageSnapshot) => void,
     ): void {
         clearTimeout(this.scrollTimer);
         this.scrollTimer = setTimeout(() => {
@@ -59,11 +59,11 @@ export class PageTracker {
     captureVisible(
         root: HTMLElement,
         pageDataMap: Map<HTMLElement, ReaderPageData>,
-        onVisible: (chapterId: string, pageIndex: number, scrollOffset: number) => void,
+        onVisible: (snapshot: VisiblePageSnapshot) => void,
     ): boolean {
         const visible = this.findVisible(root, pageDataMap);
         if (!visible) return false;
-        onVisible(visible.chapterId, visible.pageIndex, visible.scrollOffset);
+        onVisible(visible);
         return true;
     }
 

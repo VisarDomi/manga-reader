@@ -1,12 +1,17 @@
 import type { LoadedChapter, ReaderPageData } from '$lib/types.js';
 import type { LogEmit } from '$lib/services/LogService.js';
-import { MAX_CHAPTER_DISTANCE } from '$lib/constants.js';
+import {
+    READER_CHAPTER_SEPARATOR_HEIGHT,
+    READER_IMAGE_KEEP_RADIUS_VIEWPORTS,
+    VISIBLE_PAGE_RATIO,
+} from '$lib/constants.js';
 
 export class ReaderMemoryManager {
     private blobUrls = new Map<string, string>();
     private loadingKeys = new Set<string>();
     private abortController: AbortController | undefined;
     private emit: LogEmit;
+    private pageElementsByKey = new Map<string, HTMLElement>();
     readonly pageDataMap = new Map<HTMLElement, ReaderPageData>();
     root: HTMLElement | null = null;
     onLoadFailure: ((key: string) => void) | undefined;
@@ -34,11 +39,72 @@ export class ReaderMemoryManager {
     }
 
     registerPage(node: HTMLElement, chapterId: string, pageIndex: number, url: string): void {
-        this.pageDataMap.set(node, { key: this.pageKey(chapterId, pageIndex), url });
+        const data = { key: this.pageKey(chapterId, pageIndex), url };
+        this.pageDataMap.set(node, data);
+        this.pageElementsByKey.set(data.key, node);
     }
 
     unregisterPage(node: HTMLElement): void {
+        const data = this.pageDataMap.get(node);
+        if (data) this.pageElementsByKey.delete(data.key);
         this.pageDataMap.delete(node);
+    }
+
+    loadVirtualWindow(
+        chapters: LoadedChapter[],
+        scrollTop: number,
+        clientHeight: number,
+        clientWidth: number,
+    ): void {
+        if (!this.abortController || clientHeight <= 0 || clientWidth <= 0) return;
+
+        const radiusPx = clientHeight * READER_IMAGE_KEEP_RADIUS_VIEWPORTS;
+        const rangeStart = scrollTop - radiusPx;
+        const rangeEnd = scrollTop + clientHeight + radiusPx;
+        const viewportProbe = scrollTop + clientHeight * VISIBLE_PAGE_RATIO;
+        const jobs: Array<{ key: string; url: string; priority: number }> = [];
+        const keepKeys = new Set<string>();
+
+        for (const chapter of chapters) {
+            if (chapter.pages.length === 0) continue;
+            const chapterTop = chapter.virtualTop ?? 0;
+            let pageTop = chapterTop + READER_CHAPTER_SEPARATOR_HEIGHT;
+            for (let pageIndex = 0; pageIndex < chapter.pages.length; pageIndex++) {
+                const page = chapter.pages[pageIndex];
+                const pageHeight = page.width && page.height
+                    ? clientWidth * page.height / page.width
+                    : clientWidth * 1.5;
+                const pageBottom = pageTop + pageHeight;
+                if (pageBottom >= rangeStart && pageTop <= rangeEnd) {
+                    const key = this.pageKey(chapter.id, pageIndex);
+                    const center = pageTop + pageHeight / 2;
+                    keepKeys.add(key);
+                    jobs.push({ key, url: page.url, priority: Math.abs(center - viewportProbe) });
+                }
+                pageTop = pageBottom;
+            }
+        }
+
+        jobs.sort((a, b) => a.priority - b.priority);
+        let started = 0;
+        for (const job of jobs) {
+            const wrapper = this.pageElementsByKey.get(job.key);
+            if (!wrapper) continue;
+            const img = wrapper.querySelector('img');
+            if (!img || img.src) continue;
+            this.loadImage(job.url, job.key, img);
+            started++;
+        }
+        const revoked = this.cleanupOutsideVirtualWindow(keepKeys);
+
+        this.emit('reader-image-schedule', {
+            wanted: jobs.length,
+            mounted: jobs.filter(job => this.pageElementsByKey.has(job.key)).length,
+            started,
+            revoked,
+            scrollTop: Math.round(scrollTop),
+            clientHeight: Math.round(clientHeight),
+        });
     }
 
     loadImage(url: string, key: string, img: HTMLImageElement): void {
@@ -71,60 +137,21 @@ export class ReaderMemoryManager {
             .finally(() => this.loadingKeys.delete(key));
     }
 
-    cleanupDistantChapters(
-        currentChapterId: string,
-        chapters: LoadedChapter[],
-        pageElements: Iterable<HTMLElement>,
-    ): void {
-        const currentIndex = chapters.findIndex(c => c.id === currentChapterId);
-        if (currentIndex < 0) return;
+    private cleanupOutsideVirtualWindow(keepKeys: Set<string>): number {
+        let revoked = 0;
+        for (const [key, blobUrl] of this.blobUrls) {
+            if (keepKeys.has(key)) continue;
+            URL.revokeObjectURL(blobUrl);
+            this.blobUrls.delete(key);
+            revoked++;
 
-        const unloadIds = new Set<string>();
-        for (let i = 0; i < chapters.length; i++) {
-            if (Math.abs(i - currentIndex) > MAX_CHAPTER_DISTANCE) {
-                const ch = chapters[i];
-                for (let p = 0; p < ch.pages.length; p++) {
-                    const key = this.pageKey(ch.id, p);
-                    const blobUrl = this.blobUrls.get(key);
-                    if (blobUrl) {
-                        URL.revokeObjectURL(blobUrl);
-                        this.blobUrls.delete(key);
-                    }
-                }
-                unloadIds.add(ch.id);
+            const wrapper = this.pageElementsByKey.get(key);
+            const img = wrapper?.querySelector('img');
+            if (img?.src === blobUrl) {
+                img.removeAttribute('src');
             }
         }
-
-        if (unloadIds.size === 0) return;
-
-        for (const wrapper of pageElements) {
-            const data = this.pageDataMap.get(wrapper);
-            if (!data) continue;
-            const chId = data.key.split('-')[0];
-            if (unloadIds.has(chId)) {
-                const img = wrapper.querySelector('img');
-                if (img && img.src) {
-                    img.removeAttribute('src');
-                }
-            }
-        }
-    }
-
-    reloadChapterImages(
-        chapterId: string,
-        pageElements: Iterable<HTMLElement>,
-    ): void {
-        if (!this.abortController) return;
-
-        for (const wrapper of pageElements) {
-            const data = this.pageDataMap.get(wrapper);
-            if (!data) continue;
-            if (!data.key.startsWith(`${chapterId}-`)) continue;
-            const img = wrapper.querySelector('img');
-            if (img && !img.src) {
-                this.loadImage(data.url, data.key, img);
-            }
-        }
+        return revoked;
     }
 
     revokeAll(): void {
@@ -133,6 +160,7 @@ export class ReaderMemoryManager {
         for (const url of this.blobUrls.values()) URL.revokeObjectURL(url);
         this.blobUrls.clear();
         this.loadingKeys.clear();
+        this.pageElementsByKey.clear();
         this.pageDataMap.clear();
     }
 }

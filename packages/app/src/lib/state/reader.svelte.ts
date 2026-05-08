@@ -5,12 +5,20 @@ import * as api from '../services/api.js';
 import * as db from '../services/db.js';
 import type { LogService } from '../services/LogService.js';
 import { PageTracker, type VisiblePageSnapshot } from '../services/PageTracker.js';
+import { ReaderWindowManager, type ReaderScrollDirection, type ReaderWindowSource, type WindowCandidate } from '../services/ReaderWindowManager.js';
 import type { UIState } from './ui.svelte.js';
 import type { MangaState } from './manga.svelte.js';
 import type { ProgressState } from './progress.svelte.js';
 import type { ToastState } from './toast.svelte.js';
 import { type LoadError, toLoadError } from './errors.js';
-import { CHAPTER_WARM_NEXT, CHAPTER_WARM_PREV } from '../constants.js';
+import {
+    CHAPTER_WARM_NEXT,
+    CHAPTER_WARM_PREV,
+    READER_CHAPTER_SEPARATOR_HEIGHT,
+    READER_DOM_KEEP_RADIUS_VIEWPORTS,
+    READER_FALLBACK_PAGE_ASPECT_RATIO,
+    READER_WINDOW_RADIUS_VIEWPORTS,
+} from '../constants.js';
 
 type ReaderEdge = 'next' | 'prev';
 
@@ -25,7 +33,6 @@ type ChapterLoadResult =
     | { kind: 'failed'; error: unknown };
 
 type RetryWaitResult = 'timer' | 'manual' | 'stale';
-
 const EDGE_LOAD_RETRY_DELAYS_MS = [750, 1500] as const;
 
 export interface ReaderTitleContext {
@@ -65,6 +72,7 @@ export class ReaderState {
     isChapterCommentsLoading = $state(false);
     chapterCommentsError = $state<string | null>(null);
     chapterCommentsContext = $state<ChapterCommentsContext | null>(null);
+    virtualTotalHeight = $state(0);
     private activeMangaId = '';
     private mangaEntryKey: string | null = null;
     private chapterList: ChapterMeta[] = [];
@@ -72,6 +80,14 @@ export class ReaderState {
     private commentsEpoch = 0;
     private commentsAbort: AbortController | null = null;
     private nextRetryWake: (() => void) | null = null;
+    private windowEpoch = 0;
+    private windowFetches = new Set<string>();
+    private lastWindowScrollTop = 0;
+    private lastViewportWidth = 0;
+    private lastViewportHeight = 0;
+    private measuredChapterHeights = new Map<string, number>();
+    private mangaAverageChapterHeight: number | null = null;
+    private windowManager = new ReaderWindowManager();
     readonly pageTracker = new PageTracker();
 
     private ui: UIState;
@@ -90,11 +106,18 @@ export class ReaderState {
 
     async openReader(manga: Manga, chapter: ChapterMeta, mangaEntryKey: string | null = this.manga.activeEntryKey) {
         this.loadEpoch++;
+        this.windowEpoch++;
+        this.windowFetches.clear();
+        this.lastViewportWidth = 0;
+        this.lastViewportHeight = 0;
+        this.measuredChapterHeights.clear();
+        this.mangaAverageChapterHeight = null;
         this.nextRetryWake = null;
         this.activeMangaId = manga.id;
         this.mangaEntryKey = mangaEntryKey;
         this.currentChapterId = chapter.id;
         this.loadedChapters = [];
+        this.virtualTotalHeight = 0;
         this.isLoadingNext = false;
         this.isLoadingPrev = false;
         this.nextChapterRetryAvailable = false;
@@ -123,14 +146,17 @@ export class ReaderState {
                 number: chapter.number,
                 pages: proxiedPages,
                 groupName: chapter.groupName,
+                slotState: 'ready',
+                estimatedHeight: this.estimateLoadedChapterHeight(proxiedPages, 0),
             }];
+            this.loadedChapters = this.positionVirtualSlots(this.loadedChapters, chapter.id, 0, 0);
             this.scheduleChapterWarmup(manga, chapter.id);
 
             if (!hasRestore) {
                 const progressData = { chapterId: chapter.id, chapterNumber: chapter.number };
                 db.setProgress(manga.id, progressData);
                 this.progress.update(manga.id, progressData);
-                this.log.emit('progress-save', { mangaId: manga.id, ...progressData });
+                this.log.emit('progress-save', { source: 'open', mangaId: manga.id, ...progressData });
             }
         } catch (e) {
             this.error = toLoadError(e);
@@ -146,11 +172,18 @@ export class ReaderState {
         if (!chapter) return false;
 
         this.loadEpoch++;
+        this.windowEpoch++;
+        this.windowFetches.clear();
+        this.lastViewportWidth = 0;
+        this.lastViewportHeight = 0;
+        this.measuredChapterHeights.clear();
+        this.mangaAverageChapterHeight = null;
         this.nextRetryWake = null;
         this.activeMangaId = manga.id;
         this.mangaEntryKey = this.manga.activeEntryKey;
         this.currentChapterId = chapter.id;
         this.loadedChapters = [];
+        this.virtualTotalHeight = 0;
         this.isLoadingNext = false;
         this.isLoadingPrev = false;
         this.nextChapterRetryAvailable = false;
@@ -176,7 +209,10 @@ export class ReaderState {
                 number: chapter.number,
                 pages: proxiedPages,
                 groupName: chapter.groupName,
+                slotState: 'ready',
+                estimatedHeight: this.estimateLoadedChapterHeight(proxiedPages, 0),
             }];
+            this.loadedChapters = this.positionVirtualSlots(this.loadedChapters, chapter.id, 0, 0);
             this.scheduleChapterWarmup(manga, chapter.id);
             return true;
         } catch (e) {
@@ -187,6 +223,16 @@ export class ReaderState {
 
     trackVisiblePage(chapterId: string, pageIndex: number, scrollOffset: number, source: 'scroll' | 'close' = 'scroll', snapshot?: VisiblePageSnapshot): void {
         this.pageTracker.track(chapterId, pageIndex, scrollOffset);
+        if (chapterId !== this.currentChapterId) {
+            const prevChapterId = this.currentChapterId;
+            this.currentChapterId = chapterId;
+            this.manga.updateScrollTarget(chapterId, this.mangaEntryKey ?? undefined);
+            this.log.emit('reader-chapter-change', {
+                mangaId: this.activeMangaId,
+                fromChapterId: prevChapterId,
+                toChapterId: chapterId,
+            });
+        }
         if (snapshot || source === 'close') {
             const visible = snapshot ?? {
                 chapterId,
@@ -210,6 +256,19 @@ export class ReaderState {
             });
         }
         this.scheduleProgressSync(chapterId);
+    }
+
+    logCloseSnapshot(snapshot: VisiblePageSnapshot | null): void {
+        this.log.emit('reader-close-snapshot', {
+            mangaId: this.activeMangaId,
+            currentChapterId: this.currentChapterId,
+            visibleChapterId: snapshot?.chapterId ?? null,
+            pageIndex: snapshot?.pageIndex,
+            rootScrollTop: snapshot ? Math.round(snapshot.rootScrollTop) : undefined,
+            pageTop: snapshot ? Math.round(snapshot.pageTop) : undefined,
+            pageBottom: snapshot ? Math.round(snapshot.pageBottom) : undefined,
+            loadedChapterIds: this.loadedChapters.map(ch => ch.id).join(','),
+        });
     }
 
     syncChapterProgress(chapterId: string): void {
@@ -237,6 +296,7 @@ export class ReaderState {
                 const progressData = { chapterId: cId, chapterNumber: ch.number, pageIndex, pageCount, scrollOffset };
                 db.setProgress(manga.id, progressData);
                 this.progress.update(manga.id, progressData);
+                this.log.emit('progress-save', { source: 'scheduled', mangaId: manga.id, chapterId: cId, chapterNumber: ch.number, pageIndex, pageCount });
             }
         });
     }
@@ -387,6 +447,12 @@ export class ReaderState {
 
     closeReader() {
         this.loadEpoch++;
+        this.windowEpoch++;
+        this.windowFetches.clear();
+        this.lastViewportWidth = 0;
+        this.lastViewportHeight = 0;
+        this.measuredChapterHeights.clear();
+        this.mangaAverageChapterHeight = null;
         this.commentsEpoch++;
         this.commentsAbort?.abort();
         this.commentsAbort = null;
@@ -405,12 +471,13 @@ export class ReaderState {
                 const progressData = { chapterId: flushChapterId, chapterNumber: ch.number, pageIndex, pageCount, scrollOffset };
                 db.setProgress(mangaId, progressData);
                 this.progress.update(mangaId, progressData);
-                this.log.emit('progress-save', { mangaId, chapterId: flushChapterId, chapterNumber: ch.number, pageIndex, pageCount });
+                this.log.emit('progress-save', { source: 'close', mangaId, chapterId: flushChapterId, chapterNumber: ch.number, pageIndex, pageCount });
             }
         });
         this.log.emit('reader-close', { mangaId, chapterId, backMangaId, backEntryKey });
         this.pageTracker.destroy();
         this.loadedChapters = [];
+        this.virtualTotalHeight = 0;
         this.currentChapterId = null;
         this.chapterComments = [];
         this.chapterCommentsCount = 0;
@@ -422,6 +489,379 @@ export class ReaderState {
         this.nextChapterRetryAvailable = false;
         this.mangaEntryKey = null;
         this.ui.popView();
+    }
+
+    reconcileReaderWindow(viewport: { scrollTop: number; clientHeight: number; clientWidth: number; chapterId?: string | null }, source: ReaderWindowSource): void {
+        const manga = this.manga.activeManga;
+        const currentId = viewport.chapterId ?? this.pageTracker.current?.chapterId ?? this.currentChapterId;
+        if (!manga || !currentId || this.chapterList.length === 0 || viewport.clientHeight <= 0) return;
+
+        const direction = this.scrollDirection(viewport.scrollTop);
+        this.lastWindowScrollTop = viewport.scrollTop;
+        this.lastViewportWidth = viewport.clientWidth;
+        this.lastViewportHeight = viewport.clientHeight;
+
+        const currentIdx = this.chapterList.findIndex(ch => ch.id === currentId);
+        if (currentIdx < 0) return;
+
+        const radiusPx = viewport.clientHeight * READER_WINDOW_RADIUS_VIEWPORTS;
+        const keepPx = viewport.clientHeight * READER_DOM_KEEP_RADIUS_VIEWPORTS;
+        const plan = this.windowManager.plan({
+            chapterList: this.chapterList,
+            loadedChapters: this.loadedChapters,
+            currentIdx,
+            radiusPx,
+            keepPx,
+            viewportWidth: viewport.clientWidth,
+            clientHeight: viewport.clientHeight,
+            direction,
+            estimateChapterHeight: (chapterId, viewportWidth) => this.estimateChapterHeight(chapterId, viewportWidth),
+        });
+
+        const beforeIds = this.loadedChapters.map(ch => ch.id);
+        const nextSlots = plan.nextSlots;
+        const afterIds = nextSlots.map(ch => ch.id);
+        if (afterIds.join(',') !== beforeIds.join(',')) {
+            this.loadedChapters = nextSlots;
+            this.virtualTotalHeight = this.windowManager.totalVirtualHeight(nextSlots, viewport.clientHeight);
+            this.log.emit('reader-window-slots', {
+                source,
+                mangaId: manga.id,
+                currentChapterId: currentId,
+                direction,
+                radiusPx: Math.round(radiusPx),
+                loadedChapterIds: afterIds.join(','),
+                placeholderCount: nextSlots.filter(slot => slot.slotState !== 'ready').length,
+            });
+        }
+
+        this.log.emit('reader-window-reconcile', {
+            source,
+            mangaId: manga.id,
+            currentChapterId: currentId,
+            direction,
+            scrollTop: Math.round(viewport.scrollTop),
+            clientHeight: Math.round(viewport.clientHeight),
+            wantedCount: plan.wantedIds.size,
+            fetchingCount: this.windowFetches.size,
+        });
+        this.scheduleWindowFetches(manga, plan.candidates, source);
+    }
+
+    recordChapterMeasurements(measurements: Array<{ chapterId: string; height: number }>): void {
+        if (measurements.length === 0) return;
+
+        let total = 0;
+        let count = 0;
+        for (const measurement of measurements) {
+            if (!Number.isFinite(measurement.height) || measurement.height <= 0) continue;
+            this.measuredChapterHeights.set(measurement.chapterId, measurement.height);
+            total += measurement.height;
+            count++;
+        }
+        if (count === 0) return;
+
+        const measuredAverage = total / count;
+        this.mangaAverageChapterHeight = this.mangaAverageChapterHeight == null
+            ? measuredAverage
+            : this.mangaAverageChapterHeight * 0.7 + measuredAverage * 0.3;
+    }
+
+    private scrollDirection(scrollTop: number): ReaderScrollDirection {
+        const delta = scrollTop - this.lastWindowScrollTop;
+        if (Math.abs(delta) < 2) return 'idle';
+        return delta > 0 ? 'down' : 'up';
+    }
+
+    private buildWindowCandidates(
+        currentIdx: number,
+        radiusPx: number,
+        viewportWidth: number,
+        direction: ReaderScrollDirection,
+    ): WindowCandidate[] {
+        const candidates: WindowCandidate[] = [{
+            chapter: this.chapterList[currentIdx],
+            side: 'current',
+            distance: 0,
+            priority: 0,
+            viewportWidth,
+        }];
+        let prevDistance = 0;
+        let nextDistance = 0;
+        let step = 1;
+
+        while (currentIdx - step >= 0 || currentIdx + step < this.chapterList.length) {
+            const prev = this.chapterList[currentIdx - step];
+            if (prev && prevDistance < radiusPx) {
+                prevDistance += this.estimateChapterHeight(prev.id, viewportWidth);
+                candidates.push({
+                    chapter: prev,
+                    side: 'prev',
+                    distance: prevDistance,
+                    priority: this.windowPriority('prev', prevDistance, step, direction),
+                    viewportWidth,
+                });
+            }
+
+            const next = this.chapterList[currentIdx + step];
+            if (next && nextDistance < radiusPx) {
+                nextDistance += this.estimateChapterHeight(next.id, viewportWidth);
+                candidates.push({
+                    chapter: next,
+                    side: 'next',
+                    distance: nextDistance,
+                    priority: this.windowPriority('next', nextDistance, step, direction),
+                    viewportWidth,
+                });
+            }
+
+            if (prevDistance >= radiusPx && nextDistance >= radiusPx) break;
+            step++;
+        }
+
+        return candidates.sort((a, b) => a.priority - b.priority);
+    }
+
+    private windowPriority(side: 'prev' | 'next', distance: number, step: number, direction: ReaderScrollDirection): number {
+        const directionBias =
+            direction === 'up' && side === 'prev' ? -10_000 :
+            direction === 'down' && side === 'next' ? -10_000 :
+            direction === 'idle' ? 0 : 10_000;
+        const roundRobinBias = side === 'prev' ? 0 : 1;
+        return distance + directionBias + step * 100 + roundRobinBias;
+    }
+
+    private reconcileSlots(wantedIds: Set<string>, keepPx: number, currentIdx: number, viewportWidth: number): LoadedChapter[] {
+        const existing = new Map(this.loadedChapters.map(ch => [ch.id, ch]));
+        const currentMeta = this.chapterList[currentIdx];
+        const currentHeight = this.estimateChapterHeight(currentMeta.id, viewportWidth);
+        let prevDistance = 0;
+        let nextDistance = 0;
+        const keepIds = new Set<string>([...wantedIds, currentMeta.id]);
+
+        for (let i = currentIdx - 1; i >= 0 && prevDistance < keepPx; i--) {
+            const meta = this.chapterList[i];
+            prevDistance += this.estimateChapterHeight(meta.id, viewportWidth);
+            if (wantedIds.has(meta.id) || prevDistance <= keepPx + currentHeight) keepIds.add(meta.id);
+        }
+        for (let i = currentIdx + 1; i < this.chapterList.length && nextDistance < keepPx; i++) {
+            const meta = this.chapterList[i];
+            nextDistance += this.estimateChapterHeight(meta.id, viewportWidth);
+            if (wantedIds.has(meta.id) || nextDistance <= keepPx + currentHeight) keepIds.add(meta.id);
+        }
+
+        return this.chapterList
+            .filter(meta => keepIds.has(meta.id))
+            .map(meta => existing.get(meta.id) ?? this.createPlaceholderSlot(meta, viewportWidth));
+    }
+
+    private createPlaceholderSlot(chapter: ChapterMeta, viewportWidth: number): LoadedChapter {
+        return {
+            id: chapter.id,
+            number: chapter.number,
+            groupName: chapter.groupName,
+            pages: [],
+            slotState: 'placeholder',
+            estimatedHeight: this.estimateChapterHeight(chapter.id, viewportWidth),
+        };
+    }
+
+    private scheduleWindowFetches(manga: Manga, candidates: WindowCandidate[], source: ReaderWindowSource): void {
+        const windowEpoch = this.windowEpoch;
+        const loadEpoch = this.loadEpoch;
+        const queued = candidates
+            .filter(candidate => candidate.side !== 'current')
+            .filter(candidate => {
+                const slot = this.loadedChapters.find(ch => ch.id === candidate.chapter.id);
+                return slot
+                    && slot.slotState !== 'ready'
+                    && !this.windowFetches.has(candidate.chapter.id);
+            })
+            .slice(0, 3);
+
+        for (const candidate of queued) {
+            this.windowFetches.add(candidate.chapter.id);
+            this.markSlotLoading(candidate.chapter.id);
+            this.log.emit('reader-window-fetch-start', {
+                source,
+                mangaId: manga.id,
+                chapterId: candidate.chapter.id,
+                chapterNumber: candidate.chapter.number,
+                side: candidate.side,
+                priority: Math.round(candidate.priority),
+                distance: Math.round(candidate.distance),
+                fetchingCount: this.windowFetches.size,
+            });
+            void this.fetchWindowChapter(manga, candidate, windowEpoch, loadEpoch, source);
+        }
+    }
+
+    private markSlotLoading(chapterId: string): void {
+        this.loadedChapters = this.loadedChapters.map(slot => (
+            slot.id === chapterId && slot.slotState === 'placeholder'
+                ? { ...slot, slotState: 'loading' }
+                : slot
+        ));
+    }
+
+    private async fetchWindowChapter(manga: Manga, candidate: WindowCandidate, windowEpoch: number, loadEpoch: number, source: ReaderWindowSource): Promise<void> {
+        try {
+            const result = await this.loadChapter({ manga, chapter: candidate.chapter });
+            if (this.windowEpoch !== windowEpoch || this.loadEpoch !== loadEpoch || result.kind === 'stale') {
+                this.log.emit('reader-window-fetch-stale', {
+                    source,
+                    mangaId: manga.id,
+                    chapterId: candidate.chapter.id,
+                    reason: 'epoch',
+                });
+                return;
+            }
+            if (result.kind === 'failed') {
+                this.loadedChapters = this.positionVirtualSlots(
+                    this.loadedChapters.map(slot => (
+                        slot.id === candidate.chapter.id ? { ...slot, slotState: 'placeholder' } : slot
+                    )),
+                    this.currentChapterId ?? candidate.chapter.id,
+                    this.layoutViewportWidth(candidate.viewportWidth),
+                    this.layoutViewportHeight(),
+                );
+                this.log.emit('reader-window-fetch-failed', {
+                    source,
+                    mangaId: manga.id,
+                    chapterId: candidate.chapter.id,
+                    error: String((result.error as Error)?.message ?? result.error),
+                });
+                return;
+            }
+
+            const index = this.loadedChapters.findIndex(slot => slot.id === result.chapter.id);
+            if (index < 0) {
+                this.log.emit('reader-window-fetch-stale', {
+                    source,
+                    mangaId: manga.id,
+                    chapterId: candidate.chapter.id,
+                    reason: 'slot-missing',
+                });
+                return;
+            }
+
+            const readyChapter: LoadedChapter = {
+                ...result.chapter,
+                slotState: 'ready',
+                estimatedHeight: this.estimateLoadedChapterHeight(result.chapter.pages, candidate.viewportWidth),
+            };
+
+            this.applyReadyWindowChapter(manga, readyChapter, source, candidate.side === 'current' ? 'current' : 'window');
+        } finally {
+            this.windowFetches.delete(candidate.chapter.id);
+        }
+    }
+
+    private applyReadyWindowChapter(
+        manga: Manga,
+        readyChapter: LoadedChapter,
+        source: ReaderWindowSource,
+        reason: 'current' | 'window',
+    ): void {
+        const index = this.loadedChapters.findIndex(slot => slot.id === readyChapter.id);
+        if (index < 0) return;
+
+        const previousHeight = this.loadedChapters[index].estimatedHeight ?? null;
+        const estimatedHeight = readyChapter.estimatedHeight ?? 0;
+        const positionedReadyChapter = {
+            ...readyChapter,
+            estimatedHeight,
+            virtualHeight: estimatedHeight,
+        };
+        this.loadedChapters = this.positionVirtualSlots(
+            this.loadedChapters.map(slot => slot.id === readyChapter.id ? positionedReadyChapter : slot),
+            this.currentChapterId ?? readyChapter.id,
+            this.layoutViewportWidth(readyChapter.pages[0]?.width ?? 0),
+            this.layoutViewportHeight(),
+        );
+        this.scheduleChapterWarmup(manga, readyChapter.id);
+        this.log.emit('reader-window-height-delta', {
+            source,
+            mangaId: manga.id,
+            chapterId: readyChapter.id,
+            previousEstimatedHeight: previousHeight == null ? null : Math.round(previousHeight),
+            estimatedHeight: Math.round(estimatedHeight),
+            delta: previousHeight == null ? null : Math.round(estimatedHeight - previousHeight),
+        });
+        this.log.emit('reader-window-hydration-applied', {
+            source,
+            mangaId: manga.id,
+            chapterId: readyChapter.id,
+            chapterNumber: readyChapter.number,
+            reason,
+            currentChapterId: this.currentChapterId,
+            currentVirtualTop: this.loadedChapters.find(slot => slot.id === this.currentChapterId)?.virtualTop ?? null,
+            layoutViewportHeight: Math.round(this.layoutViewportHeight()),
+        });
+        this.log.emit('reader-window-fetch-ok', {
+            source,
+            mangaId: manga.id,
+            chapterId: readyChapter.id,
+            chapterNumber: readyChapter.number,
+            pages: readyChapter.pages.length,
+            previousEstimatedHeight: previousHeight == null ? null : Math.round(previousHeight),
+            estimatedHeight: Math.round(estimatedHeight),
+        });
+    }
+
+    private estimateChapterHeight(chapterId: string, viewportWidth: number): number {
+        const measured = this.measuredChapterHeights.get(chapterId);
+        if (measured) return measured;
+
+        const loaded = this.loadedChapters.find(ch => ch.id === chapterId && ch.pages.length > 0);
+        if (loaded) return this.estimateLoadedChapterHeight(loaded.pages, viewportWidth);
+
+        return this.mangaAverageChapterHeight
+            ?? this.averageLoadedChapterHeight(viewportWidth)
+            ?? Math.round(viewportWidth * READER_FALLBACK_PAGE_ASPECT_RATIO * 24 + READER_CHAPTER_SEPARATOR_HEIGHT);
+    }
+
+    private positionVirtualSlots(slots: LoadedChapter[], currentId: string, viewportWidth: number, clientHeight: number): LoadedChapter[] {
+        if (slots.length === 0) {
+            this.virtualTotalHeight = 0;
+            return slots;
+        }
+
+        const positioned = this.windowManager.positionVirtualSlots(
+            slots,
+            currentId,
+            viewportWidth,
+            clientHeight,
+            this.chapterList,
+            (chapterId, width) => this.estimateChapterHeight(chapterId, width),
+        );
+        this.virtualTotalHeight = this.windowManager.totalVirtualHeight(positioned, clientHeight);
+        return positioned;
+    }
+
+    private layoutViewportWidth(fallbackWidth = 0): number {
+        return this.lastViewportWidth > 1 ? this.lastViewportWidth : fallbackWidth;
+    }
+
+    private layoutViewportHeight(): number {
+        return this.lastViewportHeight > 1 ? this.lastViewportHeight : 0;
+    }
+
+    private averageLoadedChapterHeight(viewportWidth: number): number | null {
+        const loaded = this.loadedChapters.filter(ch => ch.pages.length > 0);
+        if (loaded.length === 0) return null;
+        const total = loaded.reduce((sum, ch) => sum + this.estimateLoadedChapterHeight(ch.pages, viewportWidth), 0);
+        return total / loaded.length;
+    }
+
+    private estimateLoadedChapterHeight(pages: LoadedChapter['pages'], viewportWidth: number): number {
+        if (pages.length === 0) return Math.round(viewportWidth * READER_FALLBACK_PAGE_ASPECT_RATIO + READER_CHAPTER_SEPARATOR_HEIGHT);
+        const width = viewportWidth > 1 ? viewportWidth : 390;
+        const pageHeight = pages.reduce((sum, page) => {
+            if (page.width && page.height) return sum + width * page.height / page.width;
+            return sum + width * READER_FALLBACK_PAGE_ASPECT_RATIO;
+        }, 0);
+        return Math.round(pageHeight + READER_CHAPTER_SEPARATOR_HEIGHT);
     }
 
     private getAdjacent(chapterId: string, direction: 'next' | 'prev'): ChapterMeta | null {
@@ -565,6 +1005,16 @@ export class ReaderState {
         const epoch = this.loadEpoch;
         this.isLoadingNext = true;
         this.nextChapterRetryAvailable = false;
+        this.log.emit('reader-edge-load-start', {
+            edge: 'next',
+            mangaId: manga.id,
+            targetChapterId: next.id,
+            targetChapterNumber: next.number,
+            currentChapterId: this.currentChapterId,
+            firstLoadedChapterId: this.loadedChapters[0]?.id ?? null,
+            lastLoadedChapterId: lastLoaded.id,
+            loadedCount: this.loadedChapters.length,
+        });
         try {
             const result = await this.loadChapterWithRetries('next', { manga, chapter: next }, epoch);
             if (result.kind === 'stale') return false;
@@ -576,7 +1026,12 @@ export class ReaderState {
             }
             if (this.loadEpoch !== epoch || this.loadedChapters.some(c => c.id === result.chapter.id)) return false;
 
-            this.loadedChapters = [...this.loadedChapters, result.chapter];
+            this.loadedChapters = this.positionVirtualSlots(
+                [...this.loadedChapters, result.chapter],
+                this.currentChapterId ?? result.chapter.id,
+                this.layoutViewportWidth(),
+                this.layoutViewportHeight(),
+            );
             this.nextChapterRetryAvailable = false;
             this.scheduleChapterWarmup(manga, result.chapter.id);
             this.log.emit('reader-append-ok', { mangaId: manga.id, chapterId: next.id, chapterNumber: next.number });
@@ -624,6 +1079,16 @@ export class ReaderState {
 
         const epoch = this.loadEpoch;
         this.isLoadingPrev = true;
+        this.log.emit('reader-edge-load-start', {
+            edge: 'prev',
+            mangaId: manga.id,
+            targetChapterId: prev.id,
+            targetChapterNumber: prev.number,
+            currentChapterId: this.currentChapterId,
+            firstLoadedChapterId: firstLoaded.id,
+            lastLoadedChapterId: this.loadedChapters[this.loadedChapters.length - 1]?.id ?? null,
+            loadedCount: this.loadedChapters.length,
+        });
         try {
             const result = await this.loadChapterWithRetries('prev', { manga, chapter: prev }, epoch);
             if (result.kind === 'stale') return null;
@@ -635,7 +1100,12 @@ export class ReaderState {
             if (this.loadEpoch !== epoch || this.loadedChapters.some(c => c.id === result.chapter.id)) return null;
 
             const chapter = result.chapter;
-            this.loadedChapters = [chapter, ...this.loadedChapters];
+            this.loadedChapters = this.positionVirtualSlots(
+                [chapter, ...this.loadedChapters],
+                this.currentChapterId ?? chapter.id,
+                this.layoutViewportWidth(),
+                this.layoutViewportHeight(),
+            );
             this.scheduleChapterWarmup(manga, chapter.id);
             this.log.emit('reader-prepend-ok', { mangaId: manga.id, chapterId: prev.id, chapterNumber: prev.number });
             return chapter;

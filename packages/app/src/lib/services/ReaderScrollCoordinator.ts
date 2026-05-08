@@ -14,10 +14,17 @@ type InitialPositionTransaction = {
 
 export type PrependCommitResult =
     | { action: 'none'; reason: 'no-transaction' | 'anchor-detached' | 'no-adjustment' }
-    | { action: 'cancelled'; reason: 'user-scroll'; delta: number }
-    | { action: 'adjusted'; diff: number };
+    | { action: 'adjusted'; diff: number; userDelta: number; anchorTop: number; targetTop: number };
 
 export type InitialPositionTarget = { pageIndex: number; scrollOffset: number } | null;
+
+export type ProgrammaticScrollWrite = {
+    source: 'initial-fallback' | 'initial-restore-into-view' | 'initial-restore-offset' | 'initial-reset' | 'initial-current-anchor' | 'prepend-adjust';
+    from: number;
+    to: number;
+};
+
+export type ProgrammaticScrollLogger = (write: ProgrammaticScrollWrite) => void;
 
 export type InitialPositionCommitResult =
     | { action: 'cancelled'; reason: 'user-scroll'; delta: number; target: 'top' | 'page' }
@@ -63,12 +70,17 @@ export class ReaderScrollCoordinator {
         }
     }
 
-    commitInitialPosition(root: HTMLElement, target: InitialPositionTarget, pages: NodeListOf<Element>): InitialPositionCommitResult {
+    commitInitialPosition(
+        root: HTMLElement,
+        target: InitialPositionTarget,
+        pages: NodeListOf<Element>,
+        onWrite?: ProgrammaticScrollLogger,
+    ): InitialPositionCommitResult {
         const tx = this.initialPosition ?? { scrollTop: root.scrollTop, invalidated: false };
         this.initialPosition = null;
 
         const scrollDelta = Math.abs(root.scrollTop - tx.scrollTop);
-        const targetKind = target && (target.pageIndex > 0 || target.scrollOffset > 0) ? 'page' : 'top';
+        const targetKind = target ? 'page' : 'top';
         if (tx.invalidated || scrollDelta > USER_SCROLL_TOLERANCE_PX) {
             return { action: 'cancelled', reason: 'user-scroll', delta: scrollDelta, target: targetKind };
         }
@@ -77,12 +89,18 @@ export class ReaderScrollCoordinator {
         if (targetKind === 'page' && target) {
             const page = pages[target.pageIndex];
             if (!page) {
+                const resetFrom = root.scrollTop;
                 root.scrollTop = 0;
+                onWrite?.({ source: 'initial-fallback', from: resetFrom, to: root.scrollTop });
                 return { action: 'fallback', reason: 'missing-page', pageIndex: target.pageIndex, from, to: root.scrollTop };
             }
 
+            const scrollIntoViewFrom = root.scrollTop;
             page.scrollIntoView({ block: 'start' });
+            onWrite?.({ source: 'initial-restore-into-view', from: scrollIntoViewFrom, to: root.scrollTop });
+            const offsetFrom = root.scrollTop;
             root.scrollTop += target.scrollOffset;
+            onWrite?.({ source: 'initial-restore-offset', from: offsetFrom, to: root.scrollTop });
             return {
                 action: 'restored',
                 target: 'page',
@@ -93,27 +111,29 @@ export class ReaderScrollCoordinator {
             };
         }
 
+        const resetFrom = root.scrollTop;
         root.scrollTop = 0;
+        onWrite?.({ source: 'initial-reset', from: resetFrom, to: root.scrollTop });
         return { action: 'reset', target: 'top', from, to: root.scrollTop };
     }
 
-    commitPrepend(root: HTMLElement): PrependCommitResult {
+    commitPrepend(root: HTMLElement, onWrite?: ProgrammaticScrollLogger): PrependCommitResult {
         const tx = this.prepend;
         this.prepend = null;
 
         if (!tx) return { action: 'none', reason: 'no-transaction' };
         if (!tx.anchor.isConnected) return { action: 'none', reason: 'anchor-detached' };
 
-        const scrollDelta = Math.abs(root.scrollTop - tx.scrollTop);
-        if (tx.invalidated || scrollDelta > USER_SCROLL_TOLERANCE_PX) {
-            return { action: 'cancelled', reason: 'user-scroll', delta: scrollDelta };
-        }
-
-        const diff = tx.anchor.getBoundingClientRect().top - tx.anchorTop;
+        const userDelta = root.scrollTop - tx.scrollTop;
+        const targetTop = tx.anchorTop - userDelta;
+        const anchorTop = tx.anchor.getBoundingClientRect().top;
+        const diff = anchorTop - targetTop;
         if (Math.abs(diff) <= 1) return { action: 'none', reason: 'no-adjustment' };
 
+        const from = root.scrollTop;
         root.scrollTop += diff;
-        return { action: 'adjusted', diff };
+        onWrite?.({ source: 'prepend-adjust', from, to: root.scrollTop });
+        return { action: 'adjusted', diff, userDelta, anchorTop, targetTop };
     }
 
     cancelPrepend(): void {
