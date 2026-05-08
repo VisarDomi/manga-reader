@@ -326,6 +326,10 @@ export class ReaderState {
         this.pageTracker.clearSync();
     }
 
+    get pendingLayoutMeasurementCount(): number {
+        return this.pendingMeasuredChapterHeights.size;
+    }
+
     chapterScrollTop(chapterId: string, viewportWidth: number): number | null {
         return this.windowManager.chapterTop(
             this.chapterList,

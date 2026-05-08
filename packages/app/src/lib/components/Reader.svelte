@@ -46,7 +46,13 @@
     let initialized = false;
     let windowRaf: number | null = null;
     let idleLayoutTimer: ReturnType<typeof setTimeout> | null = null;
+    let idleLayoutSequence = 0;
+    let idleLayoutQueuedAt = 0;
+    let idleLayoutLastResetAt = 0;
+    let idleLayoutResetCount = 0;
+    let idleLayoutSource: 'scroll' | 'layout' = 'layout';
     let lastVisualSnapshotAt = 0;
+    const IDLE_LAYOUT_DELAY_MS = 450;
 
     type VisualAnchor = {
         key: string;
@@ -131,17 +137,57 @@
         });
     }
 
-    function queueIdleLayoutPromotion() {
-        if (idleLayoutTimer != null) clearTimeout(idleLayoutTimer);
+    function queueIdleLayoutPromotion(source: 'scroll' | 'layout' = 'scroll') {
+        const root = getReaderRoot();
+        const now = performance.now();
+        if (idleLayoutTimer == null) {
+            idleLayoutSequence++;
+            idleLayoutQueuedAt = now;
+            idleLayoutResetCount = 0;
+            idleLayoutSource = source;
+            appState.log.emit('reader-layout-idle-timer', {
+                phase: 'queued',
+                mangaId: appState.manga.activeManga?.id ?? null,
+                sequence: idleLayoutSequence,
+                delayMs: IDLE_LAYOUT_DELAY_MS,
+                queuedForMs: 0,
+                sinceLastResetMs: 0,
+                resetCount: idleLayoutResetCount,
+                pendingMeasurements: appState.reader.pendingLayoutMeasurementCount,
+                scrollTop: Math.round(root?.scrollTop ?? 0),
+                source,
+            });
+        } else {
+            clearTimeout(idleLayoutTimer);
+            idleLayoutResetCount++;
+            if (source === 'scroll') idleLayoutSource = source;
+        }
+        idleLayoutLastResetAt = now;
         idleLayoutTimer = setTimeout(() => {
             idleLayoutTimer = null;
             void runIdleLayoutPromotion();
-        }, 450);
+        }, IDLE_LAYOUT_DELAY_MS);
     }
 
     async function runIdleLayoutPromotion() {
+        const now = performance.now();
         const root = getReaderRoot();
-        if (!root) return;
+        if (!root) {
+            appState.log.emit('reader-layout-idle-timer', {
+                phase: 'fired',
+                mangaId: appState.manga.activeManga?.id ?? null,
+                sequence: idleLayoutSequence,
+                delayMs: IDLE_LAYOUT_DELAY_MS,
+                queuedForMs: Math.round(now - idleLayoutQueuedAt),
+                sinceLastResetMs: Math.round(now - idleLayoutLastResetAt),
+                resetCount: idleLayoutResetCount,
+                pendingMeasurements: appState.reader.pendingLayoutMeasurementCount,
+                scrollTop: 0,
+                result: 'no-root',
+                source: idleLayoutSource,
+            });
+            return;
+        }
         appState.reader.recordChapterMeasurements(measureChapterHeights(root));
         const anchor = findVisualAnchor(root);
         appState.log.emit('reader-layout-anchor-choice', {
@@ -153,6 +199,19 @@
             ownerChapterId: anchor?.ownerChapterId ?? null,
         });
         const result = appState.reader.promotePendingMeasurements(anchor?.key ?? null);
+        appState.log.emit('reader-layout-idle-timer', {
+            phase: 'fired',
+            mangaId: appState.manga.activeManga?.id ?? null,
+            sequence: idleLayoutSequence,
+            delayMs: IDLE_LAYOUT_DELAY_MS,
+            queuedForMs: Math.round(now - idleLayoutQueuedAt),
+            sinceLastResetMs: Math.round(now - idleLayoutLastResetAt),
+            resetCount: idleLayoutResetCount,
+            pendingMeasurements: appState.reader.pendingLayoutMeasurementCount,
+            scrollTop: Math.round(root.scrollTop),
+            result: result.changed ? 'promoted' : 'unchanged',
+            source: idleLayoutSource,
+        });
         if (!result.changed) return;
         await tick();
         restoreVisualAnchor(root, anchor);
@@ -362,7 +421,7 @@
         if (!root) return;
         scrollCoordinator.noteUserScroll(root);
         logVisualSnapshot(root, 'scroll');
-        queueIdleLayoutPromotion();
+        queueIdleLayoutPromotion('scroll');
         queueWindowReconcile('scroll');
         pageTracker.handleScroll(root, memory.pageDataMap, [appState.reader.layoutChapterId, appState.reader.currentChapterId], (visible) => {
             appState.reader.trackVisiblePage(visible.chapterId, visible.pageIndex, visible.scrollOffset, 'scroll', visible);
@@ -417,7 +476,10 @@
             restoreScrollPosition();
         }
         memory.ensureAbortController();
-        tick().then(() => scheduleVirtualImages());
+        tick().then(() => {
+            scheduleVirtualImages();
+            queueIdleLayoutPromotion('layout');
+        });
     });
 
     function handleNextRetryClick() {

@@ -272,6 +272,65 @@ Prefer following proven client paths over probing many speculative URLs. Once
 the source client's data flow is known, implement against that flow and verify
 through the local integration boundary.
 
+### 27. Log Ownership Boundaries
+
+Logs should identify the owner that made a state decision, not only the final
+symptom. For every important mutation, log the source, reason, affected
+resource, and before/after values that prove which owner acted.
+
+This is especially important for shared surfaces such as reader layout,
+progress, navigation, queues, caches, and background hydration. A useful log
+timeline should answer: who planned the work, who queued it, who skipped or
+accepted it, who wrote state, and whether any programmatic scroll or navigation
+write occurred.
+
+### 28. Observers Are Not Authority
+
+Visibility, intersection, scroll probes, and page measurements are observations.
+They can report facts and trigger the owning state machine, but they should not
+become the authority for unrelated state domains.
+
+For example, a visible page can inform progress tracking, chapter title state,
+or layout scheduling, but it should not directly own virtual layout, scroll
+geometry, or navigation restoration. If an observer starts suppressing,
+overriding, or rewriting another domain's state, the ownership model is wrong.
+
+### 29. Reader Layout Has One Writer
+
+Reader virtual geometry has one writer: the layout owner. Virtual slot
+positions, chapter heights, total scroll height, and scroll-preserving anchor
+restores must go through the same layout path.
+
+Chapter hydration may make better height data available, and scrolling may
+create new measurement evidence, but both are inputs to layout. They should
+schedule layout work instead of independently changing scroll geometry. This
+keeps the reader debuggable: layout writes can be found in one log path, and
+programmatic scroll writes can be treated as high-signal events.
+
+### 30. Do Not Mutate Scroll Geometry During Momentum
+
+On iOS, changing content above or around the viewport during active scroll or
+momentum can interrupt the user's flow even when the math is correct. Scroll
+compensation that preserves a DOM anchor can still feel like a jump if it runs
+while Safari is applying momentum.
+
+Prefer preparing and promoting reader layout during idle time. If background
+chapter hydration changes reserved space, queue the layout owner to collapse or
+grow that space after the DOM has rendered and before the user reaches it.
+Active scroll should update observations and priorities; idle layout should own
+geometry mutation.
+
+### 31. Synthetic Reproductions Prove Narrow Claims Only
+
+A reduced test app is useful for proving one isolated claim, such as whether
+iOS Safari reacts badly to prepending content during scroll. It is not proof
+that the production bug has the same full cause.
+
+After a synthetic claim is proven, bring the result back to production logs and
+verify the complete interaction path. The production path may include planner
+state, hydration timing, saved progress, virtual windows, image loading, and
+navigation ownership that the reduced test does not model.
+
 ## Product Decisions
 
 These are app-level behavior decisions that drive UX, persistence, navigation,
