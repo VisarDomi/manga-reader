@@ -1,8 +1,8 @@
-import { PROXY_URL, imageProxyUrl as _imageProxyUrl } from '../config.js';
-import { fetchJson, fetchRaw, ApiError, ApiErrKind } from './fetchJson.js';
+import { imageProxyUrl as _imageProxyUrl } from '../config.js';
+import { fetchJson, ApiError, ApiErrKind } from './fetchJson.js';
 import { getProvider } from './provider.js';
 import type { Manga, ChapterMeta, ChapterPage, MangaComment, MangaCommentStats } from '../types.js';
-import type { SearchFilters, HttpRequest, PaginationMeta, ChapterListPage } from '@manga-reader/provider-types';
+import type { SearchFilters, ChapterListPage } from '@manga-reader/provider-types';
 import type { LogEmit } from './LogService.js';
 import { CACHE_ONLY_MODE } from '../constants.js';
 
@@ -13,14 +13,8 @@ export function setApiLogger(fn: LogEmit): void {
     emit = fn;
 }
 
-let onCloudflare: (() => void) | null = null;
-
 export function setCloudflareCallback(cb: () => void): void {
-    onCloudflare = cb;
-}
-interface ProxyOptions {
-    signal?: AbortSignal;
-    retry?: boolean;
+    void cb;
 }
 
 const CACHE_WARM_POLL_MS = 500;
@@ -46,7 +40,7 @@ function cacheStatus(data: unknown): string | null {
         : null;
 }
 
-async function fetchCachedPayload(url: string, signal: AbortSignal | undefined, resource: 'chapter-list' | 'chapter-images', mangaId: string, chapterId?: string): Promise<unknown> {
+async function fetchCachedPayload(url: string, signal: AbortSignal | undefined, resource: 'manga-detail' | 'chapter-list' | 'chapter-images', mangaId: string, chapterId?: string): Promise<unknown> {
     for (let attempt = 0; attempt < CACHE_WARM_ATTEMPTS; attempt++) {
         const data = await fetchJson<unknown>(url, { signal });
         if (cacheStatus(data) !== 'warming') {
@@ -60,56 +54,6 @@ async function fetchCachedPayload(url: string, signal: AbortSignal | undefined, 
     throw new Error(`Cache warming timed out for ${resource}`);
 }
 
-async function proxyRequest<T>(req: HttpRequest, responseType: 'json' | 'text', opts: ProxyOptions = {}): Promise<T> {
-    const body = JSON.stringify({
-        url: req.url,
-        method: req.method ?? 'GET',
-        headers: req.headers,
-        body: req.body,
-        responseType,
-        cloudflareProtected: req.cloudflareProtected,
-        signingMangaId: req.signingMangaId,
-        signingPageUrl: req.signingPageUrl,
-    });
-
-    const fetchOpts = {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body,
-        signal: opts.signal,
-        retry: opts.retry,
-    };
-
-    const doRequest = () => {
-        if (responseType === 'text') {
-            return fetchRaw(PROXY_URL, fetchOpts) as Promise<T>;
-        }
-        return fetchJson<T>(PROXY_URL, fetchOpts);
-    };
-
-    try {
-        return await doRequest();
-    } catch (e) {
-        if (e instanceof ApiError && e.kind === ApiErrKind.CLOUDFLARE) {
-            onCloudflare?.();
-
-            for (let attempt = 0; attempt < 6; attempt++) {
-                await new Promise(r => setTimeout(r, 5000));
-                if (opts.signal?.aborted) throw e;
-                try {
-                    return await doRequest();
-                } catch (retryErr) {
-                    if (retryErr instanceof ApiError && retryErr.kind === ApiErrKind.CLOUDFLARE) {
-                        continue;
-                    }
-                    throw retryErr;
-                }
-            }
-            throw e;
-        }
-        throw e;
-    }
-}
 export function imageProxyUrl(url: string, mangaId: string, chapterId: string, chapterNumber: number, chapterUrl?: string): string {
     const provider = getProvider();
     const referer = provider.imageHeaders?.(mangaId, chapterId, chapterNumber, chapterUrl)?.['Referer'];
@@ -126,36 +70,13 @@ export interface SearchResult {
 }
 
 export async function searchManga(query: string, page = 1, filters?: SearchFilters, signal?: AbortSignal, retry = false): Promise<SearchResult> {
-    if (CACHE_ONLY_MODE) {
-        void signal;
-        void retry;
-        emit('cache-only-read', { resource: 'search', action: 'skip', mangaId: 'search', count: page });
-        return { manga: [], hasMore: false };
-    }
-
-    const provider = getProvider();
-    const req = provider.searchRequest(query, page, filters);
-    const data = await proxyRequest(req, 'json', { signal, retry });
-    const result = provider.parseSearchResponse(data);
-    emit('search-result', {
-        query: query || '(browse)',
-        page,
-        resultCount: result.items.length,
-        hasMore: result.hasMore,
-        includeGenres: filters?.includeGenres?.length ?? 0,
-        excludeGenres: filters?.excludeGenres?.length ?? 0,
-        demographics: filters?.demographics?.length ?? 0,
-        authors: filters?.authors?.length ?? 0,
-        artists: filters?.artists?.length ?? 0,
-        types: filters?.types?.length ?? 0,
-        statuses: filters?.statuses?.length ?? 0,
-        ...(result.pagination ? {
-            currentPage: result.pagination.currentPage,
-            lastPage: result.pagination.lastPage,
-            total: result.pagination.total,
-        } : {}),
-    });
-    return { manga: result.items, hasMore: result.hasMore };
+    void query;
+    void filters;
+    void signal;
+    void retry;
+    void CACHE_ONLY_MODE;
+    emit('cache-only-read', { resource: 'search', action: 'skip', mangaId: 'search', count: page });
+    return { manga: [], hasMore: false };
 }
 
 export async function fetchMangaDetail(manga: Manga, signal?: AbortSignal): Promise<Manga> {

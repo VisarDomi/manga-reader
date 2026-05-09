@@ -7,7 +7,7 @@ import { errorHandler } from './middleware/errorHandler.js';
 import healthRouter from './routes/health.js';
 import imageRouter from './routes/image.js';
 import certRouter from './routes/cert.js';
-import { createProxyRouter } from './routes/proxy.js';
+import { createCommentsRouter } from './routes/comments.js';
 import { createCacheRouter } from './routes/cache.js';
 import logRouter from './routes/log.js';
 import providerFiltersRouter from './routes/providerFilters.js';
@@ -41,7 +41,7 @@ export function createApp(browserSession: BrowserSession | null, cacheService: C
     app.use('/api', imageRouter);
     app.use('/api', certRouter);
     app.use('/api', createCacheRouter(cacheService));
-    app.use('/api', createProxyRouter(browserSession));
+    app.use('/api', createCommentsRouter(browserSession));
     app.use('/api', providerFiltersRouter);
     app.use('/api', logRouter);
 

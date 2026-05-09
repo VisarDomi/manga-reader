@@ -1,5 +1,3 @@
-export const PROXY_URL = '/api/proxy';
-
 export function imageProxyUrl(url: string, referer?: string): string {
     let result = `/api/image?url=${encodeURIComponent(url)}`;
     if (referer) result += `&referer=${encodeURIComponent(referer)}`;

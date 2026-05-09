@@ -88,7 +88,3 @@ async function doFetch(url: string, opts: FetchOptions, parseResponse: (res: Res
 export async function fetchJson<T = unknown>(url: string, opts: FetchOptions = {}): Promise<T> {
     return doFetch(url, opts, (res) => res.json()) as Promise<T>;
 }
-
-export async function fetchRaw(url: string, opts: FetchOptions = {}): Promise<string> {
-    return doFetch(url, opts, (res) => res.text()) as Promise<string>;
-}
