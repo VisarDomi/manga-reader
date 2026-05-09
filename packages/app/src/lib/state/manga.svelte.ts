@@ -8,7 +8,6 @@ import type { ToastState } from './toast.svelte.js';
 import type { GroupFilterState } from './groupFilter.svelte.js';
 import type { ChapterStatsState } from './chapterStats.svelte.js';
 import { type LoadError, toLoadError } from './errors.js';
-import { CACHE_ONLY_MODE } from '../constants.js';
 
 export interface MangaEntry {
     key: string;
@@ -356,7 +355,6 @@ export class MangaState {
     }
 
     private queueMangaComments(entry: MangaEntry): void {
-        if (CACHE_ONLY_MODE) return;
         if (entry.comments.length > 0 || entry.isCommentsLoading) return;
         if (!this.canRunBackgroundWork()) {
             this.pendingComments.add(entry.key);
@@ -411,7 +409,6 @@ export class MangaState {
     }
 
     private async loadMangaComments(entry: MangaEntry): Promise<void> {
-        if (CACHE_ONLY_MODE) return;
         if (!this.canRunBackgroundWork()) {
             this.pendingComments.add(entry.key);
             return;

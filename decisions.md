@@ -406,7 +406,94 @@ Persisted search context is domain state for the search surface, not global app
 state. A restore path must first identify the current surface and back stack,
 then replay only the domain owners needed for that path.
 
-### 37. Large Search Lists Still Need Optimization
+### 37. Live Search, Live Comments, Cached Manga Data
+
+Production data ownership is explicit:
+
+- Search is live. The frontend calls the narrow backend `/api/search` endpoint.
+- Comments are live. Manga-detail comments and reader chapter comments call the
+  backend comments endpoints and request fresh data each time.
+- Manga detail metadata, chapter lists, and chapter images are cache-backed.
+  The frontend reads those through `/api/cache/...` and does not restore the old
+  live detail/chapter/image request paths.
+- Favorites store only favorite identity locally. Display metadata and chapter
+  stats hydrate from the backend cache.
+
+The search endpoint is intentionally narrow. It is not a generic proxy. The
+backend route owns transport, Cloudflare cookie/header handling, request
+validation, and logging. The provider owns Comix search semantics: URL
+construction via `searchRequest` and response shape via `parseSearchResponse`.
+This prevents duplicating provider query parameters in the server while also
+preventing the frontend from regaining a "fetch anything live" escape hatch.
+
+### 38. Backend Cache Is the Manga Data Owner
+
+The backend cache is the source of truth for manga details, chapter lists, and
+chapter image metadata. Comix remains an ingestion source, not a frontend data
+source for those domains.
+
+Cache ownership:
+
+- Backend owns SQLite persistence, invalidation, priority, and store-health
+  policy.
+- BrowserSession owns Comix runtime access and signed/encrypted upstream calls.
+- Frontend owns user intent and image outcome observations.
+- Image store failover/status is a cache concern, not a reader concern.
+
+Cache layers:
+
+- Startup seeds the cache from newest 100 manga and queues those manga for
+  detail and chapter-list caching.
+- Chapter-list caching fetches complete lists and stores them durably.
+- Chapter-image caching discovers complete page URLs and candidate store URLs
+  after chapter lists exist.
+- Frontend priority requests can promote foreground cache work ahead of
+  background discovery.
+- Manual refresh invalidates the selected manga's cached detail/list data and
+  queues foreground recache work.
+
+SQLite stores:
+
+- `manga_cache`
+- `chapter_list_cache`
+- `chapter_image_cache`
+- `image_store_candidates`
+- `image_store_status`
+
+The cache worker has foreground jobs, background manga/list jobs, and an image
+backlog. Startup reconstructs image backlog from persisted chapter lists, so
+image discovery survives process death or power loss. Chapter image writes are
+atomic: the image payload and generated store candidates are committed in one
+SQLite transaction.
+
+### 39. Cache Readiness Is a Contract
+
+A row existing in SQLite is not enough to serve it as ready. Cache consumers
+need typed readiness contracts.
+
+Chapter images are user-visible `ready` only when the backend has populated
+every target page from Comix's own chapter detail client:
+
+- `source=site-client`
+- `targetCount > 0`
+- `pages.length === targetCount`
+- every page has a concrete image URL
+
+Empty, encrypted, partial, or DOM-observed payloads are diagnostic/incomplete
+states. They must not be served to the reader as loaded chapter images. The
+frontend also refuses zero-page cache payloads so the reader cannot hydrate an
+empty chapter as a successful load.
+
+BrowserSession owns encrypted Comix runtime access. If raw upstream data is an
+encrypted shape such as `{ "e": "..." }`, do not cache or parse it downstream
+as if it were typed data. Use the shipped Comix client path in the same browser
+runtime and normalize the result at the BrowserSession/cache boundary.
+
+Store candidates are expanded from real discovered image URLs by replacing only
+known `wowpic*.store` hosts while preserving the image path. The frontend
+reports image outcomes; the backend updates per-image/per-store status.
+
+### 40. Large Search Lists Still Need Optimization
 
 A restored or deeply paginated search list can leave 1000+ manga cards mounted
 behind manga details and reader. That state is valid and should not be hidden
@@ -438,8 +525,8 @@ the next optimization must preserve the existing UI.
 
 Performance logs should remain available while optimizing this path. Useful
 events are `reader-frame-gap`, `search-result`, and `restore-target-found`.
-The old visible-list prewarm path was removed when cache-only data became the
-owned source of chapter metadata.
+The old visible-list prewarm path was removed when backend cache data became
+the owned source of chapter metadata.
 
 Remaining search work: preserve the existing card UI while reducing the cost of
 large search result sets. Likely directions include better ownership of
@@ -448,7 +535,7 @@ and investigating DOM/style/layout cost from 1000+ mounted cards. Do not change
 the navigation behavior, hibernate top-level views, or remove card information
 without explicit approval.
 
-### 38. Separate Logical Position from Physical Scroll Surface
+### 41. Separate Logical Position from Physical Scroll Surface
 
 The reader can know about thousands of chapters without making the browser
 scroll a document that is tens of millions of pixels tall. Logical manga
@@ -528,12 +615,15 @@ Manga cards prioritize the cover image — no title, no author, no badges, no pa
 Manga cards show three chapter numbers as `read / filtered max / upstream max`.
 
 - **Read:** The latest locally saved reading progress for this manga. If the manga has no saved progress, this is `0` on a red badge. If it has saved progress, the badge is green.
-- **Filtered max:** The highest chapter number known after applying the current group filters. This can only be known after the manga's chapter list has been loaded or warmed. Until known for the current filter state, it is shown as `0`; while the request is in flight the badge is yellow, and once known the badge is green.
+- **Filtered max:** The highest chapter number known after applying the current group filters. This comes from the backend-cached chapter list, then the frontend applies local provider-wide and per-manga group filters.
 - **Upstream max:** The max/latest chapter number returned by the provider's search/list API.
 
-Filtered max values are cached per manga in localStorage, but only displayed when their cache key matches the current provider-wide blocked groups, the manga's saved per-manga group selection, and the upstream max currently shown by the provider list. If filters or upstream max change and no fresh chapter list has been loaded for that state, the cached value is treated as unknown rather than stale.
-
-Visible manga cards may warm chapter metadata in the background. The backend owns signed chapter-list fetching, inflight joining, and short-lived chapter-list caching; the frontend owns applying local group filters and writing the filtered max cache. Opening a manga refreshes the same cache from the loaded chapter list and remains the authoritative foreground path.
+Favorites store only favorite IDs locally. Card metadata and filtered max are
+hydrated from backend cache data; there is no card-owned prewarm path and no
+separate IndexedDB favorite snapshot that can drift from cached manga data.
+Search results still provide their upstream max directly from live search.
+Opening a manga remains the authoritative foreground path for displaying the
+full cached detail and chapter list.
 
 ## AF. Chapter Group Filtering
 
@@ -546,19 +636,17 @@ Chapter filtering is a single pipeline: raw chapters in, filtered/deduped/sorted
 
 Tests assert the pipeline's end state for each behavior.
 
-## AG. Chapters Commit Page 1 Then the Final Snapshot
+## AG. Chapter Lists Come from Backend Cache
 
-When opening a manga, the provider yields chapters in descending order (newest
-first). The app commits page 1 immediately so the visible top of the chapter
-list appears fast, then keeps later pages in a local chapter-ingestion owner
-until the full list is ready. The final full list is committed once.
+When opening a manga, the app reads the cached chapter list from the backend.
+If the cache row is missing or warming, the backend owns the fetch and queue
+priority, and the frontend polls the cache endpoint until the data is ready or
+the request is aborted.
 
-This avoids writing thousands of intermediate chapter-list states into Svelte
-while preserving the useful first render. The provider owns the pagination
-strategy. The app owns deduplication by chapter ID and re-applies group
-filtering and sorting when it commits the display snapshots. If some pages fail
-but others succeed, the app shows what it got; partial data is better than
-nothing.
+The frontend commits the cache result as one chapter-list snapshot, then owns
+local deduplication, sorting, and group filtering for display. It does not
+stream Comix chapter pages directly and it does not write thousands of
+intermediate chapter-list states into Svelte.
 
 ## AH. Progress Is Tracked Per Manga
 
@@ -753,6 +841,9 @@ Each sequence restores only the owners implied by `viewMode` and `viewStack`:
 User action still cancels restore. Search replay and pagination are abortable,
 and foreground reader work takes priority over background restore work.
 
+Search restore may call the live `/api/search` endpoint. Manga-detail and
+reader restore still use cached detail, chapter-list, and chapter-image paths.
+
 ## AR. IDB Progress Is the Source of Truth for Reader Position
 
 When restoring a reader session, the app reads the reader position from IDB progress — not from the session snapshot. The session snapshot only records view mode and active manga. The actual chapter and page position always come from IDB, which is updated more frequently (3s debounce vs only on view transition for the snapshot).
@@ -786,7 +877,18 @@ When the reader is open during a warm resume, images are not re-fetched. Blob UR
 
 ## AW. Cloudflare Retry Is Provider-Owned
 
-When any request marked `cloudflareProtected: true` receives a Cloudflare block (503 + Cloudflare headers), the provider owns the solving and retry strategy. The Cloudflare gate is app-wide — while solving is in progress, new app-level requests (user-initiated searches, new manga opens, new chapter opens) are dropped, not queued. However, the provider's own in-flight operations (e.g. parallel chapter list fetches in comix rule 5) can wait for solving to complete and retry their failed requests — these are not "new" requests, they are continuations of an operation already in progress. The app stays responsive: the user can keep interacting (typing, toggling filters, scrolling). Once solving completes, each app-level caller is responsible for retrying if still relevant: search fires with the current query + filters (naturally coalesced), the manga view re-fetches chapters if still mounted, the reader's observer re-fires for still-visible images. If the caller is no longer active (user navigated away), nothing retries — the request is simply gone. The provider signals solving status to the app (see comix rule 6 for the SSE implementation). If solving fails, the error propagates to the caller that triggered the solve.
+When any backend request marked `cloudflareProtected: true` receives a
+Cloudflare block, the backend proxy utilities own cookie/header reuse and
+challenge-solving coordination. The provider declares which requests are
+Cloudflare-protected; the backend owns transport. Search and cache ingestion
+use this path, while manga details/chapter lists/chapter images reach the
+frontend only through cache endpoints.
+
+The app stays responsive while backend work is blocked or retried. Each
+frontend caller is responsible for retrying only if still relevant: search
+fires with the current query + filters, cached manga reads continue polling
+while the user still wants that resource, and abandoned views abort their
+requests.
 
 Cloudflare solving happens silently — no toast is shown until the user actually hits a blocked resource. If a background restore triggers Cloudflare, solving starts but the user isn't interrupted. The toast only appears when the user's foreground action is blocked: swiping back to a view that can't load, or scrolling past loaded images into a chapter/image that's waiting for Cloudflare to resolve.
 
@@ -870,9 +972,20 @@ Switching providers loads that provider's data context; the previous provider's 
 
 On cold start, the app reads `activeProviderKey` from the session snapshot. If present, it loads that provider's JS bundle from IDB and initializes it. If the bundle is missing or corrupted, the app shows "Provider unavailable" with retry (see BD). If no `activeProviderKey` is set but providers are installed, the app activates the first installed provider. If no providers are installed, the app shows the empty state (BF). The provider must be loaded before any search, chapter list, or image request can be made — it defines the `MangaProvider` interface the app calls.
 
-## BJ. Server Proxy Is Provider-Agnostic
+## BJ. Live Network Paths Are Narrow Backend Endpoints
 
-The server proxy forwards requests to whatever domain the provider specifies via `HttpRequest.url` — it does not hardcode upstream domains. Cloudflare cookie caching and solving are keyed by domain, not by provider. This means two providers on the same domain share Cloudflare cookies, and two providers on different domains solve independently.
+The app no longer exposes a generic frontend-controlled server proxy. Live
+network operations are narrow backend endpoints with explicit ownership:
+
+- `/api/search` for live search
+- comments endpoints for live comments
+- cache endpoints for cached manga detail, chapter lists, and chapter images
+- image proxy for image bytes
+
+For search, the backend route delegates request construction and response
+parsing to the provider bundle, then owns transport through `proxyFetchJson`.
+Cloudflare cookie caching and solving remain keyed by upstream domain, not by
+feature.
 
 ## BK. TLS Root CA Distribution
 

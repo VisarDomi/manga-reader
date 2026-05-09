@@ -8,7 +8,6 @@
     import CommentsSection from '$lib/components/CommentsSection.svelte';
     import MangaList from '$lib/components/MangaList.svelte';
     import type { MangaEntry } from '$lib/state/manga.svelte.js';
-    import { CACHE_ONLY_MODE } from '$lib/constants.js';
 
     const entries = $derived(appState.manga.entries);
     const mangaState = appState.manga;
@@ -119,16 +118,14 @@
             <ChapterList {entry} />
         {/if}
 
-        {#if !CACHE_ONLY_MODE && (manga.recommendations ?? []).length > 0}
+        {#if (manga.recommendations ?? []).length > 0}
             <section class="manga-recommendations">
                 <h2>Recommendations</h2>
                 <MangaList manga={manga.recommendations ?? []} />
             </section>
         {/if}
 
-        {#if !CACHE_ONLY_MODE}
-            <CommentsSection title="Comments" comments={entry.comments} count={entry.commentsCount} isLoading={entry.isCommentsLoading} error={entry.commentsError} />
-        {/if}
+        <CommentsSection title="Comments" comments={entry.comments} count={entry.commentsCount} isLoading={entry.isCommentsLoading} error={entry.commentsError} />
     </div>
     </div>
 {/each}

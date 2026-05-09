@@ -9,7 +9,6 @@
     import ReaderView from '$lib/views/ReaderView.svelte';
     import ChapterCommentsView from '$lib/views/ChapterCommentsView.svelte';
     import Toast from '$lib/components/Toast.svelte';
-    import { CACHE_ONLY_MODE } from '$lib/constants.js';
 
     let readerRoot = $state<HTMLElement | null>(null);
     setContext('readerRoot', () => readerRoot);
@@ -28,8 +27,8 @@
     const backView = $derived(isSwiping ? appState.ui.peekBack() : null);
 
     const inReader = $derived(viewMode === View.READER);
-    const inChapterComments = $derived(!CACHE_ONLY_MODE && viewMode === View.CHAPTER_COMMENTS);
-    const showingChapterComments = $derived(!CACHE_ONLY_MODE && (inChapterComments || isForwardSwiping || forwardSwipeAnimating));
+    const inChapterComments = $derived(viewMode === View.CHAPTER_COMMENTS);
+    const showingChapterComments = $derived(inChapterComments || isForwardSwiping || forwardSwipeAnimating);
     const inManga = $derived(viewMode === View.MANGA);
     const isNestedMangaSwipe = $derived(inManga && backView === View.MANGA);
     const inFavorites = $derived(viewMode === View.FAVORITES);
@@ -42,9 +41,7 @@
     class:swipe-back={backView === View.LIST}
     class:swipe-animating={backView === View.LIST && swipeAnimating}
 >
-    {#if !CACHE_ONLY_MODE}
-        <ListView />
-    {/if}
+    <ListView />
 </div>
 
 <div

@@ -6,7 +6,6 @@ export const RESUME_RECOVERY_MS = 5_000;        // background time before full v
 export const DEEP_SLEEP_MS = 10 * 60 * 1000;    // background time before "Session restored" toast
 
 export const SEARCH_DEBOUNCE_MS = 500;            // debounce for search inputs (text + filters)
-export const CACHE_ONLY_MODE = true;              // temporary cache architecture test mode
 
 export const VISIBLE_MANGA_DEBOUNCE_MS = 1_000;   // debounce for visible manga card tracking
 
