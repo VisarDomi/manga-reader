@@ -11,6 +11,7 @@ export class FavoritesState {
     ids = $state<string[]>([]);
     isLoading = $state(false);
     private hydrationGeneration = 0;
+    private loaded = false;
 
     private toast: ToastState;
     private log: LogService;
@@ -25,6 +26,7 @@ export class FavoritesState {
     async init() {
         try {
             await this.loadFavoriteRows();
+            this.loaded = true;
         } catch {
             this.toast.show(Msg.STORAGE_UNAVAILABLE);
         }
@@ -65,9 +67,11 @@ export class FavoritesState {
     }
 
     async activate() {
+        if (this.loaded) return;
         this.isLoading = true;
         try {
             await this.loadFavoriteRows();
+            this.loaded = true;
         } catch {
             this.toast.show('Failed to load favorites');
         } finally {
