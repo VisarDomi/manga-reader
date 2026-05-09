@@ -96,7 +96,7 @@ export class FavoritesState {
         this.items = this.items.map(item => item.id === id ? manga : item);
         await chaptersPromise
             .then(page => {
-                this.chapterStats.update(id, manga.latestChapter ?? null, page.items, new Set());
+                this.chapterStats.update(id, manga.latestChapter ?? null, page.items);
             })
             .catch(() => {});
     }
@@ -125,7 +125,7 @@ export class FavoritesState {
     refreshChapterStats(): void {
         for (const item of this.items) {
             void api.fetchChapterListPage(item.id, 1)
-                .then(page => this.chapterStats.update(item.id, item.latestChapter ?? null, page.items, new Set()))
+                .then(page => this.chapterStats.update(item.id, item.latestChapter ?? null, page.items))
                 .catch(() => {});
         }
     }

@@ -14,7 +14,6 @@
     let filteredMaxSnapshot = $state({ filteredMax: null as number | null });
     const readChapter = $derived(progress?.chapterNumber ?? 0);
     const filteredMax = $derived(filteredMaxSnapshot.filteredMax ?? latestChapter);
-    const filteredMaxKnown = $derived(filteredMaxSnapshot.filteredMax != null);
     const hasProgress = $derived(progress != null);
 
     function syncStats() {
@@ -50,7 +49,7 @@
             <div class="manga-card-chapters">
                 <span class:started={hasProgress} class="read-chapter">{readChapter}</span>
                 <span class="chapter-divider">/</span>
-                <span class="filtered-chapter" class:ready={filteredMaxKnown}>{filteredMax}</span>
+                <span class="filtered-chapter">{filteredMax}</span>
                 <span class="chapter-divider">/</span>
                 <span>{latestChapter}</span>
             </div>
@@ -123,11 +122,6 @@
     min-width: 14px;
     padding: 0 3px;
     text-align: center;
-}
-
-.filtered-chapter.ready {
-    background: rgba(74, 246, 38, 0.9);
-    color: #000;
 }
 
 .chapter-divider {

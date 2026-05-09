@@ -47,18 +47,19 @@ export class ChapterStatsState {
         return !entry || entry.key !== this.keyFor(mangaId) || entry.upstreamMax !== upstreamMax;
     }
 
-    update(mangaId: string, upstreamMax: number | null, chapters: ChapterMeta[], selectedGroups: Set<string>): void {
+    update(mangaId: string, upstreamMax: number | null, chapters: ChapterMeta[], selectedGroups?: Set<string>): void {
+        const selected = selectedGroups ?? new Set(storage.getJson<string[]>(`group:${mangaId}`, []));
         const filteredByBlock = this.gf.count === 0
             ? chapters
             : chapters.filter(ch => !this.gf.isFiltered(ch.groupId ?? ''));
 
-        const source = selectedGroups.size === 0
+        const source = selected.size === 0
             ? filteredByBlock
-            : filteredByBlock.filter(ch => selectedGroups.has(ch.groupId ?? ''));
+            : filteredByBlock.filter(ch => selected.has(ch.groupId ?? ''));
 
         const filteredMax = source.reduce((max, ch) => Math.max(max, Number.isFinite(ch.number) ? ch.number : 0), 0);
         this.entries[mangaId] = {
-            key: this.keyFor(mangaId, selectedGroups),
+            key: this.keyFor(mangaId, selected),
             upstreamMax,
             filteredMax,
             updatedAt: Date.now(),
