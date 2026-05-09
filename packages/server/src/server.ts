@@ -5,6 +5,7 @@ import { PORT, CERT_KEY_PATH, CERT_PEM_PATH, FRONTEND_BUILD_DIR, validateConfig 
 import { createApp } from './app.js';
 import { BrowserSession } from './services/BrowserSession.js';
 import { CacheService } from './cache/CacheService.js';
+import { ByteCacheService } from './cache/ByteCacheService.js';
 import { listStoreHosts } from './utils/storeHosts.js';
 
 validateConfig();
@@ -12,8 +13,9 @@ validateConfig();
 const SHUTDOWN_TIMEOUT = 10_000;
 
 const browserSession = new BrowserSession('comix.to', 'https://comix.to');
-const cacheService = new CacheService(browserSession);
-const app = createApp(browserSession, cacheService);
+const byteCacheService = new ByteCacheService();
+const cacheService = new CacheService(browserSession, byteCacheService);
+const app = createApp(browserSession, cacheService, byteCacheService);
 
 const sslOptions = {
     key: fs.readFileSync(CERT_KEY_PATH),
@@ -28,7 +30,10 @@ server.listen(PORT, '0.0.0.0', () => {
     console.log(`[storeHosts] loaded ${listStoreHosts().length} hosts`);
 
     browserSession.init()
-        .then(() => cacheService.start())
+        .then(() => {
+            cacheService.start();
+            byteCacheService.start();
+        })
         .catch(err => {
             console.error(`[browserSession] init failed: ${err.message}`);
         });
@@ -48,6 +53,7 @@ function shutdown(signal: string) {
 
     browserSession.destroy().catch(() => {});
     cacheService.stop();
+    byteCacheService.close();
 
     server.close(() => {
         console.log('All connections closed. Exiting.');

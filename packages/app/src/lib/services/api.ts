@@ -1,4 +1,4 @@
-import { imageProxyUrl as _imageProxyUrl } from '../config.js';
+import { byteCacheUrl as _byteCacheUrl, imageProxyUrl as _imageProxyUrl } from '../config.js';
 import { fetchJson, ApiError, ApiErrKind } from './fetchJson.js';
 import { getProvider } from './provider.js';
 import type { Manga, ChapterMeta, ChapterPage, MangaComment, MangaCommentStats } from '../types.js';
@@ -61,7 +61,7 @@ export function imageProxyUrl(url: string, mangaId: string, chapterId: string, c
 
 export function coverProxyUrl(url: string): string {
     const provider = getProvider();
-    return _imageProxyUrl(url, provider.baseUrl);
+    return _byteCacheUrl(url, provider.baseUrl);
 }
 export interface SearchResult {
     manga: Manga[];

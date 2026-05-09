@@ -2,14 +2,18 @@ import type { BrowserSession } from '../services/BrowserSession.js';
 import { learnStoreHostFromUrl, listStoreHosts } from '../utils/storeHosts.js';
 import { proxyFetchJson } from '../utils/proxyFetch.js';
 import { CacheDatabase, type ImageStoreObservation } from './sqlite.js';
+import { DurableJobScheduler, type CacheJobPriorityName } from './DurableJobScheduler.js';
+import type { ByteCacheService } from './ByteCacheService.js';
 
 const COMIX_API_BASE = 'https://comix.to/api/v1';
 const NEWEST_LIMIT = 100;
 const CHAPTER_PAGE_SIZE = 100;
 const RECONCILE_PAGE_BUDGET = 5;
+const CACHE_WORKER_ID = 'cache-service';
+const DATA_CACHE_JOB_KINDS = ['seed-newest', 'crawl-search-page', 'cache-manga-detail', 'cache-chapters', 'reconcile-chapters', 'cache-chapter-page-map'];
 
-type CacheJobKind = 'seed-newest' | 'cache-manga-detail' | 'cache-chapters' | 'reconcile-chapters' | 'cache-chapter-images';
-export type CacheJobPriority = 'foreground' | 'observed' | 'background';
+type CacheJobKind = 'seed-newest' | 'crawl-search-page' | 'cache-manga-detail' | 'cache-chapters' | 'reconcile-chapters' | 'cache-chapter-page-map';
+export type CacheJobPriority = 'foreground' | 'observed' | 'daily' | 'background';
 export type CacheReconcileSource = 'search-result' | 'manga-open' | 'manual-refresh';
 
 export interface CacheReconcileResult {
@@ -28,6 +32,8 @@ interface CacheJob {
   chapterId?: string;
   chapterNumber?: number;
   chapterUrl?: string;
+  page?: number;
+  crawlDate?: string;
   observedLatestChapter?: number;
   source?: CacheReconcileSource;
   force?: boolean;
@@ -166,24 +172,41 @@ function imageStoreCandidates(imageUrl: string): string[] {
   return [...candidates];
 }
 
+function collectSearchThumbnailUrls(data: unknown): string[] {
+  const urls = new Set<string>();
+  const visit = (value: unknown): void => {
+    if (typeof value === 'string') {
+      if (/^https?:\/\//.test(value) && /\.(?:jpg|jpeg|png|webp)(?:[?#].*)?$/i.test(value)) {
+        urls.add(value);
+      }
+      return;
+    }
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item);
+      return;
+    }
+    if (value && typeof value === 'object') {
+      for (const child of Object.values(value as Record<string, unknown>)) visit(child);
+    }
+  };
+  visit(data);
+  return [...urls];
+}
+
 export class CacheService {
   private readonly db = new CacheDatabase();
-  private readonly foreground: CacheJob[] = [];
-  private readonly observed: CacheJob[] = [];
-  private readonly background: CacheJob[] = [];
-  private readonly imageBacklog: CacheJob[] = [];
+  private readonly scheduler = new DurableJobScheduler(this.db);
   private active = false;
   private started = false;
   private currentJob: CacheJob | null = null;
 
-  constructor(private readonly browserSession: BrowserSession) {}
+  constructor(private readonly browserSession: BrowserSession, private readonly byteCache: ByteCacheService | null = null) {}
 
   start(): void {
     if (this.started) return;
     this.started = true;
-    this.enqueue({ kind: 'seed-newest', priority: 'background', reason: 'startup' });
-    this.recoverImageBacklogFromChapterCache('startup-recovery');
-    console.log('[cache] start queued seed-newest reason=startup');
+    this.scheduler.recoverWorker(CACHE_WORKER_ID);
+    this.startDailyNewestCrawl();
   }
 
   stop(): void {
@@ -195,10 +218,7 @@ export class CacheService {
       started: this.started,
       active: this.active,
       currentJob: this.currentJob,
-      foreground: this.foreground.length,
-      observed: this.observed.length,
-      background: this.background.length,
-      imageBacklog: this.imageBacklog.length,
+      durableJobs: this.scheduler.counts(),
       counts: this.db.counts(),
     };
   }
@@ -286,129 +306,73 @@ export class CacheService {
   }
 
   refreshChapterImages(mangaId: string, chapterId: string, chapterNumber?: number, chapterUrl?: string, reason = 'frontend-refresh'): void {
-    this.enqueue({ kind: 'cache-chapter-images', priority: 'foreground', mangaId, chapterId, chapterNumber, chapterUrl, force: true, reason });
+    this.enqueue({ kind: 'cache-chapter-page-map', priority: 'foreground', mangaId, chapterId, chapterNumber, chapterUrl, force: true, reason });
   }
 
   warmChapterImages(mangaId: string, chapterId: string, chapterNumber?: number, chapterUrl?: string, reason = 'cache-miss'): void {
-    this.enqueue({ kind: 'cache-chapter-images', priority: 'foreground', mangaId, chapterId, chapterNumber, chapterUrl, reason });
+    this.enqueue({ kind: 'cache-chapter-page-map', priority: 'foreground', mangaId, chapterId, chapterNumber, chapterUrl, reason });
   }
 
   private enqueue(job: CacheJob): 'queued' | 'promoted' | 'existing' {
-    const queue = job.priority === 'foreground'
-      ? this.foreground
-      : job.priority === 'observed'
-        ? this.observed
-      : job.kind === 'cache-chapter-images'
-        ? this.imageBacklog
-        : this.background;
     if ((job.kind === 'cache-manga-detail' || job.kind === 'cache-chapters' || job.kind === 'reconcile-chapters') && job.mangaId) {
       if (this.currentJob?.kind === job.kind && this.currentJob.mangaId === job.mangaId) return 'existing';
-      if (this.promoteQueuedMangaJob(job)) {
-        this.drain();
-        return 'promoted';
-      }
-      const exists = [...this.foreground, ...this.observed, ...this.background].some(existing =>
-        existing?.kind === job.kind && existing.mangaId === job.mangaId,
-      );
-      if (exists) return 'existing';
       if (job.kind === 'reconcile-chapters') {
-        const fullJob = [...this.foreground, ...this.observed, ...this.background].find(existing =>
-          existing.kind === 'cache-chapters' && existing.mangaId === job.mangaId,
-        );
+        const fullJob = this.scheduler.jobsForResource('cache-chapters', job.mangaId)[0];
         if (fullJob) {
-          if (job.priority === 'foreground' && fullJob.priority !== 'foreground') {
-            this.promoteQueuedMangaJob({ ...fullJob, priority: 'foreground', reason: job.reason });
+          if (job.priority === 'foreground' && fullJob.priority < 1000) {
+            const payload = payloadObject(fullJob.payload);
+            const status = this.enqueueDurable({
+              kind: 'cache-chapters',
+              priority: 'foreground',
+              mangaId: job.mangaId,
+              force: payload.force === true,
+              reason: job.reason,
+            });
+            console.log(`[cache] job-promoted kind=cache-chapters manga=${job.mangaId} from=reconcile-conflict to=foreground reason=${job.reason}`);
             this.drain();
-            return 'promoted';
+            return status === 'existing' ? 'promoted' : status;
           }
           return 'existing';
         }
       }
     }
-    if (job.kind === 'cache-chapter-images' && job.mangaId && job.chapterId) {
-      if (this.currentJob?.kind === 'cache-chapter-images'
+    if (job.kind === 'cache-chapter-page-map' && job.mangaId && job.chapterId) {
+      if (this.currentJob?.kind === 'cache-chapter-page-map'
         && this.currentJob.mangaId === job.mangaId
         && this.currentJob.chapterId === job.chapterId) return 'existing';
-      if (this.promoteQueuedChapterImageJob(job)) {
-        this.drain();
-        return 'promoted';
-      }
-      const exists = [...this.foreground, ...this.observed, ...this.imageBacklog].some(existing =>
-        existing?.kind === 'cache-chapter-images'
-        && existing.mangaId === job.mangaId
-        && existing.chapterId === job.chapterId,
-      );
-      if (exists) return 'existing';
     }
-    queue.push(job);
+    const status = this.enqueueDurable(job);
     this.drain();
-    return 'queued';
+    return status;
   }
 
-  private promoteQueuedMangaJob(job: CacheJob): boolean {
-    if (job.priority !== 'foreground' || (job.kind !== 'cache-manga-detail' && job.kind !== 'cache-chapters' && job.kind !== 'reconcile-chapters') || !job.mangaId) return false;
-    const foregroundIndex = this.foreground.findIndex(existing =>
-      existing.kind === job.kind && existing.mangaId === job.mangaId,
-    );
-    if (foregroundIndex !== -1) return true;
-    const observedIndex = this.observed.findIndex(existing =>
-      existing.kind === job.kind && existing.mangaId === job.mangaId,
-    );
-    if (observedIndex !== -1) {
-      const [existing] = this.observed.splice(observedIndex, 1);
-      this.foreground.push({ ...existing, priority: 'foreground', reason: job.reason });
-      console.log(`[cache] job-promoted kind=${job.kind} manga=${job.mangaId} from=observed to=foreground reason=${job.reason}`);
-      return true;
-    }
-    const backgroundIndex = this.background.findIndex(existing =>
-      existing.kind === job.kind && existing.mangaId === job.mangaId,
-    );
-    if (backgroundIndex === -1) return false;
-    const [existing] = this.background.splice(backgroundIndex, 1);
-    this.foreground.push({ ...existing, priority: 'foreground', reason: job.reason });
-    console.log(`[cache] job-promoted kind=${job.kind} manga=${job.mangaId} from=background to=foreground reason=${job.reason}`);
-    return true;
-  }
-
-  private promoteQueuedChapterImageJob(job: CacheJob): boolean {
-    if (job.priority !== 'foreground' || job.kind !== 'cache-chapter-images' || !job.mangaId || !job.chapterId) return false;
-    const foregroundIndex = this.foreground.findIndex(existing =>
-      existing.kind === 'cache-chapter-images'
-      && existing.mangaId === job.mangaId
-      && existing.chapterId === job.chapterId,
-    );
-    if (foregroundIndex !== -1) return true;
-    const observedIndex = this.observed.findIndex(existing =>
-      existing.kind === 'cache-chapter-images'
-      && existing.mangaId === job.mangaId
-      && existing.chapterId === job.chapterId,
-    );
-    if (observedIndex !== -1) {
-      const [existing] = this.observed.splice(observedIndex, 1);
-      this.foreground.push({ ...existing, priority: 'foreground', reason: job.reason });
-      console.log(`[cache] job-promoted kind=cache-chapter-images manga=${job.mangaId} chapter=${job.chapterId} from=observed to=foreground reason=${job.reason}`);
-      return true;
-    }
-    const backlogIndex = this.imageBacklog.findIndex(existing =>
-      existing.kind === 'cache-chapter-images'
-      && existing.mangaId === job.mangaId
-      && existing.chapterId === job.chapterId,
-    );
-    if (backlogIndex === -1) return false;
-    const [existing] = this.imageBacklog.splice(backlogIndex, 1);
-    this.foreground.push({
-      ...existing,
-      priority: 'foreground',
-      chapterNumber: job.chapterNumber ?? existing.chapterNumber,
-      chapterUrl: job.chapterUrl ?? existing.chapterUrl,
+  private enqueueDurable(job: CacheJob): 'queued' | 'promoted' | 'existing' {
+    const resourceKey = this.resourceKey(job);
+    if (!resourceKey) return 'existing';
+    const payload = {
+      priority: job.priority,
+      mangaId: job.mangaId,
+      chapterId: job.chapterId,
+      chapterNumber: job.chapterNumber,
+      chapterUrl: job.chapterUrl,
+      page: job.page,
+      crawlDate: job.crawlDate,
+      observedLatestChapter: job.observedLatestChapter,
+      source: job.source,
+      force: job.force,
       reason: job.reason,
+    };
+    return this.scheduler.enqueueUnique({
+      kind: job.kind,
+      resourceKey,
+      priority: this.schedulerPriority(job.priority),
+      payload,
+      maxAttempts: job.kind === 'cache-chapter-page-map' ? 5 : 3,
     });
-    console.log(`[cache] job-promoted kind=cache-chapter-images manga=${job.mangaId} chapter=${job.chapterId} reason=${job.reason}`);
-    return true;
   }
 
-  private nextJob(): CacheJob | null {
-    return this.foreground.shift() ?? this.observed.shift() ?? this.background.shift() ?? this.imageBacklog.shift() ?? null;
+  private nextJob() {
+    return this.scheduler.claimNext(CACHE_WORKER_ID, 30 * 60 * 1000, DATA_CACHE_JOB_KINDS);
   }
 
   private hasChapterRepairWork(mangaId: string): boolean {
@@ -417,9 +381,8 @@ export class CacheService {
       && job.mangaId === mangaId
       && (job.kind === 'reconcile-chapters' || (job.kind === 'cache-chapters' && job.force === true));
     return isRepair(this.currentJob)
-      || this.foreground.some(isRepair)
-      || this.observed.some(isRepair)
-      || this.background.some(isRepair);
+      || this.scheduler.jobsByKinds(['reconcile-chapters', 'cache-chapters'])
+        .some(record => isRepair(this.recordToJob(record)));
   }
 
   private drain(): void {
@@ -433,42 +396,98 @@ export class CacheService {
 
   private async runLoop(): Promise<void> {
     while (true) {
-      const job = this.nextJob();
-      if (!job) return;
+      const record = this.nextJob();
+      if (!record) return;
+      const job = this.recordToJob(record);
       this.currentJob = job;
       const start = Date.now();
       try {
         if (job.kind === 'seed-newest') await this.seedNewest(job);
+        else if (job.kind === 'crawl-search-page') await this.crawlSearchPage(job);
         else if (job.kind === 'cache-manga-detail' && job.mangaId) await this.cacheMangaDetail(job.mangaId, job);
         else if (job.kind === 'cache-chapters' && job.mangaId) await this.cacheChapters(job.mangaId, job);
         else if (job.kind === 'reconcile-chapters' && job.mangaId) await this.reconcileChapters(job.mangaId, job);
-        else if (job.kind === 'cache-chapter-images' && job.mangaId && job.chapterId) await this.cacheChapterImages(job.mangaId, job.chapterId, job);
+        else if (job.kind === 'cache-chapter-page-map' && job.mangaId && job.chapterId) await this.cacheChapterPageMap(job.mangaId, job.chapterId, job);
+        this.scheduler.complete(record);
         console.log(`[cache] job-done kind=${job.kind} manga=${job.mangaId ?? 'none'} reason=${job.reason} ${Date.now() - start}ms`);
       } catch (e) {
-        const msg = (e as Error)?.message ?? String(e);
+        const msg = conciseError((e as Error)?.message ?? String(e));
+        this.scheduler.retry(record, msg, this.retryDelayMs(record.attempts));
         console.log(`[cache] job-failed kind=${job.kind} manga=${job.mangaId ?? 'none'} reason=${job.reason} ${Date.now() - start}ms ${msg}`);
       }
     }
   }
 
   private async seedNewest(job: CacheJob): Promise<void> {
-    const url = `${COMIX_API_BASE}/manga?page=1&limit=${NEWEST_LIMIT}&order%5Bchapter_updated_at%5D=desc`;
+    await this.crawlSearchPage({ ...job, kind: 'crawl-search-page', page: 1 });
+  }
+
+  private startDailyNewestCrawl(): void {
+    const crawlDate = todayKey();
+    if (this.db.getMeta(`crawl-search-newest:${crawlDate}:complete`) === '1') {
+      console.log(`[cache] start daily-crawl date=${crawlDate} action=already-complete`);
+      return;
+    }
+
+    const existing = this.crawlSearchJobsForDate(crawlDate);
+    if (existing.length > 0) {
+      console.log(`[cache] start daily-crawl date=${crawlDate} action=resume-existing jobs=${existing.length}`);
+      this.drain();
+      return;
+    }
+
+    const lastPage = Number(this.db.getMeta(`crawl-search-newest:${crawlDate}:last-page`) ?? 0);
+    const page = Number.isFinite(lastPage) && lastPage > 0 ? lastPage + 1 : 1;
+    this.enqueue({ kind: 'crawl-search-page', priority: 'daily', page, crawlDate, reason: 'startup' });
+    console.log(`[cache] start daily-crawl date=${crawlDate} action=enqueue page=${page}`);
+  }
+
+  private async crawlSearchPage(job: CacheJob): Promise<void> {
+    const page = job.page ?? 1;
+    const crawlDate = job.crawlDate ?? todayKey();
+    const reason = job.reason;
+    const url = `${COMIX_API_BASE}/manga?page=${page}&limit=${NEWEST_LIMIT}&order%5Bchapter_updated_at%5D=desc`;
     const start = Date.now();
     const { data, meta } = await proxyFetchJson(url, { cloudflareProtected: true });
     const items = resultItems(data);
-    this.db.setMeta('newest-page-1', JSON.stringify(data));
+    const pagination = resultPagination(data);
+    const lastPage = Number(pagination.last_page ?? pagination.lastPage ?? page);
+    this.db.setMeta(`newest-page-${page}`, JSON.stringify(data));
+    this.db.setMeta(`crawl-search-newest:${crawlDate}:last-page`, String(page));
 
     let queued = 0;
+    let thumbnailDiscovered = 0;
+    let thumbnailQueued = 0;
     for (const item of items) {
       const mangaId = mangaIdFromItem(item);
       if (!mangaId) continue;
       this.db.upsertManga(mangaId, item);
-      this.enqueue({ kind: 'cache-manga-detail', priority: 'background', mangaId, reason: job.reason });
-      this.enqueue({ kind: 'cache-chapters', priority: 'background', mangaId, reason: job.reason });
+      const thumbnailJobs = this.enqueueSearchThumbnailJobs(item, 'search-newest', 'daily');
+      thumbnailDiscovered += thumbnailJobs.discovered;
+      thumbnailQueued += thumbnailJobs.queued;
+      this.enqueue({ kind: 'cache-manga-detail', priority: 'background', mangaId, reason });
+      this.enqueue({ kind: 'cache-chapters', priority: 'background', mangaId, reason });
       queued++;
     }
 
-    console.log(`[cache] seed-newest fetched=${items.length} queued=${queued} http=${meta.status} fetchMs=${Date.now() - start}`);
+    const hasNext = page < lastPage && items.length > 0;
+    const otherFrontierExists = this.hasOtherCrawlSearchJob(crawlDate, page);
+    if (hasNext && !otherFrontierExists) {
+      this.enqueue({
+        kind: 'crawl-search-page',
+        priority: 'daily',
+        page: page + 1,
+        crawlDate,
+        reason: `crawl-next:${crawlDate}`,
+      });
+    } else if (!hasNext) {
+      this.db.setMeta(`crawl-search-newest:${crawlDate}:complete`, '1');
+    }
+
+    const next = hasNext
+      ? otherFrontierExists ? 'existing-frontier' : page + 1
+      : 'none';
+    console.log(`[cache] search-crawl page=${page}/${lastPage} date=${crawlDate} fetched=${items.length} queuedManga=${queued} thumbnails=${thumbnailDiscovered} queuedThumbnails=${thumbnailQueued} next=${next} http=${meta.status} fetchMs=${Date.now() - start}`);
   }
 
   private async cacheMangaDetail(mangaId: string, job: CacheJob): Promise<void> {
@@ -491,6 +510,17 @@ export class CacheService {
     console.log(`[cache] manga-detail cached manga=${mangaId} recommendations=${recommendations} genres=${genres} tags=${tags} description=${description} fetchMs=${result.durationMs}`);
   }
 
+  private crawlSearchJobsForDate(crawlDate: string): CacheJob[] {
+    return this.scheduler.jobsByKinds(['crawl-search-page'])
+      .map(record => this.recordToJob(record))
+      .filter(job => job.crawlDate === crawlDate);
+  }
+
+  private hasOtherCrawlSearchJob(crawlDate: string, currentPage: number): boolean {
+    return this.crawlSearchJobsForDate(crawlDate)
+      .some(job => job.page !== currentPage);
+  }
+
   private async cacheChapters(mangaId: string, job: CacheJob): Promise<void> {
     if (!job.force && this.db.getChapterList(mangaId)) {
       console.log(`[cache] chapters skip manga=${mangaId} reason=cached`);
@@ -504,9 +534,9 @@ export class CacheService {
     let failed = 0;
 
     for (let page = 2; page <= lastPage; page++) {
-      if ((this.foreground.length > 0 || this.observed.length > 0) && job.priority === 'background') {
+      if (this.scheduler.runnableCountAbove('background') > 0 && job.priority === 'background') {
         this.enqueue({ kind: 'cache-chapters', priority: 'background', mangaId, reason: 'resume-after-foreground' });
-        console.log(`[cache] chapters yield manga=${mangaId} nextForeground=${this.foreground.length} nextObserved=${this.observed.length}`);
+        console.log(`[cache] chapters yield manga=${mangaId} higherPriorityJobs=${this.scheduler.runnableCountAbove('background')}`);
         return;
       }
       try {
@@ -534,7 +564,6 @@ export class CacheService {
       },
     };
     this.db.upsertChapterList(mangaId, cached, failed > 0 ? 'partial' : 'ready');
-    this.enqueueChapterImageJobs(mangaId, allItems, job.reason);
     console.log(`[cache] chapters cached manga=${mangaId} pages=${lastPage} items=${allItems.length} failed=${failed}`);
   }
 
@@ -622,7 +651,6 @@ export class CacheService {
     };
 
     this.db.upsertChapterList(mangaId, merged, cached.status === 'partial' ? 'partial' : 'ready');
-    this.enqueueChapterImageJobs(mangaId, newItems, 'reconcile-new-chapters');
     console.log(`[cache] reconcile merged manga=${mangaId} previousCount=${cachedItems.length} nextCount=${mergedItems.length} previousMax=${previousMax ?? 'unknown'} nextMax=${nextMax ?? 'unknown'} new=${newItems.length} pages=${fetchedPages}`);
   }
 
@@ -632,43 +660,31 @@ export class CacheService {
     return result.data;
   }
 
-  private enqueueChapterImageJobs(mangaId: string, chapters: unknown[], reason: string): void {
+  private enqueueSearchThumbnailJobs(data: unknown, reason: string, priority: CacheJobPriorityName): { discovered: number; queued: number } {
+    const urls = collectSearchThumbnailUrls(data);
     let queued = 0;
-    for (const chapter of chapters) {
-      const chapterId = chapterIdFromItem(chapter);
-      if (!chapterId || this.getChapterImages(mangaId, chapterId)) continue;
-      const chapterNumber = chapterNumberFromItem(chapter);
-      this.enqueue({
-        kind: 'cache-chapter-images',
-        priority: 'background',
-        mangaId,
-        chapterId,
-        chapterNumber,
-        chapterUrl: chapterUrlFromItem(chapter, mangaId, chapterId, chapterNumber),
-        reason,
-      });
-      queued++;
+    for (const url of urls) {
+      const status = this.byteCache
+        ? this.byteCache.warm(url, 'https://comix.to', priority, reason)
+        : this.scheduler.enqueueUnique({
+            kind: 'cache-byte',
+            resourceKey: url,
+            priority,
+            payload: {
+              sourceUrl: url,
+              referer: 'https://comix.to',
+              reason,
+            },
+            maxAttempts: 5,
+          });
+      if (status === 'queued' || status === 'promoted') queued++;
     }
-    console.log(`[cache] chapter-images queued manga=${mangaId} queued=${queued}`);
+    return { discovered: urls.length, queued };
   }
 
-  private recoverImageBacklogFromChapterCache(reason: string): void {
-    const chapterLists = this.db.getAllChapterLists();
-    let queued = 0;
-    let chapters = 0;
-    for (const chapterList of chapterLists) {
-      const items = resultItems(chapterList.data);
-      chapters += items.length;
-      const before = this.imageBacklog.length;
-      this.enqueueChapterImageJobs(chapterList.mangaId, items, reason);
-      queued += this.imageBacklog.length - before;
-    }
-    console.log(`[cache] recovery chapter-lists=${chapterLists.length} chapters=${chapters} imageJobs=${queued}`);
-  }
-
-  private async cacheChapterImages(mangaId: string, chapterId: string, job: CacheJob): Promise<void> {
+  private async cacheChapterPageMap(mangaId: string, chapterId: string, job: CacheJob): Promise<void> {
     if (!job.force && this.getChapterImages(mangaId, chapterId)) {
-      console.log(`[cache] chapter-images skip manga=${mangaId} chapter=${chapterId} reason=cached`);
+      console.log(`[cache] chapter-page-map skip manga=${mangaId} chapter=${chapterId} reason=cached`);
       return;
     }
 
@@ -690,6 +706,61 @@ export class CacheService {
       }
       this.db.upsertChapterImages(mangaId, chapterId, result.data, readiness.ready ? 'ready' : 'empty');
     });
-    console.log(`[cache] chapter-images cached manga=${mangaId} chapter=${chapterId} status=${readiness.ready ? 'ready' : 'empty'} pages=${pages.length} targetCount=${readiness.targetCount ?? 'unknown'} source=${readiness.source} candidates=${candidates} fetchMs=${result.durationMs} totalMs=${Date.now() - start}`);
+    console.log(`[cache] chapter-page-map cached manga=${mangaId} chapter=${chapterId} status=${readiness.ready ? 'ready' : 'empty'} pages=${pages.length} targetCount=${readiness.targetCount ?? 'unknown'} source=${readiness.source} storeCandidates=${candidates} fetchMs=${result.durationMs} totalMs=${Date.now() - start}`);
   }
+
+  private resourceKey(job: CacheJob): string | null {
+    if (job.kind === 'seed-newest') return 'newest';
+    if (job.kind === 'crawl-search-page') return `${job.crawlDate ?? todayKey()}:${job.page ?? 1}`;
+    if (job.kind === 'cache-chapter-page-map') {
+      return job.mangaId && job.chapterId ? `${job.mangaId}:${job.chapterId}` : null;
+    }
+    return job.mangaId ?? null;
+  }
+
+  private schedulerPriority(priority: CacheJobPriority): CacheJobPriorityName {
+    return priority === 'foreground' ? 'foreground' : priority === 'observed' ? 'observed' : priority === 'daily' ? 'daily' : 'background';
+  }
+
+  private recordToJob(record: { kind: string; payload: unknown }): CacheJob {
+    const payload = payloadObject(record.payload);
+    return {
+      kind: record.kind as CacheJobKind,
+      priority: payload.priority === 'foreground' || payload.priority === 'observed' || payload.priority === 'daily' ? payload.priority : 'background',
+      mangaId: stringOrUndefined(payload.mangaId),
+      chapterId: stringOrUndefined(payload.chapterId),
+      chapterNumber: numberOrUndefined(payload.chapterNumber),
+      chapterUrl: stringOrUndefined(payload.chapterUrl),
+      page: numberOrUndefined(payload.page),
+      crawlDate: stringOrUndefined(payload.crawlDate),
+      observedLatestChapter: numberOrUndefined(payload.observedLatestChapter),
+      source: payload.source === 'search-result' || payload.source === 'manga-open' || payload.source === 'manual-refresh' ? payload.source : undefined,
+      force: payload.force === true,
+      reason: stringOrUndefined(payload.reason) ?? 'durable-job',
+    };
+  }
+
+  private retryDelayMs(attempts: number): number {
+    return Math.min(60_000, 1000 * Math.max(1, attempts));
+  }
+}
+
+function payloadObject(payload: unknown): Record<string, unknown> {
+  return payload && typeof payload === 'object' ? payload as Record<string, unknown> : {};
+}
+
+function stringOrUndefined(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function numberOrUndefined(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function conciseError(error: string): string {
+  return error.split('\n')[0]?.trim().slice(0, 500) || 'unknown-error';
+}
+
+function todayKey(): string {
+  return new Date().toISOString().slice(0, 10);
 }

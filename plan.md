@@ -1,321 +1,315 @@
-# Cache Invalidation and Reconciliation Plan
+# Durable Cache Scheduler and Byte Cache Plan
 
 ## Goal
 
-Keep backend cache fresh when live search discovers newer manga data, without
-falling back to expensive full recaches for large manga.
+Move cache work from best-effort in-memory queues to a power-off robust cache
+system that can be stopped, restarted, and resumed without losing intent.
 
-The common case is:
+The frontend should eventually hit the upstream provider only for:
 
-1. Live search returns a manga with `latestChapter = 3001`.
-2. Backend cached chapter list still has `cachedMax = 3000`.
-3. Frontend reports that mismatch to the backend.
-4. Backend repairs the cache by fetching only the newest chapter-list pages
-   needed to bridge the gap.
-5. If the user opens that manga, the same repair work is promoted above normal
-   background work.
+- live search
+- comments
+- final reader page image bytes
 
-## Ownership
+Everything else should come from our backend cache:
 
-- **Search owns fresh discovery.** Search is live and can see newer upstream
-  max chapter numbers before the cache does.
-- **Frontend owns observation, not repair.** The frontend reports evidence:
-  manga ID, observed latest chapter, source, and user priority. It does not
-  decide how many pages to fetch or how to merge.
-- **Backend cache owns truth and repair.** The cache service decides whether
-  cached data is stale, what work is needed, how to fetch it, and how to merge
-  results.
-- **Provider/BrowserSession own upstream details.** Comix request signing,
-  pagination shape, IDs, and parsing stay out of UI state.
+- manga detail metadata
+- chapter lists
+- chapter image URL metadata
+- thumbnails, covers, avatars, and other small image bytes
 
-## New Contract
+## Current Gap
 
-Add a backend endpoint:
+The cache tables are durable, but cache work is not. `CacheService` owns four
+in-memory queues: foreground, observed, background, and image backlog. On
+restart, completed data survives, but unfinished intent does not. Some work is
+recovered heuristically from existing rows, but the queue itself is not the
+source of truth.
+
+That is not enough for daily crawls, user-priority promotion, byte caching, or
+power-off recovery.
+
+## Ownership Model
+
+- **Durable scheduler owns work order.** It stores jobs, dedupes by resource,
+  promotes priority, leases active work, retries failures, and recovers stale
+  leases after restart.
+- **Data cache engine owns structured provider data.** It writes manga detail,
+  chapter list, chapter image metadata, and search discovery cache state.
+- **Byte cache engine owns local bytes.** It downloads small provider assets,
+  writes files atomically, records byte status, and serves local files.
+- **Provider runtime and BrowserSession own upstream protocol.** Signing,
+  headers, pagination shape, and Comix-specific parsing stay behind provider
+  boundaries.
+- **Frontend owns intent and observation.** It reports user-visible evidence:
+  foreground opens, search-observed stale manga, and image-store results. It
+  does not choose page numbers, storage layout, retry policy, or queue order.
+
+## Durable Scheduler Schema
+
+Add `cache_jobs`:
+
+```sql
+CREATE TABLE cache_jobs (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  resource_key TEXT NOT NULL,
+  priority INTEGER NOT NULL,
+  payload_json TEXT NOT NULL,
+  status TEXT NOT NULL,
+  run_after INTEGER NOT NULL,
+  attempts INTEGER NOT NULL,
+  max_attempts INTEGER NOT NULL,
+  lease_owner TEXT,
+  lease_until INTEGER,
+  last_error TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  UNIQUE(kind, resource_key)
+);
+```
+
+Scheduler states:
+
+- `queued`: ready when `run_after <= now`
+- `running`: claimed by one worker until `lease_until`
+- `retry`: failed but eligible later
+- `failed`: retry budget exhausted
+
+Completed jobs are deleted. The cache row is the durable result; the job row is
+only durable intent.
+
+Priority values:
+
+- `1000`: foreground user action
+- `500`: observed user-adjacent work, such as search discovering stale data
+- `100`: daily crawl
+- `10`: background completion/backfill
+
+Scheduler API:
+
+- `enqueueUnique(kind, resourceKey, priority, payload, options)`
+- `prependBatchUnique(jobs)` for daily crawl refreshes
+- `promote(kind, resourceKey, priority, payloadPatch)`
+- `claimNext(workerId, leaseMs)`
+- `complete(jobId)`
+- `retry(jobId, error, runAfter)`
+- `fail(jobId, error)`
+- `counts()`
+
+The scheduler is the only writer of job state. Cache engines execute claimed
+jobs and report success or failure back to the scheduler.
+
+## Data Cache Jobs
+
+Initial job kinds:
+
+- `crawl-search-newest:{yyyy-mm-dd}`: daily newest crawl checkpoint
+- `cache-manga-detail:{mangaId}`
+- `cache-chapters:{mangaId}`
+- `reconcile-chapters:{mangaId}`
+- `cache-chapter-page-map:{mangaId}:{chapterId}`
+
+Foreground reads can promote matching queued jobs. They should not duplicate
+work for the same resource.
+
+If a lower-priority job is already running, it finishes its current atomic
+request/write. Higher-priority work runs next. We do not interrupt an in-flight
+signed request unless the owning request layer gains safe cancellation.
+
+## Cache Layers
+
+The durable queue should make the cache layers explicit. Lower layers must not
+block higher layers unless a foreground user action promotes them.
+
+1. **Search thumbnails.** Live search is the only source for thumbnail byte
+   discovery. Search rows enqueue `cache-byte` jobs for their cover/thumbnail
+   URLs. This is the highest background crawl layer because it makes lists
+   visually complete.
+2. **Manga details.** Detail metadata fills title metadata, tags,
+   recommendations, descriptions, and related app data. It does not scan for
+   more thumbnails; thumbnails come from search discovery only.
+3. **Chapter lists.** Chapter-list metadata fills chapter IDs, chapter numbers,
+   groups, and pagination.
+4. **Chapter page maps.** `cache-chapter-page-map` fetches per-chapter page
+   metadata and stores page image URLs plus possible store candidates for
+   404/non-404 learning. It does not download reader image bytes. It should be
+   cached eventually, but it is a later layer and should not be a giant
+   speculative backlog ahead of search thumbnails, manga details, or chapter
+   lists. Reader requests can promote a chapter page-map job to foreground.
+
+## Daily Search Crawl
+
+Once per day, enqueue a newest crawl job. It starts at newest page 1 and works
+forward through search pages.
+
+For each page:
+
+1. Fetch live search through the same backend provider path used by frontend
+   search.
+2. Upsert the discovered manga card/search row into cache.
+3. Enqueue thumbnail/cover byte jobs from the search row.
+4. Enqueue or promote detail/chapter reconciliation jobs for each manga.
+5. Store crawl checkpoint state in the job payload or `cache_meta`.
+
+If yesterday's crawl is not finished when today's crawl starts, today's newest
+pages are inserted at higher priority. Duplicate resources are promoted or
+refreshed, not duplicated. Old unfinished work remains available after the new
+newest frontier is handled.
+
+Stop strategy can evolve, but the first version should support:
+
+- stop at upstream last page
+- stop at a conservative page cap
+- stop after a long run of cache-fresh manga if that proves safe in logs
+
+## Byte Cache Schema
+
+Add `byte_cache`:
+
+```sql
+CREATE TABLE byte_cache (
+  source_url TEXT PRIMARY KEY,
+  local_key TEXT NOT NULL,
+  content_type TEXT,
+  bytes INTEGER,
+  status TEXT NOT NULL,
+  last_checked_at INTEGER,
+  updated_at INTEGER NOT NULL,
+  error TEXT
+);
+```
+
+Byte files live under `${STATE_DIR}/bytes` unless overridden later. Writes use:
+
+1. stream to temporary file
+2. fsync where practical
+3. atomic rename to final local key
+4. update SQLite row after the file is durable
+
+Status values:
+
+- `queued`
+- `ready`
+- `failed`
+- `gone`
+
+## Byte Route
+
+Add a backend byte route:
 
 ```http
-POST /api/cache/manga/:mangaId/reconcile
+GET /api/byte?url=<provider-url>
 ```
 
-Request body:
+Behavior:
 
-```json
-{
-  "observedLatestChapter": 3001,
-  "source": "search-result",
-  "priority": "observed"
-}
+1. If `byte_cache.status = ready` and the file exists, serve the local file.
+2. If missing, enqueue a foreground byte-cache job.
+3. For early rollout, proxy-and-store on miss so the UI still has an image.
+4. If proxy fails, record failure truthfully and return the real error.
+
+This route replaces thumbnail use of `/api/image`. Reader page images stay on
+the current image proxy/store-failover path because those are the large final
+content bytes.
+
+## Data and Byte Link
+
+Raw provider payloads should stay raw. The cache database may remember provider
+thumbnail URLs, but provider-shaped JSON should not be repeatedly mutated to
+point to local files.
+
+The app-facing normalized API layer can expose local byte routes for cover and
+thumbnail fields. That gives the frontend stable URLs while preserving a clean
+boundary between provider data and local byte policy.
+
+If materialized local thumbnail URLs are needed later for speed, store them in
+an app-owned side table or normalized cache field, not in raw provider JSON.
+
+## Migration Order
+
+1. Add `cache_jobs` and `byte_cache` tables. **Done.**
+2. Add durable scheduler primitives and logs without changing active queue
+   behavior. **Done.**
+3. Convert existing `CacheService` enqueue/claim/done/fail logic to the durable
+   scheduler. **Done.**
+4. Derive cache status from durable jobs instead of in-memory arrays. **Done for
+   `/api/cache/status`; remaining work is to simplify old recovery terminology.**
+5. Add byte cache worker and `/api/byte`. **Done.**
+6. Switch cover/thumbnail URLs to `/api/byte`. **Done for the frontend cover
+   helper used by covers, avatars, comment images, favorites, search results,
+   recommendations, and manga detail covers.**
+7. Enqueue thumbnail byte jobs from search discovery only. **Done.**
+8. Add daily crawl jobs and checkpoints. **Done for paginated newest crawl;
+   remaining work is next-day frontier promotion if an old crawl is still
+   unfinished.**
+9. Add later-layer chapter page-map crawl policy after higher layers are
+   drained. **Pending. This should use the `cache-chapter-page-map` job and
+   must not be confused with byte downloads.**
+
+Each step should build/restart independently and keep logs strong enough to
+prove whether the new owner is actually owning the behavior.
+
+## Implementation Progress
+
+- Added `BYTE_CACHE_DIR` config.
+- Added `cache_jobs` and `byte_cache` SQLite schema.
+- Added scheduler database primitives for unique enqueue, promotion, claiming,
+  completion, retry, failure, and job counts.
+- Added `DurableJobScheduler` as the policy wrapper over the SQLite job
+  primitives.
+- Verified that the managed service starts and the new table counts are visible
+  through `/api/cache/status`.
+- Converted `CacheService` enqueue, claim, completion, retry, and foreground
+  promotion to the durable scheduler.
+- Added startup recovery for jobs left `running` by a previous service process.
+- Added `ByteCacheService` and `/api/byte`.
+- Switched `coverProxyUrl` to use `/api/byte`; reader page images still use
+  `/api/image`.
+- Verified `/api/byte` against a real cached Comix thumbnail. First hit
+  proxied and stored 42 KB locally; second hit served the local file without a
+  new `miss-store` log.
+- Added `cache-byte` durable worker support. Paginated search discovery
+  enqueues thumbnail byte jobs; manga-detail cache no longer scans for
+  thumbnails.
+- Renamed the confusing `cache-chapter-images` job to
+  `cache-chapter-page-map` in code and plan. This job owns URL/store-candidate
+  metadata, not image byte downloads.
+- Removed stale speculative `cache-chapter-images` queue rows from SQLite while
+  preserving already cached chapter page-map rows.
+- Added daily newest crawl pagination. Each crawled search page upserts manga
+  card data, enqueues thumbnail byte jobs from the search row, enqueues lower
+  layer manga detail/chapter-list jobs, and queues the next search page.
+- Tightened daily crawl restart behavior. Startup now resumes an existing
+  durable crawl frontier for the current date instead of blindly starting page
+  1 again, and multiple frontiers collapse instead of multiplying on restart.
+- Search thumbnail discovery is now only from live search rows. There are no
+  thumbnail extraction passes from manga detail or chapter metadata.
+- Tightened log ownership after the durable crawl proved too noisy: search page
+  crawl logs aggregate discovery, the scheduler logs foreground/promotions and
+  non-bulk lifecycle events, and the byte cache worker logs batch summaries plus
+  failures instead of one success line per thumbnail.
+
+The active cache worker now uses `cache_jobs`. The next step is to make the
+daily crawl boundary stronger: if an unfinished older crawl exists when a new
+day starts, the new newest frontier should run ahead of stale lower-page work
+without duplicating resources.
+
+## Verification
+
+Use managed service logs after each restart:
+
+```bash
+journalctl --user -u manga-reader.service --since '<build time>' --until now --no-pager
 ```
 
-Allowed sources:
+Expected proof points:
 
-- `search-result`: live search result noticed newer upstream data.
-- `manga-open`: user opened a manga from a result/card.
-- `manual-refresh`: explicit user refresh can continue using full refresh if
-  desired, but it should log under the same vocabulary.
-
-Allowed priorities:
-
-- `observed`: repair soon, but do not block foreground user work.
-- `foreground`: user is opening/reading this manga; promote immediately.
-
-The endpoint should respond quickly with the decision, not wait for all repair
-work unless the existing cache read path is already polling for warming.
-
-Example response:
-
-```json
-{
-  "status": "queued",
-  "mangaId": "abc",
-  "cachedMax": 3000,
-  "observedLatestChapter": 3001,
-  "action": "reconcile"
-}
-```
-
-## Cache Decision Flow
-
-When reconcile is requested:
-
-1. Read existing cached chapter list.
-2. Compute:
-   - cached max chapter number
-   - cached top chapter ID if available
-   - cached chapter count
-   - cache status
-3. If no cached chapter list exists:
-   - queue normal `cache-manga-detail`
-   - queue normal `cache-chapters`
-   - reason: `reconcile-missing-cache`
-4. If `observedLatestChapter` is missing or invalid:
-   - log and ignore, unless priority is foreground and the cache is missing.
-5. If `cachedMax >= observedLatestChapter`:
-   - no repair is needed.
-   - log `fresh`.
-6. If `observedLatestChapter > cachedMax`:
-   - queue or promote `reconcile-chapters`.
-   - include cached max/top chapter evidence in the job.
-
-The frontend should never delete cache rows or request page numbers directly.
-
-## Incremental Reconcile Strategy
-
-Add a cache job kind:
-
-```ts
-reconcile-chapters
-```
-
-The job fetches newest chapter-list pages in descending order and merges new
-items into the cached list.
-
-Algorithm:
-
-1. Load cached chapter list.
-2. Build a set of cached chapter IDs and cached chapter numbers.
-3. Fetch chapter page 1 with the existing provider/BrowserSession-owned
-   chapter-list path (`limit=100`, newest first).
-4. Add any chapters not already cached.
-5. Stop when one of these is true:
-   - a fetched chapter ID already exists in cache
-   - fetched chapter numbers reach or go below `cachedMax`
-   - merged data now covers `observedLatestChapter`
-6. If not stopped and page 1 did not prove completeness:
-   - fetch page 2, then page 3, etc.
-7. Put a conservative page budget on incremental reconcile, for example 3-5
-   pages. If the budget is exceeded, queue a full `cache-chapters` refresh.
-8. Write the merged chapter list atomically.
-9. Enqueue chapter-image jobs only for newly discovered chapters.
-
-For the normal "one new chapter" case, this should be one signed chapter-list
-request and one SQLite update.
-
-For a large release gap, the job can fetch a few pages and then fall back to a
-full refresh if it cannot prove completeness.
-
-## Merge Rules
-
-The cached chapter-list payload should remain provider-shaped so existing
-frontend parsing keeps working.
-
-Merge by stable chapter ID first.
-
-Sort after merge by chapter number descending, with current existing behavior
-preserved for tie handling. If multiple groups share a chapter number, do not
-dedupe them at the cache layer; group filtering/deduping remains frontend
-display policy.
-
-Update pagination metadata so it remains truthful enough for current parser
-and logs:
-
-- `current_page = 1`
-- `page = 1`
-- `total = merged item count` unless upstream provides a stronger total
-- preserve upstream pagination fields that still make sense
-
-## Priority and Promotion
-
-Current cache queues have foreground/background behavior. Reconcile needs
-stronger semantics:
-
-- `background`: startup discovery and image backlog.
-- `observed`: search noticed stale cache.
-- `foreground`: user opened the manga or reader needs it now.
-
-Implementation can use multiple arrays or a priority enum, but logs must show
-the semantic priority.
-
-Rules:
-
-- If an `observed` reconcile is queued and a `foreground` reconcile arrives
-  for the same manga, promote the existing job.
-- Do not duplicate jobs for the same manga and kind.
-- If a foreground reconcile arrives while a background chapter-list job for the
-  same manga is queued, promote that work rather than adding another one.
-- If a background job is currently active, it can finish its current atomic
-  request/write, then foreground jobs should run next.
-- Do not interrupt an in-flight signed request mid-request unless the current
-  code already has safe cancellation for it. Priority should be real at job
-  boundaries first.
-
-## Frontend Triggers
-
-### Search Results
-
-After live search results arrive:
-
-1. For each result with a valid `latestChapter`, compare against known cached
-   filtered/max state if available.
-2. If search latest is newer than cached max, report reconcile with:
-   - `source = search-result`
-   - `priority = observed`
-3. Dedupe per manga ID.
-4. Debounce/batch so a 100-result page does not send 100 immediate requests in
-   one frame.
-
-Open question for implementation:
-
-- We may need a cheap backend cache-summary endpoint so the frontend can know
-  cached max without parsing full chapter lists for every search result.
-  If the frontend only has memory stats for some cards, search-triggered
-  reconcile should be conservative and capped.
-
-### Manga Open
-
-When opening a manga from search/favorites/recommendations:
-
-1. If the card/result has `latestChapter`, send reconcile with:
-   - `source = manga-open`
-   - `priority = foreground`
-2. Then continue opening the manga through the existing cache read path.
-3. If the cached list is stale/missing, the cache read should see `warming`
-   and poll until the foreground reconcile/cache job finishes.
-
-This gives the user-open path priority over passive search observation without
-creating a separate repair model.
-
-## Backend Cache Metadata
-
-Current code can compute cached max by parsing the cached chapter-list row.
-That is acceptable for a first implementation.
-
-Better architecture is to persist or expose cache summary metadata:
-
-```ts
-{
-  mangaId,
-  cachedMaxChapter,
-  chapterCount,
-  updatedAt,
-  status
-}
-```
-
-Options:
-
-1. Derive it on demand from `chapter_list_cache`.
-   - Simpler.
-   - More CPU if called for many search results.
-2. Store metadata columns or a side table.
-   - Better for search-page bulk comparison.
-   - Requires migration/backfill.
-
-Recommended first step:
-
-- Derive on backend for reconciliation decisions.
-- Add summary persistence only if logs show search-result reconcile checks are
-  too expensive.
-
-## Logging Requirements
-
-Add logs that let us verify this story:
-
-- frontend search result mismatch detected:
-  - manga ID
-  - observed latest
-  - known cached max, if known
-  - source
-- backend reconcile decision:
-  - manga ID
-  - cached max
-  - observed latest
-  - action: `fresh | queued | promoted | full-refresh | ignored`
-  - priority/source/reason
-- incremental page fetch:
-  - page number
-  - items fetched
-  - new items
-  - whether cached top/max was reached
-- merge result:
-  - previous count/max
-  - new count/max
-  - newly queued chapter-image jobs
-- promotion:
-  - old priority
-  - new priority
-  - reason
-
-If logs cannot tell whether search noticed stale data, backend queued repair,
-and manga open promoted it, the logging is incomplete.
-
-## Failure Behavior
-
-- If incremental reconcile fails with a transient upstream error:
-  - keep old cache row
-  - log failure
-  - leave future search/open triggers able to retry
-- If incremental reconcile cannot prove completeness within page budget:
-  - queue full `cache-chapters` refresh with foreground priority if user-opened
-  - do not delete the old cache until the replacement is ready
-- If full refresh fails:
-  - keep old cache
-  - surface existing cache to the user if available
-  - log stale/error state
-
-The UI should not become worse because a repair failed. Old cache is stale but
-usable; missing cache is warming/error.
-
-## Non-Goals
-
-- Do not reintroduce generic frontend proxying.
-- Do not make the frontend understand Comix chapter-list pagination.
-- Do not invalidate/delete a 3000-chapter cache row before a replacement is
-  ready.
-- Do not make search block on cache repair.
-- Do not enqueue image discovery for every existing chapter during a small
-  reconcile; only new chapters need image jobs.
-
-## Implementation Order
-
-1. Add backend reconcile endpoint and decision logs.
-2. Add cache-service job type and priority/promotion semantics.
-3. Implement incremental page fetch and merge.
-4. Add frontend observed mismatch reporting from search results, capped and
-   deduped.
-5. Add foreground reconcile reporting on manga open.
-6. Verify with logs:
-   - search result detects stale cached max
-   - backend queues observed reconcile
-   - opening the manga promotes it
-   - incremental reconcile fetches only needed pages in normal case
-   - old cache remains usable on failure
+- startup logs show durable job counts
+- queued jobs survive service restart
+- stale `running` leases are reclaimed
+- foreground opens promote matching jobs
+- daily newest crawl dedupes instead of duplicating work
+- byte-cache misses enqueue one job per source URL
+- byte-cache ready files are served locally
+- provider thumbnail calls disappear after byte cache warms
