@@ -439,6 +439,50 @@ and investigating DOM/style/layout cost from 1000+ mounted cards. Do not change
 the navigation behavior, hibernate top-level views, or remove card information
 without explicit approval.
 
+### 38. Separate Logical Position from Physical Scroll Surface
+
+The reader can know about thousands of chapters without making the browser
+scroll a document that is tens of millions of pixels tall. Logical manga
+position and physical browser `scrollTop` are separate resources and must have
+separate owners.
+
+The winning reader architecture is:
+
+- `ReaderWindowManager` owns logical chapter coordinates for the whole manga.
+- `ReaderState` owns the bounded physical scroll runway and maps between
+  logical manga coordinates and browser `scrollTop`.
+- `Reader.svelte` owns DOM observation and calls back into the reader owner; it
+  does not decide global layout policy.
+- `ReaderMemoryManager` owns page image blob lifetime inside the mounted
+  physical window.
+
+The physical reader stage is a bounded runway around the current logical
+viewport, currently about 200k px above and 200k px below the viewport. When a
+full manga detail has 3000+ chapters, the logical scroll position may be around
+26M px, but Safari should only see a physical scroll surface around 250k-400k
+px. Logs must show both numbers (`logicalScrollTop`, `physicalWindowStart`,
+`physicalHeight`, `scrollHeight`) so regressions are easy to spot.
+
+Failed approaches from the 2026-05-08/09 reader performance work:
+
+- **DOM/layer hibernation:** unmounting hidden top-level views changed behavior
+  and did not address the reader's real ownership problem. Top-level views stay
+  mounted unless behavior explicitly changes (see rule 33).
+- **Image placeholder A/B:** replacing reader images with placeholders only
+  proved that images were absent; it did not model the real reading path and
+  was not useful as a production-facing experiment.
+- **Giant virtual spacer:** mounting only nearby chapters while keeping the
+  physical scroll height equal to the full logical manga height made iOS Safari
+  manage a 26M px scroller. Reader JS stayed cheap, but scroll/compositing
+  felt heavy.
+- **Frozen placeholder heights:** preserving a placeholder's reserved height
+  forever avoided immediate scroll jumps but caused cropped/overlapping
+  chapters when hydration proved the real chapter was taller.
+
+The durable fix is the bounded physical scroller: keep full logical knowledge,
+load/fetch chapters by logical proximity, but cap the browser scroll surface and
+rebase the physical runway around the visible logical position.
+
 ## Product Decisions
 
 These are app-level behavior decisions that drive UX, persistence, navigation,
@@ -525,21 +569,60 @@ Reader page images are scheduled by the reader memory manager from current virtu
 
 This image window is separate from the reader chapter window in AK and from list-view infinite scroll in AE. Chapter slots decide which chapters exist in the DOM; the memory manager decides which mounted page images should hold blob URLs.
 
-## AK. Reader Uses Virtual Chapter Windows
+## AK. Reader Uses a Bounded Physical Scroller over Logical Chapter Windows
 
-The reader lays out all chapters in one virtual coordinate space, but only mounts chapter slots near the viewport. Slot planning is owned by `ReaderWindowManager`:
+The reader lays out all chapters in one logical manga coordinate space, but the
+browser never owns that full logical height. The physical DOM scroll surface is
+a bounded runway around the current logical viewport. This lets the app know
+about a full 3000+ chapter manga while keeping iOS Safari away from 20M+ pixel
+scroll surfaces.
 
-- **Load window:** chapters whose virtual slot intersects 10 viewports before or after the current viewport are wanted. Wanted placeholder slots are fetched by priority.
-- **DOM keep window:** slots are kept mounted while they intersect 12 viewports before or after the current viewport, or while they are wanted by the load window.
-- **Image window:** mounted page images are loaded and retained within the 14-viewport image window described in BL.
+Ownership is split deliberately:
 
-Priority is recalculated from the current virtual viewport. Distance to the viewport is the base priority; the current scroll direction biases work toward previous chapters while scrolling up and next chapters while scrolling down. Nearby placeholder slots are fetched concurrently up to the current scheduler limit.
+- `ReaderWindowManager` owns logical layout: chapter order, logical top/bottom,
+  load-window candidates, DOM keep-window slots, and fetch priority.
+- `ReaderState` owns physical layout: `physicalWindowStart`, physical
+  `scrollTop`, physical stage height, and the mapping between logical and
+  browser coordinates.
+- `Reader.svelte` owns DOM observation, page measurement, and scroll events.
+  It reports facts to `ReaderState`; it does not decide global reader layout.
+- `ReaderMemoryManager` owns image blob lifetime for mounted pages in the
+  physical window.
 
-When a chapter hydrates, its reserved virtual height is preserved first so hydration does not mutate scroll geometry. Actual measured heights are promoted later by the layout owner during idle layout promotion.
+Window policy:
+
+- **Physical runway:** reserve about 200k px above and 200k px below the
+  viewport. If the logical viewport approaches the runway edge, `ReaderState`
+  rebases `physicalWindowStart` and preserves the visible logical position.
+- **Load window:** chapters whose logical slot intersects 10 viewports before
+  or after the logical viewport are wanted. Wanted placeholder slots are fetched
+  by priority.
+- **DOM keep window:** slots are kept mounted while they intersect 12 viewports
+  before or after the logical viewport, or while they are wanted by the load
+  window.
+- **Image window:** mounted page images are loaded and retained within the
+  14-viewport image window described in BL.
+
+Priority is recalculated from the current logical viewport. Distance to the
+viewport is the base priority; the current scroll direction biases work toward
+previous chapters while scrolling up and next chapters while scrolling down.
+Nearby placeholder slots are fetched concurrently up to the current scheduler
+limit.
+
+When a chapter hydrates and its real height differs from the placeholder,
+logical layout may change. The physical runway absorbs that change by keeping
+the visible anchor stable inside the bounded surface. Hydration must not crop a
+chapter by freezing the old slot height forever, and it must not expand the
+browser's physical scroll surface to the full manga height.
 
 ## BM. Chapter Loading Priority and Boundaries
 
-When opening a chapter, the selected chapter loads first and is placed into the virtual layout. The reader then reconciles the virtual window from the restored or initial scroll position and fetches nearby placeholder chapters according to AK. Fresh opens, restores, fast upward scrolls, and fast downward scrolls all use the same virtual-window planner.
+When opening a chapter, the selected chapter loads first and is placed into the
+logical reader layout. The reader then maps the restored or initial logical
+position into the bounded physical runway from AK and fetches nearby
+placeholder chapters according to logical proximity. Fresh opens, restores,
+fast upward scrolls, and fast downward scrolls all use the same
+virtual-window planner.
 
 Chapter change is detected from the visible page probe at one-third down the viewport (see AJ), with `layoutChapterId` and `currentChapterId` used as preferred ownership hints. Visibility is an observation; it can update progress and title context, but it does not own virtual layout.
 
