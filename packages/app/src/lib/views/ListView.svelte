@@ -12,7 +12,6 @@
     const isLoading = $derived(appState.searchState.isLoading);
     const hasMore = $derived(appState.searchState.hasMore);
     const error = $derived(appState.searchState.error);
-    const resultsVersion = $derived(appState.searchState.resultsVersion);
 </script>
 
 <SearchBar />
@@ -27,7 +26,7 @@
         </div>
     {/if}
 
-    <MangaList manga={results} trackVisible prewarmGeneration={resultsVersion} />
+    <MangaList manga={results} trackVisible />
 
     {#if hasMore}
         <div class="sentinel" use:sentinel={{

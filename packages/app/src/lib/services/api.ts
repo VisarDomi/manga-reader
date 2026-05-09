@@ -126,6 +126,13 @@ export interface SearchResult {
 }
 
 export async function searchManga(query: string, page = 1, filters?: SearchFilters, signal?: AbortSignal, retry = false): Promise<SearchResult> {
+    if (CACHE_ONLY_MODE) {
+        void signal;
+        void retry;
+        emit('cache-only-read', { resource: 'search', action: 'skip', mangaId: 'search', count: page });
+        return { manga: [], hasMore: false };
+    }
+
     const provider = getProvider();
     const req = provider.searchRequest(query, page, filters);
     const data = await proxyRequest(req, 'json', { signal, retry });
@@ -152,43 +159,9 @@ export async function searchManga(query: string, page = 1, filters?: SearchFilte
 }
 
 export async function fetchMangaDetail(manga: Manga, signal?: AbortSignal): Promise<Manga> {
-    if (CACHE_ONLY_MODE) {
-        emit('cache-only-read', { resource: 'manga-detail', action: 'skip', mangaId: manga.id });
-        return manga;
-    }
-
-    const provider = getProvider();
-    if (!provider.parseMangaDetailResponse) {
-        emit('manga-detail-result', { mangaId: manga.id, tags: manga.tags?.length ?? 0, genres: manga.genres?.length ?? 0, altTitles: manga.altTitles?.length ?? 0, recommendations: manga.recommendations?.length ?? 0, description: !!manga.description });
-        return manga;
-    }
-
-    try {
-        const data = await fetchJson<unknown>(`/api/manga-detail/${encodeURIComponent(manga.id)}`, { signal });
-        const detail = provider.parseMangaDetailResponse(data);
-        const merged = {
-            ...manga,
-            ...detail,
-            id: detail.id || manga.id,
-            title: detail.title || manga.title,
-            cover: detail.cover || manga.cover,
-            latestChapter: detail.latestChapter ?? manga.latestChapter,
-        };
-        emit('manga-detail-result', {
-            mangaId: merged.id,
-            tags: merged.tags?.length ?? 0,
-            genres: merged.genres?.length ?? 0,
-            altTitles: merged.altTitles?.length ?? 0,
-            recommendations: merged.recommendations?.length ?? 0,
-            description: !!merged.description,
-        });
-        return merged;
-    } catch (e) {
-        if (!signal?.aborted) {
-            emit('manga-detail-error', { mangaId: manga.id, error: String((e as Error)?.message ?? e) });
-        }
-        return manga;
-    }
+    void signal;
+    emit('cache-only-read', { resource: 'manga-detail', action: 'skip', mangaId: manga.id });
+    return manga;
 }
 
 export interface MangaCommentsResult {
@@ -283,170 +256,52 @@ export async function fetchChapterComments(mangaId: string, chapter: ChapterMeta
     return parsed;
 }
 
+async function fetchCachedChapterListPage(mangaId: string, signal?: AbortSignal): Promise<ChapterListPage> {
+    const provider = getProvider();
+    const data = await fetchCachedPayload(`/api/cache/manga/${encodeURIComponent(mangaId)}/chapters`, signal, 'chapter-list', mangaId);
+    return provider.parseChapterListResponse(data);
+}
+
 export async function* fetchChapterList(
     mangaId: string,
     signal?: AbortSignal,
 ): AsyncGenerator<ChapterListPage> {
-    const provider = getProvider();
-    if (CACHE_ONLY_MODE) {
-        const data = await fetchCachedPayload(`/api/cache/manga/${encodeURIComponent(mangaId)}/chapters`, signal, 'chapter-list', mangaId);
-        yield provider.parseChapterListResponse(data);
-        return;
-    }
-
-    const req1 = provider.chapterListRequest(mangaId, 1);
-    const data1 = await proxyRequest(req1, 'json', { signal });
-    const page1 = provider.parseChapterListResponse(data1);
-    yield page1;
-
-    const { lastPage, total } = page1.pagination;
-    if (lastPage <= 1) {
-        return;
-    }
-
-    const remaining = lastPage - 1;
-    emit('chapters-parallel', { mangaId, remaining, total });
-
-    const settled: (ChapterListPage | null)[] = [];
-    let notify: (() => void) | null = null;
-    let pending = remaining;
-
-    const pages = Array.from({ length: remaining }, (_, i) => i + 2);
-    let nextIndex = 0;
-
-    const startNext = () => {
-        if (nextIndex >= pages.length) return;
-        const page = pages[nextIndex++];
-        const req = provider.chapterListRequest(mangaId, page);
-        void proxyRequest(req, 'json', { signal })
-            .then(data => {
-                const parsed = provider.parseChapterListResponse(data);
-                settled.push(parsed);
-            })
-            .catch(e => {
-                if (!signal?.aborted) {
-                    emit('chapters-page-error', { mangaId, page, error: String((e as Error)?.message ?? e) });
-                }
-                settled.push(null);
-            })
-            .finally(() => {
-                pending--;
-                startNext();
-                notify?.();
-            });
-    };
-
-    const width = Math.min(4, pages.length);
-    for (let i = 0; i < width; i++) {
-        startNext();
-    }
-
-    while (pending > 0 || settled.length > 0) {
-        if (signal?.aborted) return;
-        if (settled.length > 0) {
-            const batch = settled.shift()!;
-            if (batch) yield batch;
-        } else {
-            await new Promise<void>(r => {
-                notify = r;
-                signal?.addEventListener('abort', () => r(), { once: true });
-            });
-            notify = null;
-        }
-    }
-
+    yield await fetchCachedChapterListPage(mangaId, signal);
 }
 
 export async function fetchChapterListPage(mangaId: string, page: number, signal?: AbortSignal): Promise<ChapterListPage> {
-    const provider = getProvider();
-    if (CACHE_ONLY_MODE) {
-        const data = await fetchCachedPayload(`/api/cache/manga/${encodeURIComponent(mangaId)}/chapters`, signal, 'chapter-list', mangaId);
-        return provider.parseChapterListResponse(data);
-    }
-
-    const req = provider.chapterListRequest(mangaId, page);
-    const data = await proxyRequest(req, 'json', { signal });
-    return provider.parseChapterListResponse(data);
-}
-
-export function prewarmChapters(mangaIds: string[]): void {
-    if (mangaIds.length === 0) return;
-    if (CACHE_ONLY_MODE) {
-        for (const mangaId of mangaIds) emit('cache-only-read', { resource: 'prewarm', action: 'skip', mangaId });
-        return;
-    }
-    emit('prewarm-sent', { count: mangaIds.length });
-    fetch('/api/prewarm-chapters', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mangaIds }),
-    }).catch(() => {});
-}
-
-export function prewarmChapterDetails(mangaId: string, chapters: ChapterMeta[]): void {
-    if (chapters.length === 0) return;
-    if (CACHE_ONLY_MODE) {
-        emit('cache-only-read', { resource: 'prewarm', action: 'skip', mangaId, count: chapters.length });
-        return;
-    }
-    const provider = getProvider();
-    const requests = chapters
-        .map(chapter => {
-            const req = provider.chapterImagesRequest(mangaId, chapter.id, chapter.number, chapter.url);
-            if (!req.signingMangaId || !req.signingPageUrl) return null;
-            return {
-                mangaId: req.signingMangaId,
-                chapterId: chapter.id,
-                signingPageUrl: req.signingPageUrl,
-            };
-        })
-        .filter((req): req is { mangaId: string; chapterId: string; signingPageUrl: string } => req != null);
-
-    if (requests.length === 0) return;
-    emit('chapter-warmup-sent', { count: requests.length });
-    fetch('/api/prewarm-chapter-details', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ requests }),
-    }).catch(() => {});
+    void page;
+    return fetchCachedChapterListPage(mangaId, signal);
 }
 
 export async function refreshMangaCache(mangaId: string): Promise<void> {
-    if (CACHE_ONLY_MODE) {
-        await fetchCachedPayload(`/api/cache/manga/${encodeURIComponent(mangaId)}/chapters`, undefined, 'chapter-list', mangaId);
-        return;
-    }
     await fetchJson(`/api/cache/manga/${encodeURIComponent(mangaId)}/refresh`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: '{}',
     });
+    await fetchCachedPayload(`/api/cache/manga/${encodeURIComponent(mangaId)}/chapters`, undefined, 'chapter-list', mangaId);
+}
+
+async function fetchCachedChapterImages(mangaId: string, chapterId: string, chapterNumber: number, chapterUrl?: string): Promise<ChapterPage[]> {
+    const provider = getProvider();
+    const params = new URLSearchParams({ number: String(chapterNumber) });
+    if (chapterUrl) params.set('url', chapterUrl);
+    const data = await fetchCachedPayload(
+        `/api/cache/manga/${encodeURIComponent(mangaId)}/chapters/${encodeURIComponent(chapterId)}/images?${params}`,
+        undefined,
+        'chapter-images',
+        mangaId,
+        chapterId,
+    );
+    const pages = provider.parseChapterImagesResponse(data);
+    emit('chapter-images-result', { mangaId, chapterId, chapterNumber, imageCount: pages.length });
+    if (pages.length === 0) {
+        throw new Error(`Cache returned no pages for chapter ${mangaId}/${chapterId}`);
+    }
+    return pages;
 }
 
 export async function fetchChapterImages(mangaId: string, chapterId: string, chapterNumber: number, chapterUrl?: string): Promise<ChapterPage[]> {
-    const provider = getProvider();
-    if (CACHE_ONLY_MODE) {
-        const params = new URLSearchParams({ number: String(chapterNumber) });
-        if (chapterUrl) params.set('url', chapterUrl);
-        const data = await fetchCachedPayload(
-            `/api/cache/manga/${encodeURIComponent(mangaId)}/chapters/${encodeURIComponent(chapterId)}/images?${params}`,
-            undefined,
-            'chapter-images',
-            mangaId,
-            chapterId,
-        );
-        const pages = provider.parseChapterImagesResponse(data);
-        emit('chapter-images-result', { mangaId, chapterId, chapterNumber, imageCount: pages.length });
-        if (pages.length === 0) {
-            throw new Error(`Cache returned no pages for chapter ${mangaId}/${chapterId}`);
-        }
-        return pages;
-    }
-
-    const req = provider.chapterImagesRequest(mangaId, chapterId, chapterNumber, chapterUrl);
-    const responseType = provider.chapterImagesResponseType === 'html' ? 'text' : 'json';
-    const data = await proxyRequest(req, responseType as 'json' | 'text', { retry: true });
-    const pages = provider.parseChapterImagesResponse(data);
-    emit('chapter-images-result', { mangaId, chapterId, chapterNumber, imageCount: pages.length });
-    return pages;
+    return fetchCachedChapterImages(mangaId, chapterId, chapterNumber, chapterUrl);
 }

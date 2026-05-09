@@ -81,8 +81,8 @@ owner should decide how that intent becomes concrete work.
 Every non-trivial path should log the behavior it actually performed, not a
 rough approximation. If a request asks for page 4, logs must distinguish page
 4 from page 1. If a response returns pages rather than items, logs must say
-pages. If a background warmup skips work because it is cached or already
-in-flight, logs must say so.
+pages. If a cache read waits on an in-flight owner or starts missing data
+work, logs must say so.
 
 The question "is it broken, or is it unlogged?" should be answerable quickly.
 When it is not, the missing log is itself a bug.
@@ -173,8 +173,8 @@ caller. Move the shared observation or mechanism to the smallest common owner,
 and keep policy in the layer that already owns policy.
 
 For example, a reusable list can own detecting which rendered items are
-visible, while application state owns what visible items mean: prewarm,
-restore tracking, cancellation, cache policy, or no action at all. The common
+visible, while application state owns what visible items mean: restore
+tracking, cancellation, cache policy, or no action at all. The common
 owner should expose intent, not absorb unrelated policy.
 
 ### 18. Separate Navigation State by Domain
@@ -437,10 +437,9 @@ useful: it shows that card overlay/subscription work contributes to jank, but
 the next optimization must preserve the existing UI.
 
 Performance logs should remain available while optimizing this path. Useful
-events are `reader-frame-gap`, `search-result`, `restore-target-found`, and
-`manga-list-prewarm-perf`. The prewarm scan was measured at 0-3ms even with
-1200 mounted results, so visible-prewarm scanning is not currently the main
-owner of the remaining jank.
+events are `reader-frame-gap`, `search-result`, and `restore-target-found`.
+The old visible-list prewarm path was removed when cache-only data became the
+owned source of chapter metadata.
 
 Remaining search work: preserve the existing card UI while reducing the cost of
 large search result sets. Likely directions include better ownership of
@@ -945,7 +944,7 @@ The `/api/v2/manga/{id}/chapters` endpoint returns application-level 403 (HTTP 2
 
 ## D15. NavigationScheduler Is the Single Owner of Page Navigation
 
-Only NavigationScheduler creates and navigates Playwright pages. Both user requests (signedFetch) and background prewarming go through its priority queue. USER priority items sort before PREWARM items. Concurrency is capped at 4 workers. Pages are created per-request and closed immediately after sig capture — there is no page pool. Multiple requests for the same mangaId piggyback on the in-flight or queued item rather than creating duplicate work.
+Only NavigationScheduler creates and navigates Playwright pages for signed user requests. Background frontend prewarming was removed after the cache service became the owner of manga, chapter-list, and chapter-image data. Concurrency is capped at 4 workers. Pages are created per-request and closed immediately after sig capture — there is no page pool. Multiple requests for the same mangaId piggyback on the in-flight or queued item rather than creating duplicate work.
 
 ## D16. Chapter Log Ownership: Consumer, Not API Layer
 

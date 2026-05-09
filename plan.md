@@ -11,6 +11,8 @@ reports image-store observations back to the backend.
 - Backend owns SQLite, cache invalidation, priority, and store-health policy.
 - Frontend owns only user intent and image outcome observations.
 - BrowserSession owns Comix runtime access and signed/encrypted upstream calls.
+- Frontend prewarm is obsolete. Cache reads and explicit refreshes are the only
+  frontend-owned data requests; background ingestion belongs to the cache service.
 - Image store failover/cache status is a cache concern, not a reader concern.
 
 ## Layers
@@ -80,7 +82,6 @@ reports image-store observations back to the backend.
 
 - Decide whether cache-only frontend mode should become production behavior or remain a test
   mode.
-- Expand frontend requests that prioritize nearby manga/chapter/image cache jobs during scroll.
 - Add better invalidation policy beyond manual refresh and image 404 reports.
 - Consider persisting job lease/attempt metadata if concurrent workers are introduced. The
   current single-worker recovery model reconstructs remaining work from durable cache rows.

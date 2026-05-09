@@ -37,9 +37,8 @@ export type LogEvent =
     | { event: 'chapters-page-error'; mangaId: string; page: number; error: string }
     | { event: 'chapters-stream-error'; mangaId: string; afterFirstPage: boolean; error: string }
     | { event: 'chapters-done'; mangaId: string; pages: number; failed?: number; total: number; uploadedTimes: number }
-    | { event: 'chapter-detail-prewarm-choice'; mangaId: string; chapterId: string; chapterNumber: number; reason: 'history' | 'unread' }
     | { event: 'chapter-images-result'; mangaId: string; chapterId: string; chapterNumber: number; imageCount: number }
-    | { event: 'cache-only-read'; resource: 'chapter-list' | 'chapter-images' | 'manga-detail' | 'manga-comments' | 'chapter-comments' | 'prewarm'; action: 'hit' | 'warming' | 'skip' | 'miss'; mangaId: string; chapterId?: string; count?: number }
+    | { event: 'cache-only-read'; resource: 'search' | 'chapter-list' | 'chapter-images' | 'manga-detail' | 'manga-comments' | 'chapter-comments'; action: 'hit' | 'warming' | 'skip' | 'miss'; mangaId: string; chapterId?: string; count?: number }
     | { event: 'reader-open'; mangaId: string; chapterId: string; chapterNumber: number; hasRestore: boolean }
     | { event: 'reader-scroll-write'; source: 'initial-fallback' | 'initial-restore-into-view' | 'initial-restore-offset' | 'initial-reset' | 'initial-current-anchor' | 'prepend-adjust' | 'layout-idle-anchor' | 'physical-rebase'; from: number; to: number; delta: number }
     | { event: 'reader-restore-scroll'; action: 'restored' | 'reset' | 'cancelled' | 'fallback'; target: 'page' | 'top'; reason?: string; pageIndex?: number; scrollOffset?: number; from?: number; to?: number; delta?: number }
@@ -90,15 +89,12 @@ export type LogEvent =
     | { event: 'unhandled-rejection'; message: string; stack: string }
     | { event: 'db-error'; op: string; error: string }
     | { event: 'favorites-toggle-failed'; message: string }
-    | { event: 'prewarm-sent'; count: number }
-    | { event: 'manga-list-prewarm-perf'; source: 'generation' | 'scroll' | 'mount'; total: number; sampled: number; visible: number; columns: number; firstRow: number; lastRow: number; scanMs: number; rootHeight: number }
-    | { event: 'manga-list-lifecycle'; source: 'search' | 'favorites'; phase: 'mount' | 'update' | 'unmount'; total: number; trackVisible: boolean; prewarmGeneration: number; updateCount: number; dtMs: number }
+    | { event: 'manga-list-lifecycle'; source: 'search' | 'favorites'; phase: 'mount' | 'update' | 'unmount'; total: number; trackVisible: boolean; updateCount: number; dtMs: number }
     | { event: 'manga-card-subscription-summary'; searchCards: number; favoriteCards: number; mountedSearch: number; mountedFavorites: number; unmountedSearch: number; unmountedFavorites: number; progressSearch: number; progressFavorites: number; statsSearch: number; statsFavorites: number }
     | { event: 'favorites-view-lifecycle'; phase: 'mount' | 'update' | 'unmount'; items: number; isLoading: boolean; updateCount: number; dtMs: number }
     | { event: 'perf-observer-status'; performanceObserver: boolean; supportedEntryTypes: string; longtaskSupported: boolean }
     | { event: 'perf-frame-burst'; source: 'app-raf'; count: number; maxGapMs: number; avgGapMs: number; durationMs: number; view: string; backView: string | null; isSwiping: boolean; isForwardSwiping: boolean; searchResults: number; favorites: number; activeMangaId: string | null; activeChapters: number; activeComments: number; readerChapters: number; readerPages: number; searchCards: number; favoriteCards: number }
-    | { event: 'chapter-warmup-sent'; count: number }
-    | { event: 'foreground-work'; owner: 'search' | 'visible-prewarm' | 'chapter-stats' | 'manga-comments' | 'detail-chapter-prewarm'; action: 'run' | 'defer' | 'resume' | 'cancel'; view: string; reason?: string; count?: number; mangaId?: string };
+    | { event: 'foreground-work'; owner: 'search' | 'manga-comments'; action: 'run' | 'defer' | 'resume' | 'cancel'; view: string; reason?: string; count?: number; mangaId?: string };
 
 type EventName = LogEvent['event'];
 type PayloadOf<E extends EventName> = Omit<Extract<LogEvent, { event: E }>, 'event'>;

@@ -20,13 +20,12 @@ import { GroupFilterState } from './groupFilter.svelte.js';
 import { ChapterStatsState } from './chapterStats.svelte.js';
 import { saveSession, loadSession, type SessionSnapshot, type SearchContext } from './session.js';
 import { RESUME_RECOVERY_MS, DEEP_SLEEP_MS, VISIBLE_MANGA_DEBOUNCE_MS, CACHE_ONLY_MODE } from '../constants.js';
-import type { ChapterMeta, Manga } from '../types.js';
+import type { Manga } from '../types.js';
 
 export type AppStatus = 'BOOTING' | 'READY' | 'BACKGROUND' | 'RECONNECTING' | 'OFFLINE';
 
 const NSFW_NAMES = new Set(['Adult', 'Ecchi', 'Hentai', 'Mature', 'Smut']);
 const SESSION_TOAST_DURATION = 4000;
-const CHAPTER_PREWARM_REPEAT_MS = 5 * 60 * 1000;
 type RestorePhase = 'replaying-search' | 'paginating-to-target' | 'scrolling';
 type RestoreInner =
     | { kind: 'idle' }
@@ -80,13 +79,7 @@ class AppState {
     private restore = new RestoreMachine();
     private visibleMangaDebounce: ReturnType<typeof setTimeout> | null = null;
     private lastVisibleMangaId: string | null = null;
-    private chapterPrewarmSentAt = new Map<string, number>();
-    private chapterStatsWarmQueue = new Map<string, Manga>();
-    private chapterStatsWarmActive = false;
-    private chapterStatsWarmActiveId: string | null = null;
-    private chapterStatsWarmAbort: AbortController | null = null;
     private deferredSearchContext: SearchContext | undefined;
-    private deferredVisibleManga: Manga[] = [];
     private performanceProbe: PerformanceProbe;
 
     constructor() {
@@ -127,110 +120,15 @@ class AppState {
             this.toast,
             this.groupFilter,
             this.chapterStats,
-            this.progress,
             emit,
             () => this.restore.cancel(),
             () => this.canRunBackgroundWork(),
         );
         this.groupFilter.setOnChange(() => {
             this.manga.refreshChapterStats();
-            this.manga.warmLikelyDetailChapter();
         });
         this.reader = new ReaderState(this.ui, this.manga, this.progress, this.toast, this.log);
         this.favorites = new FavoritesState(this.toast, this.log);
-    }
-
-    prewarmVisibleManga(manga: Manga[]): void {
-        if (manga.length === 0) return;
-        if (!this.canRunBackgroundWork()) {
-            this.deferredVisibleManga = manga;
-            this.log.emit('foreground-work', {
-                owner: 'visible-prewarm',
-                action: 'defer',
-                view: this.ui.viewMode,
-                count: manga.length,
-                reason: 'foreground-reader',
-            });
-            return;
-        }
-        const visibleIds = new Set(manga.map(item => item.id));
-        if (this.chapterStatsWarmActiveId && !visibleIds.has(this.chapterStatsWarmActiveId)) {
-            this.chapterStatsWarmAbort?.abort();
-        }
-
-        const now = Date.now();
-        const idsToPrewarm = manga
-            .map(m => m.id)
-            .filter(id => now - (this.chapterPrewarmSentAt.get(id) ?? 0) > CHAPTER_PREWARM_REPEAT_MS);
-        if (idsToPrewarm.length > 0) {
-            for (const id of idsToPrewarm) this.chapterPrewarmSentAt.set(id, now);
-            api.prewarmChapters(idsToPrewarm);
-        }
-
-        this.chapterStatsWarmQueue.clear();
-        for (const item of manga) {
-            if (!this.chapterStats.needsRefresh(item.id, item.latestChapter ?? null)) continue;
-            this.chapterStatsWarmQueue.set(item.id, item);
-        }
-        this.drainChapterStatsWarmQueue();
-    }
-
-    private drainChapterStatsWarmQueue(): void {
-        if (!this.canRunBackgroundWork()) {
-            if (this.chapterStatsWarmActive) this.chapterStatsWarmAbort?.abort();
-            if (this.chapterStatsWarmQueue.size > 0) {
-                this.log.emit('foreground-work', {
-                    owner: 'chapter-stats',
-                    action: 'defer',
-                    view: this.ui.viewMode,
-                    count: this.chapterStatsWarmQueue.size,
-                    reason: 'foreground-reader',
-                });
-            }
-            return;
-        }
-        if (this.chapterStatsWarmActive) return;
-        const next = this.chapterStatsWarmQueue.entries().next();
-        if (next.done) return;
-
-        const [mangaId, manga] = next.value;
-        this.chapterStatsWarmQueue.delete(mangaId);
-        this.chapterStatsWarmActive = true;
-        this.chapterStatsWarmActiveId = mangaId;
-        this.chapterStatsWarmAbort = new AbortController();
-        this.chapterStats.markLoading(mangaId);
-
-        void this.warmChapterStats(manga, this.chapterStatsWarmAbort.signal)
-            .finally(() => {
-                this.chapterStats.clearLoading(mangaId);
-                this.chapterStatsWarmActive = false;
-                this.chapterStatsWarmActiveId = null;
-                this.chapterStatsWarmAbort = null;
-                if (this.canRunBackgroundWork()) this.drainChapterStatsWarmQueue();
-            });
-    }
-
-    private async warmChapterStats(manga: Manga, signal: AbortSignal): Promise<void> {
-        if (!this.chapterStats.needsRefresh(manga.id, manga.latestChapter ?? null)) return;
-        const expectedKey = this.chapterStats.keyFor(manga.id);
-        const expectedUpstreamMax = manga.latestChapter ?? null;
-        const chapters: ChapterMeta[] = [];
-
-        try {
-            for await (const page of api.fetchChapterList(manga.id, signal)) {
-                if (signal.aborted) return;
-                chapters.push(...page.items);
-            }
-        } catch (e) {
-            if (signal.aborted) return;
-            this.log.emit('chapters-page-error', { mangaId: manga.id, page: 0, error: String((e as Error)?.message ?? e) });
-            return;
-        }
-
-        if (signal.aborted) return;
-        if (this.chapterStats.keyFor(manga.id) !== expectedKey) return;
-        if ((manga.latestChapter ?? null) !== expectedUpstreamMax) return;
-        this.chapterStats.update(manga.id, expectedUpstreamMax, chapters, new Set(storage.getJson<string[]>(`group:${manga.id}`, [])));
     }
 
     get documentTitle(): string {
@@ -269,7 +167,6 @@ class AppState {
 
     private pauseBackgroundWork(reason = 'foreground-reader'): void {
         this.restore.cancel();
-        this.chapterStatsWarmAbort?.abort();
         this.searchState.recover();
         this.manga.pauseBackgroundWork();
         this.log.emit('foreground-work', {
@@ -283,20 +180,6 @@ class AppState {
     private resumeBackgroundWork(): void {
         if (!this.canRunBackgroundWork()) return;
         this.manga.resumeBackgroundWork();
-
-        const visible = this.deferredVisibleManga;
-        this.deferredVisibleManga = [];
-        if (visible.length > 0) {
-            this.log.emit('foreground-work', {
-                owner: 'visible-prewarm',
-                action: 'resume',
-                view: this.ui.viewMode,
-                count: visible.length,
-            });
-            this.prewarmVisibleManga(visible);
-        } else {
-            this.drainChapterStatsWarmQueue();
-        }
 
         const searchContext = this.deferredSearchContext;
         this.deferredSearchContext = undefined;

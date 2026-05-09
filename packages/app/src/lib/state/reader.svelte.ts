@@ -12,8 +12,6 @@ import type { ProgressState } from './progress.svelte.js';
 import type { ToastState } from './toast.svelte.js';
 import { type LoadError, toLoadError } from './errors.js';
 import {
-    CHAPTER_WARM_NEXT,
-    CHAPTER_WARM_PREV,
     READER_CHAPTER_SEPARATOR_HEIGHT,
     READER_DOM_KEEP_RADIUS_VIEWPORTS,
     READER_FALLBACK_PAGE_ASPECT_RATIO,
@@ -175,7 +173,6 @@ export class ReaderState {
                 estimatedHeight: this.estimateLoadedChapterHeight(proxiedPages, 0),
             }];
             this.loadedChapters = this.positionVirtualSlots(this.loadedChapters, chapter.id, 0, 0);
-            this.scheduleChapterWarmup(manga, chapter.id);
 
             if (!hasRestore) {
                 const progressData = { chapterId: chapter.id, chapterNumber: chapter.number };
@@ -247,7 +244,6 @@ export class ReaderState {
                 estimatedHeight: this.estimateLoadedChapterHeight(proxiedPages, 0),
             }];
             this.loadedChapters = this.positionVirtualSlots(this.loadedChapters, chapter.id, 0, 0);
-            this.scheduleChapterWarmup(manga, chapter.id);
             return true;
         } catch (e) {
             this.error = toLoadError(e);
@@ -937,7 +933,6 @@ export class ReaderState {
             virtualHeight: reservedHeight,
         };
         this.loadedChapters = this.loadedChapters.map(slot => slot.id === readyChapter.id ? positionedReadyChapter : slot);
-        this.scheduleChapterWarmup(manga, readyChapter.id);
         this.log.emit('reader-window-height-delta', {
             source,
             mangaId: manga.id,
@@ -1047,21 +1042,6 @@ export class ReaderState {
         if (idx === -1) return null;
         const targetIdx = direction === 'next' ? idx + 1 : idx - 1;
         return this.chapterList[targetIdx] ?? null;
-    }
-
-    private scheduleChapterWarmup(manga: Manga, centerChapterId: string): void {
-        if (CACHE_ONLY_MODE) return;
-        const idx = this.chapterList.findIndex(c => c.id === centerChapterId);
-        if (idx === -1) return;
-
-        const loadedIds = new Set(this.loadedChapters.map(ch => ch.id));
-        const start = Math.max(0, idx - CHAPTER_WARM_PREV);
-        const end = Math.min(this.chapterList.length - 1, idx + CHAPTER_WARM_NEXT);
-        const chapters = this.chapterList
-            .slice(start, end + 1)
-            .filter(chapter => chapter.id !== centerChapterId && !loadedIds.has(chapter.id));
-
-        api.prewarmChapterDetails(manga.id, chapters);
     }
 
     private async loadChapter(req: ChapterLoadRequest): Promise<ChapterLoadResult> {
@@ -1212,7 +1192,6 @@ export class ReaderState {
                 this.layoutViewportHeight(),
             );
             this.nextChapterRetryAvailable = false;
-            this.scheduleChapterWarmup(manga, result.chapter.id);
             this.log.emit('reader-append-ok', { mangaId: manga.id, chapterId: next.id, chapterNumber: next.number });
             return true;
         } catch (e) {
@@ -1285,7 +1264,6 @@ export class ReaderState {
                 this.layoutViewportWidth(),
                 this.layoutViewportHeight(),
             );
-            this.scheduleChapterWarmup(manga, chapter.id);
             this.log.emit('reader-prepend-ok', { mangaId: manga.id, chapterId: prev.id, chapterNumber: prev.number });
             return chapter;
         } catch (e) {

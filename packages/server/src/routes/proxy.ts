@@ -15,12 +15,6 @@ interface ProxyBody {
     signingPageUrl?: string;
 }
 
-interface PrewarmChapterDetailRequest {
-    mangaId: string;
-    chapterId: string;
-    signingPageUrl: string;
-}
-
 function jsonApiStatus(data: unknown): string {
     if (!data || typeof data !== 'object') return 'none';
     const status = (data as Record<string, unknown>).status;
@@ -188,45 +182,6 @@ export function createProxyRouter(browserSession: BrowserSession | null): Router
             logJsonProxy(method, pathStr, meta, data);
             res.json(data);
         }
-    }));
-
-    router.post('/prewarm-chapters', asyncHandler(async (req, res) => {
-        const { mangaIds } = req.body as { mangaIds?: string[] };
-
-        if (!Array.isArray(mangaIds) || mangaIds.length === 0) {
-            res.status(400).json({ error: 'Missing mangaIds array' });
-            return;
-        }
-
-        if (!browserSession?.ready) {
-            res.status(503).json({ error: 'BrowserSession not ready' });
-            return;
-        }
-
-        const result = browserSession.prewarmChapterLists(mangaIds);
-        res.status(202).json(result);
-    }));
-
-    router.post('/prewarm-chapter-details', asyncHandler(async (req, res) => {
-        const { requests } = req.body as { requests?: PrewarmChapterDetailRequest[] };
-
-        if (!Array.isArray(requests) || requests.length === 0) {
-            res.status(400).json({ error: 'Missing requests array' });
-            return;
-        }
-
-        if (!browserSession?.ready) {
-            res.status(503).json({ error: 'BrowserSession not ready' });
-            return;
-        }
-
-        const valid = requests.filter(r =>
-            typeof r?.mangaId === 'string' &&
-            typeof r?.chapterId === 'string' &&
-            typeof r?.signingPageUrl === 'string'
-        );
-        const result = browserSession.prewarmChapterDetails(valid);
-        res.status(202).json(result);
     }));
 
     return router;

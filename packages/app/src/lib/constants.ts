@@ -11,8 +11,6 @@ export const CACHE_ONLY_MODE = true;              // temporary cache architectur
 export const VISIBLE_MANGA_DEBOUNCE_MS = 1_000;   // debounce for visible manga card tracking
 
 export const VISIBLE_PAGE_RATIO = 1 / 3;        // fraction down viewport to probe for current page
-export const CHAPTER_WARM_PREV = 1;              // signed chapter metadata warm window behind current
-export const CHAPTER_WARM_NEXT = 2;              // signed chapter metadata warm window ahead of current
 export const SCROLL_DEBOUNCE_MS = 500;           // debounce for scroll-based page tracking
 export const HISTORY_SYNC_MS = 500;              // debounce for progress sync to DB + API
 

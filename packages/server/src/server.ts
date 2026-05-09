@@ -6,7 +6,6 @@ import { createApp } from './app.js';
 import { BrowserSession } from './services/BrowserSession.js';
 import { CacheService } from './cache/CacheService.js';
 import { listStoreHosts } from './utils/storeHosts.js';
-import { startPrewarm } from './utils/prewarm.js';
 
 validateConfig();
 
@@ -27,8 +26,6 @@ server.listen(PORT, '0.0.0.0', () => {
     console.log(`comix-backend running on https://localhost:${PORT}`);
     console.log(`Serving frontend: ${FRONTEND_BUILD_DIR}`);
     console.log(`[storeHosts] loaded ${listStoreHosts().length} hosts`);
-
-    startPrewarm();
 
     browserSession.init()
         .then(() => cacheService.start())
