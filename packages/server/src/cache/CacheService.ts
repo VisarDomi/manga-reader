@@ -6,9 +6,20 @@ import { CacheDatabase, type ImageStoreObservation } from './sqlite.js';
 const COMIX_API_BASE = 'https://comix.to/api/v1';
 const NEWEST_LIMIT = 100;
 const CHAPTER_PAGE_SIZE = 100;
+const RECONCILE_PAGE_BUDGET = 5;
 
-type CacheJobKind = 'seed-newest' | 'cache-manga-detail' | 'cache-chapters' | 'cache-chapter-images';
-type CacheJobPriority = 'foreground' | 'background';
+type CacheJobKind = 'seed-newest' | 'cache-manga-detail' | 'cache-chapters' | 'reconcile-chapters' | 'cache-chapter-images';
+export type CacheJobPriority = 'foreground' | 'observed' | 'background';
+export type CacheReconcileSource = 'search-result' | 'manga-open' | 'manual-refresh';
+
+export interface CacheReconcileResult {
+  status: 'fresh' | 'queued' | 'promoted' | 'warming' | 'ignored';
+  mangaId: string;
+  cachedMax: number | null;
+  observedLatestChapter: number | null;
+  action: 'none' | 'reconcile' | 'full-refresh';
+  reason: string;
+}
 
 interface CacheJob {
   kind: CacheJobKind;
@@ -17,6 +28,8 @@ interface CacheJob {
   chapterId?: string;
   chapterNumber?: number;
   chapterUrl?: string;
+  observedLatestChapter?: number;
+  source?: CacheReconcileSource;
   force?: boolean;
   reason: string;
 }
@@ -36,6 +49,20 @@ function resultPagination(data: unknown): Record<string, unknown> {
   const r = result as Record<string, unknown>;
   const pagination = r.pagination ?? r.meta;
   return pagination && typeof pagination === 'object' ? pagination as Record<string, unknown> : {};
+}
+
+function chapterSummary(chapters: unknown[]): { max: number | null; topId: string | null } {
+  let max: number | null = null;
+  let topId: string | null = null;
+  for (const chapter of chapters) {
+    const number = chapterNumberFromItem(chapter);
+    if (number == null) continue;
+    if (max == null || number > max) {
+      max = number;
+      topId = chapterIdFromItem(chapter);
+    }
+  }
+  return { max, topId };
 }
 
 function isMangaDetailPayload(data: unknown): boolean {
@@ -142,6 +169,7 @@ function imageStoreCandidates(imageUrl: string): string[] {
 export class CacheService {
   private readonly db = new CacheDatabase();
   private readonly foreground: CacheJob[] = [];
+  private readonly observed: CacheJob[] = [];
   private readonly background: CacheJob[] = [];
   private readonly imageBacklog: CacheJob[] = [];
   private active = false;
@@ -168,6 +196,7 @@ export class CacheService {
       active: this.active,
       currentJob: this.currentJob,
       foreground: this.foreground.length,
+      observed: this.observed.length,
       background: this.background.length,
       imageBacklog: this.imageBacklog.length,
       counts: this.db.counts(),
@@ -180,7 +209,15 @@ export class CacheService {
   }
 
   getChapterList(mangaId: string): unknown | null {
+    if (this.isChapterListWarming(mangaId)) {
+      console.log(`[cache] chapters warming manga=${mangaId} reason=repair-active`);
+      return null;
+    }
     return this.db.getChapterList(mangaId)?.data ?? null;
+  }
+
+  isChapterListWarming(mangaId: string): boolean {
+    return this.hasChapterRepairWork(mangaId);
   }
 
   getChapterImages(mangaId: string, chapterId: string): unknown | null {
@@ -198,6 +235,44 @@ export class CacheService {
     this.db.invalidateChapterList(mangaId);
     this.enqueue({ kind: 'cache-manga-detail', priority: 'foreground', mangaId, force: true, reason });
     this.enqueue({ kind: 'cache-chapters', priority: 'foreground', mangaId, force: true, reason });
+  }
+
+  reconcileManga(mangaId: string, observedLatestChapter: number | null, priority: CacheJobPriority, source: CacheReconcileSource): CacheReconcileResult {
+    const normalizedPriority = priority === 'foreground' ? 'foreground' : 'observed';
+    const cached = this.db.getChapterList(mangaId);
+    const cachedItems = cached ? resultItems(cached.data) : [];
+    const { max: cachedMax } = chapterSummary(cachedItems);
+    const observed = typeof observedLatestChapter === 'number' && Number.isFinite(observedLatestChapter) && observedLatestChapter > 0
+      ? observedLatestChapter
+      : null;
+
+    if (!cached) {
+      this.enqueue({ kind: 'cache-manga-detail', priority: normalizedPriority, mangaId, reason: `reconcile-missing-cache:${source}` });
+      this.enqueue({ kind: 'cache-chapters', priority: normalizedPriority, mangaId, reason: `reconcile-missing-cache:${source}` });
+      console.log(`[cache] reconcile decision manga=${mangaId} source=${source} priority=${normalizedPriority} cachedMax=none observed=${observed ?? 'unknown'} action=full-refresh status=queued reason=missing-cache`);
+      return { status: 'queued', mangaId, cachedMax: null, observedLatestChapter: observed, action: 'full-refresh', reason: 'missing-cache' };
+    }
+
+    if (observed == null) {
+      console.log(`[cache] reconcile decision manga=${mangaId} source=${source} priority=${normalizedPriority} cachedMax=${cachedMax ?? 'unknown'} observed=invalid action=none status=ignored reason=invalid-observed`);
+      return { status: 'ignored', mangaId, cachedMax, observedLatestChapter: null, action: 'none', reason: 'invalid-observed' };
+    }
+
+    if (cachedMax != null && cachedMax >= observed) {
+      console.log(`[cache] reconcile decision manga=${mangaId} source=${source} priority=${normalizedPriority} cachedMax=${cachedMax} observed=${observed} action=none status=fresh reason=cached-up-to-date`);
+      return { status: 'fresh', mangaId, cachedMax, observedLatestChapter: observed, action: 'none', reason: 'cached-up-to-date' };
+    }
+
+    const status = this.enqueue({
+      kind: 'reconcile-chapters',
+      priority: normalizedPriority,
+      mangaId,
+      observedLatestChapter: observed,
+      source,
+      reason: `stale-cache:${source}`,
+    });
+    console.log(`[cache] reconcile decision manga=${mangaId} source=${source} priority=${normalizedPriority} cachedMax=${cachedMax ?? 'unknown'} observed=${observed} action=reconcile status=${status} reason=stale-cache`);
+    return { status: status === 'promoted' ? 'promoted' : 'queued', mangaId, cachedMax, observedLatestChapter: observed, action: 'reconcile', reason: 'stale-cache' };
   }
 
   warmManga(mangaId: string, reason = 'cache-miss'): void {
@@ -218,55 +293,80 @@ export class CacheService {
     this.enqueue({ kind: 'cache-chapter-images', priority: 'foreground', mangaId, chapterId, chapterNumber, chapterUrl, reason });
   }
 
-  private enqueue(job: CacheJob): void {
+  private enqueue(job: CacheJob): 'queued' | 'promoted' | 'existing' {
     const queue = job.priority === 'foreground'
       ? this.foreground
+      : job.priority === 'observed'
+        ? this.observed
       : job.kind === 'cache-chapter-images'
         ? this.imageBacklog
         : this.background;
-    if ((job.kind === 'cache-manga-detail' || job.kind === 'cache-chapters') && job.mangaId) {
-      if (this.currentJob?.kind === job.kind && this.currentJob.mangaId === job.mangaId) return;
+    if ((job.kind === 'cache-manga-detail' || job.kind === 'cache-chapters' || job.kind === 'reconcile-chapters') && job.mangaId) {
+      if (this.currentJob?.kind === job.kind && this.currentJob.mangaId === job.mangaId) return 'existing';
       if (this.promoteQueuedMangaJob(job)) {
         this.drain();
-        return;
+        return 'promoted';
       }
-      const exists = [...this.foreground, ...this.background].some(existing =>
+      const exists = [...this.foreground, ...this.observed, ...this.background].some(existing =>
         existing?.kind === job.kind && existing.mangaId === job.mangaId,
       );
-      if (exists) return;
+      if (exists) return 'existing';
+      if (job.kind === 'reconcile-chapters') {
+        const fullJob = [...this.foreground, ...this.observed, ...this.background].find(existing =>
+          existing.kind === 'cache-chapters' && existing.mangaId === job.mangaId,
+        );
+        if (fullJob) {
+          if (job.priority === 'foreground' && fullJob.priority !== 'foreground') {
+            this.promoteQueuedMangaJob({ ...fullJob, priority: 'foreground', reason: job.reason });
+            this.drain();
+            return 'promoted';
+          }
+          return 'existing';
+        }
+      }
     }
     if (job.kind === 'cache-chapter-images' && job.mangaId && job.chapterId) {
       if (this.currentJob?.kind === 'cache-chapter-images'
         && this.currentJob.mangaId === job.mangaId
-        && this.currentJob.chapterId === job.chapterId) return;
+        && this.currentJob.chapterId === job.chapterId) return 'existing';
       if (this.promoteQueuedChapterImageJob(job)) {
         this.drain();
-        return;
+        return 'promoted';
       }
-      const exists = [...this.foreground, ...this.imageBacklog].some(existing =>
+      const exists = [...this.foreground, ...this.observed, ...this.imageBacklog].some(existing =>
         existing?.kind === 'cache-chapter-images'
         && existing.mangaId === job.mangaId
         && existing.chapterId === job.chapterId,
       );
-      if (exists) return;
+      if (exists) return 'existing';
     }
     queue.push(job);
     this.drain();
+    return 'queued';
   }
 
   private promoteQueuedMangaJob(job: CacheJob): boolean {
-    if (job.priority !== 'foreground' || (job.kind !== 'cache-manga-detail' && job.kind !== 'cache-chapters') || !job.mangaId) return false;
+    if (job.priority !== 'foreground' || (job.kind !== 'cache-manga-detail' && job.kind !== 'cache-chapters' && job.kind !== 'reconcile-chapters') || !job.mangaId) return false;
     const foregroundIndex = this.foreground.findIndex(existing =>
       existing.kind === job.kind && existing.mangaId === job.mangaId,
     );
     if (foregroundIndex !== -1) return true;
+    const observedIndex = this.observed.findIndex(existing =>
+      existing.kind === job.kind && existing.mangaId === job.mangaId,
+    );
+    if (observedIndex !== -1) {
+      const [existing] = this.observed.splice(observedIndex, 1);
+      this.foreground.push({ ...existing, priority: 'foreground', reason: job.reason });
+      console.log(`[cache] job-promoted kind=${job.kind} manga=${job.mangaId} from=observed to=foreground reason=${job.reason}`);
+      return true;
+    }
     const backgroundIndex = this.background.findIndex(existing =>
       existing.kind === job.kind && existing.mangaId === job.mangaId,
     );
     if (backgroundIndex === -1) return false;
     const [existing] = this.background.splice(backgroundIndex, 1);
     this.foreground.push({ ...existing, priority: 'foreground', reason: job.reason });
-    console.log(`[cache] job-promoted kind=${job.kind} manga=${job.mangaId} reason=${job.reason}`);
+    console.log(`[cache] job-promoted kind=${job.kind} manga=${job.mangaId} from=background to=foreground reason=${job.reason}`);
     return true;
   }
 
@@ -278,6 +378,17 @@ export class CacheService {
       && existing.chapterId === job.chapterId,
     );
     if (foregroundIndex !== -1) return true;
+    const observedIndex = this.observed.findIndex(existing =>
+      existing.kind === 'cache-chapter-images'
+      && existing.mangaId === job.mangaId
+      && existing.chapterId === job.chapterId,
+    );
+    if (observedIndex !== -1) {
+      const [existing] = this.observed.splice(observedIndex, 1);
+      this.foreground.push({ ...existing, priority: 'foreground', reason: job.reason });
+      console.log(`[cache] job-promoted kind=cache-chapter-images manga=${job.mangaId} chapter=${job.chapterId} from=observed to=foreground reason=${job.reason}`);
+      return true;
+    }
     const backlogIndex = this.imageBacklog.findIndex(existing =>
       existing.kind === 'cache-chapter-images'
       && existing.mangaId === job.mangaId
@@ -297,7 +408,18 @@ export class CacheService {
   }
 
   private nextJob(): CacheJob | null {
-    return this.foreground.shift() ?? this.background.shift() ?? this.imageBacklog.shift() ?? null;
+    return this.foreground.shift() ?? this.observed.shift() ?? this.background.shift() ?? this.imageBacklog.shift() ?? null;
+  }
+
+  private hasChapterRepairWork(mangaId: string): boolean {
+    const isRepair = (job: CacheJob | null | undefined) =>
+      job != null
+      && job.mangaId === mangaId
+      && (job.kind === 'reconcile-chapters' || (job.kind === 'cache-chapters' && job.force === true));
+    return isRepair(this.currentJob)
+      || this.foreground.some(isRepair)
+      || this.observed.some(isRepair)
+      || this.background.some(isRepair);
   }
 
   private drain(): void {
@@ -319,6 +441,7 @@ export class CacheService {
         if (job.kind === 'seed-newest') await this.seedNewest(job);
         else if (job.kind === 'cache-manga-detail' && job.mangaId) await this.cacheMangaDetail(job.mangaId, job);
         else if (job.kind === 'cache-chapters' && job.mangaId) await this.cacheChapters(job.mangaId, job);
+        else if (job.kind === 'reconcile-chapters' && job.mangaId) await this.reconcileChapters(job.mangaId, job);
         else if (job.kind === 'cache-chapter-images' && job.mangaId && job.chapterId) await this.cacheChapterImages(job.mangaId, job.chapterId, job);
         console.log(`[cache] job-done kind=${job.kind} manga=${job.mangaId ?? 'none'} reason=${job.reason} ${Date.now() - start}ms`);
       } catch (e) {
@@ -381,9 +504,9 @@ export class CacheService {
     let failed = 0;
 
     for (let page = 2; page <= lastPage; page++) {
-      if (this.foreground.length > 0 && job.priority === 'background') {
+      if ((this.foreground.length > 0 || this.observed.length > 0) && job.priority === 'background') {
         this.enqueue({ kind: 'cache-chapters', priority: 'background', mangaId, reason: 'resume-after-foreground' });
-        console.log(`[cache] chapters yield manga=${mangaId} nextForeground=${this.foreground.length}`);
+        console.log(`[cache] chapters yield manga=${mangaId} nextForeground=${this.foreground.length} nextObserved=${this.observed.length}`);
         return;
       }
       try {
@@ -413,6 +536,94 @@ export class CacheService {
     this.db.upsertChapterList(mangaId, cached, failed > 0 ? 'partial' : 'ready');
     this.enqueueChapterImageJobs(mangaId, allItems, job.reason);
     console.log(`[cache] chapters cached manga=${mangaId} pages=${lastPage} items=${allItems.length} failed=${failed}`);
+  }
+
+  private async reconcileChapters(mangaId: string, job: CacheJob): Promise<void> {
+    const cached = this.db.getChapterList(mangaId);
+    if (!cached) {
+      console.log(`[cache] reconcile missing-cache manga=${mangaId} priority=${job.priority} source=${job.source ?? 'unknown'} action=full-refresh`);
+      this.enqueue({ kind: 'cache-chapters', priority: job.priority, mangaId, force: true, reason: 'reconcile-missing-cache' });
+      return;
+    }
+
+    const cachedItems = resultItems(cached.data);
+    const cachedIds = new Set(cachedItems.map(chapterIdFromItem).filter((id): id is string => id != null));
+    const { max: previousMax } = chapterSummary(cachedItems);
+    const observed = job.observedLatestChapter;
+    if (observed != null && previousMax != null && previousMax >= observed) {
+      console.log(`[cache] reconcile fresh-at-run manga=${mangaId} cachedMax=${previousMax} observed=${observed} priority=${job.priority}`);
+      return;
+    }
+
+    const newItems: unknown[] = [];
+    let reachedExisting = false;
+    let fetchedPages = 0;
+    let lastPagination: Record<string, unknown> = resultPagination(cached.data);
+
+    for (let page = 1; page <= RECONCILE_PAGE_BUDGET; page++) {
+      const data = await this.fetchChapterPage(mangaId, page);
+      fetchedPages++;
+      lastPagination = resultPagination(data);
+      const items = resultItems(data);
+      let pageNew = 0;
+      for (const item of items) {
+        const id = chapterIdFromItem(item);
+        const number = chapterNumberFromItem(item);
+        if (id && cachedIds.has(id)) {
+          reachedExisting = true;
+          break;
+        }
+        if (previousMax != null && number != null && number <= previousMax) {
+          reachedExisting = true;
+          break;
+        }
+        if (!id || cachedIds.has(id)) continue;
+        cachedIds.add(id);
+        newItems.push(item);
+        pageNew++;
+      }
+      console.log(`[cache] reconcile page manga=${mangaId} page=${page} items=${items.length} new=${pageNew} reachedExisting=${reachedExisting} cachedMax=${previousMax ?? 'unknown'} observed=${observed ?? 'unknown'}`);
+      if (reachedExisting) break;
+    }
+
+    if (!reachedExisting && fetchedPages >= RECONCILE_PAGE_BUDGET) {
+      this.enqueue({ kind: 'cache-chapters', priority: job.priority, mangaId, force: true, reason: 'reconcile-budget-exceeded' });
+      console.log(`[cache] reconcile fallback manga=${mangaId} pages=${fetchedPages} new=${newItems.length} action=full-refresh reason=budget-exceeded`);
+      return;
+    }
+
+    if (newItems.length === 0) {
+      console.log(`[cache] reconcile no-new-items manga=${mangaId} cachedMax=${previousMax ?? 'unknown'} observed=${observed ?? 'unknown'} pages=${fetchedPages}`);
+      return;
+    }
+
+    const mergedItems = [...newItems, ...cachedItems]
+      .sort((a, b) => (chapterNumberFromItem(b) ?? -Infinity) - (chapterNumberFromItem(a) ?? -Infinity));
+    const { max: nextMax } = chapterSummary(mergedItems);
+    const cachedRoot = cached.data && typeof cached.data === 'object'
+      ? cached.data as Record<string, unknown>
+      : {};
+    const cachedResult = cachedRoot.result && typeof cachedRoot.result === 'object'
+      ? cachedRoot.result as Record<string, unknown>
+      : {};
+    const merged = {
+      ...cachedRoot,
+      status: 'ok',
+      result: {
+        ...cachedResult,
+        items: mergedItems,
+        pagination: {
+          ...lastPagination,
+          current_page: 1,
+          page: 1,
+          total: Math.max(Number(lastPagination.total ?? 0), mergedItems.length),
+        },
+      },
+    };
+
+    this.db.upsertChapterList(mangaId, merged, cached.status === 'partial' ? 'partial' : 'ready');
+    this.enqueueChapterImageJobs(mangaId, newItems, 'reconcile-new-chapters');
+    console.log(`[cache] reconcile merged manga=${mangaId} previousCount=${cachedItems.length} nextCount=${mergedItems.length} previousMax=${previousMax ?? 'unknown'} nextMax=${nextMax ?? 'unknown'} new=${newItems.length} pages=${fetchedPages}`);
   }
 
   private async fetchChapterPage(mangaId: string, page: number): Promise<unknown> {

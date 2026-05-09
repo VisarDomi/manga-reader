@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { asyncHandler } from '../middleware/errorHandler.js';
-import type { CacheService } from '../cache/CacheService.js';
+import type { CacheJobPriority, CacheReconcileSource, CacheService } from '../cache/CacheService.js';
 
 function singleParam(value: string | string[] | undefined): string | null {
   if (typeof value !== 'string' || value.length === 0) return null;
@@ -49,7 +49,9 @@ export function createCacheRouter(cache: CacheService | null): Router {
     }
     const data = cache.getChapterList(mangaId);
     if (!data) {
-      cache.warmManga(mangaId, 'cache-miss');
+      if (!cache.isChapterListWarming(mangaId)) {
+        cache.warmManga(mangaId, 'cache-miss');
+      }
       res.status(202).json({ status: 'warming', mangaId });
       return;
     }
@@ -91,6 +93,35 @@ export function createCacheRouter(cache: CacheService | null): Router {
     }
     cache.refreshManga(mangaId, 'frontend-refresh');
     res.status(202).json({ status: 'queued', mangaId });
+  }));
+
+  router.post('/cache/manga/:mangaId/reconcile', asyncHandler(async (req, res) => {
+    if (!cache) {
+      res.status(503).json({ error: 'Cache service unavailable', status: 503 });
+      return;
+    }
+    const mangaId = singleParam(req.params.mangaId);
+    if (!mangaId) {
+      res.status(400).json({ error: 'Missing mangaId', status: 400 });
+      return;
+    }
+    const observedLatestChapter = typeof req.body?.observedLatestChapter === 'number'
+      ? req.body.observedLatestChapter
+      : typeof req.body?.observedLatestChapter === 'string'
+        ? Number(req.body.observedLatestChapter)
+        : null;
+    const priority: CacheJobPriority = req.body?.priority === 'foreground' ? 'foreground' : 'observed';
+    const source: CacheReconcileSource =
+      req.body?.source === 'manga-open' || req.body?.source === 'manual-refresh'
+        ? req.body.source
+        : 'search-result';
+    const result = cache.reconcileManga(
+      mangaId,
+      Number.isFinite(observedLatestChapter) ? observedLatestChapter : null,
+      priority,
+      source,
+    );
+    res.status(result.status === 'fresh' || result.status === 'ignored' ? 200 : 202).json(result);
   }));
 
   router.post('/cache/image-store', asyncHandler(async (req, res) => {

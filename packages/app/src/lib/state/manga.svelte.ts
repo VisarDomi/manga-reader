@@ -455,6 +455,12 @@ export class MangaState {
         }
     }
 
+    private async reconcileBeforeForegroundRead(manga: Manga): Promise<void> {
+        const latest = manga.latestChapter;
+        if (typeof latest !== 'number' || !Number.isFinite(latest) || latest <= 0) return;
+        await api.reconcileMangaCache(manga.id, latest, 'manga-open', 'foreground');
+    }
+
     async openManga(manga: Manga) {
         if (this.activeManga?.id === manga.id && this.ui.viewMode === View.MANGA) return;
         const start = performance.now();
@@ -470,6 +476,7 @@ export class MangaState {
         this.ui.pushView(View.MANGA);
 
         try {
+            await this.reconcileBeforeForegroundRead(manga);
             void this.loadMangaDetail(entry);
             this.emit('manga-chapters-start', { mangaId: manga.id });
             await this.consumeChapterStream(entry);
@@ -620,6 +627,7 @@ export class MangaState {
         this.replaceEntry(entry);
 
         try {
+            await this.reconcileBeforeForegroundRead(entry.manga);
             void this.loadMangaDetail(entry);
             this.emit('manga-chapters-start', { mangaId: entry.manga.id });
             await this.consumeChapterStream(entry, options);

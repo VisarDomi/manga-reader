@@ -54,6 +54,7 @@ export class SearchState {
     private loadingWatchdog: ReturnType<typeof setTimeout> | null = null;
     private onStuck: (() => void) | null = null;
     private isRestoring: () => boolean;
+    private reconcileReported = new Set<string>();
     onNewSearch: (() => void) | null = null;
 
     get isLoading() { return this.machine.isActive; }
@@ -114,6 +115,7 @@ export class SearchState {
             this.results = data.manga;
             this.resultsVersion++;
             this.hasMore = data.hasMore;
+            this.scheduleObservedReconcile(data.manga);
         } catch (e) {
             if (signal.aborted) return;
             this.error = toLoadError(e);
@@ -147,6 +149,7 @@ export class SearchState {
             this.results = data.manga;
             this.resultsVersion++;
             this.hasMore = data.hasMore;
+            this.scheduleObservedReconcile(data.manga);
         } catch (e) {
             if (signal.aborted) return;
             this.error = toLoadError(e);
@@ -172,7 +175,25 @@ export class SearchState {
         this.results = [...this.results, ...deduped];
         this.resultsVersion++;
         this.hasMore = data.hasMore;
+        this.scheduleObservedReconcile(deduped);
         return deduped;
+    }
+
+    private scheduleObservedReconcile(manga: Manga[]): void {
+        const candidates = manga
+            .filter(item => typeof item.latestChapter === 'number' && Number.isFinite(item.latestChapter) && item.latestChapter > 0)
+            .slice(0, 20)
+            .filter(item => {
+                const key = `${item.id}:${item.latestChapter}`;
+                if (this.reconcileReported.has(key)) return false;
+                this.reconcileReported.add(key);
+                return true;
+            });
+        candidates.forEach((item, index) => {
+            setTimeout(() => {
+                void api.reconcileMangaCache(item.id, item.latestChapter!, 'search-result', 'observed');
+            }, index * 25);
+        });
     }
 
     async loadNextPage() {

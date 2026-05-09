@@ -99,6 +99,49 @@ export async function searchManga(query: string, page = 1, filters?: SearchFilte
     return { manga: result.items, hasMore: result.hasMore };
 }
 
+export async function reconcileMangaCache(
+    mangaId: string,
+    observedLatestChapter: number,
+    source: 'search-result' | 'manga-open',
+    priority: 'observed' | 'foreground',
+    signal?: AbortSignal,
+): Promise<void> {
+    emit('cache-reconcile-request', { mangaId, observedLatestChapter, source, priority });
+    try {
+        const result = await fetchJson<{
+            status: string;
+            cachedMax: number | null;
+            observedLatestChapter: number | null;
+            action: string;
+            reason: string;
+        }>(`/api/cache/manga/${encodeURIComponent(mangaId)}/reconcile`, {
+            signal,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ observedLatestChapter, source, priority }),
+        });
+        emit('cache-reconcile-result', {
+            mangaId,
+            observedLatestChapter: result.observedLatestChapter,
+            cachedMax: result.cachedMax,
+            source,
+            priority,
+            status: result.status,
+            action: result.action,
+            reason: result.reason,
+        });
+    } catch (e) {
+        if (signal?.aborted) return;
+        emit('cache-reconcile-error', {
+            mangaId,
+            observedLatestChapter,
+            source,
+            priority,
+            error: String((e as Error)?.message ?? e),
+        });
+    }
+}
+
 export async function fetchMangaDetail(manga: Manga, signal?: AbortSignal): Promise<Manga> {
     const provider = getProvider();
     try {
@@ -239,15 +282,6 @@ export async function* fetchChapterList(
 export async function fetchChapterListPage(mangaId: string, page: number, signal?: AbortSignal): Promise<ChapterListPage> {
     void page;
     return fetchCachedChapterListPage(mangaId, signal);
-}
-
-export async function refreshMangaCache(mangaId: string): Promise<void> {
-    await fetchJson(`/api/cache/manga/${encodeURIComponent(mangaId)}/refresh`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: '{}',
-    });
-    await fetchCachedPayload(`/api/cache/manga/${encodeURIComponent(mangaId)}/chapters`, undefined, 'chapter-list', mangaId);
 }
 
 async function fetchCachedChapterImages(mangaId: string, chapterId: string, chapterNumber: number, chapterUrl?: string): Promise<ChapterPage[]> {
