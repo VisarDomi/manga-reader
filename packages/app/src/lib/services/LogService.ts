@@ -35,6 +35,7 @@ export type LogEvent =
     | { event: 'chapters-page'; mangaId: string; page: number; items: number; uploadedTimes: number; lastPage?: number; total?: number }
     | { event: 'chapters-parallel'; mangaId: string; remaining: number; total: number }
     | { event: 'chapters-page-error'; mangaId: string; page: number; error: string }
+    | { event: 'chapters-stream-error'; mangaId: string; afterFirstPage: boolean; error: string }
     | { event: 'chapters-done'; mangaId: string; pages: number; failed?: number; total: number; uploadedTimes: number }
     | { event: 'chapter-detail-prewarm-choice'; mangaId: string; chapterId: string; chapterNumber: number; reason: 'history' | 'unread' }
     | { event: 'chapter-images-result'; mangaId: string; chapterId: string; chapterNumber: number; imageCount: number }

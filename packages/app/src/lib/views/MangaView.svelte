@@ -32,6 +32,10 @@
     function handleClose() {
         appState.manga.closeManga();
     }
+
+    async function refreshCache(mangaId: string) {
+        await api.refreshMangaCache(mangaId);
+    }
 </script>
 
 <div class="manga-stack">
@@ -104,6 +108,10 @@
                     </div>
                 </section>
             {/if}
+        </div>
+
+        <div class="chapter-cache-actions">
+            <button class="refresh-data-action" onclick={() => refreshCache(manga.id)}>Refresh data</button>
         </div>
 
         {#if entry.isLoading}
@@ -303,6 +311,21 @@
     border: 1px solid #5a2d5a;
     border-radius: 8px;
     font-size: 14px;
+}
+
+.chapter-cache-actions {
+    padding: 12px 16px 0;
+}
+
+.refresh-data-action {
+    width: 100%;
+    padding: 10px 14px;
+    background: #1f2937;
+    color: #e5e7eb;
+    border: 1px solid #374151;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 700;
 }
 
 .manga-recommendations {

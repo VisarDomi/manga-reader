@@ -941,9 +941,15 @@ Only NavigationScheduler creates and navigates Playwright pages. Both user reque
 
 The `chapters-page` and `chapters-done` log events are emitted by `MangaState.consumeChapterStream` (the consumer), not by `fetchChapterList` in the API layer. The API generator is called from two contexts (display load and restore probe) — the consumer owns the context and therefore owns the logging.
 
-## D17. BrowserSession fetchPage Stays on comix.to Root
+## D17. BrowserSession fetchPage Stays on a Lightweight comix.to Page
 
-The persistent `fetchPage` (used for `page.evaluate(fetch(...))` calls) stays navigated to `https://comix.to`. It never navigates away — only the ephemeral pool pages navigate to manga title pages for signature capture. This keeps the fetchPage's cookies and JS context stable for chapter fetches.
+The persistent `fetchPage` (used for `page.evaluate(fetch(...))` calls) stays on
+the Comix origin but is moved from the homepage to the lightweight
+`https://comix.to/api/v2` endpoint after initialization. It never navigates to
+manga title pages. Only NavigationScheduler's ephemeral pages navigate to title
+or chapter pages for signature capture and DOM-backed extraction. This keeps
+the fetchPage's cookies and origin stable for chapter fetches while avoiding
+homepage rendering/animation cost.
 
 ## D18. CloakBrowser CPU Mitigation Under Xvfb
 
@@ -962,3 +968,54 @@ NavigationScheduler creates a fresh page per sig capture and closes it immediate
 ## D20. Chromium Spare Renderer Process Is Expected
 
 After all sig capture pages are closed, one renderer process remains at 0% CPU (~62 MB). This is not a leak — it is Chromium's `SpareRenderProcessHostManager`, which pre-creates one warm renderer so the next `context.newPage()` is instant instead of cold-starting a process. Exactly one spare, always. Can be disabled with `--disable-features=SpareRendererForSitePerProcess`, but we keep it because it speeds up the next sig capture and costs nothing at idle.
+
+## D21. Backend SQLite Cache Is the Durable Ingestion Owner
+
+The backend cache service owns durable manga/chapter/image metadata ingestion.
+Comix remains an upstream source, but normal cache population is backend-owned:
+SQLite is the source of durable truth, BrowserSession owns runtime access to
+Comix's signed/encrypted APIs and rendered chapter pages, and the frontend only
+expresses user intent or reports image-store observations.
+
+The cache has three durable data layers:
+
+1. `manga_cache`: newest/list manga rows discovered from Comix.
+2. `chapter_list_cache`: full chapter lists by manga.
+3. `chapter_image_cache` plus `image_store_candidates`: chapter page payloads
+   and possible store URLs for each discovered image URL.
+
+`image_store_status` records frontend/backend observations for each
+image/store pair: status code, ok/not-ok, source, and last check time. The
+frontend reports observations; it does not own cache invalidation policy.
+
+The worker uses three scheduling lanes:
+
+- foreground jobs for explicit frontend/user intent
+- background jobs for seed and chapter-list caching
+- image backlog jobs for chapter-image discovery
+
+Foreground work always wins. Chapter-list background work drains before the
+image backlog. Image discovery is intentionally second-layer work: it should not
+delay seed/chapter-list availability.
+
+Power-off robustness is row-based, not an in-memory queue guarantee. Completed
+rows are idempotent durable facts. On startup, the service fetches newest 100
+again, skips already cached chapter lists, and reconstructs image backlog from
+persisted `chapter_list_cache` rows. If power dies mid chapter-list job, no
+partial chapter-list row is committed and startup requeues it. If power dies
+mid chapter-image job, the chapter image payload and generated store candidates
+are in one SQLite transaction, so startup either sees the completed row and
+skips it or reconstructs the job from the chapter list.
+
+BrowserSession is the boundary normalizer. If the signed chapter-list response
+is encrypted, it uses Comix's shipped site client from the same browser runtime.
+If the signed chapter-detail API returns zero pages but the rendered chapter
+page exposes image URLs, BrowserSession returns normalized DOM-extracted pages.
+The cache layer then expands each real discovered store URL across known
+`wowpic*.store` hosts by preserving the path and replacing only the host.
+
+This was verified on 2026-05-09 by hard-killing
+`manga-reader.service` with `systemctl --user kill --signal=KILL`, starting it
+again, and checking logs/status. The restarted backend recovered from SQLite,
+skipped cached chapter lists, rebuilt image backlog from persisted chapter
+lists, and continued chapter-image caching without corruption.

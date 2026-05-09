@@ -253,9 +253,14 @@ export async function* fetchChapterList(
     let notify: (() => void) | null = null;
     let pending = remaining;
 
-    for (let page = 2; page <= lastPage; page++) {
+    const pages = Array.from({ length: remaining }, (_, i) => i + 2);
+    let nextIndex = 0;
+
+    const startNext = () => {
+        if (nextIndex >= pages.length) return;
+        const page = pages[nextIndex++];
         const req = provider.chapterListRequest(mangaId, page);
-        proxyRequest(req, 'json', { signal })
+        void proxyRequest(req, 'json', { signal })
             .then(data => {
                 const parsed = provider.parseChapterListResponse(data);
                 settled.push(parsed);
@@ -268,8 +273,14 @@ export async function* fetchChapterList(
             })
             .finally(() => {
                 pending--;
+                startNext();
                 notify?.();
             });
+    };
+
+    const width = Math.min(4, pages.length);
+    for (let i = 0; i < width; i++) {
+        startNext();
     }
 
     while (pending > 0 || settled.length > 0) {
@@ -327,6 +338,14 @@ export function prewarmChapterDetails(mangaId: string, chapters: ChapterMeta[]):
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ requests }),
     }).catch(() => {});
+}
+
+export async function refreshMangaCache(mangaId: string): Promise<void> {
+    await fetchJson(`/api/cache/manga/${encodeURIComponent(mangaId)}/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+    });
 }
 
 export async function fetchChapterImages(mangaId: string, chapterId: string, chapterNumber: number, chapterUrl?: string): Promise<ChapterPage[]> {

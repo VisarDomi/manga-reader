@@ -29,6 +29,7 @@ const CHAPTER_DETAIL_CACHE_LIMIT = 24;
 const CHAPTER_LIST_CACHE_TTL_MS = 5 * 60 * 1000;
 const CHAPTER_LIST_CACHE_LIMIT = 64;
 const CHAPTER_LIST_WARM_WORKERS = 2;
+const CHAPTER_LIST_PAGE_SIZE = 20;
 const MANGA_DETAIL_CACHE_TTL_MS = 10 * 60 * 1000;
 const MANGA_DETAIL_CACHE_LIMIT = 128;
 const COMMENTS_PAGE_LIMIT = 10;
@@ -38,6 +39,14 @@ const COMMENT_TREE_FILL_LIMIT = 40;
 export interface BrowserFetchResult {
     data: unknown;
     durationMs: number;
+}
+
+interface BrowserJsonFetchResult {
+    data: unknown;
+    status: number;
+    statusText: string;
+    contentType: string;
+    bodySnippet: string;
 }
 
 interface NormalizedMangaComment {
@@ -96,6 +105,12 @@ function isSignedApiRejected(err: unknown): boolean {
     return err instanceof UpstreamBodyError;
 }
 
+function valueKind(value: unknown): string {
+    if (value === null) return 'null';
+    if (Array.isArray(value)) return 'array';
+    return typeof value;
+}
+
 interface WorkItem {
     mangaId: string;
     priority: Priority;
@@ -107,12 +122,14 @@ interface WorkItem {
 interface CapturedTitleData {
     sig: string;
     detail?: unknown;
+    chapterPage1?: Promise<unknown>;
 }
 
 interface SignedChapterRequest {
     kind: 'chapter-list';
     mangaId: string;
     page: number;
+    limit: number;
 }
 
 interface SignedChapterDetailRequest {
@@ -157,6 +174,8 @@ class NavigationScheduler {
     private activeWorkers = 0;
     private context: BrowserContext | null = null;
     private onDetail: ((mangaId: string, detail: unknown) => void) | null = null;
+    private onChapterPage: ((mangaId: string, page: number, data: unknown) => void) | null = null;
+    private onChapterPageInflight: ((mangaId: string, page: number, promise: Promise<unknown>) => void) | null = null;
 
     get cacheSize(): number { return this.sigCache.size; }
 
@@ -166,6 +185,14 @@ class NavigationScheduler {
 
     setDetailCallback(fn: (mangaId: string, detail: unknown) => void): void {
         this.onDetail = fn;
+    }
+
+    setChapterPageCallback(fn: (mangaId: string, page: number, data: unknown) => void): void {
+        this.onChapterPage = fn;
+    }
+
+    setChapterPageInflightCallback(fn: (mangaId: string, page: number, promise: Promise<unknown>) => void): void {
+        this.onChapterPageInflight = fn;
     }
 
     getCachedSig(mangaId: string): SignatureLease | undefined {
@@ -264,7 +291,13 @@ class NavigationScheduler {
                     capturedAt: now,
                 });
                 if (captured.detail) this.onDetail?.(mangaId, captured.detail);
-                console.log(`[navScheduler] ${label} ${mangaId} sig=${captured.sig.slice(0, 16)}… detail=${captured.detail ? 'yes' : 'no'} ${Date.now() - t0}ms cache=${this.cacheSize}`);
+                if (captured.chapterPage1) {
+                    this.onChapterPageInflight?.(mangaId, 1, captured.chapterPage1);
+                    void captured.chapterPage1
+                        .then(data => this.onChapterPage?.(mangaId, 1, data))
+                        .catch(() => {});
+                }
+                console.log(`[navScheduler] ${label} ${mangaId} sig=${captured.sig.slice(0, 16)}… detail=${captured.detail ? 'yes' : 'no'} chapters=${captured.chapterPage1 ? 'warming' : 'no'} ${Date.now() - t0}ms cache=${this.cacheSize}`);
                 item.resolve(captured.sig);
 
                 for (let i = this.queue.length - 1; i >= 0; i--) {
@@ -273,6 +306,11 @@ class NavigationScheduler {
                         this.queue.splice(i, 1);
                     }
                 }
+
+                await captured.chapterPage1?.catch((e) => {
+                    const msg = (e as Error)?.message ?? String(e);
+                    console.log(`[navScheduler] initial-chapters-error ${mangaId}: ${msg}`);
+                });
             } finally {
                 await page.close().catch(e => {
                     console.log(`[navScheduler] page-close failed ${mangaId}: ${(e as Error)?.message ?? e}`);
@@ -322,6 +360,7 @@ class NavigationScheduler {
                     const signedAtMs = Date.now() - startedAt;
                     console.log(`[navScheduler] signed-request ${mangaId} after=${signedAtMs}ms`);
                     const detailStart = Date.now();
+                    const chapterPage1 = this.fetchChapterPageFromSiteClient(page, mangaId, 1);
                     const detail = await detailPromise.catch((e) => {
                         const msg = (e as Error)?.message ?? String(e);
                         console.log(`[navScheduler] initial-detail-error ${mangaId} after=${Date.now() - detailStart}ms ${msg}`);
@@ -329,7 +368,7 @@ class NavigationScheduler {
                     });
                     console.log(`[navScheduler] initial-detail ${mangaId} found=${detail ? 'yes' : 'no'} after=${Date.now() - detailStart}ms total=${Date.now() - startedAt}ms`);
                     settled = true;
-                    resolve({ sig, detail });
+                    resolve({ sig, detail, chapterPage1 });
                 } else {
                     settled = true;
                     reject(new Error('Signed request found but _ param missing'));
@@ -349,6 +388,41 @@ class NavigationScheduler {
                 }
             });
         });
+    }
+
+    private async fetchChapterPageFromSiteClient(page: Page, mangaId: string, pageNum: number): Promise<unknown> {
+        const start = Date.now();
+        const data = await page.evaluate(
+            async ({ mangaId, pageNum, pageSize }) => {
+                let api = (globalThis as any).__comixChapterApi;
+                if (!api?.chapters) {
+                    const script = [...document.scripts]
+                        .map(s => s.src)
+                        .find(src => src.includes('/assets/build/') && src.includes('/dist/main-') && src.endsWith('.js'));
+                    if (!script) throw new Error('Comix main module not found');
+                    const mod = await import(script);
+                    if (!mod?.g?.chapters) throw new Error('Comix chapter API client not found');
+                    api = mod.g;
+                    (globalThis as any).__comixChapterApi = api;
+                }
+                return api.chapters(mangaId, {
+                    limit: pageSize,
+                    page: pageNum,
+                    order: { number: 'desc' },
+                });
+            },
+            { mangaId, pageNum, pageSize: CHAPTER_LIST_PAGE_SIZE },
+        );
+        const items = Array.isArray(data?.items) ? data.items.length : 0;
+        const total = Number(data?.meta?.total ?? data?.pagination?.total ?? items);
+        console.log(`[navScheduler] initial-chapters ${mangaId} page=${pageNum} items=${items} total=${Number.isFinite(total) ? total : items} ${Date.now() - start}ms`);
+        return {
+            status: 'ok',
+            result: {
+                items: data?.items ?? [],
+                pagination: data?.meta ?? data?.pagination,
+            },
+        };
     }
 
     private async captureInitialMangaDetailFromDocument(page: Page, mangaId: string, startedAt: number): Promise<unknown | undefined> {
@@ -492,12 +566,16 @@ class NavigationScheduler {
 export class BrowserSession {
     private context: BrowserContext | null = null;
     private fetchPage: Page | null = null;
+    private chapterApiPage: Page | null = null;
+    private chapterApiInit: Promise<void> | null = null;
     private _ready = false;
     private initPromise: Promise<void> | null = null;
     private readonly profileDir: string;
     private readonly scheduler = new NavigationScheduler();
     private readonly mangaDetailCache = new Map<string, MangaDetailCacheEntry>();
     private readonly chapterListCache = new Map<string, ChapterListCacheEntry>();
+    private readonly chapterPageCache = new Map<string, ChapterListCacheEntry>();
+    private readonly chapterPageInflight = new Map<string, Promise<unknown>>();
     private readonly chapterListInflight = new Map<string, Promise<unknown>>();
     private chapterListWarmQueue = new Map<string, true>();
     private chapterListWarmAbort = new Map<string, AbortController>();
@@ -513,6 +591,8 @@ export class BrowserSession {
     ) {
         this.profileDir = path.join(PROFILE_BASE, `${domain}-session`);
         this.scheduler.setDetailCallback((mangaId, detail) => this.rememberMangaDetail(mangaId, detail));
+        this.scheduler.setChapterPageCallback((mangaId, page, data) => this.rememberChapterPage(mangaId, page, data));
+        this.scheduler.setChapterPageInflightCallback((mangaId, page, promise) => this.rememberChapterPageInflight(mangaId, page, promise));
     }
 
     get ready(): boolean {
@@ -575,8 +655,8 @@ export class BrowserSession {
         try {
             const data = request.kind === 'chapter-list'
                 ? request.page === 1
-                    ? await this.fetchWarmChapterListOrPage(request.mangaId)
-                    : await this.fetchChapterPageWithSig(request.mangaId, request.page, false)
+                    ? await this.fetchWarmChapterListOrPage(request.mangaId, request.limit)
+                    : await this.fetchChapterPageWithSig(request.mangaId, request.page, false, request.limit)
                 : await this.fetchChapterDetailCached(request, 'user');
             const durationMs = Date.now() - start;
             return { data, durationMs };
@@ -1080,8 +1160,10 @@ export class BrowserSession {
         const chapterListMatch = parsed.pathname.match(CHAPTER_LIST_PATTERN);
         if (chapterListMatch) {
             const rawPage = Number(parsed.searchParams.get('page') ?? 1);
+            const rawLimit = Number(parsed.searchParams.get('limit') ?? CHAPTER_LIST_PAGE_SIZE);
             const page = Number.isFinite(rawPage) && rawPage > 0 ? Math.floor(rawPage) : 1;
-            return { kind: 'chapter-list', mangaId: chapterListMatch[1], page };
+            const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.floor(rawLimit) : CHAPTER_LIST_PAGE_SIZE;
+            return { kind: 'chapter-list', mangaId: chapterListMatch[1], page, limit };
         }
 
         const chapterDetailMatch = parsed.pathname.match(CHAPTER_DETAIL_PATTERN);
@@ -1245,6 +1327,46 @@ export class BrowserSession {
         return cached.data;
     }
 
+    private chapterPageKey(mangaId: string, page: number, pageSize = CHAPTER_LIST_PAGE_SIZE): string {
+        return `${mangaId}:${pageSize}:${page}`;
+    }
+
+    private getCachedChapterPage(mangaId: string, page: number, pageSize = CHAPTER_LIST_PAGE_SIZE): unknown | null {
+        const key = this.chapterPageKey(mangaId, page, pageSize);
+        const cached = this.chapterPageCache.get(key);
+        if (!cached) return null;
+        if (Date.now() - cached.capturedAt > CHAPTER_LIST_CACHE_TTL_MS) {
+            this.chapterPageCache.delete(key);
+            return null;
+        }
+        this.chapterPageCache.delete(key);
+        this.chapterPageCache.set(key, cached);
+        return cached.data;
+    }
+
+    private rememberChapterPage(mangaId: string, page: number, data: unknown, pageSize = CHAPTER_LIST_PAGE_SIZE): void {
+        this.chapterPageCache.set(this.chapterPageKey(mangaId, page, pageSize), { data, capturedAt: Date.now() });
+        while (this.chapterPageCache.size > CHAPTER_LIST_CACHE_LIMIT) {
+            const oldest = this.chapterPageCache.keys().next().value;
+            if (!oldest) break;
+            this.chapterPageCache.delete(oldest);
+        }
+    }
+
+    private rememberChapterPageInflight(mangaId: string, page: number, promise: Promise<unknown>, pageSize = CHAPTER_LIST_PAGE_SIZE): void {
+        const key = this.chapterPageKey(mangaId, page, pageSize);
+        this.chapterPageInflight.set(key, promise);
+        void promise.then(() => {
+            if (this.chapterPageInflight.get(key) === promise) {
+                this.chapterPageInflight.delete(key);
+            }
+        }, () => {
+            if (this.chapterPageInflight.get(key) === promise) {
+                this.chapterPageInflight.delete(key);
+            }
+        });
+    }
+
     private rememberChapterList(mangaId: string, data: unknown): void {
         this.chapterListCache.set(mangaId, { data, capturedAt: Date.now() });
         while (this.chapterListCache.size > CHAPTER_LIST_CACHE_LIMIT) {
@@ -1280,24 +1402,24 @@ export class BrowserSession {
         return promise;
     }
 
-    private async fetchWarmChapterListOrPage(mangaId: string): Promise<unknown> {
+    private async fetchWarmChapterListOrPage(mangaId: string, pageSize = CHAPTER_LIST_PAGE_SIZE): Promise<unknown> {
         const cached = this.getCachedChapterList(mangaId);
-        if (cached) {
+        if (cached && pageSize === CHAPTER_LIST_PAGE_SIZE) {
             console.log(`[browserSession] chapter-list-cache hit ${mangaId} reason=user`);
             return cached;
         }
 
         const inflight = this.chapterListInflight.get(mangaId);
-        if (inflight) {
+        if (inflight && pageSize === CHAPTER_LIST_PAGE_SIZE) {
             const warmup = this.chapterListWarmAbort.get(mangaId);
             if (warmup?.signal.aborted) {
-                return this.fetchChapterPageWithSig(mangaId, 1, false);
+                return this.fetchChapterPageWithSig(mangaId, 1, false, pageSize);
             }
             console.log(`[browserSession] chapter-list-cache join ${mangaId} reason=user`);
             return inflight;
         }
 
-        return this.fetchChapterPageWithSig(mangaId, 1, false);
+        return this.fetchChapterPageWithSig(mangaId, 1, false, pageSize);
     }
 
     private drainChapterListWarmQueue(): void {
@@ -1340,7 +1462,7 @@ export class BrowserSession {
         }
     }
 
-    private async fetchChapterPageWithSig(mangaId: string, page: number, forceRefresh: boolean): Promise<unknown> {
+    private async fetchChapterPageWithSig(mangaId: string, page: number, forceRefresh: boolean, pageSize = CHAPTER_LIST_PAGE_SIZE): Promise<unknown> {
         const t0 = Date.now();
         const cachedBefore = !forceRefresh && !!this.scheduler.getCachedSig(mangaId);
         const sig = await this.scheduler.acquire(mangaId, Priority.USER, forceRefresh);
@@ -1349,7 +1471,7 @@ export class BrowserSession {
 
         try {
             const t1 = Date.now();
-            const data = await this.fetchChapterPage(mangaId, sig, page);
+            const data = await this.fetchChapterPage(mangaId, sig, page, pageSize);
             const pageMs = Date.now() - t1;
             const pagination = data?.result?.pagination ?? data?.result?.meta;
             const items = data?.result?.items ?? [];
@@ -1363,7 +1485,7 @@ export class BrowserSession {
                 const msg = (e as Error)?.message ?? String(e);
                 this.scheduler.invalidate(mangaId, 'signed-api-rejected');
                 console.log(`[browserSession] chapters ${mangaId} page=${page} signed-api-rejected retrying: ${msg}`);
-                return this.fetchChapterPageWithSig(mangaId, page, true);
+                return this.fetchChapterPageWithSig(mangaId, page, true, pageSize);
             }
             throw e;
         }
@@ -1406,13 +1528,51 @@ export class BrowserSession {
             await page.goto(signingPageUrl, { waitUntil: 'commit', timeout: 15_000 });
             const data = await dataPromise;
             const pages = (data as any)?.result?.pages ?? [];
-            console.log(`[browserSession] chapter ${mangaId}/${chapterId} page-load reason=${reason} pages=${pages.length} ${Date.now() - t0}ms`);
+            if (pages.length > 0) {
+                console.log(`[browserSession] chapter ${mangaId}/${chapterId} page-load reason=${reason} source=api pages=${pages.length} ${Date.now() - t0}ms`);
+                return data;
+            }
+
+            const domPages = await this.extractChapterPagesFromDom(page).catch(e => {
+                const msg = (e as Error)?.message ?? String(e);
+                console.log(`[browserSession] chapter ${mangaId}/${chapterId} dom-pages failed ${msg}`);
+                return [];
+            });
+            if (domPages.length > 0) {
+                console.log(`[browserSession] chapter ${mangaId}/${chapterId} page-load reason=${reason} source=dom pages=${domPages.length} ${Date.now() - t0}ms`);
+                return { status: 'ok', result: { pages: domPages } };
+            }
+
+            console.log(`[browserSession] chapter ${mangaId}/${chapterId} page-load reason=${reason} source=api-empty pages=0 ${Date.now() - t0}ms`);
             return data;
         } finally {
             await page.close().catch(e => {
                 console.log(`[browserSession] chapter page-close failed ${mangaId}/${chapterId}: ${(e as Error)?.message ?? e}`);
             });
         }
+    }
+
+    private async extractChapterPagesFromDom(page: Page): Promise<Array<{ url: string; width: number; height: number }>> {
+        await page.waitForFunction(() => {
+            const urls = [...document.images].map(img => img.currentSrc || img.src);
+            return urls.some(url => url.includes('.store/') && url.includes('/ii/'));
+        }, undefined, { timeout: 8_000 }).catch(() => {});
+
+        return page.evaluate(() => {
+            const seen = new Set<string>();
+            return [...document.images]
+                .map(img => ({
+                    url: img.currentSrc || img.src,
+                    width: img.naturalWidth || 0,
+                    height: img.naturalHeight || 0,
+                }))
+                .filter(page => {
+                    if (!page.url.includes('.store/') || !page.url.includes('/ii/')) return false;
+                    if (seen.has(page.url)) return false;
+                    seen.add(page.url);
+                    return true;
+                });
+        });
     }
 
     private async fetchAllChaptersWithSig(mangaId: string, reason: 'user' | 'prewarm', forceRefresh: boolean, signal?: AbortSignal): Promise<unknown> {
@@ -1498,19 +1658,159 @@ export class BrowserSession {
         };
     }
 
-    private async fetchChapterPage(mangaId: string, sig: string, pageNum: number): Promise<any> {
-        const data = await this.fetchPage!.evaluate(
-            async ({ apiBasePath, mangaId, sig, pageNum }) => {
-                const url = `${apiBasePath}/manga/${mangaId}/chapters?limit=100&page=${pageNum}&order%5Bnumber%5D=desc&time=1&_=${sig}`;
-                const res = await fetch(url);
-                if (!res.ok) {
-                    throw new Error(`HTTP ${res.status} ${res.statusText}`);
-                }
-                return res.json();
+    private describeChapterListPayload(data: unknown): string {
+        if (!data || typeof data !== 'object') return `root=${valueKind(data)}`;
+        const root = data as Record<string, unknown>;
+        const result = root.result;
+        if (!result || typeof result !== 'object') {
+            return `root=object status=${String(root.status ?? 'none')} result=${valueKind(result)} keys=${Object.keys(root).slice(0, 8).join(',') || 'none'}`;
+        }
+
+        const r = result as Record<string, unknown>;
+        const items = r.items;
+        const pagination = r.pagination ?? r.meta;
+        return `root=object status=${String(root.status ?? 'none')} result=object items=${Array.isArray(items) ? items.length : valueKind(items)} pagination=${valueKind(pagination)} resultKeys=${Object.keys(r).slice(0, 8).join(',') || 'none'}`;
+    }
+
+    private assertChapterListPayload(mangaId: string, pageNum: number, data: unknown, meta: BrowserJsonFetchResult): any {
+        const checked = assertJsonEnvelopeOk(data);
+        const result = checked && typeof checked === 'object'
+            ? (checked as Record<string, unknown>).result
+            : undefined;
+        const items = result && typeof result === 'object'
+            ? (result as Record<string, unknown>).items
+            : undefined;
+
+        if (!Array.isArray(items)) {
+            const shape = this.describeChapterListPayload(checked);
+            throw new Error(`Invalid chapter-list payload ${mangaId} page=${pageNum} http=${meta.status} contentType=${meta.contentType || 'none'} ${shape} body=${meta.bodySnippet || 'empty'}`);
+        }
+
+        return checked;
+    }
+
+    private async ensureChapterApiPage(mangaId: string): Promise<Page> {
+        if (this.chapterApiPage && !this.chapterApiPage.isClosed()) return this.chapterApiPage;
+        if (!this.chapterApiInit) {
+            this.chapterApiInit = (async () => {
+                const start = Date.now();
+                const page = await this.context!.newPage();
+                await page.goto(`https://comix.to/title/${mangaId}`, { waitUntil: 'domcontentloaded', timeout: 15_000 });
+                await page.evaluate(async () => {
+                    const script = [...document.scripts]
+                        .map(s => s.src)
+                        .find(src => src.includes('/assets/build/') && src.includes('/dist/main-') && src.endsWith('.js'));
+                    if (!script) throw new Error('Comix main module not found');
+                    const mod = await import(script);
+                    if (!mod?.g?.chapters) throw new Error('Comix chapter API client not found');
+                    (globalThis as any).__comixChapterApi = mod.g;
+                });
+                this.chapterApiPage = page;
+                console.log(`[browserSession] chapter-site-client ready ${mangaId} ${Date.now() - start}ms`);
+            })().finally(() => {
+                this.chapterApiInit = null;
+            });
+        }
+        await this.chapterApiInit;
+        if (!this.chapterApiPage || this.chapterApiPage.isClosed()) {
+            throw new Error('Comix chapter API page unavailable');
+        }
+        return this.chapterApiPage;
+    }
+
+    private async fetchChapterPageViaSiteClient(mangaId: string, pageNum: number, pageSize = CHAPTER_LIST_PAGE_SIZE): Promise<any> {
+        const start = Date.now();
+        const page = await this.ensureChapterApiPage(mangaId);
+        const data = await page.evaluate(
+            async ({ mangaId, pageNum, pageSize }) => {
+                const api = (globalThis as any).__comixChapterApi;
+                if (!api?.chapters) throw new Error('Comix chapter API client unavailable');
+                return api.chapters(mangaId, {
+                    limit: pageSize,
+                    page: pageNum,
+                    order: { number: 'desc' },
+                });
             },
-            { apiBasePath: COMIX_API_BASE_PATH, mangaId, sig, pageNum },
+            { mangaId, pageNum, pageSize },
         );
-        return assertJsonEnvelopeOk(data);
+        const fetchMs = Date.now() - start;
+
+        const envelope = this.assertChapterListPayload(mangaId, pageNum, {
+            status: 'ok',
+            result: {
+                items: data?.items ?? [],
+                pagination: data?.meta ?? data?.pagination,
+            },
+        }, {
+            data,
+            status: 200,
+            statusText: 'OK',
+            contentType: 'site-client',
+            bodySnippet: this.describeChapterListPayload({
+                status: 'ok',
+                result: {
+                    items: data?.items,
+                    pagination: data?.meta ?? data?.pagination,
+                },
+            }),
+        });
+        const items = Array.isArray(data?.items) ? data.items.length : 0;
+        const total = Number(data?.meta?.total ?? data?.pagination?.total ?? items);
+        console.log(`[browserSession] chapter-site-client page ${mangaId} page=${pageNum} items=${items} total=${Number.isFinite(total) ? total : items} ${fetchMs}ms`);
+        return envelope;
+    }
+
+    private async fetchChapterPage(mangaId: string, sig: string, pageNum: number, pageSize = CHAPTER_LIST_PAGE_SIZE): Promise<any> {
+        const cached = this.getCachedChapterPage(mangaId, pageNum, pageSize);
+        if (cached) {
+            console.log(`[browserSession] chapter-page-cache hit ${mangaId} limit=${pageSize} page=${pageNum}`);
+            return cached;
+        }
+        const inflight = this.chapterPageInflight.get(this.chapterPageKey(mangaId, pageNum, pageSize));
+        if (inflight) {
+            console.log(`[browserSession] chapter-page-cache join ${mangaId} limit=${pageSize} page=${pageNum}`);
+            return inflight;
+        }
+
+        const fetched = await this.fetchPage!.evaluate(
+            async ({ apiBasePath, mangaId, sig, pageNum, pageSize }) => {
+                const url = `${apiBasePath}/manga/${mangaId}/chapters?limit=${pageSize}&page=${pageNum}&order%5Bnumber%5D=desc&time=1&_=${sig}`;
+                const res = await fetch(url);
+                const contentType = res.headers.get('content-type') ?? '';
+                const text = await res.text();
+                const bodySnippet = text
+                    .replace(/"e"\s*:\s*"[^"]+"/g, '"e":"<redacted>"')
+                    .replace(/\s+/g, ' ')
+                    .slice(0, 220);
+                if (!res.ok) {
+                    throw new Error(`HTTP ${res.status} ${res.statusText} contentType=${contentType || 'none'} body=${bodySnippet || 'empty'}`);
+                }
+                try {
+                    return {
+                        data: JSON.parse(text),
+                        status: res.status,
+                        statusText: res.statusText,
+                        contentType,
+                        bodySnippet,
+                    };
+                } catch {
+                    throw new Error(`Invalid JSON HTTP ${res.status} ${res.statusText} contentType=${contentType || 'none'} body=${bodySnippet || 'empty'}`);
+                }
+            },
+            { apiBasePath: COMIX_API_BASE_PATH, mangaId, sig, pageNum, pageSize },
+        ) as BrowserJsonFetchResult;
+        try {
+            return this.assertChapterListPayload(mangaId, pageNum, fetched.data, fetched);
+        } catch (e) {
+            const raw = fetched.data && typeof fetched.data === 'object' ? fetched.data as Record<string, unknown> : null;
+            if (raw && typeof raw.e === 'string' && Object.keys(raw).length === 1) {
+                console.log(`[browserSession] chapters ${mangaId} page=${pageNum} encrypted-response using-site-client`);
+                const data = await this.fetchChapterPageViaSiteClient(mangaId, pageNum, pageSize);
+                this.rememberChapterPage(mangaId, pageNum, data, pageSize);
+                return data;
+            }
+            throw e;
+        }
     }
 
     async destroy(): Promise<void> {
@@ -1520,6 +1820,8 @@ export class BrowserSession {
             await this.context.close().catch(() => {});
             this.context = null;
             this.fetchPage = null;
+            this.chapterApiPage = null;
+            this.chapterApiInit = null;
             this.initPromise = null;
             console.log(`[browserSession] destroyed ${this.domain}`);
         }

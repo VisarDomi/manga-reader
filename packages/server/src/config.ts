@@ -16,6 +16,7 @@ export const CERT_KEY_PATH = process.env.CERT_KEY_PATH || path.join(SSL_DIR, 'ke
 export const CERT_PEM_PATH = process.env.CERT_PEM_PATH || path.join(SSL_DIR, 'cert.pem');
 export const ROOT_CA_PATH = process.env.ROOT_CA_PATH || path.join(os.homedir(), '.local/share/mkcert/rootCA.pem');
 export const STORE_HOSTS_PATH = process.env.STORE_HOSTS_PATH || path.join(STATE_DIR, 'store-hosts.json');
+export const CACHE_DB_PATH = process.env.CACHE_DB_PATH || path.join(STATE_DIR, 'cache.sqlite');
 
 export function validateConfig(): void {
   if (isNaN(PORT) || PORT < 1 || PORT > 65535) {

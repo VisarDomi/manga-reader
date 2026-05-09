@@ -315,11 +315,25 @@ export class MangaState {
         this.warmLikelyDetailChapter(entry.key);
     }
 
-    private async consumeChapterStream(entry: MangaEntry): Promise<void> {
+    private async consumeChapterStream(entry: MangaEntry, options?: { readyAfterFirstPage?: boolean }): Promise<void> {
         const all: ChapterMeta[] = [];
         const seen = new Set<string>();
         let pageCount = 0;
         const mangaId = entry.manga.id;
+        const readyAfterFirstPage = options?.readyAfterFirstPage === true;
+        let readyResolved = false;
+        let resolveReady: (() => void) | null = null;
+        let rejectReady: ((e: unknown) => void) | null = null;
+        const ready = new Promise<void>((resolve, reject) => {
+            resolveReady = resolve;
+            rejectReady = reject;
+        });
+
+        const markReady = (): void => {
+            if (readyResolved) return;
+            readyResolved = true;
+            resolveReady?.();
+        };
 
         const commitChapters = (phase: 'chapters-page' | 'chapters-done'): void => {
             const current = this.updateEntry(entry.key, currentEntry => {
@@ -336,34 +350,57 @@ export class MangaState {
             }
         };
 
-        for await (const page of api.fetchChapterList(mangaId)) {
-            pageCount++;
-            this.emit('chapters-page', {
-                mangaId,
-                page: page.pagination.currentPage,
-                items: page.items.length,
-                uploadedTimes: page.items.filter(ch => ch.uploadedAt != null || ch.uploadedAtLabel).length,
-                ...(pageCount === 1 ? {
-                    lastPage: page.pagination.lastPage,
-                    total: page.pagination.total,
-                } : {}),
-            });
-            for (const ch of page.items) {
-                if (seen.has(ch.id)) continue;
-                seen.add(ch.id);
-                all.push(ch);
+        const run = async (): Promise<void> => {
+            try {
+                for await (const page of api.fetchChapterList(mangaId)) {
+                    pageCount++;
+                    this.emit('chapters-page', {
+                        mangaId,
+                        page: page.pagination.currentPage,
+                        items: page.items.length,
+                        uploadedTimes: page.items.filter(ch => ch.uploadedAt != null || ch.uploadedAtLabel).length,
+                        ...(pageCount === 1 ? {
+                            lastPage: page.pagination.lastPage,
+                            total: page.pagination.total,
+                        } : {}),
+                    });
+                    for (const ch of page.items) {
+                        if (seen.has(ch.id)) continue;
+                        seen.add(ch.id);
+                        all.push(ch);
+                    }
+                    if (pageCount === 1) {
+                        commitChapters('chapters-page');
+                        markReady();
+                    }
+                }
+                commitChapters('chapters-done');
+                this.emit('chapters-done', {
+                    mangaId,
+                    pages: pageCount,
+                    total: all.length,
+                    uploadedTimes: all.filter(ch => ch.uploadedAt != null || ch.uploadedAtLabel).length,
+                });
+                markReady();
+            } catch (e) {
+                const error = String((e as Error)?.message ?? e);
+                this.emit('chapters-stream-error', { mangaId, afterFirstPage: pageCount > 0, error });
+                if (!readyResolved) {
+                    readyResolved = true;
+                    rejectReady?.(e);
+                }
+                throw e;
             }
-            if (pageCount === 1) {
-                commitChapters('chapters-page');
-            }
+        };
+
+        const done = run();
+        if (!readyAfterFirstPage) {
+            await done;
+            return;
         }
-        commitChapters('chapters-done');
-        this.emit('chapters-done', {
-            mangaId,
-            pages: pageCount,
-            total: all.length,
-            uploadedTimes: all.filter(ch => ch.uploadedAt != null || ch.uploadedAtLabel).length,
-        });
+
+        void done.catch(() => {});
+        await ready;
     }
 
     private async loadMangaDetail(entry: MangaEntry): Promise<void> {
@@ -541,7 +578,7 @@ export class MangaState {
         }
 
         const active = restored[restored.length - 1];
-        return active ? this.restoreEntry(active) : false;
+        return active ? this.restoreEntry(active, { readyAfterFirstPage: true }) : false;
     }
 
     async restoreMangaForReader(manga: Manga, targetChapterId: string | null): Promise<boolean> {
@@ -640,7 +677,7 @@ export class MangaState {
         }
     }
 
-    private async restoreEntry(entry: MangaEntry): Promise<boolean> {
+    private async restoreEntry(entry: MangaEntry, options?: { readyAfterFirstPage?: boolean }): Promise<boolean> {
         const start = performance.now();
         this.emit('manga-open-start', { mangaId: entry.manga.id });
         this.resetBlockedChapterVisibility(entry);
@@ -657,7 +694,7 @@ export class MangaState {
         try {
             void this.loadMangaDetail(entry);
             this.emit('manga-chapters-start', { mangaId: entry.manga.id });
-            await this.consumeChapterStream(entry);
+            await this.consumeChapterStream(entry, options);
             const current = this.entryFor(entry.key);
             if (!current) return false;
             current.error = null;

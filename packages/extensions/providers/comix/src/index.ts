@@ -166,7 +166,7 @@ const provider: MangaProvider = {
 
   chapterListRequest(mangaId: string, page: number): HttpRequest {
     const params = new URLSearchParams();
-    params.set('limit', '100');
+    params.set('limit', '20');
     params.set('page', String(page));
     params.set('order[number]', 'desc');
     return { url: `${API_URL}/manga/${mangaId}/chapters?${params}`, cloudflareProtected: true };

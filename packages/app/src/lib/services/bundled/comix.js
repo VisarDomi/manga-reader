@@ -551,7 +551,7 @@ var _ = {
 	},
 	chapterListRequest(e, t) {
 		let n = new URLSearchParams();
-		return n.set("limit", "100"), n.set("page", String(t)), n.set("order[number]", "desc"), {
+		return n.set("limit", "20"), n.set("page", String(t)), n.set("order[number]", "desc"), {
 			url: `${c}/manga/${e}/chapters?${n}`,
 			cloudflareProtected: !0
 		};

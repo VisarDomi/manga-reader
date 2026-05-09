@@ -8,14 +8,16 @@ import healthRouter from './routes/health.js';
 import imageRouter from './routes/image.js';
 import certRouter from './routes/cert.js';
 import { createProxyRouter } from './routes/proxy.js';
+import { createCacheRouter } from './routes/cache.js';
 import logRouter from './routes/log.js';
 import providerFiltersRouter from './routes/providerFilters.js';
 import type { BrowserSession } from './services/BrowserSession.js';
+import type { CacheService } from './cache/CacheService.js';
 import type { Request, Response } from 'express';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-export function createApp(browserSession: BrowserSession | null): express.Express {
+export function createApp(browserSession: BrowserSession | null, cacheService: CacheService | null = null): express.Express {
     const app = express();
     app.use(express.json());
 
@@ -38,6 +40,7 @@ export function createApp(browserSession: BrowserSession | null): express.Expres
     app.use('/api', healthRouter);
     app.use('/api', imageRouter);
     app.use('/api', certRouter);
+    app.use('/api', createCacheRouter(cacheService));
     app.use('/api', createProxyRouter(browserSession));
     app.use('/api', providerFiltersRouter);
     app.use('/api', logRouter);

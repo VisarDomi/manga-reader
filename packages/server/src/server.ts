@@ -4,6 +4,7 @@ import os from 'node:os';
 import { PORT, CERT_KEY_PATH, CERT_PEM_PATH, FRONTEND_BUILD_DIR, validateConfig } from './config.js';
 import { createApp } from './app.js';
 import { BrowserSession } from './services/BrowserSession.js';
+import { CacheService } from './cache/CacheService.js';
 import { listStoreHosts } from './utils/storeHosts.js';
 import { startPrewarm } from './utils/prewarm.js';
 
@@ -12,7 +13,8 @@ validateConfig();
 const SHUTDOWN_TIMEOUT = 10_000;
 
 const browserSession = new BrowserSession('comix.to', 'https://comix.to');
-const app = createApp(browserSession);
+const cacheService = new CacheService(browserSession);
+const app = createApp(browserSession, cacheService);
 
 const sslOptions = {
     key: fs.readFileSync(CERT_KEY_PATH),
@@ -28,9 +30,11 @@ server.listen(PORT, '0.0.0.0', () => {
 
     startPrewarm();
 
-    browserSession.init().catch(err => {
-        console.error(`[browserSession] init failed: ${err.message}`);
-    });
+    browserSession.init()
+        .then(() => cacheService.start())
+        .catch(err => {
+            console.error(`[browserSession] init failed: ${err.message}`);
+        });
 
     const networkInterfaces = os.networkInterfaces();
     for (const [, addrs] of Object.entries(networkInterfaces)) {
@@ -46,6 +50,7 @@ function shutdown(signal: string) {
     console.log(`${signal} received — shutting down gracefully...`);
 
     browserSession.destroy().catch(() => {});
+    cacheService.stop();
 
     server.close(() => {
         console.log('All connections closed. Exiting.');
