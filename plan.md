@@ -27,7 +27,13 @@ reports image-store observations back to the backend.
 
 3. Chapter image/store cache
    - After chapter lists are cached, enqueue chapter image discovery.
-   - Cache chapterId -> image pages and candidate store URLs.
+   - Cache chapterId -> complete image pages and candidate store URLs.
+   - A chapter-image cache row is user-visible `ready` only when the backend
+     has populated every target page from Comix's own chapter detail client:
+     `source=site-client`, `targetCount > 0`, `pages.length === targetCount`,
+     and every page has a concrete image URL.
+   - Empty, encrypted, partial, or DOM-observed payloads are diagnostic/incomplete
+     states. They must not be served to the reader as loaded chapter images.
    - Cache per-image/per-store observations: last check time, status code, ok/not-ok.
    - Frontend reports image outcomes; backend updates SQLite.
    - On 404, backend marks that store candidate stale/bad and can prioritize refresh.
@@ -51,8 +57,12 @@ reports image-store observations back to the backend.
 - Chapter image writes are atomic: the chapter image payload and generated store candidates
   are committed in one SQLite transaction.
 - BrowserSession owns Comix runtime access. It uses the Comix site client when signed chapter
-  list API payloads are encrypted, and it can fall back to DOM-extracted chapter image URLs
-  when the signed chapter detail API returns no pages.
+  list API payloads are encrypted, and it also uses the shipped site client for chapter image
+  payloads because raw chapter detail responses can be encrypted as `{ "e": "..." }`.
+- Chapter image cache readiness is a completeness contract, not an existence check. The backend
+  only serves chapter images when the normalized payload has `source=site-client`, a positive
+  `targetCount`, and exactly that many populated pages. The frontend refuses zero-page cache
+  payloads so the reader cannot hydrate an empty chapter as successfully loaded.
 - Store candidates are expanded from real discovered image URLs by replacing only the known
   `wowpic*.store` host while preserving the path.
 - API endpoints exist for cache status, cached manga, cached chapter lists, cached chapter
@@ -61,11 +71,16 @@ reports image-store observations back to the backend.
 - A hard `systemctl --user kill --signal=KILL manga-reader.service` followed by service start
   was tested on 2026-05-09. The service recovered from SQLite, skipped cached chapter lists,
   reconstructed image backlog, and continued image discovery.
+- On 2026-05-09, a bad cache-only reader path was found where encrypted chapter-detail payloads
+  were stored as `empty` and then served as hits with `pages=0`. The fix made cache readiness
+  explicit and verified chapter `7ez2/8996924` as `source=site-client pages=15 targetCount=15
+  status=ready`.
 
 ## Later
 
-- Serve search/manga/chapter data from cache routes by default.
-- Add frontend requests that prioritize nearby manga/chapter/image cache jobs during scroll.
+- Decide whether cache-only frontend mode should become production behavior or remain a test
+  mode.
+- Expand frontend requests that prioritize nearby manga/chapter/image cache jobs during scroll.
 - Add better invalidation policy beyond manual refresh and image 404 reports.
 - Consider persisting job lease/attempt metadata if concurrent workers are introduced. The
   current single-worker recovery model reconstructs remaining work from durable cache rows.

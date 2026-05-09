@@ -1499,51 +1499,44 @@ export class BrowserSession {
         const page = await this.context!.newPage();
         const t0 = Date.now();
         try {
-            const dataPromise = new Promise<unknown>((resolve, reject) => {
-                const timeout = setTimeout(() => {
-                    page.off('response', handler);
-                    reject(new Error(`Timed out waiting for signed chapter detail ${chapterId}`));
-                }, 15_000);
-
-                const handler = async (res: import('playwright').Response) => {
-                    const url = res.url();
-                    if (!url.includes(`${COMIX_API_BASE_PATH}/chapters/${chapterId}`) || !url.includes('_=')) return;
-
-                    clearTimeout(timeout);
-                    page.off('response', handler);
-                    try {
-                        if (!res.ok()) {
-                            reject(new Error(`HTTP ${res.status()} ${res.statusText()}`));
-                            return;
-                        }
-                        resolve(assertJsonEnvelopeOk(await res.json()));
-                    } catch (e) {
-                        reject(e);
-                    }
+            await page.goto(signingPageUrl, { waitUntil: 'domcontentloaded', timeout: 15_000 });
+            const data = await page.evaluate(async ({ chapterId }) => {
+                const script = [...document.scripts]
+                    .map(s => s.src)
+                    .find(src => src.includes('/assets/build/') && src.includes('/dist/main-') && src.endsWith('.js'));
+                if (!script) throw new Error('Comix main module not found');
+                const mod = await import(script);
+                if (!mod?.M?.get) throw new Error('Comix HTTP client not found');
+                const detail = await mod.M.get(`/chapters/${chapterId}`);
+                const baseUrl = typeof detail?.pages?.baseUrl === 'string' ? detail.pages.baseUrl : '';
+                const items = Array.isArray(detail?.pages?.items) ? detail.pages.items : [];
+                const pages = items
+                    .map((item: any) => {
+                        const relativeUrl = typeof item?.url === 'string' ? item.url : '';
+                        const url = relativeUrl && baseUrl ? new URL(relativeUrl, baseUrl).toString() : '';
+                        return {
+                            url,
+                            width: Number(item?.width ?? 0),
+                            height: Number(item?.height ?? 0),
+                        };
+                    })
+                    .filter((item: any) => item.url);
+                return {
+                    status: 'ok',
+                    result: {
+                        source: 'site-client',
+                        targetCount: items.length,
+                        pages,
+                    },
                 };
-
-                page.on('response', handler);
-            });
-
-            await page.goto(signingPageUrl, { waitUntil: 'commit', timeout: 15_000 });
-            const data = await dataPromise;
+            }, { chapterId });
             const pages = (data as any)?.result?.pages ?? [];
-            if (pages.length > 0) {
-                console.log(`[browserSession] chapter ${mangaId}/${chapterId} page-load reason=${reason} source=api pages=${pages.length} ${Date.now() - t0}ms`);
-                return data;
+            const targetCount = (data as any)?.result?.targetCount ?? 0;
+            if (!Array.isArray(pages) || pages.length === 0 || pages.length !== targetCount) {
+                console.log(`[browserSession] chapter ${mangaId}/${chapterId} page-load reason=${reason} source=site-client-incomplete pages=${Array.isArray(pages) ? pages.length : 'missing'} targetCount=${targetCount} ${Date.now() - t0}ms`);
+                throw new Error(`Comix site client returned incomplete chapter images for ${mangaId}/${chapterId}: pages=${Array.isArray(pages) ? pages.length : 'missing'} targetCount=${targetCount}`);
             }
-
-            const domPages = await this.extractChapterPagesFromDom(page).catch(e => {
-                const msg = (e as Error)?.message ?? String(e);
-                console.log(`[browserSession] chapter ${mangaId}/${chapterId} dom-pages failed ${msg}`);
-                return [];
-            });
-            if (domPages.length > 0) {
-                console.log(`[browserSession] chapter ${mangaId}/${chapterId} page-load reason=${reason} source=dom pages=${domPages.length} ${Date.now() - t0}ms`);
-                return { status: 'ok', result: { pages: domPages } };
-            }
-
-            console.log(`[browserSession] chapter ${mangaId}/${chapterId} page-load reason=${reason} source=api-empty pages=0 ${Date.now() - t0}ms`);
+            console.log(`[browserSession] chapter ${mangaId}/${chapterId} page-load reason=${reason} source=site-client pages=${pages.length} targetCount=${targetCount} ${Date.now() - t0}ms`);
             return data;
         } finally {
             await page.close().catch(e => {

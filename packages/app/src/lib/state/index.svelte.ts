@@ -19,7 +19,7 @@ import { FavoritesState } from './favorites.svelte.js';
 import { GroupFilterState } from './groupFilter.svelte.js';
 import { ChapterStatsState } from './chapterStats.svelte.js';
 import { saveSession, loadSession, type SessionSnapshot, type SearchContext } from './session.js';
-import { RESUME_RECOVERY_MS, DEEP_SLEEP_MS, VISIBLE_MANGA_DEBOUNCE_MS } from '../constants.js';
+import { RESUME_RECOVERY_MS, DEEP_SLEEP_MS, VISIBLE_MANGA_DEBOUNCE_MS, CACHE_ONLY_MODE } from '../constants.js';
 import type { ChapterMeta, Manga } from '../types.js';
 
 export type AppStatus = 'BOOTING' | 'READY' | 'BACKGROUND' | 'RECONNECTING' | 'OFFLINE';
@@ -604,8 +604,11 @@ class AppState {
 
             await Promise.all([this.progress.init(), this.favorites.init()]);
 
-            const restored = await this.restoreSession();
-            if (!restored) {
+            const restored = CACHE_ONLY_MODE ? false : await this.restoreSession();
+            if (CACHE_ONLY_MODE) {
+                this.favorites.activate();
+                this.ui.setViewDirect(View.FAVORITES, []);
+            } else if (!restored) {
                 await this.searchState.search(this.searchState.inputQuery);
             }
 

@@ -48,7 +48,7 @@ export function createCacheRouter(cache: CacheService | null): Router {
     }
     const data = cache.getChapterList(mangaId);
     if (!data) {
-      cache.refreshManga(mangaId, 'cache-miss');
+      cache.warmManga(mangaId, 'cache-miss');
       res.status(202).json({ status: 'warming', mangaId });
       return;
     }
@@ -71,7 +71,7 @@ export function createCacheRouter(cache: CacheService | null): Router {
       const rawNumber = typeof req.query.number === 'string' ? Number(req.query.number) : NaN;
       const chapterNumber = Number.isFinite(rawNumber) ? rawNumber : undefined;
       const chapterUrl = typeof req.query.url === 'string' ? req.query.url : undefined;
-      cache.refreshChapterImages(mangaId, chapterId, chapterNumber, chapterUrl, 'cache-miss');
+      cache.warmChapterImages(mangaId, chapterId, chapterNumber, chapterUrl, 'cache-miss');
       res.status(202).json({ status: 'warming', mangaId, chapterId });
       return;
     }

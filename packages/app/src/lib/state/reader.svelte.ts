@@ -18,6 +18,7 @@ import {
     READER_DOM_KEEP_RADIUS_VIEWPORTS,
     READER_FALLBACK_PAGE_ASPECT_RATIO,
     READER_WINDOW_RADIUS_VIEWPORTS,
+    CACHE_ONLY_MODE,
 } from '../constants.js';
 
 type ReaderEdge = 'next' | 'prev';
@@ -430,6 +431,11 @@ export class ReaderState {
     }
 
     private startChapterComments(pushView: boolean): boolean {
+        if (CACHE_ONLY_MODE) {
+            this.log.emit('cache-only-read', { resource: 'chapter-comments', action: 'skip', mangaId: this.activeMangaId, chapterId: this.currentChapterId ?? undefined });
+            return false;
+        }
+
         const manga = this.manga.activeManga;
         const chapter = this.currentChapterMeta;
         if (!manga || !chapter) {
@@ -1044,6 +1050,7 @@ export class ReaderState {
     }
 
     private scheduleChapterWarmup(manga: Manga, centerChapterId: string): void {
+        if (CACHE_ONLY_MODE) return;
         const idx = this.chapterList.findIndex(c => c.id === centerChapterId);
         if (idx === -1) return;
 

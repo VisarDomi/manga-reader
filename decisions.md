@@ -272,6 +272,12 @@ Prefer following proven client paths over probing many speculative URLs. Once
 the source client's data flow is known, implement against that flow and verify
 through the local integration boundary.
 
+For Comix, the shipped client is not only evidence; for some encrypted
+responses it is the correct runtime owner. If the raw response is an encrypted
+shape such as `{ "e": "..." }`, do not cache or parse it downstream as if it
+were a typed payload. Run the same client path the site uses in the same
+browser runtime and normalize the result at the BrowserSession boundary.
+
 ### 27. Log Ownership Boundaries
 
 Logs should identify the owner that made a state decision, not only the final
@@ -283,6 +289,10 @@ progress, navigation, queues, caches, and background hydration. A useful log
 timeline should answer: who planned the work, who queued it, who skipped or
 accepted it, who wrote state, and whether any programmatic scroll or navigation
 write occurred.
+
+Cache logs must distinguish `warming`, `not-ready`, `empty`, `ready`, `hit`,
+and `promoted`. A cache hit is only truthful when the payload satisfies the
+consumer contract; a row existing in SQLite is not enough.
 
 ### 28. Observers Are Not Authority
 
@@ -1009,9 +1019,27 @@ skips it or reconstructs the job from the chapter list.
 
 BrowserSession is the boundary normalizer. If the signed chapter-list response
 is encrypted, it uses Comix's shipped site client from the same browser runtime.
-If the signed chapter-detail API returns zero pages but the rendered chapter
-page exposes image URLs, BrowserSession returns normalized DOM-extracted pages.
-The cache layer then expands each real discovered store URL across known
+Chapter-image discovery also uses Comix's shipped site client. Raw chapter
+detail responses can be encrypted as `{ "e": "..." }`; those payloads are not
+valid chapter-image data and must not be cached as reader-ready results.
+BrowserSession asks the site client for `/chapters/{chapterId}`, normalizes
+`pages.baseUrl + pages.items[]` into full `ChapterPage` URLs, and includes
+`source=site-client` plus `targetCount` in the normalized payload.
+
+Chapter-image cache readiness is a completeness contract:
+
+- status must be `ready`
+- source must be `site-client`
+- `targetCount` must be positive
+- `pages.length` must equal `targetCount`
+- every page must have a populated image URL
+
+Rows that are encrypted, empty, partial, DOM-observed, or otherwise incomplete
+may exist as diagnostics, but the cache route must answer `warming` instead of
+serving them as hits. The frontend also rejects zero-page chapter payloads so
+the reader cannot mark an empty chapter as successfully loaded.
+
+The cache layer expands each real discovered store URL across known
 `wowpic*.store` hosts by preserving the path and replacing only the host.
 
 This was verified on 2026-05-09 by hard-killing
@@ -1019,3 +1047,8 @@ This was verified on 2026-05-09 by hard-killing
 again, and checking logs/status. The restarted backend recovered from SQLite,
 skipped cached chapter lists, rebuilt image backlog from persisted chapter
 lists, and continued chapter-image caching without corruption.
+
+The chapter-image readiness contract was verified on 2026-05-09 with
+`7ez2/8996924`: the backend first rejected the previous `empty pages=0` cache
+row as `not-ready`, promoted the foreground image job, then cached and served
+`source=site-client pages=15 targetCount=15 status=ready`.

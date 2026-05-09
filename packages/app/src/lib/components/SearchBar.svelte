@@ -2,6 +2,7 @@
     import { appState } from '$lib/state/index.svelte.js';
     import { View } from '$lib/logic.js';
     import FilterPanel from './FilterPanel.svelte';
+    import { CACHE_ONLY_MODE } from '$lib/constants.js';
 
     interface Props {
         favoritesMode?: boolean;
@@ -31,11 +32,13 @@
 
 <div class="search-bar-wrapper">
     <div class="action-row">
-        <button
-            class="action-btn"
-            class:active={!favoritesMode}
-            onclick={() => { if (favoritesMode) deactivateFavs(); }}
-        >Search</button>
+        {#if !CACHE_ONLY_MODE}
+            <button
+                class="action-btn"
+                class:active={!favoritesMode}
+                onclick={() => { if (favoritesMode) deactivateFavs(); }}
+            >Search</button>
+        {/if}
         <button
             class="action-btn"
             class:fav-active={favoritesMode}
@@ -67,7 +70,7 @@
         </div>
     {/if}
 
-    {#if !favoritesMode}
+    {#if !favoritesMode && !CACHE_ONLY_MODE}
         <form class="input-container" onsubmit={handleSubmit}>
             <input
                 type="text"

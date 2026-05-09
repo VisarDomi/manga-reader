@@ -703,22 +703,22 @@
     }
 </script>
 
-{#if chapters.length > 0}
-    <div
-        class="reader-wrapper"
-        role="application"
-        use:swipeBack={{
-            onSwipeStart: () => appState.reader.prepareMangaBackTarget(),
-            onClose: handleClose,
-            ui: appState.ui,
-        }}
-        use:swipeForward={{
-            onPrepare: () => appState.reader.prepareChapterComments(),
-            onCommit: () => appState.reader.commitPreparedChapterComments(),
-            onCancel: () => appState.reader.cancelPreparedChapterComments(),
-            ui: appState.ui,
-        }}
-    >
+<div
+    class="reader-wrapper"
+    role="application"
+    use:swipeBack={{
+        onSwipeStart: () => appState.reader.prepareMangaBackTarget(),
+        onClose: handleClose,
+        ui: appState.ui,
+    }}
+    use:swipeForward={{
+        onPrepare: () => appState.reader.prepareChapterComments(),
+        onCommit: () => appState.reader.commitPreparedChapterComments(),
+        onCancel: () => appState.reader.cancelPreparedChapterComments(),
+        ui: appState.ui,
+    }}
+>
+    {#if chapters.length > 0}
         <div class="reader-virtual-stage" style="height:{virtualHeight}px">
             {#each chapters as chapter (chapter.id)}
                 {@const chapterTop = chapter.virtualTop ?? 0}
@@ -761,12 +761,12 @@
         {:else if appState.reader.isLoadingNext}
             <div class="empty" style="padding:20px">Loading next chapter...</div>
         {/if}
-    </div>
-{:else}
-    <div class="empty" style="padding:20px; color: {appState.reader.error ? '#ff6b6b' : '#888'}">
-        {appState.reader.error ? loadErrorMessage(appState.reader.error) : 'Loading...'}
-    </div>
-{/if}
+    {:else}
+        <div class="empty" style="padding:20px; color: {appState.reader.error ? '#ff6b6b' : '#888'}">
+            {appState.reader.error ? loadErrorMessage(appState.reader.error) : 'Loading...'}
+        </div>
+    {/if}
+</div>
 
 <style>
 .chapter-separator {

@@ -39,6 +39,7 @@ export type LogEvent =
     | { event: 'chapters-done'; mangaId: string; pages: number; failed?: number; total: number; uploadedTimes: number }
     | { event: 'chapter-detail-prewarm-choice'; mangaId: string; chapterId: string; chapterNumber: number; reason: 'history' | 'unread' }
     | { event: 'chapter-images-result'; mangaId: string; chapterId: string; chapterNumber: number; imageCount: number }
+    | { event: 'cache-only-read'; resource: 'chapter-list' | 'chapter-images' | 'manga-detail' | 'manga-comments' | 'chapter-comments' | 'prewarm'; action: 'hit' | 'warming' | 'skip' | 'miss'; mangaId: string; chapterId?: string; count?: number }
     | { event: 'reader-open'; mangaId: string; chapterId: string; chapterNumber: number; hasRestore: boolean }
     | { event: 'reader-scroll-write'; source: 'initial-fallback' | 'initial-restore-into-view' | 'initial-restore-offset' | 'initial-reset' | 'initial-current-anchor' | 'prepend-adjust' | 'layout-idle-anchor' | 'physical-rebase'; from: number; to: number; delta: number }
     | { event: 'reader-restore-scroll'; action: 'restored' | 'reset' | 'cancelled' | 'fallback'; target: 'page' | 'top'; reason?: string; pageIndex?: number; scrollOffset?: number; from?: number; to?: number; delta?: number }

@@ -8,6 +8,7 @@
     import CommentsSection from '$lib/components/CommentsSection.svelte';
     import MangaList from '$lib/components/MangaList.svelte';
     import type { MangaEntry } from '$lib/state/manga.svelte.js';
+    import { CACHE_ONLY_MODE } from '$lib/constants.js';
 
     const entries = $derived(appState.manga.entries);
     const mangaState = appState.manga;
@@ -65,20 +66,20 @@
                     <img src={coverUrl(entry)} alt={manga.title} />
                 </div>
             {/if}
-            {#if manga.altTitles?.length}
+            {#if !CACHE_ONLY_MODE && manga.altTitles?.length}
                 <div class="manga-view-alt-titles">
                     {#each manga.altTitles as title}
                         <p>{title}</p>
                     {/each}
                 </div>
             {/if}
-            {#if manga.author}
+            {#if !CACHE_ONLY_MODE && manga.author}
                 <p class="manga-view-author">{manga.author}</p>
             {/if}
-            {#if manga.description}
+            {#if !CACHE_ONLY_MODE && manga.description}
                 <p class="manga-view-description">{manga.description}</p>
             {/if}
-            {#if manga.genres?.length}
+            {#if !CACHE_ONLY_MODE && manga.genres?.length}
                 <section class="manga-meta-section">
                     <h2>Genres</h2>
                     <div class="manga-view-tags">
@@ -88,7 +89,7 @@
                     </div>
                 </section>
             {/if}
-            {#if manga.tags?.length}
+            {#if !CACHE_ONLY_MODE && manga.tags?.length}
                 <section class="manga-meta-section">
                     <h2>Tags</h2>
                     <div class="manga-view-tags">
@@ -98,7 +99,7 @@
                     </div>
                 </section>
             {/if}
-            {#if manga.demographics?.length}
+            {#if !CACHE_ONLY_MODE && manga.demographics?.length}
                 <section class="manga-meta-section">
                     <h2>Demographics</h2>
                     <div class="manga-view-tags">
@@ -129,14 +130,16 @@
             <ChapterList {entry} />
         {/if}
 
-        {#if (manga.recommendations ?? []).length > 0}
+        {#if !CACHE_ONLY_MODE && (manga.recommendations ?? []).length > 0}
             <section class="manga-recommendations">
                 <h2>Recommendations</h2>
                 <MangaList manga={manga.recommendations ?? []} />
             </section>
         {/if}
 
-        <CommentsSection title="Comments" comments={entry.comments} count={entry.commentsCount} isLoading={entry.isCommentsLoading} error={entry.commentsError} />
+        {#if !CACHE_ONLY_MODE}
+            <CommentsSection title="Comments" comments={entry.comments} count={entry.commentsCount} isLoading={entry.isCommentsLoading} error={entry.commentsError} />
+        {/if}
     </div>
     </div>
 {/each}
