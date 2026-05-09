@@ -6,8 +6,6 @@ import type { Manga } from '../types.js';
 import type { ChapterStatsState } from './chapterStats.svelte.js';
 import type { ToastState } from './toast.svelte.js';
 
-const HYDRATE_CONCURRENCY = 3;
-
 export class FavoritesState {
     items = $state<Manga[]>([]);
     ids = $state<string[]>([]);
@@ -50,8 +48,7 @@ export class FavoritesState {
                 await db.removeFavorite(manga.id);
                 this.toast.show('Removed from favorites');
             } else {
-                await db.addFavoriteId(manga.id);
-                void this.hydrateOne(manga.id);
+                await db.addFavorite(manga);
                 this.toast.show('Added to favorites');
             }
         } catch (e) {
@@ -87,47 +84,85 @@ export class FavoritesState {
         };
     }
 
-    private async hydrateOne(id: string): Promise<void> {
-        const fallback = this.items.find(item => item.id === id) ?? this.placeholder(id);
-        const detailPromise = api.fetchMangaDetail(fallback);
-        const chaptersPromise = api.fetchChapterListPage(id, 1);
-        const manga = await detailPromise;
-        if (!this.ids.includes(id)) return;
-        this.items = this.items.map(item => item.id === id ? manga : item);
-        await chaptersPromise
-            .then(page => {
-                this.chapterStats.update(id, manga.latestChapter ?? null, page.items);
-            })
-            .catch(() => {});
-    }
-
     private async loadFavoriteRows(): Promise<void> {
         const rows = await db.getAllFavoriteRows();
         this.hydrationGeneration++;
         const generation = this.hydrationGeneration;
         this.ids = rows.map(row => row.id);
         this.items = rows.map(row => this.items.find(item => item.id === row.id) ?? this.placeholder(row.id, row.snapshot));
-        void this.hydrateRows(rows, generation);
+        const missing = rows.filter(row => !row.snapshot);
+        if (missing.length > 0) void this.migrateMissingSnapshots(missing, generation);
     }
 
-    private async hydrateRows(rows: db.FavoriteIdRow[], generation: number): Promise<void> {
-        let next = 0;
-        const worker = async (): Promise<void> => {
-            while (generation === this.hydrationGeneration) {
-                const row = rows[next++];
-                if (!row) return;
-                await this.hydrateOne(row.id);
-            }
-        };
-        await Promise.all(Array.from({ length: Math.min(HYDRATE_CONCURRENCY, rows.length) }, () => worker()));
+    private async migrateMissingSnapshots(rows: db.FavoriteIdRow[], generation: number): Promise<void> {
+        const startedAt = performance.now();
+        const fallbacks = rows.map(row => this.items.find(item => item.id === row.id) ?? this.placeholder(row.id, row.snapshot));
+        this.log.emit('favorites-hydration', {
+            phase: 'start',
+            total: rows.length,
+            batchSize: rows.length,
+            dtMs: 0,
+        });
+
+        const batchStartedAt = performance.now();
+        const count = await this.repairCardSnapshots(fallbacks, generation);
+        if (count == null) {
+            this.log.emit('favorites-hydration', {
+                phase: 'cancelled',
+                total: rows.length,
+                batchSize: rows.length,
+                batchIndex: 0,
+                count: 0,
+                dtMs: Math.round(performance.now() - startedAt),
+            });
+            return;
+        }
+        this.log.emit('favorites-hydration', {
+            phase: 'batch',
+            total: rows.length,
+            batchSize: rows.length,
+            batchIndex: 0,
+            count,
+            dtMs: Math.round(performance.now() - batchStartedAt),
+        });
+
+        this.log.emit('favorites-hydration', {
+            phase: 'done',
+            total: rows.length,
+            batchSize: rows.length,
+            dtMs: Math.round(performance.now() - startedAt),
+        });
+    }
+
+    private async repairCardSnapshots(fallbacks: Manga[], generation: number): Promise<number | null> {
+        const snapshots = await api.fetchMangaCardSnapshots(fallbacks).catch(() => []);
+        if (generation !== this.hydrationGeneration) return null;
+
+        const activeIds = new Set(this.ids);
+        const hydrated = snapshots.filter(snapshot => activeIds.has(snapshot.manga.id));
+        if (hydrated.length === 0) return 0;
+
+        const byId = new Map(hydrated.map(result => [result.manga.id, result.manga]));
+        this.items = this.items.map(item => byId.get(item.id) ?? item);
+        for (const result of hydrated) {
+            void db.updateFavoriteSnapshot(result.manga);
+            if (!result.chapters) continue;
+            this.chapterStats.update(result.manga.id, result.manga.latestChapter ?? null, result.chapters);
+        }
+        return hydrated.length;
     }
 
     refreshChapterStats(): void {
-        for (const item of this.items) {
-            void api.fetchChapterListPage(item.id, 1)
-                .then(page => this.chapterStats.update(item.id, item.latestChapter ?? null, page.items))
-                .catch(() => {});
-        }
+        const generation = this.hydrationGeneration;
+        void api.fetchMangaCardSnapshots(this.items, undefined, true)
+            .then(snapshots => {
+                if (generation !== this.hydrationGeneration) return;
+                for (const result of snapshots) {
+                    if (!result.chapters) continue;
+                    this.chapterStats.update(result.manga.id, result.manga.latestChapter ?? null, result.chapters);
+                }
+            })
+            .catch(() => {});
     }
 
 }

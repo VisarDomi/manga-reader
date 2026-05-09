@@ -27,6 +27,14 @@ export interface CacheReconcileResult {
   reason: string;
 }
 
+export interface CacheMangaCardSnapshot {
+  mangaId: string;
+  manga: unknown | null;
+  chapters: unknown | null;
+  mangaReady: boolean;
+  chaptersReady: boolean;
+}
+
 interface CacheJob {
   kind: CacheJobKind;
   priority: CacheJobPriority;
@@ -251,6 +259,28 @@ export class CacheService {
       return null;
     }
     return cached.data;
+  }
+
+  getMangaCardSnapshots(mangaIds: string[], options: { includeChapters?: boolean } = {}): CacheMangaCardSnapshot[] {
+    const includeChapters = options.includeChapters === true;
+    const seen = new Set<string>();
+    const snapshots: CacheMangaCardSnapshot[] = [];
+    for (const mangaId of mangaIds) {
+      if (seen.has(mangaId)) continue;
+      seen.add(mangaId);
+      const manga = this.getManga(mangaId);
+      const chapters = includeChapters ? this.getChapterList(mangaId) : null;
+      if (!manga) this.warmManga(mangaId, 'favorite-card-cache-miss');
+      snapshots.push({
+        mangaId,
+        manga,
+        chapters,
+        mangaReady: manga != null,
+        chaptersReady: includeChapters ? chapters != null : false,
+      });
+    }
+    console.log(`[cache] manga-card-snapshots requested=${mangaIds.length} unique=${seen.size} includeChapters=${includeChapters} mangaReady=${snapshots.filter(item => item.mangaReady).length} chaptersReady=${snapshots.filter(item => item.chaptersReady).length}`);
+    return snapshots;
   }
 
   refreshManga(mangaId: string, reason = 'frontend-refresh'): void {

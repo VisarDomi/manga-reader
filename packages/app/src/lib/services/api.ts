@@ -68,6 +68,37 @@ export interface SearchResult {
     hasMore: boolean;
 }
 
+export interface MangaCardSnapshot {
+    manga: Manga;
+    chapters: ChapterMeta[] | null;
+    mangaReady: boolean;
+    chaptersReady: boolean;
+}
+
+interface RawMangaCardSnapshot {
+    mangaId: string;
+    manga: unknown | null;
+    chapters: unknown | null;
+    mangaReady: boolean;
+    chaptersReady: boolean;
+}
+
+function rawCardSnapshots(data: unknown): RawMangaCardSnapshot[] {
+    const root = data && typeof data === 'object' ? data as Record<string, unknown> : {};
+    const result = root.result && typeof root.result === 'object' ? root.result as Record<string, unknown> : {};
+    const items = Array.isArray(result.items) ? result.items : [];
+    return items
+        .filter((item): item is Record<string, unknown> => item != null && typeof item === 'object')
+        .map(item => ({
+            mangaId: typeof item.mangaId === 'string' ? item.mangaId : '',
+            manga: item.manga ?? null,
+            chapters: item.chapters ?? null,
+            mangaReady: item.mangaReady === true,
+            chaptersReady: item.chaptersReady === true,
+        }))
+        .filter(item => item.mangaId.length > 0);
+}
+
 export async function searchManga(query: string, page = 1, filters?: SearchFilters, signal?: AbortSignal, retry = false): Promise<SearchResult> {
     const provider = getProvider();
     const data = await fetchJson<unknown>('/api/search', {
@@ -97,6 +128,42 @@ export async function searchManga(query: string, page = 1, filters?: SearchFilte
         } : {}),
     });
     return { manga: result.items, hasMore: result.hasMore };
+}
+
+export async function fetchMangaCardSnapshots(fallbacks: Manga[], signal?: AbortSignal, includeChapters = false): Promise<MangaCardSnapshot[]> {
+    if (fallbacks.length === 0) return [];
+    const provider = getProvider();
+    const fallbackById = new Map(fallbacks.map(manga => [manga.id, manga]));
+    const data = await fetchJson<unknown>('/api/cache/manga/cards', {
+        signal,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: fallbacks.map(manga => manga.id), includeChapters }),
+    });
+    return rawCardSnapshots(data).map(snapshot => {
+        const fallback = fallbackById.get(snapshot.mangaId) ?? {
+            id: snapshot.mangaId,
+            title: snapshot.mangaId,
+            cover: '',
+            latestChapter: null,
+        };
+        const detail = snapshot.manga ? provider.parseMangaDetailResponse?.(snapshot.manga) ?? {} : {};
+        const manga = {
+            ...fallback,
+            ...detail,
+            id: detail.id || fallback.id,
+            title: detail.title || fallback.title,
+            cover: detail.cover || fallback.cover,
+            latestChapter: detail.latestChapter ?? fallback.latestChapter,
+        };
+        const chapters = snapshot.chapters ? provider.parseChapterListResponse(snapshot.chapters).items : null;
+        return {
+            manga,
+            chapters,
+            mangaReady: snapshot.mangaReady,
+            chaptersReady: snapshot.chaptersReady,
+        };
+    });
 }
 
 export async function reconcileMangaCache(

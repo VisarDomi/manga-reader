@@ -15,13 +15,28 @@
     const readChapter = $derived(progress?.chapterNumber ?? 0);
     const filteredMax = $derived(filteredMaxSnapshot.filteredMax ?? latestChapter);
     const hasProgress = $derived(progress != null);
+    let mountedAt = 0;
 
     function syncStats() {
         filteredMaxSnapshot = appState.chapterStats.snapshot(manga.id, manga.latestChapter ?? null);
     }
 
+    function emitCoverImage(phase: 'mount' | 'load' | 'error', img?: HTMLImageElement) {
+        appState.log.emit('manga-cover-image', {
+            source,
+            phase,
+            mangaId: manga.id,
+            hasCover: !!coverUrl,
+            dtMs: Math.round(performance.now() - mountedAt),
+            naturalWidth: img?.naturalWidth,
+            naturalHeight: img?.naturalHeight,
+        });
+    }
+
     onMount(() => {
+        mountedAt = performance.now();
         recordMangaCardPerf(appState.log.emit, source, 'mounted');
+        emitCoverImage('mount');
         const unsubscribeProgress = appState.progress.subscribe(manga.id, value => {
             recordMangaCardPerf(appState.log.emit, source, 'progressCallbacks');
             progress = value;
@@ -41,7 +56,14 @@
 <button class="manga-card" data-manga-id={manga.id} onclick={() => appState.manga.openManga(manga)}>
     <div class="manga-card-cover">
         {#if coverUrl}
-            <img src={coverUrl} alt={manga.title} loading="lazy" decoding="async" />
+            <img
+                src={coverUrl}
+                alt={manga.title}
+                loading="lazy"
+                decoding="async"
+                onload={(event) => emitCoverImage('load', event.currentTarget)}
+                onerror={() => emitCoverImage('error')}
+            />
         {/if}
     </div>
     <div class="manga-card-info">

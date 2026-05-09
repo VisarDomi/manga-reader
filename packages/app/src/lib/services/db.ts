@@ -90,17 +90,22 @@ export async function getAllProgress(): Promise<Record<string, ProgressData>> {
         req.onerror = () => { logger('getAllProgress', String(req.error)); resolve({}); };
     });
 }
+interface FavoriteSnapshot {
+    title: string;
+    cover: string;
+    latestChapter: number | null;
+}
+
 interface FavoriteEntry {
     id: string;
+    title?: string;
+    cover?: string;
+    latestChapter?: number | null;
 }
 
 export interface FavoriteIdRow {
     id: string;
-    snapshot?: {
-        title: string;
-        cover: string;
-        latestChapter: number | null;
-    };
+    snapshot?: FavoriteSnapshot;
 }
 
 function favoriteId(entry: unknown): string {
@@ -124,7 +129,7 @@ function favoriteSnapshot(entry: unknown): FavoriteIdRow['snapshot'] | undefined
 export async function getAllFavoriteRows(): Promise<FavoriteIdRow[]> {
     const db = await openDB();
     return new Promise((resolve) => {
-        const tx = db.transaction('favorites', 'readwrite');
+        const tx = db.transaction('favorites', 'readonly');
         const store = tx.objectStore('favorites');
         const req = store.getAll();
         req.onsuccess = () => {
@@ -135,7 +140,6 @@ export async function getAllFavoriteRows(): Promise<FavoriteIdRow[]> {
                 if (!id || seen.has(id)) continue;
                 seen.add(id);
                 rows.push({ id, snapshot: favoriteSnapshot(entry) });
-                store.put({ id });
             }
             resolve(rows);
         };
@@ -143,13 +147,33 @@ export async function getAllFavoriteRows(): Promise<FavoriteIdRow[]> {
     });
 }
 
-export async function addFavoriteId(id: string): Promise<void> {
+export async function addFavorite(manga: { id: string; title: string; cover: string; latestChapter: number | null }): Promise<void> {
     const db = await openDB();
     return new Promise((resolve) => {
         const tx = db.transaction('favorites', 'readwrite');
-        tx.objectStore('favorites').put({ id });
+        tx.objectStore('favorites').put({
+            id: manga.id,
+            title: manga.title,
+            cover: manga.cover,
+            latestChapter: manga.latestChapter,
+        } satisfies FavoriteEntry);
         tx.oncomplete = () => resolve();
-        tx.onerror = () => { logger('addFavoriteId', String(tx.error)); resolve(); };
+        tx.onerror = () => { logger('addFavorite', String(tx.error)); resolve(); };
+    });
+}
+
+export async function updateFavoriteSnapshot(manga: { id: string; title: string; cover: string; latestChapter: number | null }): Promise<void> {
+    const db = await openDB();
+    return new Promise((resolve) => {
+        const tx = db.transaction('favorites', 'readwrite');
+        tx.objectStore('favorites').put({
+            id: manga.id,
+            title: manga.title,
+            cover: manga.cover,
+            latestChapter: manga.latestChapter,
+        } satisfies FavoriteEntry);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => { logger('updateFavoriteSnapshot', String(tx.error)); resolve(); };
     });
 }
 

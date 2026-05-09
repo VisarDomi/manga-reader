@@ -18,6 +18,26 @@ export function createCacheRouter(cache: CacheService | null): Router {
     res.json(cache.status());
   }));
 
+  router.post('/cache/manga/cards', asyncHandler(async (req, res) => {
+    if (!cache) {
+      res.status(503).json({ error: 'Cache service unavailable', status: 503 });
+      return;
+    }
+    const ids = Array.isArray(req.body?.ids)
+      ? req.body.ids.filter((id: unknown): id is string => typeof id === 'string' && id.length > 0)
+      : [];
+    if (ids.length === 0) {
+      res.status(400).json({ error: 'Missing ids', status: 400 });
+      return;
+    }
+    res.json({
+      status: 'ok',
+      result: {
+        items: cache.getMangaCardSnapshots(ids, { includeChapters: req.body?.includeChapters === true }),
+      },
+    });
+  }));
+
   router.get('/cache/manga/:mangaId', asyncHandler(async (req, res) => {
     if (!cache) {
       res.status(503).json({ error: 'Cache service unavailable', status: 503 });
