@@ -63,6 +63,10 @@
     const IDLE_LAYOUT_DELAY_MS = 450;
     const SCROLL_RECONCILE_STEP_VIEWPORTS = 0.75;
     const PAGE_TRACK_INTERVAL_MS = 250;
+    const READER_DIAGNOSTICS = {
+        frameGapProbe: false,
+        visualSnapshot: false,
+    } as const;
 
     type VisualAnchor = {
         key: string;
@@ -129,6 +133,7 @@
     }
 
     function logVisualSnapshot(root: HTMLElement, source: 'initial' | 'scroll' | 'images' | 'close', force = false) {
+        if (!READER_DIAGNOSTICS.visualSnapshot) return;
         const now = performance.now();
         if (!force && now - lastVisualSnapshotAt < 750) return;
         lastVisualSnapshotAt = now;
@@ -196,6 +201,7 @@
     }
 
     function startFrameProbe() {
+        if (!READER_DIAGNOSTICS.frameGapProbe) return;
         if (!appState.log.isEnabled) return;
         if (frameRaf != null) return;
         lastFrameAt = performance.now();
