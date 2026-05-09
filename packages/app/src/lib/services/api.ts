@@ -158,7 +158,12 @@ export async function fetchMangaComments(mangaId: string, signal?: AbortSignal):
         return { comments: [], count: 0, stats: { total: 0, maxDepth: 0, parents: 0, missingReplies: 0, rootPages: 0, replyPages: 0, treeFills: 0, unavailable: 0, unavailableRoots: 0 } };
     }
 
-    const data = await fetchJson<unknown>(`/api/manga-comments/${encodeURIComponent(mangaId)}`, { signal });
+    const params = new URLSearchParams({ _: String(Date.now()) });
+    const data = await fetchJson<unknown>(`/api/manga-comments/${encodeURIComponent(mangaId)}?${params}`, {
+        signal,
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache' },
+    });
     const parsed = parseCommentsResult(data);
     emit('manga-comments-result', {
         mangaId,
@@ -184,7 +189,12 @@ export async function fetchChapterComments(mangaId: string, chapter: ChapterMeta
 
     const params = new URLSearchParams({ number: String(chapter.number) });
     if (chapter.url) params.set('url', chapter.url);
-    const data = await fetchJson<unknown>(`/api/chapter-comments/${encodeURIComponent(mangaId)}/${encodeURIComponent(chapter.id)}?${params}`, { signal });
+    params.set('_', String(Date.now()));
+    const data = await fetchJson<unknown>(`/api/chapter-comments/${encodeURIComponent(mangaId)}/${encodeURIComponent(chapter.id)}?${params}`, {
+        signal,
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache' },
+    });
     const parsed = parseCommentsResult(data);
     emit('chapter-comments-result', {
         mangaId,

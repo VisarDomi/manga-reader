@@ -34,10 +34,11 @@ interface FetchOptions {
     headers?: Record<string, string>;
     body?: string;
     retry?: boolean;
+    cache?: RequestCache;
 }
 
 async function doFetch(url: string, opts: FetchOptions, parseResponse: (res: Response) => Promise<unknown>): Promise<unknown> {
-    const { signal: callerSignal, method, headers, body, retry = false } = opts;
+    const { signal: callerSignal, method, headers, body, retry = false, cache } = opts;
     let lastError: unknown;
 
     const maxAttempts = retry ? 2 : 1;
@@ -48,7 +49,7 @@ async function doFetch(url: string, opts: FetchOptions, parseResponse: (res: Res
             ? AbortSignal.any([callerSignal, timeoutSignal])
             : timeoutSignal;
         try {
-            const res = await fetch(url, { signal, method, headers, body });
+            const res = await fetch(url, { signal, method, headers, body, cache });
             if (res.status === 503 && res.headers.get('X-Cloudflare-Solving') === 'true') {
                 throw new ApiError(ApiErrKind.CLOUDFLARE, 503);
             }

@@ -45,6 +45,7 @@ export function createCommentsRouter(browserSession: BrowserSession | null): Rou
             return;
         }
 
+        res.set('Cache-Control', 'no-store');
         const result = await browserSession.fetchMangaComments(mangaId);
         console.log(`[proxy] manga-comments ${mangaId} api=${jsonApiStatus(result.data)} ${commentsSummary(result.data)} ${result.durationMs}ms`);
         res.json(result.data);
@@ -67,6 +68,7 @@ export function createCommentsRouter(browserSession: BrowserSession | null): Rou
             return;
         }
 
+        res.set('Cache-Control', 'no-store');
         const result = await browserSession.fetchChapterComments(mangaId, chapterId, chapterNumber, chapterUrl);
         console.log(`[proxy] chapter-comments ${mangaId}/${chapterId} number=${chapterNumber} api=${jsonApiStatus(result.data)} ${commentsSummary(result.data)} ${result.durationMs}ms`);
         res.json(result.data);
