@@ -209,6 +209,7 @@ export class CacheService {
   private active = false;
   private started = false;
   private currentJob: CacheJob | null = null;
+  private dailyRolloverTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(private readonly browserSession: BrowserSession, private readonly byteCache: ByteCacheService | null = null) {}
 
@@ -217,9 +218,14 @@ export class CacheService {
     this.started = true;
     this.scheduler.recoverWorker(CACHE_WORKER_ID);
     this.startDailyNewestCrawl();
+    this.scheduleDailyRollover();
   }
 
   stop(): void {
+    if (this.dailyRolloverTimer) {
+      clearTimeout(this.dailyRolloverTimer);
+      this.dailyRolloverTimer = null;
+    }
     this.db.close();
   }
 
@@ -473,6 +479,20 @@ export class CacheService {
     const page = Number.isFinite(lastPage) && lastPage > 0 ? lastPage + 1 : 1;
     this.enqueue({ kind: 'crawl-search-page', priority: 'daily', page, crawlDate, reason: 'startup' });
     console.log(`[cache] start daily-crawl date=${crawlDate} action=enqueue page=${page} demotedOldCrawls=${demoted}`);
+  }
+
+  private scheduleDailyRollover(): void {
+    if (this.dailyRolloverTimer) clearTimeout(this.dailyRolloverTimer);
+    const delayMs = msUntilNextCacheDayRollover();
+    this.dailyRolloverTimer = setTimeout(() => {
+      this.dailyRolloverTimer = null;
+      const crawlDate = todayKey();
+      console.log(`[cache] daily-rollover date=${crawlDate}`);
+      this.startDailyNewestCrawl();
+      this.scheduleDailyRollover();
+    }, delayMs);
+    this.dailyRolloverTimer.unref?.();
+    console.log(`[cache] daily-rollover scheduled delayMs=${delayMs}`);
   }
 
   private async crawlSearchPage(job: CacheJob): Promise<void> {
@@ -838,4 +858,14 @@ function todayKey(): string {
   const month = String(shifted.getMonth() + 1).padStart(2, '0');
   const day = String(shifted.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+function msUntilNextCacheDayRollover(): number {
+  const now = new Date();
+  const next = new Date(now);
+  next.setHours(CACHE_DAY_ROLLOVER_HOUR, CACHE_DAY_ROLLOVER_MINUTE, 0, 0);
+  if (next.getTime() <= now.getTime()) {
+    next.setDate(next.getDate() + 1);
+  }
+  return next.getTime() - now.getTime();
 }
