@@ -44,6 +44,7 @@ export class SearchState {
     inputQuery = $state('');
     currentPage = $state(1);
     hasMore = $state(false);
+    resultsVersion = $state(0);
 
     readonly filters: FilterState;
     context: SearchContext | null = null;
@@ -111,11 +112,13 @@ export class SearchState {
             if (signal.aborted) return;
             this.error = null;
             this.results = data.manga;
+            this.resultsVersion++;
             this.hasMore = data.hasMore;
         } catch (e) {
             if (signal.aborted) return;
             this.error = toLoadError(e);
             this.results = [];
+            this.resultsVersion++;
             this.hasMore = false;
         } finally {
             this.clearWatchdog();
@@ -142,11 +145,13 @@ export class SearchState {
             if (signal.aborted) return;
             this.error = null;
             this.results = data.manga;
+            this.resultsVersion++;
             this.hasMore = data.hasMore;
         } catch (e) {
             if (signal.aborted) return;
             this.error = toLoadError(e);
             this.results = [];
+            this.resultsVersion++;
             this.hasMore = false;
         } finally {
             this.clearWatchdog();
@@ -165,6 +170,7 @@ export class SearchState {
         const seen = new Set(this.results.map(m => m.id));
         const deduped = data.manga.filter(m => !seen.has(m.id));
         this.results = [...this.results, ...deduped];
+        this.resultsVersion++;
         this.hasMore = data.hasMore;
         return deduped;
     }

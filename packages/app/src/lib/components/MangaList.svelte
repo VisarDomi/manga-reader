@@ -4,11 +4,28 @@
     import type { Manga } from '$lib/types.js';
     import MangaCoverCard from './MangaCoverCard.svelte';
 
-    let { manga, trackVisible = false }: { manga: Manga[]; trackVisible?: boolean } = $props();
+    let {
+        manga,
+        trackVisible = false,
+        prewarmGeneration = 0,
+    }: {
+        manga: Manga[];
+        trackVisible?: boolean;
+        prewarmGeneration?: number;
+    } = $props();
 
     let gridEl: HTMLElement | null = null;
-    const mangaIds = $derived(manga.map(item => item.id).join('\0'));
+    let lastPrewarmPerfLogAt = 0;
     const mangaById = $derived.by(() => new Map(manga.map(item => [item.id, item])));
+
+    type VisibleMangaResult = {
+        items: Manga[];
+        sampled: number;
+        columns: number;
+        firstRow: number;
+        lastRow: number;
+        rootHeight: number;
+    };
 
     function scrollRoot(): HTMLElement | null {
         let el = gridEl?.parentElement ?? null;
@@ -20,13 +37,21 @@
         return null;
     }
 
-    function visibleManga(root: HTMLElement): Manga[] {
-        if (!gridEl) return [];
+    function visibleManga(root: HTMLElement): VisibleMangaResult {
+        const empty = {
+            items: [],
+            sampled: 0,
+            columns: 0,
+            firstRow: 0,
+            lastRow: -1,
+            rootHeight: root.clientHeight,
+        };
+        if (!gridEl) return empty;
         const rootRect = root.getBoundingClientRect();
         const gridRect = gridEl.getBoundingClientRect();
         const firstCard = gridEl.querySelector<HTMLElement>('[data-manga-id]');
         const cardRect = firstCard?.getBoundingClientRect();
-        if (!cardRect || cardRect.width <= 0 || cardRect.height <= 0 || gridRect.width <= 0) return [];
+        if (!cardRect || cardRect.width <= 0 || cardRect.height <= 0 || gridRect.width <= 0) return empty;
 
         const columns = Math.max(1, Math.round(gridRect.width / cardRect.width));
         const margin = rootRect.height / 2;
@@ -41,7 +66,15 @@
         );
         const firstIndex = firstRow * columns;
         const lastIndex = Math.min(manga.length, (lastRow + 1) * columns);
-        return manga.slice(firstIndex, lastIndex).map(item => mangaById.get(item.id) ?? item);
+        const items = manga.slice(firstIndex, lastIndex).map(item => mangaById.get(item.id) ?? item);
+        return {
+            items,
+            sampled: Math.max(0, lastIndex - firstIndex),
+            columns,
+            firstRow,
+            lastRow,
+            rootHeight: rootRect.height,
+        };
     }
 
     function trackCenteredManga() {
@@ -54,18 +87,36 @@
         if (id) appState.trackVisibleManga(id);
     }
 
-    function prewarmVisible() {
+    function prewarmVisible(source: 'generation' | 'scroll' | 'mount') {
         if (!trackVisible) return;
         const root = scrollRoot();
         if (!root) return;
+        const started = performance.now();
         const visible = visibleManga(root);
-        if (visible.length > 0) appState.prewarmVisibleManga(visible);
+        const scanMs = performance.now() - started;
+        if (visible.items.length > 0) appState.prewarmVisibleManga(visible.items);
+
+        const now = performance.now();
+        if (manga.length >= 500 && (scanMs >= 1 || now - lastPrewarmPerfLogAt > 1000)) {
+            lastPrewarmPerfLogAt = now;
+            appState.log.emit('manga-list-prewarm-perf', {
+                source,
+                total: manga.length,
+                sampled: visible.sampled,
+                visible: visible.items.length,
+                columns: visible.columns,
+                firstRow: visible.firstRow,
+                lastRow: visible.lastRow,
+                scanMs: Math.round(scanMs * 10) / 10,
+                rootHeight: Math.round(visible.rootHeight),
+            });
+        }
     }
 
     $effect(() => {
         if (!trackVisible) return;
-        mangaIds;
-        requestAnimationFrame(() => prewarmVisible());
+        prewarmGeneration;
+        requestAnimationFrame(() => prewarmVisible('generation'));
     });
 
     onMount(() => {
@@ -79,12 +130,12 @@
             requestAnimationFrame(() => {
                 ticking = false;
                 trackCenteredManga();
-                prewarmVisible();
+                prewarmVisible('scroll');
             });
         }
 
         root.addEventListener('scroll', onScroll, { passive: true });
-        requestAnimationFrame(() => prewarmVisible());
+        requestAnimationFrame(() => prewarmVisible('mount'));
 
         return () => root.removeEventListener('scroll', onScroll);
     });

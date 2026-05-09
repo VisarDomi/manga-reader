@@ -13,19 +13,18 @@ changing navigation behavior or hibernating top-level views.
    - Replace the full-card scan with viewport sampling so cost is bounded by
      visible rows, not total search result count.
 
-2. [pending] Remove broad search-result derived work used only for prewarm.
+2. [completed] Remove broad search-result derived work used only for prewarm.
    - `MangaList` builds a full joined ID string from every manga on each result
      change.
    - Replace it with an explicit list-version or append signal owned by the
      search/list owner.
 
-3. [pending] Keep mounted cards cheap while offscreen.
+3. [removed] Keep mounted cards cheap while offscreen.
    - Search results can intentionally keep 1000+ cards mounted.
-   - Add a non-behavior-changing rendering optimization such as
-     `content-visibility: auto` with stable intrinsic card sizing so offscreen
-     cards stay mounted but avoid unnecessary layout/paint cost.
+   - `content-visibility: auto` did not improve the measured heavy-search
+     reader gaps and carries browser rendering behavior risk, so leave it out.
 
-4. [pending] Add targeted list-prewarm performance logs.
+4. [completed] Add targeted list-prewarm performance logs.
    - Log card/result count, sampled/visible count, and scan duration.
    - The log should prove whether list prewarm still spends frame budget during
      large-result stress tests.

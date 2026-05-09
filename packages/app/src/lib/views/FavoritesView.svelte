@@ -20,7 +20,7 @@
         {:else if favsItems.length === 0}
             <div class="empty">No favorites yet</div>
         {:else}
-            <MangaList manga={favsItems} trackVisible />
+            <MangaList manga={favsItems} trackVisible prewarmGeneration={favsItems.length} />
         {/if}
     </div>
 </div>

@@ -88,6 +88,7 @@ export type LogEvent =
     | { event: 'db-error'; op: string; error: string }
     | { event: 'favorites-toggle-failed'; message: string }
     | { event: 'prewarm-sent'; count: number }
+    | { event: 'manga-list-prewarm-perf'; source: 'generation' | 'scroll' | 'mount'; total: number; sampled: number; visible: number; columns: number; firstRow: number; lastRow: number; scanMs: number; rootHeight: number }
     | { event: 'chapter-warmup-sent'; count: number }
     | { event: 'foreground-work'; owner: 'search' | 'visible-prewarm' | 'chapter-stats' | 'manga-comments' | 'detail-chapter-prewarm'; action: 'run' | 'defer' | 'resume' | 'cancel'; view: string; reason?: string; count?: number; mangaId?: string };
 
