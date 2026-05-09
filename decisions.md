@@ -1093,47 +1093,78 @@ After all sig capture pages are closed, one renderer process remains at 0% CPU (
 
 ## D21. Backend SQLite Cache Is the Durable Ingestion Owner
 
-The backend cache service owns durable manga/chapter/image metadata ingestion.
-Comix remains an upstream source, but normal cache population is backend-owned:
-SQLite is the source of durable truth, BrowserSession owns runtime access to
-Comix's signed/encrypted APIs and rendered chapter pages, and the frontend only
-expresses user intent or reports image-store observations.
+The backend cache service owns durable manga/chapter/page-map metadata
+ingestion. Comix remains an upstream source, but normal cache population is
+backend-owned: SQLite is the source of durable truth, BrowserSession owns
+runtime access to Comix's signed/encrypted APIs and rendered chapter pages, and
+the frontend only expresses user intent, reports stale observations, or reports
+image-store observations.
 
-The cache has three durable data layers:
+The cache has durable data layers:
 
-1. `manga_cache`: newest/list manga rows discovered from Comix.
+1. `manga_cache`: live search/newest manga rows discovered from Comix.
 2. `chapter_list_cache`: full chapter lists by manga.
-3. `chapter_image_cache` plus `image_store_candidates`: chapter page payloads
-   and possible store URLs for each discovered image URL.
+3. `chapter_image_cache` plus `image_store_candidates`: chapter page-map
+   payloads and possible store URLs for each discovered image URL.
+4. `byte_cache`: local small-byte files for covers, thumbnails, avatars, and
+   similar list/detail assets. Reader page image bytes remain on the reader
+   image proxy/store-failover path.
 
 `image_store_status` records frontend/backend observations for each
 image/store pair: status code, ok/not-ok, source, and last check time. The
 frontend reports observations; it does not own cache invalidation policy.
 
-The worker uses three scheduling lanes:
+Work order is owned by the durable `cache_jobs` scheduler, not by in-memory
+arrays. Jobs are deduped by `(kind, resource_key)`, claimed with leases,
+retried through SQLite, and recovered after process death. Priority values are
+resource policy, not labels:
 
-- foreground jobs for explicit frontend/user intent
-- background jobs for seed and chapter-list caching
-- image backlog jobs for chapter-image discovery
+- `foreground` for explicit user intent, such as opening a manga/chapter
+- `observed` for user-adjacent stale observations, such as search seeing a
+  newer max chapter than the cache has
+- `daily` for newest crawl and thumbnail-byte discovery
+- `background` for detail, chapter-list, and chapter page-map completion
 
-Foreground work always wins. Chapter-list background work drains before the
-image backlog. Image discovery is intentionally second-layer work: it should not
-delay seed/chapter-list availability.
+Foreground and observed work outrank daily crawl work; daily crawl work outranks
+background completion. If a lower-priority job is already mid-request, it
+finishes its atomic request/write, then the next claim honors scheduler
+priority. This keeps the cache power-off robust without pretending arbitrary
+provider requests can be safely interrupted.
 
-Power-off robustness is row-based, not an in-memory queue guarantee. Completed
-rows are idempotent durable facts. On startup, the service fetches newest 100
-again, skips already cached chapter lists, and reconstructs image backlog from
-persisted `chapter_list_cache` rows. If power dies mid chapter-list job, no
-partial chapter-list row is committed and startup requeues it. If power dies
-mid chapter-image job, the chapter image payload and generated store candidates
-are in one SQLite transaction, so startup either sees the completed row and
-skips it or reconstructs the job from the chapter list.
+Power-off robustness is row-based. Completed cache rows are idempotent durable
+facts and queued work is durable intent. On startup, the service recovers
+stale `running` leases for both the data cache worker and the byte cache
+worker. If power dies mid chapter-list job, no partial chapter-list row is
+committed and the durable job is reclaimed. If power dies mid page-map job, the
+page-map payload and generated store candidates are in one SQLite transaction,
+so startup either sees the completed row and skips it or reclaims the job.
+
+The cache layers discover their own lower-layer work. Search crawl rows enqueue
+thumbnail `cache-byte` jobs from live search payloads only. Manga detail cache
+does not scan for thumbnails. When a chapter list is cached or reconciled, the
+backend enqueues missing `cache-chapter-page-map` jobs for those chapters.
+The frontend can promote a specific page-map job by opening a reader chapter,
+but it is not responsible for ordinary page-map discovery.
+
+Daily search crawl uses `crawl-search-page:{crawlDate}:{page}` jobs with a
+cache-day key that rolls over at local `04:45`, not at midnight. The rollover
+matches the app's practical usage window: late-night reading before 04:45 still
+belongs to the previous cache day. If the service starts and the current
+cache-day crawl has no active frontier, older unfinished search-page crawl jobs
+are demoted to background priority and the current cache day's newest page runs
+first. Duplicate resources are promoted/refreshed, not duplicated.
+
+The byte cache is a separate engine. `/api/byte?url=...` serves local bytes
+when `byte_cache.status = ready`; on miss it proxy-and-stores to preserve UI
+behavior, then records the file atomically. Background `cache-byte` jobs warm
+small images discovered from search rows. Provider-shaped JSON stays raw; the
+app-facing URL helper maps covers/thumbnails to `/api/byte`.
 
 BrowserSession is the boundary normalizer. If the signed chapter-list response
 is encrypted, it uses Comix's shipped site client from the same browser runtime.
-Chapter-image discovery also uses Comix's shipped site client. Raw chapter
+Chapter page-map discovery also uses Comix's shipped site client. Raw chapter
 detail responses can be encrypted as `{ "e": "..." }`; those payloads are not
-valid chapter-image data and must not be cached as reader-ready results.
+valid reader-ready page-map data and must not be cached as ready results.
 BrowserSession asks the site client for `/chapters/{chapterId}`, normalizes
 `pages.baseUrl + pages.items[]` into full `ChapterPage` URLs, and includes
 `source=site-client` plus `targetCount` in the normalized payload.
@@ -1157,8 +1188,8 @@ The cache layer expands each real discovered store URL across known
 This was verified on 2026-05-09 by hard-killing
 `manga-reader.service` with `systemctl --user kill --signal=KILL`, starting it
 again, and checking logs/status. The restarted backend recovered from SQLite,
-skipped cached chapter lists, rebuilt image backlog from persisted chapter
-lists, and continued chapter-image caching without corruption.
+skipped cached chapter lists, recovered durable jobs, and continued cache work
+without corruption.
 
 The chapter-image readiness contract was verified on 2026-05-09 with
 `7ez2/8996924`: the backend first rejected the previous `empty pages=0` cache

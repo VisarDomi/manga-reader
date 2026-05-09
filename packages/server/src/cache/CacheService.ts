@@ -11,6 +11,8 @@ const CHAPTER_PAGE_SIZE = 100;
 const RECONCILE_PAGE_BUDGET = 5;
 const CACHE_WORKER_ID = 'cache-service';
 const DATA_CACHE_JOB_KINDS = ['seed-newest', 'crawl-search-page', 'cache-manga-detail', 'cache-chapters', 'reconcile-chapters', 'cache-chapter-page-map'];
+const CACHE_DAY_ROLLOVER_HOUR = 4;
+const CACHE_DAY_ROLLOVER_MINUTE = 45;
 
 type CacheJobKind = 'seed-newest' | 'crawl-search-page' | 'cache-manga-detail' | 'cache-chapters' | 'reconcile-chapters' | 'cache-chapter-page-map';
 export type CacheJobPriority = 'foreground' | 'observed' | 'daily' | 'background';
@@ -800,5 +802,10 @@ function conciseError(error: string): string {
 }
 
 function todayKey(): string {
-  return new Date().toISOString().slice(0, 10);
+  const rolloverOffsetMs = ((CACHE_DAY_ROLLOVER_HOUR * 60) + CACHE_DAY_ROLLOVER_MINUTE) * 60 * 1000;
+  const shifted = new Date(Date.now() - rolloverOffsetMs);
+  const year = shifted.getFullYear();
+  const month = String(shifted.getMonth() + 1).padStart(2, '0');
+  const day = String(shifted.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
