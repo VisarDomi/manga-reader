@@ -396,6 +396,49 @@ Persisted search context is domain state for the search surface, not global app
 state. A restore path must first identify the current surface and back stack,
 then replay only the domain owners needed for that path.
 
+### 37. Large Search Lists Still Need Optimization
+
+A restored or deeply paginated search list can leave 1000+ manga cards mounted
+behind manga details and reader. That state is valid and should not be hidden
+by hibernating or unmounting the search surface, but it is a real main-thread
+stress case.
+
+On 2026-05-09, four card-mode stress tests were run with a restored search
+context that loaded 1200 results before opening the reader:
+
+- **Normal cards:** cover plus `read / filtered max / upstream max` badges with
+  per-card progress and chapter-stat subscriptions. Reader frame gaps after
+  opening from the heavy search state sustained around 100ms.
+- **Dumb cards:** cover plus a simple upstream-max badge, with no per-card
+  progress/chapter-stat subscriptions. Reader frame gaps sustained around
+  67ms. This was the only proven win.
+- **Image-window cards:** dumb cards with cover `src` only for the sampled
+  visible list window. This did not improve the reader gaps and caused
+  recommendation-list images to disappear because the experiment applied image
+  ownership to lists that do not track visibility.
+- **Windowed-stats cards:** normal-looking badges only for the sampled visible
+  list window, with list-owned snapshots. This did not preserve the dumb-card
+  win in the test and added complexity without proof.
+
+The dumb-card model was not accepted as a production change because it removes
+information from the card UI. The current product requirement remains the
+three-number card overlay described in BS. The performance evidence is still
+useful: it shows that card overlay/subscription work contributes to jank, but
+the next optimization must preserve the existing UI.
+
+Performance logs should remain available while optimizing this path. Useful
+events are `reader-frame-gap`, `search-result`, `restore-target-found`, and
+`manga-list-prewarm-perf`. The prewarm scan was measured at 0-3ms even with
+1200 mounted results, so visible-prewarm scanning is not currently the main
+owner of the remaining jank.
+
+Remaining search work: preserve the existing card UI while reducing the cost of
+large search result sets. Likely directions include better ownership of
+progress/stat data, reducing broad Svelte invalidations during search replay,
+and investigating DOM/style/layout cost from 1000+ mounted cards. Do not change
+the navigation behavior, hibernate top-level views, or remove card information
+without explicit approval.
+
 ## Product Decisions
 
 These are app-level behavior decisions that drive UX, persistence, navigation,
