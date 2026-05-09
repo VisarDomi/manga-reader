@@ -564,7 +564,8 @@ export class CacheService {
       },
     };
     this.db.upsertChapterList(mangaId, cached, failed > 0 ? 'partial' : 'ready');
-    console.log(`[cache] chapters cached manga=${mangaId} pages=${lastPage} items=${allItems.length} failed=${failed}`);
+    const pageMapJobs = this.enqueueChapterPageMapJobs(mangaId, allItems, 'chapter-list-cached');
+    console.log(`[cache] chapters cached manga=${mangaId} pages=${lastPage} items=${allItems.length} failed=${failed} pageMapJobs=${pageMapJobs.queued}/${pageMapJobs.discovered}`);
   }
 
   private async reconcileChapters(mangaId: string, job: CacheJob): Promise<void> {
@@ -651,7 +652,8 @@ export class CacheService {
     };
 
     this.db.upsertChapterList(mangaId, merged, cached.status === 'partial' ? 'partial' : 'ready');
-    console.log(`[cache] reconcile merged manga=${mangaId} previousCount=${cachedItems.length} nextCount=${mergedItems.length} previousMax=${previousMax ?? 'unknown'} nextMax=${nextMax ?? 'unknown'} new=${newItems.length} pages=${fetchedPages}`);
+    const pageMapJobs = this.enqueueChapterPageMapJobs(mangaId, newItems, 'chapter-reconcile-new');
+    console.log(`[cache] reconcile merged manga=${mangaId} previousCount=${cachedItems.length} nextCount=${mergedItems.length} previousMax=${previousMax ?? 'unknown'} nextMax=${nextMax ?? 'unknown'} new=${newItems.length} pages=${fetchedPages} pageMapJobs=${pageMapJobs.queued}/${pageMapJobs.discovered}`);
   }
 
   private async fetchChapterPage(mangaId: string, page: number): Promise<unknown> {
@@ -680,6 +682,30 @@ export class CacheService {
       if (status === 'queued' || status === 'promoted') queued++;
     }
     return { discovered: urls.length, queued };
+  }
+
+  private enqueueChapterPageMapJobs(mangaId: string, chapters: unknown[], reason: string): { discovered: number; queued: number } {
+    let discovered = 0;
+    let queued = 0;
+    for (const chapter of chapters) {
+      const chapterId = chapterIdFromItem(chapter);
+      if (!chapterId) continue;
+      discovered++;
+      if (this.db.getChapterImages(mangaId, chapterId)) continue;
+      const chapterNumber = chapterNumberFromItem(chapter);
+      const chapterUrl = chapterUrlFromItem(chapter, mangaId, chapterId, chapterNumber);
+      const status = this.enqueue({
+        kind: 'cache-chapter-page-map',
+        priority: 'background',
+        mangaId,
+        chapterId,
+        chapterNumber,
+        chapterUrl,
+        reason,
+      });
+      if (status === 'queued' || status === 'promoted') queued++;
+    }
+    return { discovered, queued };
   }
 
   private async cacheChapterPageMap(mangaId: string, chapterId: string, job: CacheJob): Promise<void> {

@@ -244,8 +244,8 @@ an app-owned side table or normalized cache field, not in raw provider JSON.
    remaining work is next-day frontier promotion if an old crawl is still
    unfinished.**
 9. Add later-layer chapter page-map crawl policy after higher layers are
-   drained. **Pending. This should use the `cache-chapter-page-map` job and
-   must not be confused with byte downloads.**
+   drained. **Done for discovery. Chapter-list cache now enqueues background
+   `cache-chapter-page-map` jobs for chapters missing page-map metadata.**
 
 Each step should build/restart independently and keep logs strong enough to
 prove whether the new owner is actually owning the behavior.
@@ -285,6 +285,9 @@ prove whether the new owner is actually owning the behavior.
   1 again, and multiple frontiers collapse instead of multiplying on restart.
 - Search thumbnail discovery is now only from live search rows. There are no
   thumbnail extraction passes from manga detail or chapter metadata.
+- Chapter page-map discovery is now cache-engine owned. When a chapter list is
+  cached or reconciled, the backend enqueues missing `cache-chapter-page-map`
+  jobs itself; the frontend only promotes specific reader-needed page maps.
 - Tightened log ownership after the durable crawl proved too noisy: search page
   crawl logs aggregate discovery, the scheduler logs foreground/promotions and
   non-bulk lifecycle events, and the byte cache worker logs batch summaries plus
