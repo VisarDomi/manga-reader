@@ -3,6 +3,7 @@ import * as api from '../services/api.js';
 import type { LogService } from '../services/LogService.js';
 import { Msg } from '../messages.js';
 import type { Manga } from '../types.js';
+import type { ChapterStatsState } from './chapterStats.svelte.js';
 import type { ToastState } from './toast.svelte.js';
 
 const HYDRATE_CONCURRENCY = 3;
@@ -15,10 +16,12 @@ export class FavoritesState {
 
     private toast: ToastState;
     private log: LogService;
+    private chapterStats: ChapterStatsState;
 
-    constructor(toast: ToastState, log: LogService) {
+    constructor(toast: ToastState, log: LogService, chapterStats: ChapterStatsState) {
         this.toast = toast;
         this.log = log;
+        this.chapterStats = chapterStats;
     }
 
     async init() {
@@ -86,9 +89,16 @@ export class FavoritesState {
 
     private async hydrateOne(id: string): Promise<void> {
         const fallback = this.items.find(item => item.id === id) ?? this.placeholder(id);
-        const manga = await api.fetchMangaDetail(fallback);
+        const detailPromise = api.fetchMangaDetail(fallback);
+        const chaptersPromise = api.fetchChapterListPage(id, 1);
+        const manga = await detailPromise;
         if (!this.ids.includes(id)) return;
         this.items = this.items.map(item => item.id === id ? manga : item);
+        await chaptersPromise
+            .then(page => {
+                this.chapterStats.update(id, manga.latestChapter ?? null, page.items, new Set());
+            })
+            .catch(() => {});
     }
 
     private async loadFavoriteRows(): Promise<void> {
@@ -110,6 +120,14 @@ export class FavoritesState {
             }
         };
         await Promise.all(Array.from({ length: Math.min(HYDRATE_CONCURRENCY, rows.length) }, () => worker()));
+    }
+
+    refreshChapterStats(): void {
+        for (const item of this.items) {
+            void api.fetchChapterListPage(item.id, 1)
+                .then(page => this.chapterStats.update(item.id, item.latestChapter ?? null, page.items, new Set()))
+                .catch(() => {});
+        }
     }
 
 }

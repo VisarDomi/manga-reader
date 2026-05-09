@@ -1,6 +1,5 @@
 import type { ChapterMeta } from '../types.js';
 import * as storage from '../services/storage.js';
-import * as api from '../services/api.js';
 import type { GroupFilterState } from './groupFilter.svelte.js';
 
 interface ChapterStatsEntry {
@@ -12,13 +11,10 @@ interface ChapterStatsEntry {
 
 export interface ChapterStatsSnapshot {
     filteredMax: number | null;
-    isLoading: boolean;
 }
 
 export class ChapterStatsState {
     private entries = $state<Record<string, ChapterStatsEntry>>({});
-    private loading = $state<Record<string, string>>({});
-    private inFlight = new Map<string, Promise<void>>();
     private gf: GroupFilterState;
     private listeners = new Map<string, Set<() => void>>();
 
@@ -40,50 +36,15 @@ export class ChapterStatsState {
         return entry.filteredMax;
     }
 
-    isLoading(mangaId: string, upstreamMax: number | null): boolean {
-        return this.loading[mangaId] === this.keyFor(mangaId) && this.needsRefresh(mangaId, upstreamMax);
-    }
-
     snapshot(mangaId: string, upstreamMax: number | null): ChapterStatsSnapshot {
         return {
             filteredMax: this.getFilteredMax(mangaId, upstreamMax),
-            isLoading: this.isLoading(mangaId, upstreamMax),
         };
     }
 
     needsRefresh(mangaId: string, upstreamMax: number | null): boolean {
         const entry = this.entries[mangaId];
         return !entry || entry.key !== this.keyFor(mangaId) || entry.upstreamMax !== upstreamMax;
-    }
-
-    markLoading(mangaId: string): void {
-        this.loading[mangaId] = this.keyFor(mangaId);
-        this.notify(mangaId);
-    }
-
-    clearLoading(mangaId: string): void {
-        delete this.loading[mangaId];
-        this.notify(mangaId);
-    }
-
-    ensure(mangaId: string, upstreamMax: number | null): void {
-        if (!this.needsRefresh(mangaId, upstreamMax)) return;
-        const key = this.keyFor(mangaId);
-        const requestKey = `${mangaId}:${key}:${upstreamMax ?? 'none'}`;
-        if (this.inFlight.has(requestKey)) return;
-
-        const load = api.fetchChapterListPage(mangaId, 1)
-            .then(page => {
-                this.update(mangaId, upstreamMax, page.items, new Set(storage.getJson<string[]>(`group:${mangaId}`, [])));
-            })
-            .catch(() => {
-                this.clearLoading(mangaId);
-            })
-            .finally(() => {
-                this.inFlight.delete(requestKey);
-            });
-        this.inFlight.set(requestKey, load);
-        this.markLoading(mangaId);
     }
 
     update(mangaId: string, upstreamMax: number | null, chapters: ChapterMeta[], selectedGroups: Set<string>): void {
@@ -102,14 +63,11 @@ export class ChapterStatsState {
             filteredMax,
             updatedAt: Date.now(),
         };
-        this.clearLoading(mangaId);
         this.notify(mangaId);
     }
 
     invalidateAll(): void {
         this.entries = {};
-        this.loading = {};
-        this.inFlight.clear();
         for (const mangaId of this.listeners.keys()) this.notify(mangaId);
     }
 

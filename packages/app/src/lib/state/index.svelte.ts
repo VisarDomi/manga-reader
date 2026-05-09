@@ -124,12 +124,13 @@ class AppState {
             () => this.restore.cancel(),
             () => this.canRunBackgroundWork(),
         );
+        this.reader = new ReaderState(this.ui, this.manga, this.progress, this.toast, this.log);
+        this.favorites = new FavoritesState(this.toast, this.log, this.chapterStats);
         this.groupFilter.setOnChange(() => {
             this.chapterStats.invalidateAll();
             this.manga.refreshChapterStats();
+            this.favorites.refreshChapterStats();
         });
-        this.reader = new ReaderState(this.ui, this.manga, this.progress, this.toast, this.log);
-        this.favorites = new FavoritesState(this.toast, this.log);
     }
 
     get documentTitle(): string {

@@ -11,11 +11,10 @@
     const coverUrl = $derived(manga.cover ? api.coverProxyUrl(manga.cover) : '');
     const latestChapter = $derived(manga.latestChapter ?? 0);
     let progress = $state<ProgressData | null>(null);
-    let filteredMaxSnapshot = $state({ filteredMax: null as number | null, isLoading: false });
+    let filteredMaxSnapshot = $state({ filteredMax: null as number | null });
     const readChapter = $derived(progress?.chapterNumber ?? 0);
-    const filteredMax = $derived(filteredMaxSnapshot.filteredMax ?? 0);
+    const filteredMax = $derived(filteredMaxSnapshot.filteredMax ?? latestChapter);
     const filteredMaxKnown = $derived(filteredMaxSnapshot.filteredMax != null);
-    const filteredMaxLoading = $derived(filteredMaxSnapshot.isLoading);
     const hasProgress = $derived(progress != null);
 
     function syncStats() {
@@ -32,7 +31,6 @@
             recordMangaCardPerf(appState.log.emit, source, 'statsCallbacks');
             syncStats();
         });
-        appState.chapterStats.ensure(manga.id, manga.latestChapter ?? null);
         return () => {
             unsubscribeProgress();
             unsubscribeStats();
@@ -52,7 +50,7 @@
             <div class="manga-card-chapters">
                 <span class:started={hasProgress} class="read-chapter">{readChapter}</span>
                 <span class="chapter-divider">/</span>
-                <span class="filtered-chapter" class:loading={filteredMaxLoading} class:ready={filteredMaxKnown}>{filteredMax}</span>
+                <span class="filtered-chapter" class:ready={filteredMaxKnown}>{filteredMax}</span>
                 <span class="chapter-divider">/</span>
                 <span>{latestChapter}</span>
             </div>
@@ -125,11 +123,6 @@
     min-width: 14px;
     padding: 0 3px;
     text-align: center;
-}
-
-.filtered-chapter.loading {
-    background: rgba(234, 179, 8, 0.95);
-    color: #000;
 }
 
 .filtered-chapter.ready {
