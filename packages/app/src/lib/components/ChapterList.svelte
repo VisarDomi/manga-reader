@@ -20,8 +20,10 @@
         const container = document.getElementById(`view-manga-entry-${entry.key}`);
         const el = container?.querySelector(`[data-chapter-id="${CSS.escape(target.chapterId)}"]`);
         if (!container || !el) return;
-        const elTop = (el as HTMLElement).offsetTop;
-        const desiredScrollTop = elTop - target.ratio * container.clientHeight;
+        const row = el as HTMLElement;
+        const desiredScrollTop = target.ratio == null
+            ? row.offsetTop + row.offsetHeight / 2 - container.clientHeight / 2
+            : row.offsetTop - target.ratio * container.clientHeight;
         container.scrollTop = Math.max(0, desiredScrollTop);
     });
 

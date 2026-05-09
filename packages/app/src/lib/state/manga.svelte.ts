@@ -22,8 +22,8 @@ export interface MangaEntry {
     error: LoadError | null;
     selectedGroups: Set<string>;
     includeBlockedChapters: boolean;
-    scrollAnchorRatio: number;
-    scrollTarget: { chapterId: string; ratio: number } | null;
+    scrollAnchorRatio: number | null;
+    scrollTarget: { chapterId: string; ratio: number | null } | null;
 }
 
 let entrySeq = 0;
@@ -41,7 +41,7 @@ function createEntry(manga: Manga): MangaEntry {
         error: null,
         selectedGroups: new Set(),
         includeBlockedChapters: false,
-        scrollAnchorRatio: 0,
+        scrollAnchorRatio: null,
         scrollTarget: null,
     };
 }
@@ -117,7 +117,7 @@ export class MangaState {
         return this.activeEntry?.selectedGroups ?? new Set();
     }
 
-    get scrollTarget(): { chapterId: string; ratio: number } | null {
+    get scrollTarget(): { chapterId: string; ratio: number | null } | null {
         return this.activeEntry?.scrollTarget ?? null;
     }
 

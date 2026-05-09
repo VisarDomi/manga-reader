@@ -8,6 +8,7 @@
 
     let gridEl: HTMLElement | null = null;
     const mangaIds = $derived(manga.map(item => item.id).join('\0'));
+    const mangaById = $derived.by(() => new Map(manga.map(item => [item.id, item])));
 
     function scrollRoot(): HTMLElement | null {
         let el = gridEl?.parentElement ?? null;
@@ -21,18 +22,26 @@
 
     function visibleManga(root: HTMLElement): Manga[] {
         if (!gridEl) return [];
-        const byId = new Map(manga.map(item => [item.id, item]));
-        const ids: string[] = [];
         const rootRect = root.getBoundingClientRect();
-        const cards = gridEl.querySelectorAll('[data-manga-id]');
-        for (const card of cards) {
-            const rect = card.getBoundingClientRect();
-            if (rect.bottom > rootRect.top && rect.top < rootRect.bottom) {
-                const id = card.getAttribute('data-manga-id');
-                if (id) ids.push(id);
-            }
-        }
-        return ids.map(id => byId.get(id)).filter(item => item != null);
+        const gridRect = gridEl.getBoundingClientRect();
+        const firstCard = gridEl.querySelector<HTMLElement>('[data-manga-id]');
+        const cardRect = firstCard?.getBoundingClientRect();
+        if (!cardRect || cardRect.width <= 0 || cardRect.height <= 0 || gridRect.width <= 0) return [];
+
+        const columns = Math.max(1, Math.round(gridRect.width / cardRect.width));
+        const margin = rootRect.height / 2;
+        const windowTop = rootRect.top - margin;
+        const windowBottom = rootRect.bottom + margin;
+        const startY = Math.max(0, windowTop - gridRect.top);
+        const endY = Math.max(0, windowBottom - gridRect.top);
+        const firstRow = Math.max(0, Math.floor(startY / cardRect.height));
+        const lastRow = Math.min(
+            Math.ceil(manga.length / columns) - 1,
+            Math.floor(endY / cardRect.height),
+        );
+        const firstIndex = firstRow * columns;
+        const lastIndex = Math.min(manga.length, (lastRow + 1) * columns);
+        return manga.slice(firstIndex, lastIndex).map(item => mangaById.get(item.id) ?? item);
     }
 
     function trackCenteredManga() {

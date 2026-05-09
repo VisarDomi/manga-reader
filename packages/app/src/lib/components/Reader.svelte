@@ -623,7 +623,11 @@
     <div
         class="reader-wrapper"
         role="application"
-        use:swipeBack={{ onClose: handleClose, ui: appState.ui }}
+        use:swipeBack={{
+            onSwipeStart: () => appState.reader.prepareMangaBackTarget(),
+            onClose: handleClose,
+            ui: appState.ui,
+        }}
         use:swipeForward={{
             onPrepare: () => appState.reader.prepareChapterComments(),
             onCommit: () => appState.reader.commitPreparedChapterComments(),

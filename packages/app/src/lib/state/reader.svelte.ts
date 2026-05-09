@@ -222,6 +222,7 @@ export class ReaderState {
         }
 
         this.log.emit('reader-open', { mangaId: manga.id, chapterId: chapter.id, chapterNumber: chapter.number, hasRestore: true });
+        this.commitMangaScrollTarget();
 
         try {
             const pages = await api.fetchChapterImages(manga.id, chapter.id, chapter.number, chapter.url);
@@ -323,6 +324,10 @@ export class ReaderState {
         if (!chapterId) return;
         this.manga.updateScrollTarget(chapterId, this.mangaEntryKey ?? undefined);
         this.pendingMangaScrollTargetChapterId = null;
+    }
+
+    prepareMangaBackTarget(): void {
+        this.commitMangaScrollTarget();
     }
 
     private scheduleProgressSync(chapterId: string): void {

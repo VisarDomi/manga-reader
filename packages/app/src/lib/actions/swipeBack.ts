@@ -3,6 +3,7 @@ import { SWIPE_THRESHOLD, DEADZONE_RATIO, EDGE_ZONE_RATIO } from '../constants.j
 
 interface SwipeBackOptions {
     onClose: () => void;
+    onSwipeStart?: () => void;
     ui: { swipeProgress: number; isSwiping: boolean; swipeAnimating: boolean };
 }
 
@@ -62,6 +63,7 @@ export function swipeBack(node: HTMLElement, options: SwipeBackOptions) {
             locked = true;
             lockDx = dx;
             setProgress(0);
+            opts.onSwipeStart?.();
             opts.ui.isSwiping = true;
         }
 
