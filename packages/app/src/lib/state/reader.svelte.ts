@@ -34,6 +34,9 @@ type ChapterLoadResult =
 
 type RetryWaitResult = 'timer' | 'manual' | 'stale';
 const EDGE_LOAD_RETRY_DELAYS_MS = [750, 1500] as const;
+const READER_PHYSICAL_BEFORE_PX = 200_000;
+const READER_PHYSICAL_AFTER_PX = 200_000;
+const READER_PHYSICAL_REBASE_MARGIN_PX = 80_000;
 
 export interface ReaderTitleContext {
     chapterNumber: number;
@@ -74,6 +77,7 @@ export class ReaderState {
     chapterCommentsError = $state<string | null>(null);
     chapterCommentsContext = $state<ChapterCommentsContext | null>(null);
     virtualTotalHeight = $state(0);
+    physicalWindowStart = $state(0);
     private activeMangaId = '';
     private mangaEntryKey: string | null = null;
     private chapterList: ChapterMeta[] = [];
@@ -137,6 +141,7 @@ export class ReaderState {
         this.layoutChapterId = chapter.id;
         this.loadedChapters = [];
         this.virtualTotalHeight = 0;
+        this.physicalWindowStart = 0;
         this.isLoadingNext = false;
         this.isLoadingPrev = false;
         this.nextChapterRetryAvailable = false;
@@ -210,6 +215,7 @@ export class ReaderState {
         this.layoutChapterId = chapter.id;
         this.loadedChapters = [];
         this.virtualTotalHeight = 0;
+        this.physicalWindowStart = 0;
         this.isLoadingNext = false;
         this.isLoadingPrev = false;
         this.nextChapterRetryAvailable = false;
@@ -363,6 +369,18 @@ export class ReaderState {
     }
 
     chapterScrollTop(chapterId: string, viewportWidth: number): number | null {
+        const logicalTop = this.windowManager.chapterTop(
+            this.chapterList,
+            this.loadedChapters,
+            chapterId,
+            viewportWidth,
+            this.heightRevision,
+            (id, width) => this.estimateChapterHeight(id, width),
+        );
+        return logicalTop == null ? null : Math.max(0, logicalTop - this.physicalWindowStart);
+    }
+
+    logicalChapterScrollTop(chapterId: string, viewportWidth: number): number | null {
         return this.windowManager.chapterTop(
             this.chapterList,
             this.loadedChapters,
@@ -380,6 +398,7 @@ export class ReaderState {
             viewportWidth,
             this.heightRevision,
             (id, width) => this.estimateChapterHeight(id, width),
+            this.physicalWindowStart,
         );
     }
 
@@ -563,6 +582,7 @@ export class ReaderState {
         this.pageTracker.destroy();
         this.loadedChapters = [];
         this.virtualTotalHeight = 0;
+        this.physicalWindowStart = 0;
         this.currentChapterId = null;
         this.layoutChapterId = null;
         this.chapterComments = [];
@@ -577,13 +597,14 @@ export class ReaderState {
         this.ui.popView();
     }
 
-    reconcileReaderWindow(viewport: { scrollTop: number; clientHeight: number; clientWidth: number; chapterId?: string | null }, source: ReaderWindowSource): void {
+    reconcileReaderWindow(viewport: { scrollTop: number; clientHeight: number; clientWidth: number; chapterId?: string | null }, source: ReaderWindowSource): { physicalScrollTop: number } | null {
         const manga = this.manga.activeManga;
         const layoutId = this.layoutChapterId ?? this.currentChapterId;
-        if (!manga || !layoutId || this.chapterList.length === 0 || viewport.clientHeight <= 0) return;
+        if (!manga || !layoutId || this.chapterList.length === 0 || viewport.clientHeight <= 0) return null;
 
-        const direction = this.scrollDirection(viewport.scrollTop);
-        this.lastWindowScrollTop = viewport.scrollTop;
+        const logicalScrollTop = this.physicalWindowStart + viewport.scrollTop;
+        const direction = this.scrollDirection(logicalScrollTop);
+        this.lastWindowScrollTop = logicalScrollTop;
         this.lastViewportWidth = viewport.clientWidth;
         this.lastViewportHeight = viewport.clientHeight;
 
@@ -593,6 +614,9 @@ export class ReaderState {
             chapterList: this.chapterList,
             loadedChapters: this.loadedChapters,
             scrollTop: viewport.scrollTop,
+            physicalWindowStart: this.nextPhysicalWindowStart(logicalScrollTop, viewport.clientHeight),
+            physicalBeforePx: READER_PHYSICAL_BEFORE_PX,
+            physicalAfterPx: READER_PHYSICAL_AFTER_PX,
             radiusPx,
             keepPx,
             viewportWidth: viewport.clientWidth,
@@ -605,7 +629,8 @@ export class ReaderState {
         const beforeIds = this.loadedChapters.map(ch => ch.id);
         const nextSlots = plan.nextSlots;
         const afterIds = nextSlots.map(ch => ch.id);
-        this.virtualTotalHeight = Math.max(plan.totalHeight, viewport.clientHeight);
+        this.physicalWindowStart = plan.physicalWindowStart;
+        this.virtualTotalHeight = Math.max(plan.physicalHeight, viewport.clientHeight);
         if (afterIds.join(',') !== beforeIds.join(',')) {
             this.loadedChapters = nextSlots;
             this.log.emit('reader-window-slots', {
@@ -625,6 +650,9 @@ export class ReaderState {
             currentChapterId: plan.probeChapterId ?? layoutId,
             direction,
             scrollTop: Math.round(viewport.scrollTop),
+            logicalScrollTop: Math.round(plan.logicalScrollTop),
+            physicalWindowStart: Math.round(plan.physicalWindowStart),
+            physicalHeight: Math.round(plan.physicalHeight),
             clientHeight: Math.round(viewport.clientHeight),
             wantedCount: plan.wantedIds.size,
             fetchingCount: this.windowFetches.size,
@@ -632,6 +660,21 @@ export class ReaderState {
             placeholderCount: nextSlots.filter(slot => slot.slotState !== 'ready').length,
         });
         this.scheduleWindowFetches(manga, plan.candidates, source);
+        return { physicalScrollTop: plan.physicalScrollTop };
+    }
+
+    physicalScrollTopForLogical(logicalScrollTop: number, clientHeight: number): number {
+        this.physicalWindowStart = this.nextPhysicalWindowStart(logicalScrollTop, clientHeight, true);
+        return Math.max(0, logicalScrollTop - this.physicalWindowStart);
+    }
+
+    private nextPhysicalWindowStart(logicalScrollTop: number, clientHeight: number, forceCenter = false): number {
+        const currentPhysicalScrollTop = logicalScrollTop - this.physicalWindowStart;
+        const physicalHeight = READER_PHYSICAL_BEFORE_PX + clientHeight + READER_PHYSICAL_AFTER_PX;
+        const tooNearTop = currentPhysicalScrollTop < READER_PHYSICAL_REBASE_MARGIN_PX;
+        const tooNearBottom = currentPhysicalScrollTop > physicalHeight - clientHeight - READER_PHYSICAL_REBASE_MARGIN_PX;
+        if (!forceCenter && !tooNearTop && !tooNearBottom) return this.physicalWindowStart;
+        return Math.max(0, logicalScrollTop - READER_PHYSICAL_BEFORE_PX);
     }
 
     private logWindowReconcile(data: {
@@ -640,6 +683,9 @@ export class ReaderState {
         currentChapterId: string;
         direction: ReaderScrollDirection;
         scrollTop: number;
+        logicalScrollTop: number;
+        physicalWindowStart: number;
+        physicalHeight: number;
         clientHeight: number;
         wantedCount: number;
         fetchingCount: number;
@@ -667,6 +713,9 @@ export class ReaderState {
             currentChapterId: data.currentChapterId,
             direction: data.direction,
             scrollTop: data.scrollTop,
+            logicalScrollTop: data.logicalScrollTop,
+            physicalWindowStart: data.physicalWindowStart,
+            physicalHeight: data.physicalHeight,
             clientHeight: data.clientHeight,
             wantedCount: data.wantedCount,
             fetchingCount: data.fetchingCount,
@@ -755,14 +804,16 @@ export class ReaderState {
                 positioned.set(slot.id, {
                     ...slot,
                     estimatedHeight: height,
-                    virtualTop: top,
+                    logicalTop: top,
+                    logicalHeight: height,
+                    virtualTop: top - this.physicalWindowStart,
                     virtualHeight: height,
                 });
             }
             top += height;
         }
 
-        this.virtualTotalHeight = Math.max(this.virtualTotalHeight, top);
+        this.virtualTotalHeight = Math.max(this.virtualTotalHeight, READER_PHYSICAL_BEFORE_PX + this.layoutViewportHeight() + READER_PHYSICAL_AFTER_PX);
         return slots.map(slot => positioned.get(slot.id) ?? slot);
     }
 
@@ -943,7 +994,10 @@ export class ReaderState {
         const plan = this.windowManager.plan({
             chapterList: this.chapterList,
             loadedChapters: slots,
-            scrollTop: this.chapterScrollTop(_currentId, viewportWidth) ?? 0,
+            scrollTop: this.physicalScrollTopForLogical(this.logicalChapterScrollTop(_currentId, viewportWidth) ?? 0, Math.max(clientHeight, 1)),
+            physicalWindowStart: this.physicalWindowStart,
+            physicalBeforePx: READER_PHYSICAL_BEFORE_PX,
+            physicalAfterPx: READER_PHYSICAL_AFTER_PX,
             radiusPx: Math.max(clientHeight, 1) * READER_WINDOW_RADIUS_VIEWPORTS,
             keepPx: Math.max(clientHeight, 1) * READER_DOM_KEEP_RADIUS_VIEWPORTS,
             viewportWidth,
@@ -952,7 +1006,8 @@ export class ReaderState {
             heightRevision: this.heightRevision,
             estimateChapterHeight: (chapterId, width) => this.estimateChapterHeight(chapterId, width),
         });
-        this.virtualTotalHeight = plan.totalHeight;
+        this.physicalWindowStart = plan.physicalWindowStart;
+        this.virtualTotalHeight = plan.physicalHeight;
         return plan.nextSlots;
     }
 

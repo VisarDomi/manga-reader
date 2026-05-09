@@ -19,6 +19,10 @@ export type ReaderWindowPlan = {
     wantedIds: Set<string>;
     totalHeight: number;
     probeChapterId: string | null;
+    logicalScrollTop: number;
+    physicalWindowStart: number;
+    physicalHeight: number;
+    physicalScrollTop: number;
 };
 
 type ChapterLayout = {
@@ -37,6 +41,9 @@ export class ReaderWindowManager {
         chapterList,
         loadedChapters,
         scrollTop,
+        physicalWindowStart,
+        physicalBeforePx,
+        physicalAfterPx,
         radiusPx,
         keepPx,
         viewportWidth,
@@ -48,6 +55,9 @@ export class ReaderWindowManager {
         chapterList: ChapterMeta[];
         loadedChapters: LoadedChapter[];
         scrollTop: number;
+        physicalWindowStart: number;
+        physicalBeforePx: number;
+        physicalAfterPx: number;
         radiusPx: number;
         keepPx: number;
         viewportWidth: number;
@@ -58,7 +68,12 @@ export class ReaderWindowManager {
     }): ReaderWindowPlan {
         const layouts = this.getLayout(chapterList, loadedChapters, viewportWidth, heightRevision, estimateChapterHeight);
         const totalHeight = layouts.at(-1)?.bottom ?? Math.max(clientHeight, 1);
-        const viewportTop = Math.max(0, Math.min(scrollTop, Math.max(0, totalHeight - clientHeight)));
+        const logicalScrollTop = Math.max(0, Math.min(physicalWindowStart + scrollTop, Math.max(0, totalHeight - clientHeight)));
+        const physicalStart = Math.max(0, Math.min(physicalWindowStart, Math.max(0, totalHeight - clientHeight)));
+        const physicalEnd = Math.min(totalHeight, physicalStart + physicalBeforePx + clientHeight + physicalAfterPx);
+        const physicalHeight = Math.max(clientHeight, physicalEnd - physicalStart);
+        const physicalScrollTop = Math.max(0, logicalScrollTop - physicalStart);
+        const viewportTop = logicalScrollTop;
         const viewportBottom = viewportTop + clientHeight;
         const probeY = viewportTop + clientHeight * 0.35;
         const probe = this.findLayoutAt(layouts, probeY) ?? this.nearestLayout(layouts, probeY);
@@ -83,12 +98,24 @@ export class ReaderWindowManager {
                 return {
                     ...slot,
                     estimatedHeight: layout.height,
-                    virtualTop: layout.top,
+                    logicalTop: layout.top,
+                    logicalHeight: layout.height,
+                    virtualTop: layout.top - physicalStart,
                     virtualHeight: layout.height,
                 };
             });
 
-        return { candidates, nextSlots, wantedIds, totalHeight, probeChapterId: probe?.chapter.id ?? null };
+        return {
+            candidates,
+            nextSlots,
+            wantedIds,
+            totalHeight,
+            probeChapterId: probe?.chapter.id ?? null,
+            logicalScrollTop,
+            physicalWindowStart: physicalStart,
+            physicalHeight,
+            physicalScrollTop,
+        };
     }
 
     chapterTop(
@@ -109,6 +136,7 @@ export class ReaderWindowManager {
         viewportWidth: number,
         heightRevision: number,
         estimateChapterHeight: EstimateChapterHeight,
+        physicalWindowStart = 0,
     ): ReaderPageGeometry[] {
         const layouts = this.getLayout(chapterList, loadedChapters, viewportWidth, heightRevision, estimateChapterHeight);
         const ready = new Map(loadedChapters.filter(chapter => chapter.pages.length > 0).map(chapter => [chapter.id, chapter]));
@@ -116,7 +144,7 @@ export class ReaderWindowManager {
         for (const layout of layouts) {
             const chapter = ready.get(layout.chapter.id);
             if (!chapter) continue;
-            let top = layout.top + READER_CHAPTER_SEPARATOR_HEIGHT;
+            let top = layout.top - physicalWindowStart + READER_CHAPTER_SEPARATOR_HEIGHT;
             for (let pageIndex = 0; pageIndex < chapter.pages.length; pageIndex++) {
                 const page = chapter.pages[pageIndex];
                 const height = page.width && page.height

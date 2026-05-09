@@ -40,6 +40,8 @@ export interface LoadedChapter {
     estimatedHeight?: number;
     virtualTop?: number;
     virtualHeight?: number;
+    logicalTop?: number;
+    logicalHeight?: number;
     unloaded?: boolean;
 }
 
