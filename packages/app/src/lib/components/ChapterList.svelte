@@ -226,7 +226,12 @@
 </div>
 
 <div class="chapter-list">
-    {#each listItems as item (item.type === 'chapter' ? item.chapter.id : `gap-${item.from}-${item.to}`)}
+    {#if listItems.length === 0}
+        <div class="chapter-list-empty">
+            All chapters hidden by group filter
+        </div>
+    {:else}
+        {#each listItems as item (item.type === 'chapter' ? item.chapter.id : `gap-${item.from}-${item.to}`)}
         {#if item.type === 'gap'}
             <div class="chapter-gap">
                 {item.missing} chapter{item.missing > 1 ? 's' : ''} missing (Ch. {item.from}{item.from !== item.to ? ` – ${item.to}` : ''})
@@ -249,7 +254,8 @@
                 {/if}
             </button>
         {/if}
-    {/each}
+        {/each}
+    {/if}
 </div>
 <style>
 .chapter-filter {
@@ -332,6 +338,13 @@
     background: rgba(245, 158, 11, 0.08);
     border-radius: 6px;
     margin-bottom: 4px;
+}
+
+.chapter-list-empty {
+    padding: 24px 12px;
+    color: #aaa;
+    text-align: center;
+    font-size: 14px;
 }
 
 .show-filtered-btn {

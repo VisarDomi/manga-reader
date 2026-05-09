@@ -12,7 +12,6 @@
 
     const entries = $derived(appState.manga.entries);
     const mangaState = appState.manga;
-    const gf = appState.groupFilter;
     const isSwiping = $derived(appState.ui.isSwiping);
     const swipeAnimating = $derived(appState.ui.swipeAnimating);
     const nestedBack = $derived(appState.ui.viewMode === View.MANGA && appState.ui.peekBack() === View.MANGA && entries.length > 1);
@@ -23,11 +22,6 @@
 
     function coverUrl(entry: MangaEntry): string {
         return entry.manga.cover ? api.coverProxyUrl(entry.manga.cover) : '';
-    }
-
-    function allFiltered(entry: MangaEntry): boolean {
-        return !entry.isLoading && entry.chapters.length > 0 &&
-            entry.chapters.every(ch => gf.isFiltered(ch.groupId ?? ''));
     }
 
     function handleClose() {
@@ -121,11 +115,6 @@
             <div class="empty error">{loadErrorMessage(entry.error)}</div>
         {:else if entry.chapters.length === 0}
             <div class="empty">No chapters found</div>
-        {:else if allFiltered(entry) && !mangaState.isShowingBlockedChaptersFor(entry)}
-            <div class="empty">
-                <p>All chapters hidden by group filter</p>
-                <button class="show-filtered-action" onclick={() => mangaState.showBlockedChapters(entry.key)}>Show filtered chapters</button>
-            </div>
         {:else}
             <ChapterList {entry} />
         {/if}
@@ -304,16 +293,6 @@
 
 .error {
     color: #ff6b6b;
-}
-
-.show-filtered-action {
-    margin-top: 12px;
-    padding: 8px 16px;
-    background: #2a1a2a;
-    color: #c084fc;
-    border: 1px solid #5a2d5a;
-    border-radius: 8px;
-    font-size: 14px;
 }
 
 .chapter-cache-actions {
