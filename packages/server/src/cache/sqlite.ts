@@ -450,6 +450,10 @@ export class CacheDatabase {
     this.db.prepare('DELETE FROM cache_jobs WHERE id = ?').run(id);
   }
 
+  updateJobPriority(id: string, priority: number): void {
+    this.db.prepare('UPDATE cache_jobs SET priority = ?, updated_at = ? WHERE id = ?').run(priority, Date.now(), id);
+  }
+
   retryJob(id: string, error: string, runAfter: number): void {
     const now = Date.now();
     const row = this.db.prepare('SELECT attempts, max_attempts FROM cache_jobs WHERE id = ?').get(id) as { attempts: number; max_attempts: number } | undefined;

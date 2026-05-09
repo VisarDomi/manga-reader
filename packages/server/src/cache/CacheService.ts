@@ -436,10 +436,11 @@ export class CacheService {
       return;
     }
 
+    const demoted = this.demoteOlderSearchCrawls(crawlDate);
     const lastPage = Number(this.db.getMeta(`crawl-search-newest:${crawlDate}:last-page`) ?? 0);
     const page = Number.isFinite(lastPage) && lastPage > 0 ? lastPage + 1 : 1;
     this.enqueue({ kind: 'crawl-search-page', priority: 'daily', page, crawlDate, reason: 'startup' });
-    console.log(`[cache] start daily-crawl date=${crawlDate} action=enqueue page=${page}`);
+    console.log(`[cache] start daily-crawl date=${crawlDate} action=enqueue page=${page} demotedOldCrawls=${demoted}`);
   }
 
   private async crawlSearchPage(job: CacheJob): Promise<void> {
@@ -514,6 +515,17 @@ export class CacheService {
     return this.scheduler.jobsByKinds(['crawl-search-page'])
       .map(record => this.recordToJob(record))
       .filter(job => job.crawlDate === crawlDate);
+  }
+
+  private demoteOlderSearchCrawls(crawlDate: string): number {
+    let demoted = 0;
+    for (const record of this.scheduler.jobsByKinds(['crawl-search-page'])) {
+      const job = this.recordToJob(record);
+      if (job.crawlDate === crawlDate || record.priority <= 10) continue;
+      this.scheduler.updatePriority(record, 'background');
+      demoted++;
+    }
+    return demoted;
   }
 
   private hasOtherCrawlSearchJob(crawlDate: string, currentPage: number): boolean {
