@@ -66,20 +66,20 @@
                     <img src={coverUrl(entry)} alt={manga.title} />
                 </div>
             {/if}
-            {#if !CACHE_ONLY_MODE && manga.altTitles?.length}
+            {#if manga.altTitles?.length}
                 <div class="manga-view-alt-titles">
                     {#each manga.altTitles as title}
                         <p>{title}</p>
                     {/each}
                 </div>
             {/if}
-            {#if !CACHE_ONLY_MODE && manga.author}
+            {#if manga.author}
                 <p class="manga-view-author">{manga.author}</p>
             {/if}
-            {#if !CACHE_ONLY_MODE && manga.description}
+            {#if manga.description}
                 <p class="manga-view-description">{manga.description}</p>
             {/if}
-            {#if !CACHE_ONLY_MODE && manga.genres?.length}
+            {#if manga.genres?.length}
                 <section class="manga-meta-section">
                     <h2>Genres</h2>
                     <div class="manga-view-tags">
@@ -89,7 +89,7 @@
                     </div>
                 </section>
             {/if}
-            {#if !CACHE_ONLY_MODE && manga.tags?.length}
+            {#if manga.tags?.length}
                 <section class="manga-meta-section">
                     <h2>Tags</h2>
                     <div class="manga-view-tags">
@@ -99,7 +99,7 @@
                     </div>
                 </section>
             {/if}
-            {#if !CACHE_ONLY_MODE && manga.demographics?.length}
+            {#if manga.demographics?.length}
                 <section class="manga-meta-section">
                     <h2>Demographics</h2>
                     <div class="manga-view-tags">

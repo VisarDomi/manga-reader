@@ -335,11 +335,6 @@ export class MangaState {
     }
 
     private async loadMangaDetail(entry: MangaEntry): Promise<void> {
-        if (CACHE_ONLY_MODE) {
-            this.emit('cache-only-read', { resource: 'manga-detail', action: 'skip', mangaId: entry.manga.id });
-            return;
-        }
-
         const manga = entry.manga;
         const start = performance.now();
         this.emit('manga-detail-start', { mangaId: manga.id });
@@ -478,7 +473,7 @@ export class MangaState {
         this.ui.pushView(View.MANGA);
 
         try {
-            if (!CACHE_ONLY_MODE) void this.loadMangaDetail(entry);
+            void this.loadMangaDetail(entry);
             this.emit('manga-chapters-start', { mangaId: manga.id });
             await this.consumeChapterStream(entry);
             const current = this.entryFor(entry.key);
@@ -538,7 +533,7 @@ export class MangaState {
         this.replaceEntry(active);
 
         try {
-            if (!CACHE_ONLY_MODE) void this.loadMangaDetail(active);
+            void this.loadMangaDetail(active);
             this.emit('manga-chapters-start', { mangaId: active.manga.id });
             const chapters = await this.fetchReaderChapterIndex(active.manga.id, targetChapterId);
             const current = this.entryFor(active.key);
@@ -628,7 +623,7 @@ export class MangaState {
         this.replaceEntry(entry);
 
         try {
-            if (!CACHE_ONLY_MODE) void this.loadMangaDetail(entry);
+            void this.loadMangaDetail(entry);
             this.emit('manga-chapters-start', { mangaId: entry.manga.id });
             await this.consumeChapterStream(entry, options);
             const current = this.entryFor(entry.key);

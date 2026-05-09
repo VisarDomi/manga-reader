@@ -7,7 +7,7 @@ const COMIX_API_BASE = 'https://comix.to/api/v1';
 const NEWEST_LIMIT = 100;
 const CHAPTER_PAGE_SIZE = 100;
 
-type CacheJobKind = 'seed-newest' | 'cache-chapters' | 'cache-chapter-images';
+type CacheJobKind = 'seed-newest' | 'cache-manga-detail' | 'cache-chapters' | 'cache-chapter-images';
 type CacheJobPriority = 'foreground' | 'background';
 
 interface CacheJob {
@@ -36,6 +36,15 @@ function resultPagination(data: unknown): Record<string, unknown> {
   const r = result as Record<string, unknown>;
   const pagination = r.pagination ?? r.meta;
   return pagination && typeof pagination === 'object' ? pagination as Record<string, unknown> : {};
+}
+
+function isMangaDetailPayload(data: unknown): boolean {
+  if (!data || typeof data !== 'object') return false;
+  const root = data as Record<string, unknown>;
+  const result = root.result;
+  if (root.status !== 'ok' || !result || typeof result !== 'object') return false;
+  const r = result as Record<string, unknown>;
+  return typeof r.title === 'string' && r.title.length > 0;
 }
 
 function mangaIdFromItem(item: unknown): string | null {
@@ -166,7 +175,8 @@ export class CacheService {
   }
 
   getManga(mangaId: string): unknown | null {
-    return this.db.getManga(mangaId)?.data ?? null;
+    const data = this.db.getManga(mangaId)?.data ?? null;
+    return isMangaDetailPayload(data) ? data : null;
   }
 
   getChapterList(mangaId: string): unknown | null {
@@ -186,10 +196,12 @@ export class CacheService {
 
   refreshManga(mangaId: string, reason = 'frontend-refresh'): void {
     this.db.invalidateChapterList(mangaId);
+    this.enqueue({ kind: 'cache-manga-detail', priority: 'foreground', mangaId, force: true, reason });
     this.enqueue({ kind: 'cache-chapters', priority: 'foreground', mangaId, force: true, reason });
   }
 
   warmManga(mangaId: string, reason = 'cache-miss'): void {
+    this.enqueue({ kind: 'cache-manga-detail', priority: 'foreground', mangaId, reason });
     this.enqueue({ kind: 'cache-chapters', priority: 'foreground', mangaId, reason });
   }
 
@@ -212,14 +224,14 @@ export class CacheService {
       : job.kind === 'cache-chapter-images'
         ? this.imageBacklog
         : this.background;
-    if (job.kind === 'cache-chapters' && job.mangaId) {
-      if (this.currentJob?.kind === 'cache-chapters' && this.currentJob.mangaId === job.mangaId) return;
-      if (this.promoteQueuedChapterJob(job)) {
+    if ((job.kind === 'cache-manga-detail' || job.kind === 'cache-chapters') && job.mangaId) {
+      if (this.currentJob?.kind === job.kind && this.currentJob.mangaId === job.mangaId) return;
+      if (this.promoteQueuedMangaJob(job)) {
         this.drain();
         return;
       }
       const exists = [...this.foreground, ...this.background].some(existing =>
-        existing?.kind === 'cache-chapters' && existing.mangaId === job.mangaId,
+        existing?.kind === job.kind && existing.mangaId === job.mangaId,
       );
       if (exists) return;
     }
@@ -242,19 +254,19 @@ export class CacheService {
     this.drain();
   }
 
-  private promoteQueuedChapterJob(job: CacheJob): boolean {
-    if (job.priority !== 'foreground' || job.kind !== 'cache-chapters' || !job.mangaId) return false;
+  private promoteQueuedMangaJob(job: CacheJob): boolean {
+    if (job.priority !== 'foreground' || (job.kind !== 'cache-manga-detail' && job.kind !== 'cache-chapters') || !job.mangaId) return false;
     const foregroundIndex = this.foreground.findIndex(existing =>
-      existing.kind === 'cache-chapters' && existing.mangaId === job.mangaId,
+      existing.kind === job.kind && existing.mangaId === job.mangaId,
     );
     if (foregroundIndex !== -1) return true;
     const backgroundIndex = this.background.findIndex(existing =>
-      existing.kind === 'cache-chapters' && existing.mangaId === job.mangaId,
+      existing.kind === job.kind && existing.mangaId === job.mangaId,
     );
     if (backgroundIndex === -1) return false;
     const [existing] = this.background.splice(backgroundIndex, 1);
     this.foreground.push({ ...existing, priority: 'foreground', reason: job.reason });
-    console.log(`[cache] job-promoted kind=cache-chapters manga=${job.mangaId} reason=${job.reason}`);
+    console.log(`[cache] job-promoted kind=${job.kind} manga=${job.mangaId} reason=${job.reason}`);
     return true;
   }
 
@@ -305,6 +317,7 @@ export class CacheService {
       const start = Date.now();
       try {
         if (job.kind === 'seed-newest') await this.seedNewest(job);
+        else if (job.kind === 'cache-manga-detail' && job.mangaId) await this.cacheMangaDetail(job.mangaId, job);
         else if (job.kind === 'cache-chapters' && job.mangaId) await this.cacheChapters(job.mangaId, job);
         else if (job.kind === 'cache-chapter-images' && job.mangaId && job.chapterId) await this.cacheChapterImages(job.mangaId, job.chapterId, job);
         console.log(`[cache] job-done kind=${job.kind} manga=${job.mangaId ?? 'none'} reason=${job.reason} ${Date.now() - start}ms`);
@@ -327,11 +340,32 @@ export class CacheService {
       const mangaId = mangaIdFromItem(item);
       if (!mangaId) continue;
       this.db.upsertManga(mangaId, item);
+      this.enqueue({ kind: 'cache-manga-detail', priority: 'background', mangaId, reason: job.reason });
       this.enqueue({ kind: 'cache-chapters', priority: 'background', mangaId, reason: job.reason });
       queued++;
     }
 
     console.log(`[cache] seed-newest fetched=${items.length} queued=${queued} http=${meta.status} fetchMs=${Date.now() - start}`);
+  }
+
+  private async cacheMangaDetail(mangaId: string, job: CacheJob): Promise<void> {
+    const existing = this.db.getManga(mangaId)?.data ?? null;
+    if (!job.force && isMangaDetailPayload(existing)) {
+      console.log(`[cache] manga-detail skip manga=${mangaId} reason=cached`);
+      return;
+    }
+
+    const result = await this.browserSession.fetchMangaDetail(mangaId);
+    this.db.upsertManga(mangaId, result.data);
+    const detail = result.data && typeof result.data === 'object'
+      ? (result.data as Record<string, unknown>).result
+      : undefined;
+    const r = detail && typeof detail === 'object' ? detail as Record<string, unknown> : {};
+    const recommendations = Array.isArray(r.recommendations) ? r.recommendations.length : 0;
+    const tags = Array.isArray(r.tags) ? r.tags.length : 0;
+    const genres = Array.isArray(r.genres) ? r.genres.length : 0;
+    const description = Boolean(r.synopsis || r.description);
+    console.log(`[cache] manga-detail cached manga=${mangaId} recommendations=${recommendations} genres=${genres} tags=${tags} description=${description} fetchMs=${result.durationMs}`);
   }
 
   private async cacheChapters(mangaId: string, job: CacheJob): Promise<void> {

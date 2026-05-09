@@ -30,7 +30,8 @@ export function createCacheRouter(cache: CacheService | null): Router {
     }
     const data = cache.getManga(mangaId);
     if (!data) {
-      res.status(404).json({ error: 'Manga cache miss', status: 404 });
+      cache.warmManga(mangaId, 'cache-miss');
+      res.status(202).json({ status: 'warming', mangaId });
       return;
     }
     res.json(data);

@@ -159,9 +159,36 @@ export async function searchManga(query: string, page = 1, filters?: SearchFilte
 }
 
 export async function fetchMangaDetail(manga: Manga, signal?: AbortSignal): Promise<Manga> {
-    void signal;
-    emit('cache-only-read', { resource: 'manga-detail', action: 'skip', mangaId: manga.id });
-    return manga;
+    const provider = getProvider();
+    try {
+        const raw = await fetchCachedPayload(`/api/cache/manga/${encodeURIComponent(manga.id)}`, signal, 'manga-detail', manga.id);
+        const detail = provider.parseMangaDetailResponse?.(raw) ?? {};
+        const merged = {
+            ...manga,
+            ...detail,
+            id: detail.id || manga.id,
+            title: detail.title || manga.title,
+            cover: detail.cover || manga.cover,
+            latestChapter: detail.latestChapter ?? manga.latestChapter,
+            recommendations: [],
+        };
+        emit('cache-only-read', { resource: 'manga-detail', action: 'hit', mangaId: manga.id });
+        emit('manga-detail-result', {
+            mangaId: merged.id,
+            tags: merged.tags?.length ?? 0,
+            genres: merged.genres?.length ?? 0,
+            altTitles: merged.altTitles?.length ?? 0,
+            recommendations: 0,
+            description: !!merged.description,
+        });
+        return merged;
+    } catch (e) {
+        if (!signal?.aborted) {
+            emit('cache-only-read', { resource: 'manga-detail', action: 'miss', mangaId: manga.id });
+            emit('manga-detail-error', { mangaId: manga.id, error: String((e as Error)?.message ?? e) });
+        }
+        return manga;
+    }
 }
 
 export interface MangaCommentsResult {
