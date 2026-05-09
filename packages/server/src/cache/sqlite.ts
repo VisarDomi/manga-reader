@@ -90,6 +90,7 @@ export interface CacheJobInput {
   payload: unknown;
   runAfter?: number;
   maxAttempts?: number;
+  retryFailedAfterMs?: number;
 }
 
 export interface CacheJobRecord {
@@ -109,7 +110,7 @@ export interface CacheJobRecord {
   updatedAt: number;
 }
 
-export type CacheJobEnqueueResult = 'queued' | 'promoted' | 'existing';
+export type CacheJobEnqueueResult = 'queued' | 'promoted' | 'requeued' | 'existing';
 
 export interface ByteCacheRecord {
   sourceUrl: string;
@@ -383,6 +384,24 @@ export class CacheDatabase {
           VALUES (?, ?, ?, ?, ?, 'queued', ?, 0, ?, NULL, NULL, NULL, ?, ?)
         `).run(id, input.kind, input.resourceKey, input.priority, payloadJson, runAfter, maxAttempts, now, now);
         return 'queued';
+      }
+
+      if (existing.status === 'failed' && input.retryFailedAfterMs !== undefined && now - existing.updated_at >= input.retryFailedAfterMs) {
+        this.db.prepare(`
+          UPDATE cache_jobs
+          SET priority = MAX(priority, ?),
+            payload_json = ?,
+            run_after = ?,
+            attempts = 0,
+            max_attempts = MAX(max_attempts, ?),
+            status = 'queued',
+            lease_owner = NULL,
+            lease_until = NULL,
+            last_error = NULL,
+            updated_at = ?
+          WHERE id = ?
+        `).run(input.priority, payloadJson, runAfter, maxAttempts, now, existing.id);
+        return 'requeued';
       }
 
       if (input.priority > existing.priority) {

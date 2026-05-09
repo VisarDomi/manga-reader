@@ -16,6 +16,7 @@ export interface DurableJobInput {
   payload?: unknown;
   runAfter?: number;
   maxAttempts?: number;
+  retryFailedAfterMs?: number;
 }
 
 const BULK_JOB_KINDS = new Set(['cache-byte', 'cache-manga-detail', 'cache-chapters', 'cache-chapter-page-map']);
@@ -34,6 +35,7 @@ export class DurableJobScheduler {
       },
       runAfter: input.runAfter,
       maxAttempts: input.maxAttempts,
+      retryFailedAfterMs: input.retryFailedAfterMs,
     });
     if (this.shouldLogLifecycle(input.kind, input.priority, status)) {
       console.log(`[cache-scheduler] enqueue kind=${input.kind} resource=${input.resourceKey} priority=${input.priority} status=${status}`);
@@ -100,6 +102,7 @@ export class DurableJobScheduler {
   }
 
   private shouldLogLifecycle(kind: string, priority: CacheJobPriorityName, status: CacheJobEnqueueResult): boolean {
+    if (status === 'requeued') return true;
     if (priority === 'foreground' || priority === 'observed' || status === 'promoted') return true;
     if (status === 'existing') return false;
     return !BULK_JOB_KINDS.has(kind);

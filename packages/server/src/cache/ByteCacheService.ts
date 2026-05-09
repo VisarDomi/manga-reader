@@ -5,11 +5,12 @@ import { pipeline } from 'node:stream/promises';
 import type { Response } from 'express';
 import { BYTE_CACHE_DIR, CACHE_MAX_AGE } from '../config.js';
 import { proxyFetch } from '../utils/proxyFetch.js';
-import { CacheDatabase } from './sqlite.js';
+import { CacheDatabase, type CacheJobEnqueueResult } from './sqlite.js';
 import { DurableJobScheduler, type CacheJobPriorityName } from './DurableJobScheduler.js';
 
 const BYTE_CACHE_WORKER_ID = 'byte-cache-service';
 const BYTE_CACHE_JOB_KIND = 'cache-byte';
+const FAILED_BYTE_RETRY_MS = 60 * 60 * 1000;
 
 export class ByteCacheService {
   private readonly db = new CacheDatabase();
@@ -39,13 +40,14 @@ export class ByteCacheService {
     console.log('[byteCache] start');
   }
 
-  warm(sourceUrl: string, referer: string | undefined, priority: CacheJobPriorityName, reason: string): 'queued' | 'promoted' | 'existing' {
+  warm(sourceUrl: string, referer: string | undefined, priority: CacheJobPriorityName, reason: string): CacheJobEnqueueResult {
     const status = this.scheduler.enqueueUnique({
       kind: BYTE_CACHE_JOB_KIND,
       resourceKey: sourceUrl,
       priority,
       payload: { sourceUrl, referer, reason },
       maxAttempts: 5,
+      retryFailedAfterMs: priority === 'foreground' ? 0 : FAILED_BYTE_RETRY_MS,
     });
     this.drain();
     return status;

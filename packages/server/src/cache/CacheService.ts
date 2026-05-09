@@ -1,7 +1,7 @@
 import type { BrowserSession } from '../services/BrowserSession.js';
 import { learnStoreHostFromUrl, listStoreHosts } from '../utils/storeHosts.js';
 import { proxyFetchJson } from '../utils/proxyFetch.js';
-import { CacheDatabase, type ImageStoreObservation } from './sqlite.js';
+import { CacheDatabase, type CacheJobEnqueueResult, type ImageStoreObservation } from './sqlite.js';
 import { DurableJobScheduler, type CacheJobPriorityName } from './DurableJobScheduler.js';
 import type { ByteCacheService } from './ByteCacheService.js';
 
@@ -351,7 +351,7 @@ export class CacheService {
     this.enqueue({ kind: 'cache-chapter-page-map', priority: 'foreground', mangaId, chapterId, chapterNumber, chapterUrl, reason });
   }
 
-  private enqueue(job: CacheJob): 'queued' | 'promoted' | 'existing' {
+  private enqueue(job: CacheJob): CacheJobEnqueueResult {
     if ((job.kind === 'cache-manga-detail' || job.kind === 'cache-chapters' || job.kind === 'reconcile-chapters') && job.mangaId) {
       if (this.currentJob?.kind === job.kind && this.currentJob.mangaId === job.mangaId) return 'existing';
       if (job.kind === 'reconcile-chapters') {
@@ -384,7 +384,7 @@ export class CacheService {
     return status;
   }
 
-  private enqueueDurable(job: CacheJob): 'queued' | 'promoted' | 'existing' {
+  private enqueueDurable(job: CacheJob): CacheJobEnqueueResult {
     const resourceKey = this.resourceKey(job);
     if (!resourceKey) return 'existing';
     const payload = {
