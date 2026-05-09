@@ -1,7 +1,5 @@
-import type { Manga } from '../types.js';
-
 const DB_NAME = 'comix-reader';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 interface ProgressEntry {
     mangaSlug: string;
@@ -92,23 +90,66 @@ export async function getAllProgress(): Promise<Record<string, ProgressData>> {
         req.onerror = () => { logger('getAllProgress', String(req.error)); resolve({}); };
     });
 }
-export async function getAllFavorites(): Promise<Manga[]> {
-    const db = await openDB();
-    return new Promise((resolve) => {
-        const tx = db.transaction('favorites', 'readonly');
-        const req = tx.objectStore('favorites').getAll();
-        req.onsuccess = () => resolve(req.result as Manga[]);
-        req.onerror = () => { logger('getAllFavorites', String(req.error)); resolve([]); };
-    });
+interface FavoriteEntry {
+    id: string;
 }
 
-export async function addFavorite(manga: Manga): Promise<void> {
+export interface FavoriteIdRow {
+    id: string;
+    snapshot?: {
+        title: string;
+        cover: string;
+        latestChapter: number | null;
+    };
+}
+
+function favoriteId(entry: unknown): string {
+    if (!entry || typeof entry !== 'object') return '';
+    const id = (entry as Record<string, unknown>).id;
+    return typeof id === 'string' ? id : '';
+}
+
+function favoriteSnapshot(entry: unknown): FavoriteIdRow['snapshot'] | undefined {
+    if (!entry || typeof entry !== 'object') return undefined;
+    const record = entry as Record<string, unknown>;
+    if (typeof record.title !== 'string' || typeof record.cover !== 'string') return undefined;
+    const latest = record.latestChapter;
+    return {
+        title: record.title,
+        cover: record.cover,
+        latestChapter: typeof latest === 'number' ? latest : null,
+    };
+}
+
+export async function getAllFavoriteRows(): Promise<FavoriteIdRow[]> {
     const db = await openDB();
     return new Promise((resolve) => {
         const tx = db.transaction('favorites', 'readwrite');
-        tx.objectStore('favorites').put(manga);
+        const store = tx.objectStore('favorites');
+        const req = store.getAll();
+        req.onsuccess = () => {
+            const seen = new Set<string>();
+            const rows: FavoriteIdRow[] = [];
+            for (const entry of req.result as FavoriteEntry[]) {
+                const id = favoriteId(entry);
+                if (!id || seen.has(id)) continue;
+                seen.add(id);
+                rows.push({ id, snapshot: favoriteSnapshot(entry) });
+                store.put({ id });
+            }
+            resolve(rows);
+        };
+        req.onerror = () => { logger('getAllFavoriteRows', String(req.error)); resolve([]); };
+    });
+}
+
+export async function addFavoriteId(id: string): Promise<void> {
+    const db = await openDB();
+    return new Promise((resolve) => {
+        const tx = db.transaction('favorites', 'readwrite');
+        tx.objectStore('favorites').put({ id });
         tx.oncomplete = () => resolve();
-        tx.onerror = () => { logger('addFavorite', String(tx.error)); resolve(); };
+        tx.onerror = () => { logger('addFavoriteId', String(tx.error)); resolve(); };
     });
 }
 

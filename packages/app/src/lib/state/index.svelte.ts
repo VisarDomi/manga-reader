@@ -125,6 +125,7 @@ class AppState {
             () => this.canRunBackgroundWork(),
         );
         this.groupFilter.setOnChange(() => {
+            this.chapterStats.invalidateAll();
             this.manga.refreshChapterStats();
         });
         this.reader = new ReaderState(this.ui, this.manga, this.progress, this.toast, this.log);

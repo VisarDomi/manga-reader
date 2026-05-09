@@ -32,6 +32,7 @@
             recordMangaCardPerf(appState.log.emit, source, 'statsCallbacks');
             syncStats();
         });
+        appState.chapterStats.ensure(manga.id, manga.latestChapter ?? null);
         return () => {
             unsubscribeProgress();
             unsubscribeStats();
