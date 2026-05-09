@@ -2,10 +2,11 @@
     import { onMount } from 'svelte';
     import { appState } from '$lib/state/index.svelte.js';
     import * as api from '$lib/services/api.js';
+    import { recordMangaCardPerf, type MangaListSource } from '$lib/services/PerfDiagnostics.js';
     import type { Manga } from '$lib/types.js';
     import type { ProgressData } from '$lib/state/progress.svelte.js';
 
-    let { manga }: { manga: Manga } = $props();
+    let { manga, source = 'search' }: { manga: Manga; source?: MangaListSource } = $props();
 
     const coverUrl = $derived(manga.cover ? api.coverProxyUrl(manga.cover) : '');
     const latestChapter = $derived(manga.latestChapter ?? 0);
@@ -22,13 +23,19 @@
     }
 
     onMount(() => {
+        recordMangaCardPerf(appState.log.emit, source, 'mounted');
         const unsubscribeProgress = appState.progress.subscribe(manga.id, value => {
+            recordMangaCardPerf(appState.log.emit, source, 'progressCallbacks');
             progress = value;
         });
-        const unsubscribeStats = appState.chapterStats.subscribe(manga.id, syncStats);
+        const unsubscribeStats = appState.chapterStats.subscribe(manga.id, () => {
+            recordMangaCardPerf(appState.log.emit, source, 'statsCallbacks');
+            syncStats();
+        });
         return () => {
             unsubscribeProgress();
             unsubscribeStats();
+            recordMangaCardPerf(appState.log.emit, source, 'unmounted');
         };
     });
 </script>

@@ -2,6 +2,7 @@ import { ConnectionMonitor } from '../services/ConnectionMonitor.svelte.js';
 import { watchdog } from '../services/WatchdogService.js';
 import { initProvider, getProvider, refreshProviderFilters } from '../services/provider.js';
 import { LogService } from '../services/LogService.js';
+import { PerformanceProbe } from '../services/PerfDiagnostics.js';
 import { setDbLogger } from '../services/db.js';
 import { setCloudflareCallback, setApiLogger } from '../services/api.js';
 import * as api from '../services/api.js';
@@ -86,9 +87,23 @@ class AppState {
     private chapterStatsWarmAbort: AbortController | null = null;
     private deferredSearchContext: SearchContext | undefined;
     private deferredVisibleManga: Manga[] = [];
+    private performanceProbe: PerformanceProbe;
 
     constructor() {
         const emit = this.log.emit;
+        this.performanceProbe = new PerformanceProbe(emit, () => ({
+            view: this.ui.viewMode,
+            backView: this.ui.isSwiping ? this.ui.peekBack() : null,
+            isSwiping: this.ui.isSwiping,
+            isForwardSwiping: this.ui.isForwardSwiping,
+            searchResults: this.searchState.results.length,
+            favorites: this.favorites.items.length,
+            activeMangaId: this.manga.activeManga?.id ?? null,
+            activeChapters: this.manga.chapters.length,
+            activeComments: this.manga.comments.length,
+            readerChapters: this.reader.loadedChapters.length,
+            readerPages: this.reader.loadedChapters.reduce((sum, chapter) => sum + chapter.pages.length, 0),
+        }));
 
         this.ui = new UIState(emit);
         this.searchState = new SearchState(
@@ -569,6 +584,7 @@ class AppState {
 
         await this.log.start();
         emit('boot-start');
+        this.performanceProbe.start();
 
         setDbLogger((op, error) => emit('db-error', { op, error }));
 

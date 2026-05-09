@@ -41,6 +41,18 @@ export class ReaderMemoryManager {
         return this.abortController?.signal;
     }
 
+    get blobUrlCount(): number {
+        return this.blobUrls.size;
+    }
+
+    get loadingCount(): number {
+        return this.loadingKeys.size;
+    }
+
+    get registeredPageCount(): number {
+        return this.pageDataMap.size;
+    }
+
     registerPage(node: HTMLElement, chapterId: string, pageIndex: number, url: string): void {
         const data = { key: this.pageKey(chapterId, pageIndex), url };
         this.pageDataMap.set(node, data);

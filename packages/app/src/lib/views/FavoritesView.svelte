@@ -1,10 +1,47 @@
 <script lang="ts">
+    import { onMount } from 'svelte';
     import { appState } from '$lib/state/index.svelte.js';
     import SearchBar from '$lib/components/SearchBar.svelte';
     import MangaList from '$lib/components/MangaList.svelte';
 
     const favsItems = $derived(appState.favorites.items);
     const favsLoading = $derived(appState.favorites.isLoading);
+    let mountedAt = 0;
+    let updateCount = 0;
+
+    onMount(() => {
+        mountedAt = performance.now();
+        appState.log.emit('favorites-view-lifecycle', {
+            phase: 'mount',
+            items: favsItems.length,
+            isLoading: favsLoading,
+            updateCount,
+            dtMs: 0,
+        });
+        return () => {
+            appState.log.emit('favorites-view-lifecycle', {
+                phase: 'unmount',
+                items: favsItems.length,
+                isLoading: favsLoading,
+                updateCount,
+                dtMs: Math.round(performance.now() - mountedAt),
+            });
+        };
+    });
+
+    $effect(() => {
+        const items = favsItems.length;
+        const isLoading = favsLoading;
+        if (mountedAt === 0) return;
+        updateCount++;
+        appState.log.emit('favorites-view-lifecycle', {
+            phase: 'update',
+            items,
+            isLoading,
+            updateCount,
+            dtMs: Math.round(performance.now() - mountedAt),
+        });
+    });
 </script>
 
 <div class="favorites-view">
@@ -20,7 +57,7 @@
         {:else if favsItems.length === 0}
             <div class="empty">No favorites yet</div>
         {:else}
-            <MangaList manga={favsItems} trackVisible prewarmGeneration={favsItems.length} />
+            <MangaList manga={favsItems} trackVisible prewarmGeneration={favsItems.length} source="favorites" />
         {/if}
     </div>
 </div>

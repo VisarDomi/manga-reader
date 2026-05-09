@@ -6,6 +6,8 @@ This subtree is the Manga Reader frontend.
 
 - Frontend guide:
   `~/Documents/memory/svelte5-pitfalls.md`
+- Official Svelte 5 docs snapshot:
+  `~/Documents/reference/svelte-5-docs/`
 - Overflow rule:
   `~/Documents/memory/overflow.md`
 - Headless UI:
@@ -19,4 +21,4 @@ This subtree is the Manga Reader frontend.
 
 ## Rules
 
-- Read `~/Documents/memory/svelte5-pitfalls.md` before editing frontend code.
+- Read `~/Documents/memory/svelte5-pitfalls.md` before editing frontend code. When Svelte 5 behavior is unclear or the memory may be stale, reference `~/Documents/reference/svelte-5-docs/`.

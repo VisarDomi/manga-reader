@@ -26,4 +26,5 @@ Monorepo (npm workspaces). Packages: `provider-types`, `extensions`, `server`, `
 
 - Root `decisions.md` holds both app-level product decisions and technical constraints.
 - Read root `decisions.md` before investigating/debugging regressions, designing fixes, or adding features.
+- For Svelte 5 behavior, first read `~/Documents/memory/svelte5-pitfalls.md`; when it is unclear or may be stale, reference the official docs snapshot in `~/Documents/reference/svelte-5-docs/`.
 - `packages/extensions/providers/comix/business.md` holds provider-specific product rules.

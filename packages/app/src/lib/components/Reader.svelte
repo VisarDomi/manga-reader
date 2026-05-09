@@ -52,6 +52,7 @@
     let idleLayoutResetCount = 0;
     let idleLayoutSource: 'scroll' | 'layout' = 'layout';
     let lastVisualSnapshotAt = 0;
+    let lastSurfaceSnapshotAt = 0;
     let lastScrollPerfAt = 0;
     let lastScrollAt = 0;
     let lastScrollTop = 0;
@@ -64,8 +65,8 @@
     const SCROLL_RECONCILE_STEP_VIEWPORTS = 0.75;
     const PAGE_TRACK_INTERVAL_MS = 250;
     const READER_DIAGNOSTICS = {
-        frameGapProbe: false,
-        visualSnapshot: false,
+        frameGapProbe: true,
+        visualSnapshot: true,
     } as const;
 
     type VisualAnchor = {
@@ -103,6 +104,7 @@
             const tickStart = performance.now();
             const imagePerf = scheduleVirtualImages(root);
             const imagesMs = imagePerf?.totalMs ?? performance.now() - tickStart;
+            logReaderSurfaceSnapshot('after-images', root);
             const totalMs = performance.now() - startedAt;
             const queuedForMs = queuedAt == null ? 0 : startedAt - queuedAt;
             if (totalMs < 8 && queuedForMs < 24 && source === 'scroll') return;
@@ -183,6 +185,69 @@
         });
     }
 
+    function logReaderSurfaceSnapshot(source: 'after-images' | 'frame-gap', root: HTMLElement, force = false) {
+        if (!appState.log.isEnabled) return;
+        const now = performance.now();
+        if (!force && now - lastSurfaceSnapshotAt < 750) return;
+        lastSurfaceSnapshotAt = now;
+
+        const rootRect = root.getBoundingClientRect();
+        const stage = root.querySelector<HTMLElement>('.reader-virtual-stage');
+        const pages = root.querySelectorAll<HTMLElement>('.reader-page');
+        const imgs = root.querySelectorAll<HTMLImageElement>('.reader-page img');
+        let imgWithSrc = 0;
+        let imgComplete = 0;
+        let visiblePages = 0;
+        let visibleImages = 0;
+        let visibleLoadedImages = 0;
+        let visibleNaturalPixels = 0;
+
+        for (const img of imgs) {
+            const hasSrc = !!img.getAttribute('src');
+            const loaded = img.complete && img.naturalWidth > 0 && img.naturalHeight > 0;
+            if (hasSrc) imgWithSrc++;
+            if (loaded) imgComplete++;
+        }
+
+        for (const page of pages) {
+            const rect = page.getBoundingClientRect();
+            if (rect.bottom < rootRect.top || rect.top > rootRect.bottom) continue;
+            visiblePages++;
+            const img = page.querySelector('img');
+            if (!img) continue;
+            visibleImages++;
+            if (img.complete && img.naturalWidth > 0 && img.naturalHeight > 0) {
+                visibleLoadedImages++;
+                visibleNaturalPixels += img.naturalWidth * img.naturalHeight;
+            }
+        }
+
+        const rootStyle = getComputedStyle(root);
+        appState.log.emit('reader-surface-snapshot', {
+            source,
+            mangaId: appState.manga.activeManga?.id ?? null,
+            currentChapterId: appState.reader.currentChapterId,
+            scrollTop: Math.round(root.scrollTop),
+            clientHeight: Math.round(root.clientHeight),
+            scrollHeight: Math.round(root.scrollHeight),
+            stageHeight: Math.round(stage?.getBoundingClientRect().height ?? 0),
+            registeredPages: memory.registeredPageCount,
+            blobUrls: memory.blobUrlCount,
+            loadingImages: memory.loadingCount,
+            chapterSections: root.querySelectorAll('.reader-chapter').length,
+            pageElements: pages.length,
+            imgElements: imgs.length,
+            imgWithSrc,
+            imgComplete,
+            visiblePages,
+            visibleImages,
+            visibleLoadedImages,
+            visibleNaturalMegapixels: Math.round(visibleNaturalPixels / 10_000) / 100,
+            transformActive: rootStyle.transform !== 'none' || root.style.transform !== '',
+            rootClasses: root.className.toString(),
+        });
+    }
+
     function queueWindowReconcile(source: 'scroll' | 'visible' | 'retry' = 'scroll') {
         if (windowReconcileTimer != null) return;
         const root = getReaderRoot();
@@ -217,6 +282,7 @@
                     scrollTop: Math.round(root?.scrollTop ?? 0),
                     pendingMeasurements: appState.reader.pendingLayoutMeasurementCount,
                 });
+                if (root) logReaderSurfaceSnapshot('frame-gap', root);
             }
             frameRaf = requestAnimationFrame(loop);
         };

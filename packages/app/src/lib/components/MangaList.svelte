@@ -1,6 +1,7 @@
 <script lang="ts">
     import { onMount } from 'svelte';
     import { appState } from '$lib/state/index.svelte.js';
+    import type { MangaListSource } from '$lib/services/PerfDiagnostics.js';
     import type { Manga } from '$lib/types.js';
     import MangaCoverCard from './MangaCoverCard.svelte';
 
@@ -8,14 +9,18 @@
         manga,
         trackVisible = false,
         prewarmGeneration = 0,
+        source = 'search',
     }: {
         manga: Manga[];
         trackVisible?: boolean;
         prewarmGeneration?: number;
+        source?: MangaListSource;
     } = $props();
 
     let gridEl: HTMLElement | null = null;
     let lastPrewarmPerfLogAt = 0;
+    let mountedAt = 0;
+    let updateCount = 0;
     const mangaById = $derived.by(() => new Map(manga.map(item => [item.id, item])));
 
     type VisibleMangaResult = {
@@ -114,14 +119,49 @@
     }
 
     $effect(() => {
+        const total = manga.length;
+        const generation = prewarmGeneration;
+        if (mountedAt > 0) {
+            updateCount++;
+            appState.log.emit('manga-list-lifecycle', {
+                source,
+                phase: 'update',
+                total,
+                trackVisible,
+                prewarmGeneration: generation,
+                updateCount,
+                dtMs: Math.round(performance.now() - mountedAt),
+            });
+        }
         if (!trackVisible) return;
-        prewarmGeneration;
         requestAnimationFrame(() => prewarmVisible('generation'));
     });
 
     onMount(() => {
+        mountedAt = performance.now();
+        appState.log.emit('manga-list-lifecycle', {
+            source,
+            phase: 'mount',
+            total: manga.length,
+            trackVisible,
+            prewarmGeneration,
+            updateCount,
+            dtMs: 0,
+        });
         const root = scrollRoot();
-        if (!root) return;
+        if (!root) {
+            return () => {
+                appState.log.emit('manga-list-lifecycle', {
+                    source,
+                    phase: 'unmount',
+                    total: manga.length,
+                    trackVisible,
+                    prewarmGeneration,
+                    updateCount,
+                    dtMs: Math.round(performance.now() - mountedAt),
+                });
+            };
+        }
 
         let ticking = false;
         function onScroll() {
@@ -137,13 +177,24 @@
         root.addEventListener('scroll', onScroll, { passive: true });
         requestAnimationFrame(() => prewarmVisible('mount'));
 
-        return () => root.removeEventListener('scroll', onScroll);
+        return () => {
+            root.removeEventListener('scroll', onScroll);
+            appState.log.emit('manga-list-lifecycle', {
+                source,
+                phase: 'unmount',
+                total: manga.length,
+                trackVisible,
+                prewarmGeneration,
+                updateCount,
+                dtMs: Math.round(performance.now() - mountedAt),
+            });
+        };
     });
 </script>
 
 <div class="manga-grid" bind:this={gridEl}>
     {#each manga as m (m.id)}
-        <MangaCoverCard manga={m} />
+        <MangaCoverCard manga={m} source={source} />
     {/each}
 </div>
 
