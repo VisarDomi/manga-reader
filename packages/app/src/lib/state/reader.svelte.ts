@@ -398,6 +398,45 @@ export class ReaderState {
         );
     }
 
+    primeViewportLayout(viewportWidth: number, clientHeight: number): void {
+        const layoutId = this.layoutChapterId ?? this.currentChapterId;
+        if (!layoutId || this.loadedChapters.length === 0 || viewportWidth <= 1 || clientHeight <= 0) return;
+
+        this.lastViewportWidth = viewportWidth;
+        this.lastViewportHeight = clientHeight;
+
+        let changedCount = 0;
+        let totalDelta = 0;
+        const nextSlots = this.loadedChapters.map(slot => {
+            if (slot.slotState !== 'ready' || slot.pages.length === 0) return slot;
+            const estimatedHeight = this.estimateLoadedChapterHeight(slot.pages, viewportWidth);
+            const previousHeight = Math.round(slot.virtualHeight ?? slot.estimatedHeight ?? estimatedHeight);
+            const delta = estimatedHeight - previousHeight;
+            this.estimatedChapterHeights.set(slot.id, estimatedHeight);
+            if (Math.abs(delta) > 2) {
+                changedCount++;
+                totalDelta += delta;
+            }
+            return {
+                ...slot,
+                estimatedHeight,
+                virtualHeight: estimatedHeight,
+            };
+        });
+
+        if (changedCount === 0) return;
+        this.resetWindowLayoutCache();
+        this.loadedChapters = this.positionVirtualSlots(nextSlots, layoutId, viewportWidth, clientHeight);
+        this.log.emit('reader-layout-prime', {
+            mangaId: this.manga.activeManga?.id ?? this.activeMangaId,
+            chapterId: layoutId,
+            viewportWidth: Math.round(viewportWidth),
+            clientHeight: Math.round(clientHeight),
+            changedCount,
+            totalDelta: Math.round(totalDelta),
+        });
+    }
+
     get titleContext(): ReaderTitleContext | null {
         const chapterId = this.currentChapterId;
         if (!chapterId) return null;

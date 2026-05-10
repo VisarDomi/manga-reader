@@ -527,6 +527,7 @@
             return;
         }
 
+        appState.reader.primeViewportLayout(root.clientWidth, root.clientHeight);
         scrollCoordinator.beginInitialPosition(root);
 
         const restore = appState.reader.pageRestoreTarget;
