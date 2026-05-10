@@ -1,20 +1,17 @@
 import { Router } from 'express';
 import { asyncHandler } from '../middleware/errorHandler.js';
-import { getComixFilters } from '../services/providerFilters.js';
+import { comixServerProvider } from '../providers/comix.js';
 
 const router = Router();
-type FilterSearchType = 'tag' | 'author' | 'artist';
-
-const SEARCH_TYPES = new Set<string>(['tag', 'author', 'artist']);
 
 router.get('/provider-filters/:providerId', asyncHandler(async (req, res) => {
     const providerId = req.params.providerId;
-    if (providerId !== 'comix') {
+    if (providerId !== comixServerProvider.id) {
         res.status(404).json({ error: 'Unknown provider' });
         return;
     }
 
-    const result = await getComixFilters();
+    const result = await comixServerProvider.getFilterCatalog();
     console.log(`[providerFilters] serve ${providerId} source=${result.source} ageMs=${result.ageMs}`);
     res.json({
         status: 'ok',
@@ -31,7 +28,7 @@ router.get('/provider-filter-search/:providerId/:type', asyncHandler(async (req,
     const providerId = typeof req.params.providerId === 'string' ? req.params.providerId : '';
     const type = typeof req.params.type === 'string' ? req.params.type : '';
     const keyword = typeof req.query.keyword === 'string' ? req.query.keyword.trim() : '';
-    if (providerId !== 'comix' || !SEARCH_TYPES.has(type)) {
+    if (providerId !== comixServerProvider.id) {
         res.status(404).json({ error: 'Unknown filter search' });
         return;
     }
@@ -40,10 +37,11 @@ router.get('/provider-filter-search/:providerId/:type', asyncHandler(async (req,
         return;
     }
 
-    const url = new URL('https://comix.to/api/v1/tags/search');
-    url.searchParams.set('type', type as FilterSearchType);
-    url.searchParams.set('q', keyword);
-    url.searchParams.set('limit', '20');
+    const url = comixServerProvider.filterSearchUrl(type, keyword);
+    if (!url) {
+        res.status(404).json({ error: 'Unknown filter search' });
+        return;
+    }
     const started = Date.now();
     const upstream = await fetch(url, {
         headers: {

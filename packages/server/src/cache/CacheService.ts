@@ -4,8 +4,8 @@ import { proxyFetchJson } from '../utils/proxyFetch.js';
 import { CacheDatabase, type CacheJobEnqueueResult, type ImageStoreObservation } from './sqlite.js';
 import { DurableJobScheduler, type CacheJobPriorityName } from './DurableJobScheduler.js';
 import type { ByteCacheService } from './ByteCacheService.js';
+import type { ServerMangaProvider } from '../providers/types.js';
 
-const COMIX_API_BASE = 'https://comix.to/api/v1';
 const NEWEST_LIMIT = 100;
 const CHAPTER_PAGE_SIZE = 100;
 const RECONCILE_PAGE_BUDGET = 5;
@@ -13,6 +13,7 @@ const CACHE_WORKER_ID = 'cache-service';
 const DATA_CACHE_JOB_KINDS = ['seed-newest', 'crawl-search-page', 'cache-manga-detail', 'cache-chapters', 'reconcile-chapters', 'cache-chapter-page-map'];
 const CACHE_DAY_ROLLOVER_HOUR = 4;
 const CACHE_DAY_ROLLOVER_MINUTE = 45;
+const FAILED_DATA_RETRY_MS = 6 * 60 * 60 * 1000;
 
 type CacheJobKind = 'seed-newest' | 'crawl-search-page' | 'cache-manga-detail' | 'cache-chapters' | 'reconcile-chapters' | 'cache-chapter-page-map';
 export type CacheJobPriority = 'foreground' | 'observed' | 'daily' | 'background';
@@ -116,17 +117,6 @@ function chapterNumberFromItem(item: unknown): number | undefined {
   return Number.isFinite(number) ? number : undefined;
 }
 
-function chapterUrlFromItem(item: unknown, mangaId: string, chapterId: string, chapterNumber?: number): string {
-  if (item && typeof item === 'object') {
-    const r = item as Record<string, unknown>;
-    const raw = r.url ?? r.path ?? r.slug;
-    if (typeof raw === 'string' && raw.startsWith('http')) return raw;
-    if (typeof raw === 'string' && raw.startsWith('/')) return `https://comix.to${raw}`;
-  }
-  const chapterPart = chapterNumber === undefined ? chapterId : `${chapterId}-chapter-${chapterNumber}`;
-  return `https://comix.to/title/${mangaId}/${chapterPart}`;
-}
-
 function resultPages(data: unknown): unknown[] {
   if (!data || typeof data !== 'object') return [];
   const result = (data as Record<string, unknown>).result;
@@ -146,7 +136,7 @@ function chapterImageReadiness(data: unknown): { ready: boolean; pages: number; 
     : null;
   const source = typeof record.source === 'string' ? record.source : 'unknown';
   const populated = pages.filter(page => pageImageUrl(page)).length;
-  const ready = source === 'site-client'
+  const ready = source === 'runtime-http'
     && targetCount !== null
     && targetCount > 0
     && pages.length === targetCount
@@ -211,7 +201,11 @@ export class CacheService {
   private currentJob: CacheJob | null = null;
   private dailyRolloverTimer: ReturnType<typeof setTimeout> | null = null;
 
-  constructor(private readonly browserSession: BrowserSession, private readonly byteCache: ByteCacheService | null = null) {}
+  constructor(
+    private readonly browserSession: BrowserSession,
+    private readonly provider: ServerMangaProvider,
+    private readonly byteCache: ByteCacheService | null = null,
+  ) {}
 
   start(): void {
     if (this.started) return;
@@ -406,6 +400,9 @@ export class CacheService {
       priority: this.schedulerPriority(job.priority),
       payload,
       maxAttempts: job.kind === 'cache-chapter-page-map' ? 5 : 3,
+      retryFailedAfterMs: job.priority === 'foreground' || job.priority === 'observed'
+        ? 0
+        : FAILED_DATA_RETRY_MS,
     });
   }
 
@@ -499,7 +496,7 @@ export class CacheService {
     const page = job.page ?? 1;
     const crawlDate = job.crawlDate ?? todayKey();
     const reason = job.reason;
-    const url = `${COMIX_API_BASE}/manga?page=${page}&limit=${NEWEST_LIMIT}&order%5Bchapter_updated_at%5D=desc`;
+    const url = this.provider.newestSearchUrl(page, NEWEST_LIMIT);
     const start = Date.now();
     const { data, meta } = await proxyFetchJson(url, { cloudflareProtected: true });
     const items = resultItems(data);
@@ -721,8 +718,7 @@ export class CacheService {
   }
 
   private async fetchChapterPage(mangaId: string, page: number): Promise<unknown> {
-    const url = `${COMIX_API_BASE}/manga/${mangaId}/chapters?limit=${CHAPTER_PAGE_SIZE}&page=${page}&order%5Bnumber%5D=desc`;
-    const result = await this.browserSession.signedFetch(url, mangaId, `https://comix.to/title/${mangaId}`);
+    const result = await this.browserSession.fetchChapterListPage(mangaId, page, CHAPTER_PAGE_SIZE);
     return result.data;
   }
 
@@ -731,14 +727,14 @@ export class CacheService {
     let queued = 0;
     for (const url of urls) {
       const status = this.byteCache
-        ? this.byteCache.warm(url, 'https://comix.to', priority, reason)
+        ? this.byteCache.warm(url, this.provider.searchThumbnailReferer(), priority, reason)
         : this.scheduler.enqueueUnique({
             kind: 'cache-byte',
             resourceKey: url,
             priority,
             payload: {
               sourceUrl: url,
-              referer: 'https://comix.to',
+              referer: this.provider.searchThumbnailReferer(),
               reason,
             },
             maxAttempts: 5,
@@ -757,7 +753,7 @@ export class CacheService {
       discovered++;
       if (this.db.getChapterImages(mangaId, chapterId)) continue;
       const chapterNumber = chapterNumberFromItem(chapter);
-      const chapterUrl = chapterUrlFromItem(chapter, mangaId, chapterId, chapterNumber);
+      const chapterUrl = this.provider.rawMangaUrlFromChapterItem(chapter, mangaId, chapterId, chapterNumber);
       const status = this.enqueue({
         kind: 'cache-chapter-page-map',
         priority: 'background',
@@ -779,9 +775,7 @@ export class CacheService {
     }
 
     const start = Date.now();
-    const url = `${COMIX_API_BASE}/chapters/${chapterId}`;
-    const signingPageUrl = job.chapterUrl ?? `https://comix.to/title/${mangaId}/${chapterId}`;
-    const result = await this.browserSession.signedFetch(url, mangaId, signingPageUrl);
+    const result = await this.browserSession.fetchChapterImages(mangaId, chapterId);
     const pages = resultPages(result.data);
     const readiness = chapterImageReadiness(result.data);
     let candidates = 0;

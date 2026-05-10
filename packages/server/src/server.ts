@@ -7,14 +7,15 @@ import { BrowserSession } from './services/BrowserSession.js';
 import { CacheService } from './cache/CacheService.js';
 import { ByteCacheService } from './cache/ByteCacheService.js';
 import { listStoreHosts } from './utils/storeHosts.js';
+import { comixServerProvider } from './providers/comix.js';
 
 validateConfig();
 
 const SHUTDOWN_TIMEOUT = 10_000;
 
-const browserSession = new BrowserSession('comix.to', 'https://comix.to');
+const browserSession = new BrowserSession(comixServerProvider);
 const byteCacheService = new ByteCacheService();
-const cacheService = new CacheService(browserSession, byteCacheService);
+const cacheService = new CacheService(browserSession, comixServerProvider, byteCacheService);
 const app = createApp(browserSession, cacheService, byteCacheService);
 
 const sslOptions = {
@@ -25,7 +26,7 @@ const sslOptions = {
 const server = https.createServer(sslOptions, app);
 
 server.listen(PORT, '0.0.0.0', () => {
-    console.log(`comix-backend running on https://localhost:${PORT}`);
+    console.log(`${comixServerProvider.id}-backend running on https://localhost:${PORT}`);
     console.log(`Serving frontend: ${FRONTEND_BUILD_DIR}`);
     console.log(`[storeHosts] loaded ${listStoreHosts().length} hosts`);
 

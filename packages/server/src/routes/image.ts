@@ -20,7 +20,7 @@ router.get('/image', asyncHandler(async (req, res) => {
   }
 
   if (!isAllowedImageDomain(parsed.hostname)) {
-    res.status(403).json({ error: 'Only comix.to domains are allowed', status: 403 });
+    res.status(403).json({ error: 'Only image provider domains are allowed', status: 403 });
     return;
   }
 

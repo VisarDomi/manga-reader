@@ -1,0 +1,286 @@
+import type { Page } from 'playwright';
+import type { FilterDefinition, FilterOption } from '@manga-reader/provider-types';
+import type { RuntimeChapterImages, ServerMangaProvider } from './types.js';
+
+const BASE_URL = 'https://comix.to';
+const DOMAIN = 'comix.to';
+const FILTER_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const FILTER_SEARCH_TYPES = new Set(['tag', 'author', 'artist']);
+const NSFW_NAMES = new Set(['Adult', 'Ecchi', 'Hentai', 'Mature', 'Smut']);
+
+let filterCache: { filters: FilterDefinition; fetchedAt: number } | null = null;
+let filterInflight: Promise<FilterDefinition> | null = null;
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value != null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+}
+
+function firstString(...values: unknown[]): string {
+  for (const value of values) {
+    if (typeof value === 'string' && value.length > 0) return value;
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  }
+  return '';
+}
+
+function asFilterOption(item: unknown, group?: string): FilterOption | null {
+  const raw = asRecord(item);
+  if (!raw) return null;
+  const id = raw.id == null ? '' : String(raw.id);
+  const name = typeof raw.label === 'string' ? raw.label : typeof raw.name === 'string' ? raw.name : '';
+  if (!id || !name) return null;
+  return {
+    id,
+    name,
+    ...(group ? { group } : {}),
+    ...(NSFW_NAMES.has(name) ? { nsfw: true as const } : {}),
+  };
+}
+
+function filterOptionList(value: unknown, group?: string): FilterOption[] {
+  if (!Array.isArray(value)) return [];
+  return value.map(item => asFilterOption(item, group)).filter((item): item is FilterOption => item != null);
+}
+
+function extractInitialData(html: string): Record<string, unknown> {
+  const match = /<script[^>]+id=["']initial-data["'][^>]*>([\s\S]*?)<\/script>/i.exec(html);
+  if (!match?.[1]) throw new Error('initial-data script missing');
+  return JSON.parse(match[1]) as Record<string, unknown>;
+}
+
+function parseFilters(html: string): FilterDefinition {
+  const initial = extractInitialData(html);
+  const list = asRecord(initial.list) ?? {};
+  const options = asRecord(list.options) ?? {};
+  const genres = [
+    ...filterOptionList(options.genres, 'genre'),
+    ...filterOptionList(options.formats, 'format'),
+  ];
+  const demographics = filterOptionList(options.demographics, 'demographic');
+  const types = filterOptionList(options.types);
+  const statuses = filterOptionList(options.statuses);
+
+  if (genres.length === 0 || types.length === 0 || statuses.length === 0) {
+    throw new Error(`incomplete filter catalog genres=${genres.length} types=${types.length} statuses=${statuses.length}`);
+  }
+
+  return {
+    genres,
+    ...(demographics.length > 0 ? { demographics } : {}),
+    ...(types.length > 0 ? { types } : {}),
+    ...(statuses.length > 0 ? { statuses } : {}),
+  };
+}
+
+async function fetchFilterCatalog(): Promise<FilterDefinition> {
+  const started = Date.now();
+  const response = await fetch(`${BASE_URL}/browse`, {
+    headers: {
+      Accept: 'text/html',
+      'User-Agent': 'Mozilla/5.0 manga-reader filter-catalog',
+    },
+  });
+  if (!response.ok) throw new Error(`browse http=${response.status}`);
+  const html = await response.text();
+  const filters = parseFilters(html);
+  console.log(`[provider:comix] filters refresh ok genres=${filters.genres.length} demographics=${filters.demographics?.length ?? 0} types=${filters.types?.length ?? 0} statuses=${filters.statuses?.length ?? 0} ${Date.now() - started}ms`);
+  return filters;
+}
+
+function absoluteComixUrl(url: string): string {
+  if (!url) return '';
+  return url.startsWith('http') ? url : `${BASE_URL}${url.startsWith('/') ? '' : '/'}${url}`;
+}
+
+export const comixServerProvider: ServerMangaProvider = {
+  id: 'comix',
+  name: 'Comix',
+  domain: DOMAIN,
+  baseUrl: BASE_URL,
+  runtimeImageSource: 'runtime-http',
+
+  async resolveRuntimeHttpClient(page: Page, probeMangaId: string, owner: string): Promise<void> {
+    const start = Date.now();
+    const resolved = await page.evaluate(async ({ probeMangaId }) => {
+      const global = globalThis as any;
+      if (global.__providerRuntimeHttp?.get) {
+        return { cached: true, exportKey: global.__providerRuntimeHttpExportKey ?? 'cached' };
+      }
+
+      const script = [...document.scripts]
+        .map(s => s.src)
+        .find(src => src.includes('/assets/build/') && src.includes('/dist/main-') && src.endsWith('.js'));
+      if (!script) throw new Error('Comix main module not found');
+
+      const mod = await import(script);
+      const entries = Object.entries(mod ?? {});
+      const attempts: string[] = [];
+
+      for (const [key, value] of entries) {
+        if (!value || typeof value !== 'object' || typeof (value as any).get !== 'function') continue;
+
+        try {
+          const data = await (value as any).get(`/manga/${probeMangaId}/chapters`, {
+            params: {
+              limit: 1,
+              page: 1,
+              order: { number: 'desc' },
+            },
+          });
+          if (Array.isArray(data?.items) && data?.meta && typeof data.meta === 'object') {
+            global.__providerRuntimeHttp = value;
+            global.__providerRuntimeHttpExportKey = key;
+            return { cached: false, exportKey: key };
+          }
+          attempts.push(`${key}:shape=${Object.keys(data ?? {}).slice(0, 8).join(',') || 'empty'}`);
+        } catch (e) {
+          attempts.push(`${key}:error=${String((e as Error)?.message ?? e).slice(0, 80)}`);
+        }
+      }
+
+      throw new Error(`Comix runtime HTTP client not found exports=${entries.map(([key]) => key).join(',') || 'none'} attempts=${attempts.join(' ') || 'none'}`);
+    }, { probeMangaId });
+    console.log(`[provider:${this.id}] runtime-http-resolver ${owner} ${probeMangaId} cached=${resolved.cached ? 'yes' : 'no'} export=${resolved.exportKey} ${Date.now() - start}ms`);
+  },
+
+  runtimePageUrl(mangaId: string): string {
+    return `${BASE_URL}/title/${mangaId}`;
+  },
+
+  mangaDetailPath(mangaId: string): string {
+    return `/manga/${mangaId}`;
+  },
+
+  mangaRecommendationsPath(mangaId: string): string {
+    return `/manga/${mangaId}/recommended`;
+  },
+
+  chapterListPath(mangaId: string): string {
+    return `/manga/${mangaId}/chapters`;
+  },
+
+  chapterListParams(page: number, pageSize: number): Record<string, unknown> {
+    return {
+      limit: pageSize,
+      page,
+      order: { number: 'desc' },
+    };
+  },
+
+  chapterImagesPath(chapterId: string): string {
+    return `/chapters/${chapterId}`;
+  },
+
+  normalizeChapterImages(detail: Record<string, unknown>): RuntimeChapterImages {
+    const pagesData = asRecord(detail.pages);
+    const baseUrl = typeof pagesData?.baseUrl === 'string' ? pagesData.baseUrl : '';
+    const items = Array.isArray(pagesData?.items) ? pagesData.items : [];
+    const pages = items
+      .map((item: unknown) => {
+        const raw = asRecord(item);
+        const relativeUrl = typeof raw?.url === 'string' ? raw.url : '';
+        const url = relativeUrl && baseUrl ? new URL(relativeUrl, baseUrl).toString() : '';
+        return {
+          url,
+          width: Number(raw?.width ?? 0),
+          height: Number(raw?.height ?? 0),
+        };
+      })
+      .filter(item => item.url);
+    return { source: this.runtimeImageSource, targetCount: items.length, pages };
+  },
+
+  newestSearchUrl(page: number, limit: number): string {
+    const params = new URLSearchParams();
+    params.set('page', String(page));
+    params.set('limit', String(limit));
+    params.set('order[chapter_updated_at]', 'desc');
+    return `${BASE_URL}/api/v1/manga?${params}`;
+  },
+
+  mangaPageUrl(mangaId: string, rawUrl?: unknown): string {
+    return typeof rawUrl === 'string' && rawUrl.length > 0 ? absoluteComixUrl(rawUrl) : `${BASE_URL}/title/${mangaId}`;
+  },
+
+  chapterPageUrl(mangaId: string, chapterId: string, chapterNumber: number, rawUrl?: unknown): string {
+    if (typeof rawUrl === 'string' && rawUrl.length > 0) return absoluteComixUrl(rawUrl);
+    return `${BASE_URL}/title/${mangaId}/${chapterId}-chapter-${chapterNumber}`;
+  },
+
+  commentsLookupUrl(pageIdentifier: string, pageUrl: string): string {
+    const params = new URLSearchParams({
+      page_identifier: pageIdentifier,
+      page_url: pageUrl,
+    });
+    return `${BASE_URL}/api/v1/threads/lookup?${params}`;
+  },
+
+  commentsPageUrl(threadId: number): string {
+    return `${BASE_URL}/api/v1/threads/${Math.floor(threadId)}/comments`;
+  },
+
+  commentTreeUrl(commentId: number): string {
+    return `${BASE_URL}/api/v1/comments/${commentId}`;
+  },
+
+  mangaCommentIdentifier(numericMangaId: number): string {
+    return `manga${Math.floor(numericMangaId)}`;
+  },
+
+  chapterCommentIdentifier(numericMangaId: number, chapterNumber: number): string {
+    return `manga${Math.floor(numericMangaId)}_chap${chapterNumber}_vol0`;
+  },
+
+  absoluteUrl(url: string): string {
+    return absoluteComixUrl(url);
+  },
+
+  searchThumbnailReferer(): string {
+    return BASE_URL;
+  },
+
+  rawMangaUrlFromChapterItem(item: unknown, mangaId: string, chapterId: string, chapterNumber?: number): string {
+    const raw = asRecord(item);
+    const value = raw?.url ?? raw?.path ?? raw?.slug;
+    if (typeof value === 'string' && value.startsWith('http')) return value;
+    if (typeof value === 'string' && value.startsWith('/')) return absoluteComixUrl(value);
+    const chapterPart = chapterNumber === undefined ? chapterId : `${chapterId}-chapter-${chapterNumber}`;
+    return `${BASE_URL}/title/${mangaId}/${chapterPart}`;
+  },
+
+  async getFilterCatalog(): Promise<{ filters: FilterDefinition; source: 'cache' | 'upstream'; ageMs: number }> {
+    const now = Date.now();
+    if (filterCache && now - filterCache.fetchedAt < FILTER_CACHE_TTL_MS) {
+      return { filters: filterCache.filters, source: 'cache', ageMs: now - filterCache.fetchedAt };
+    }
+
+    filterInflight ??= fetchFilterCatalog()
+      .then(filters => {
+        filterCache = { filters, fetchedAt: Date.now() };
+        return filters;
+      })
+      .finally(() => {
+        filterInflight = null;
+      });
+
+    try {
+      const filters = await filterInflight;
+      return { filters, source: 'upstream', ageMs: 0 };
+    } catch (error) {
+      if (filterCache) {
+        console.log(`[provider:comix] filters refresh failed using stale cache ageMs=${now - filterCache.fetchedAt} error=${String((error as Error)?.message ?? error)}`);
+        return { filters: filterCache.filters, source: 'cache', ageMs: now - filterCache.fetchedAt };
+      }
+      throw error;
+    }
+  },
+
+  filterSearchUrl(type: string, keyword: string): string | null {
+    if (!FILTER_SEARCH_TYPES.has(type) || keyword.length < 2) return null;
+    const url = new URL(`${BASE_URL}/api/v1/tags/search`);
+    url.searchParams.set('type', type);
+    url.searchParams.set('q', keyword);
+    url.searchParams.set('limit', '20');
+    return url.toString();
+  },
+};
