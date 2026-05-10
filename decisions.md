@@ -762,6 +762,28 @@ previous chapters while scrolling up and next chapters while scrolling down.
 Nearby placeholder slots are fetched concurrently up to the current scheduler
 limit.
 
+Logical scroll position is the cursor owner. The window planner receives an
+already-owned `logicalScrollTop`; it must not derive logical position from a
+new `physicalWindowStart` plus an old DOM `scrollTop`. Physical scroll is only
+a projection of the logical cursor into the bounded runway. During a rebase,
+`ReaderState` computes the logical position from the old projection, chooses
+the new physical runway start, then writes the new physical `scrollTop` as
+`logicalScrollTop - physicalWindowStart`.
+
+This rule exists because a bug on 2026-05-10 showed the failure mode clearly:
+the DOM scroll moved only about 700px, but the planner recomputed logical
+position after rebasing the runway and jumped about 121k px into the next
+chapter. The reader then mounted only a placeholder chapter, `ReaderMemoryManager`
+revoked the old blob URLs because the new geometry had zero pages, and the user
+saw a black screen. The fix was to make logical position the owned cursor and
+physical position a derived projection.
+
+Placeholder slots are layout hints, not visible-page authority. If a wanted
+placeholder is the current/probe candidate, fetch ownership must still start
+the chapter image metadata request. The reader must not treat `side=current` as
+a reason to skip fetching a non-ready slot. A chapter can become the visible
+progress/title owner only when ready page geometry exists for it.
+
 When a chapter hydrates and its real height differs from the placeholder,
 logical layout may change. The physical runway absorbs that change by keeping
 the visible anchor stable inside the bounded surface. Hydration must not crop a
