@@ -1059,6 +1059,15 @@ The `/api/v2/manga/{id}/chapters` endpoint returns application-level 403 (HTTP 2
 
 Only NavigationScheduler creates and navigates Playwright pages for signed user requests. Background frontend prewarming was removed after the cache service became the owner of manga, chapter-list, and chapter-image data. Concurrency is capped at 4 workers. Pages are created per-request and closed immediately after sig capture — there is no page pool. Multiple requests for the same mangaId piggyback on the in-flight or queued item rather than creating duplicate work.
 
+NavigationScheduler also owns promise lifetimes for work started from those
+pages. The Playwright request handler may observe the signed chapters request
+and resolve signature/detail data, but it must not start chapter-list warmup
+promises. Chapter warmup starts in the scheduler worker after signature capture
+returns, and that same worker registers inflight/cache callbacks and attaches
+failure handling before exposing the promise. This keeps `page.evaluate`
+failures retryable/loggable instead of letting async event-handler rejections
+escape as process crashes.
+
 ## D16. Chapter Log Ownership: Consumer, Not API Layer
 
 The `chapters-page` and `chapters-done` log events are emitted by `MangaState.consumeChapterStream` (the consumer), not by `fetchChapterList` in the API layer. The API generator is called from two contexts (display load and restore probe) — the consumer owns the context and therefore owns the logging.
@@ -1149,16 +1158,25 @@ but it is not responsible for ordinary page-map discovery.
 Daily search crawl uses `crawl-search-page:{crawlDate}:{page}` jobs with a
 cache-day key that rolls over at local `04:45`, not at midnight. The rollover
 matches the app's practical usage window: late-night reading before 04:45 still
-belongs to the previous cache day. If the service starts and the current
-cache-day crawl has no active frontier, older unfinished search-page crawl jobs
-are demoted to background priority and the current cache day's newest page runs
-first. Duplicate resources are promoted/refreshed, not duplicated.
+belongs to the previous cache day. CacheService owns a rollover timer as well
+as startup recovery: at startup and at each 04:45 boundary it runs the same
+durable crawl-start path. If the current cache-day crawl has no active
+frontier, older unfinished search-page crawl jobs are demoted to background
+priority and the current cache day's newest page runs first. Duplicate
+resources are promoted/refreshed, not duplicated.
 
 The byte cache is a separate engine. `/api/byte?url=...` serves local bytes
 when `byte_cache.status = ready`; on miss it proxy-and-stores to preserve UI
 behavior, then records the file atomically. Background `cache-byte` jobs warm
 small images discovered from search rows. Provider-shaped JSON stays raw; the
 app-facing URL helper maps covers/thumbnails to `/api/byte`.
+
+Byte-cache failures are observations, not permanent truth. A fetch timeout or
+transient upstream failure writes `byte_cache.status = failed` and the durable
+job retries up to its attempt budget. If the job exhausts attempts, later
+discovery of the same URL can requeue the failed durable job after a cooldown;
+foreground byte requests requeue immediately. A successful later fetch
+overwrites the failed row with `ready` and clears the error.
 
 BrowserSession is the boundary normalizer. If the signed chapter-list response
 is encrypted, it uses Comix's shipped site client from the same browser runtime.

@@ -121,7 +121,6 @@ interface WorkItem {
 interface CapturedTitleData {
     sig: string;
     detail?: unknown;
-    chapterPage1?: Promise<unknown>;
 }
 
 interface SignedChapterRequest {
@@ -261,13 +260,13 @@ class NavigationScheduler {
                     capturedAt: now,
                 });
                 if (captured.detail) this.onDetail?.(mangaId, captured.detail);
-                if (captured.chapterPage1) {
-                    this.onChapterPageInflight?.(mangaId, 1, captured.chapterPage1);
-                    void captured.chapterPage1
-                        .then(data => this.onChapterPage?.(mangaId, 1, data))
-                        .catch(() => {});
-                }
-                console.log(`[navScheduler] ${label} ${mangaId} sig=${captured.sig.slice(0, 16)}… detail=${captured.detail ? 'yes' : 'no'} chapters=${captured.chapterPage1 ? 'warming' : 'no'} ${Date.now() - t0}ms cache=${this.cacheSize}`);
+                const chapterPage1 = this.fetchChapterPageFromSiteClient(page, mangaId, 1);
+                this.onChapterPageInflight?.(mangaId, 1, chapterPage1);
+                void chapterPage1
+                    .then(data => this.onChapterPage?.(mangaId, 1, data))
+                    .catch(() => {});
+
+                console.log(`[navScheduler] ${label} ${mangaId} sig=${captured.sig.slice(0, 16)}… detail=${captured.detail ? 'yes' : 'no'} chapters=warming ${Date.now() - t0}ms cache=${this.cacheSize}`);
                 item.resolve(captured.sig);
 
                 for (let i = this.queue.length - 1; i >= 0; i--) {
@@ -277,7 +276,7 @@ class NavigationScheduler {
                     }
                 }
 
-                await captured.chapterPage1?.catch((e) => {
+                await chapterPage1.catch((e) => {
                     const msg = (e as Error)?.message ?? String(e);
                     console.log(`[navScheduler] initial-chapters-error ${mangaId}: ${msg}`);
                 });
@@ -330,7 +329,6 @@ class NavigationScheduler {
                     const signedAtMs = Date.now() - startedAt;
                     console.log(`[navScheduler] signed-request ${mangaId} after=${signedAtMs}ms`);
                     const detailStart = Date.now();
-                    const chapterPage1 = this.fetchChapterPageFromSiteClient(page, mangaId, 1);
                     const detail = await detailPromise.catch((e) => {
                         const msg = (e as Error)?.message ?? String(e);
                         console.log(`[navScheduler] initial-detail-error ${mangaId} after=${Date.now() - detailStart}ms ${msg}`);
@@ -338,7 +336,7 @@ class NavigationScheduler {
                     });
                     console.log(`[navScheduler] initial-detail ${mangaId} found=${detail ? 'yes' : 'no'} after=${Date.now() - detailStart}ms total=${Date.now() - startedAt}ms`);
                     settled = true;
-                    resolve({ sig, detail, chapterPage1 });
+                    resolve({ sig, detail });
                 } else {
                     settled = true;
                     reject(new Error('Signed request found but _ param missing'));
