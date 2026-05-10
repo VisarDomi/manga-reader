@@ -219,7 +219,25 @@ Transient views and duplicate active views should be removed before restore.
 Verify the result with navigation logs so each back action lands on the owner
 it is supposed to reveal.
 
-### 22. Match the Source Product's Interaction Model
+### 22. Restore Foreground First, Hydrate Behind It
+
+Session restore is a foreground ownership problem before it is a data-loading
+problem. On cold start, the restore owner must recreate the saved visible
+surface and back stack immediately, then let each domain hydrate its own data
+behind that shell.
+
+Do not make a surface wait to become visible until search replay, manga
+hydration, reader image metadata, comments, or backing layers finish. The user
+should land on the saved foreground first. If a backing layer needs data before
+its saved scroll can be applied, that layer owns a pending restore target and
+applies it when its height/data is ready.
+
+For nested manga details, each manga layer owns its own scroll snapshot. A
+single "current manga scroll" is not enough because the stack can contain
+multiple independent manga-detail surfaces. Persist and restore scroll by
+layer identity, not by whichever layer happens to be active at shutdown.
+
+### 23. Match the Source Product's Interaction Model
 
 When integrating with an upstream product, parity requires matching the
 interaction model, not only the first response. If the source UI supports
@@ -231,7 +249,7 @@ Treat visible upstream controls as evidence of data boundaries. A single
 successful request proves only that one boundary works; it does not prove the
 full user-visible state has been reproduced.
 
-### 23. Log Completeness, Not Only Success
+### 24. Log Completeness, Not Only Success
 
 For paginated, nested, or merged data, success logs must show completeness
 signals. Log page counts, node counts, max depth, merge/fill counts, and any
@@ -242,7 +260,7 @@ Good completeness logs make it possible to answer whether missing UI is caused
 by a failed request, an unvisited pagination path, a parser bug, a dedupe bug,
 or an upstream counter that includes data the API does not expose.
 
-### 24. Normalize Complex Upstream Shapes at the Boundary
+### 25. Normalize Complex Upstream Shapes at the Boundary
 
 When an upstream API exposes data through several shapes or endpoints, normalize
 that complexity at the integration boundary. The owner closest to the upstream
@@ -253,7 +271,7 @@ Downstream UI should receive a stable display contract. It should not need to
 know which upstream endpoint supplied each field or which recovery path filled
 missing parts of the shape.
 
-### 25. Distinguish Not Fetched from Not Available
+### 26. Distinguish Not Fetched from Not Available
 
 Missing data can mean the integration failed to fetch it, or it can mean the
 upstream counts data that is not available through its visible API. Those are
@@ -262,7 +280,7 @@ different states and must be represented separately.
 Use logs and typed stats to distinguish fetch gaps from unavailable upstream
 items. This prevents chasing false bugs and makes residual risk explicit.
 
-### 26. Use Upstream Runtime Capabilities as Evidence
+### 27. Use Upstream Runtime Capabilities as Evidence
 
 When an upstream product's behavior is unclear, inspect the client it ships.
 Its routes, query parameters, cache keys, and interaction handlers are stronger
@@ -285,7 +303,7 @@ client. If the runtime shape changes enough that no candidate passes the probe,
 the provider fails loudly with resolver logs instead of leaking encrypted or
 untyped payloads into the cache.
 
-### 27. Log Ownership Boundaries
+### 28. Log Ownership Boundaries
 
 Logs should identify the owner that made a state decision, not only the final
 symptom. For every important mutation, log the source, reason, affected
@@ -301,7 +319,7 @@ Cache logs must distinguish `warming`, `not-ready`, `empty`, `ready`, `hit`,
 and `promoted`. A cache hit is only truthful when the payload satisfies the
 consumer contract; a row existing in SQLite is not enough.
 
-### 28. Observers Are Not Authority
+### 29. Observers Are Not Authority
 
 Visibility, intersection, scroll probes, and page measurements are observations.
 They can report facts and trigger the owning state machine, but they should not
@@ -312,7 +330,7 @@ or layout scheduling, but it should not directly own virtual layout, scroll
 geometry, or navigation restoration. If an observer starts suppressing,
 overriding, or rewriting another domain's state, the ownership model is wrong.
 
-### 29. Reader Layout Has One Writer
+### 30. Reader Layout Has One Writer
 
 Reader virtual geometry has one writer: the layout owner. Virtual slot
 positions, chapter heights, total scroll height, and scroll-preserving anchor
@@ -324,7 +342,7 @@ schedule layout work instead of independently changing scroll geometry. This
 keeps the reader debuggable: layout writes can be found in one log path, and
 programmatic scroll writes can be treated as high-signal events.
 
-### 30. Do Not Mutate Scroll Geometry During Momentum
+### 31. Do Not Mutate Scroll Geometry During Momentum
 
 On iOS, changing content above or around the viewport during active scroll or
 momentum can interrupt the user's flow even when the math is correct. Scroll
@@ -337,7 +355,7 @@ grow that space after the DOM has rendered and before the user reaches it.
 Active scroll should update observations and priorities; idle layout should own
 geometry mutation.
 
-### 31. Synthetic Reproductions Prove Narrow Claims Only
+### 32. Synthetic Reproductions Prove Narrow Claims Only
 
 A reduced test app is useful for proving one isolated claim, such as whether
 iOS Safari reacts badly to prepending content during scroll. It is not proof
@@ -348,7 +366,7 @@ verify the complete interaction path. The production path may include planner
 state, hydration timing, saved progress, virtual windows, image loading, and
 navigation ownership that the reduced test does not model.
 
-### 32. Treat Large Restored State as a Stress Test
+### 33. Treat Large Restored State as a Stress Test
 
 Large restored state can expose real main-thread costs even when it is not the
 root cause of a regression. A 1000-result search list, a 3000-chapter detail
@@ -360,7 +378,7 @@ set is restored while favorites owns the route, the fix is restore ownership,
 not hiding or hibernating views. Keep the stress case as performance evidence,
 but fix the state owner that caused the wrong work to run.
 
-### 33. Top-Level Views Stay Mounted Unless Behavior Explicitly Changes
+### 34. Top-Level Views Stay Mounted Unless Behavior Explicitly Changes
 
 The list, favorites, manga detail, reader, and comments surfaces are navigation
 layers, not disposable route pages. They may be visually covered by a higher
@@ -372,7 +390,7 @@ top-level view as a performance fix unless the behavior change is explicitly
 approved. If a covered view is doing expensive work, fix the owner that is
 committing the work; do not make mount lifetime responsible for correctness.
 
-### 34. Avoid Broad Svelte State Broadcasts
+### 35. Avoid Broad Svelte State Broadcasts
 
 In Svelte 5, a single broad `$state` write can wake many `$derived` chains and
 component instances. High-volume producers should commit deliberate snapshots,
@@ -389,7 +407,7 @@ Known good patterns in this app:
 - keep reader-visible observations reader-owned during scroll and commit
   manga-detail scroll targets at discrete boundaries
 
-### 35. Gestures Own the Frame Budget While Active
+### 36. Gestures Own the Frame Budget While Active
 
 During an active swipe or momentum scroll, gesture movement should be direct
 DOM/CSS variable work. Other owners must avoid large `$state` commits, DOM
@@ -402,7 +420,7 @@ frontend application of backend results can. Logs should distinguish queued,
 deferred, resumed, skipped, and committed work so jank windows can be tied to
 the owner that spent the frame budget.
 
-### 36. Restore Only the Owning Surface
+### 37. Restore Only the Owning Surface
 
 Search and favorites are sibling roots. Restoring favorites must not replay
 search just because an older session contains search context. Restoring search
@@ -413,7 +431,7 @@ Persisted search context is domain state for the search surface, not global app
 state. A restore path must first identify the current surface and back stack,
 then replay only the domain owners needed for that path.
 
-### 37. Live Search, Live Comments, Cached Manga Data
+### 38. Live Search, Live Comments, Cached Manga Data
 
 Production data ownership is explicit:
 
@@ -436,7 +454,7 @@ construction via `searchRequest` and response shape via `parseSearchResponse`.
 This prevents duplicating provider query parameters in the server while also
 preventing the frontend from regaining a "fetch anything live" escape hatch.
 
-### 38. Backend Cache Is the Manga Data Owner
+### 39. Backend Cache Is the Manga Data Owner
 
 The backend cache is the source of truth for manga details, chapter lists, and
 chapter image metadata. Comix remains an ingestion source, not a frontend data
@@ -496,7 +514,7 @@ Power-off safety comes from durable job rows and atomic cache mutations:
 - Cooperative yield is allowed only at safe boundaries between upstream page
   requests, before the final cache write.
 
-### 39. Cache Readiness Is a Contract
+### 40. Cache Readiness Is a Contract
 
 A row existing in SQLite is not enough to serve it as ready. Cache consumers
 need typed readiness contracts.
@@ -523,7 +541,7 @@ Store candidates are expanded from real discovered image URLs by replacing only
 known `wowpic*.store` hosts while preserving the image path. The frontend
 reports image outcomes; the backend updates per-image/per-store status.
 
-### 40. Large Search Lists Still Need Optimization
+### 41. Large Search Lists Still Need Optimization
 
 A restored or deeply paginated search list can leave 1000+ manga cards mounted
 behind manga details and reader. That state is valid and should not be hidden
@@ -565,7 +583,7 @@ and investigating DOM/style/layout cost from 1000+ mounted cards. Do not change
 the navigation behavior, hibernate top-level views, or remove card information
 without explicit approval.
 
-### 41. Separate Logical Position from Physical Scroll Surface
+### 42. Separate Logical Position from Physical Scroll Surface
 
 The reader can know about thousands of chapters without making the browser
 scroll a document that is tens of millions of pixels tall. Logical manga
@@ -593,7 +611,7 @@ Failed approaches from the 2026-05-08/09 reader performance work:
 
 - **DOM/layer hibernation:** unmounting hidden top-level views changed behavior
   and did not address the reader's real ownership problem. Top-level views stay
-  mounted unless behavior explicitly changes (see rule 33).
+  mounted unless behavior explicitly changes (see rule 34).
 - **Image placeholder A/B:** replacing reader images with placeholders only
   proved that images were absent; it did not model the real reading path and
   was not useful as a production-facing experiment.
@@ -680,7 +698,10 @@ intermediate chapter-list states into Svelte.
 
 ## AH. Progress Is Tracked Per Manga
 
-Reading progress stores chapterId, chapterNumber, pageIndex, and scrollOffset (pixel offset within the current page), keyed by `repoUrl:providerId:mangaId` (see BH). This means progress remembers which chapter you were on, which page, and exactly where on that page — but only the latest position per manga per provider, not per chapter.
+Reading progress stores chapterId, chapterNumber, pageIndex, and scrollOffset
+(pixel offset within the current page), keyed by manga id in frontend IDB. This
+means progress remembers which chapter you were on, which page, and exactly
+where on that page — but only the latest position per manga, not per chapter.
 
 ## AI. Progress Synced with 500ms Debounce
 
@@ -816,6 +837,8 @@ Valid common states are:
 - `viewMode=manga`, `viewStack=[favorites]` — details opened from favorites
 - `viewMode=reader`, `viewStack=[list, manga]` — reader opened from a search details path
 - `viewMode=reader`, `viewStack=[favorites, manga]` — reader opened from a favorites details path
+- `viewMode=manga`, `viewStack=[favorites, manga]` — nested manga details opened from recommendations
+- `viewMode=reader`, `viewStack=[favorites, manga, manga]` — reader opened from nested manga details
 - `viewMode=chapter-comments`, `viewStack=[..., manga, reader]` — comments opened from the reader path
 
 Back (swipe or button) pops one level from `viewStack`. Peek-back uses the same
@@ -827,12 +850,20 @@ not invent a search owner behind favorites.
 
 The session snapshot is a single object in localStorage with these fields:
 `viewMode`, `viewStack`, `activeManga`, `mangaStack`, `targetMangaId`, and
-`searchContext`.
+`searchContext`. For manga-detail scroll restoration it also stores
+`mangaScrolls`, an array of `{ mangaId, stackIndex, scrollTop }`, plus the
+legacy single `mangaScroll` field for old snapshots.
 
 View transitions save immediately. Visible manga tracking is debounced and
 updates `targetMangaId`, which points to the origin manga for restore or
 back-stack recovery. `mangaStack` stores nested manga-detail history directly
 instead of reconstructing it from DOM state.
+
+`mangaScrolls` stores scroll by layer. The key is both `stackIndex` and
+`mangaId`, because a nested recommendations path can have several independent
+manga-detail layers alive at once. Restoring only the active layer is
+incorrect: each backing layer must restore its own scroll before it is revealed
+by swipe-back.
 
 `searchContext` is saved only when search/list owns the current path:
 `viewMode === list` or `viewStack` contains `list`. Favorites does not own
@@ -841,7 +872,17 @@ behind it.
 
 ## AQ. Session Restore Is Automatic and Abortable
 
-On app launch, if a session snapshot exists, the app restores it automatically. While restoring, a passive "Restoring last position..." toast is shown. If the user takes any action during restore (scrolls, taps a manga, changes view, or starts a new search), the restore is cancelled silently — user action always wins. Each phase is independently abortable.
+On app launch, if a session snapshot exists, the app restores it automatically.
+The restore owner first recreates the saved foreground shell: `viewMode`,
+`viewStack`, manga stack entries, and any overlay/reader surface implied by the
+snapshot. Hydration then runs behind that shell. This keeps app launch
+responsive and prevents the root list/favorites surface from staying visible
+until manga, reader, comments, or search replay finishes.
+
+While restoring, a passive "Restoring last position..." toast is shown. If the
+user takes any action during restore (scrolls, taps a manga, changes view, or
+starts a new search), the restore is cancelled silently — user action always
+wins. Each phase is independently abortable.
 
 All restore sequences require the active provider to be loaded first (see BI).
 Each sequence restores only the owners implied by `viewMode` and `viewStack`:
@@ -856,15 +897,23 @@ Each sequence restores only the owners implied by `viewMode` and `viewStack`:
 - Do not replay search. Favorites is a root surface, not a child of search.
 
 **Manga restore:**
-- Restore `activeManga`, `mangaStack`, group selection, and chapters per AG.
-- Preserve the saved back stack when present.
+- Set the saved foreground manga shell first with the saved back stack.
+- Restore `activeManga`, `mangaStack`, group selection, and chapters per AG in
+  the manga owner.
+- Apply every matching `mangaScrolls` entry when its layer has enough height.
+  If a layer is not tall enough yet, it keeps a pending restore target until
+  hydration makes that scroll position reachable. User scroll aborts only that
+  layer's pending scroll.
 - Replay search in the background only if the back stack contains `list`.
 
 **Reader or chapter-comments restore:**
-- Rebuild the stack without transient reader/comments entries, then set the
-  foreground reader path.
-- Restore manga detail for the reader path, then restore reader position from
-  IDB progress (see AR).
+- Set the saved reader or comments foreground shell first. If comments were
+  saved, comments is the foreground surface and reader/manga/root are restored
+  behind it.
+- Restore all manga detail layers for the reader path so nested manga
+  swipe-back surfaces are preserved.
+- Prime reader layout from the actual restored viewport before applying reader
+  progress, then restore reader position from IDB progress (see AR).
 - Replay search in the background only if the rebuilt stack contains `list`.
 - If the snapshot was comments, open comments after reader restore.
 
@@ -876,7 +925,16 @@ reader restore still use cached detail, chapter-list, and chapter-image paths.
 
 ## AR. IDB Progress Is the Source of Truth for Reader Position
 
-When restoring a reader session, the app reads the reader position from IDB progress — not from the session snapshot. The session snapshot only records view mode and active manga. The actual chapter and page position always come from IDB, which is updated more frequently (3s debounce vs only on view transition for the snapshot).
+When restoring a reader session, the app reads the reader position from IDB
+progress — not from the session snapshot. The session snapshot records
+navigation, active manga, manga stack, and manga-detail scroll layers. The
+actual reader chapter, page index, and pixel offset come from IDB progress,
+which is updated on a 500ms debounce and flushed on reader close.
+
+Before applying the saved reader page offset, the reader primes virtual layout
+with the actual restored viewport width and height. This prevents restore math
+from using a stale/default viewport estimate and then correcting after the
+first render, which would look like a restore jump.
 
 ## AT. Swipe-Back Gesture
 
@@ -943,9 +1001,15 @@ All errors are categorized into 5 kinds: `upstream` (HTTP error, carries status 
 
 ## BA. Dynamic Fetch Timeout
 
-Individual fetch requests use a dynamic timeout based on recent response times. The app tracks the last 100 response times per provider in IDB and sets the timeout at 3x the rolling average. The rolling average persists across sessions so cold starts benefit from previous session data — no arbitrary default needed after the first session. Each provider builds its own timeout profile independently — switching providers loads that provider's response history. On first use of a provider (no samples), a generous 10-second default is used. This adapts to connection quality — fast connections get tight timeouts, slow connections get lenient ones. This is separate from the loading watchdog (rule AX), which catches stuck UI state, not slow requests.
+Frontend JSON requests use a fixed default timeout of 12 seconds through the
+shared `fetchJson` owner. Comment requests use a longer 45-second timeout
+because deep comment trees can require several upstream calls. Retry behavior
+is explicit per caller via the `retry` option; retries are not hidden in
+feature code.
 
-The app owns all timeout behavior. The server proxy does not enforce a product-level timeout on requests — it defers to the app's dynamic timeout as the single source of truth for when a request is considered too slow.
+This is separate from the loading watchdog (rule AX), which catches stuck UI
+state, not slow requests. Backend proxy/runtime requests have their own
+transport-level timeouts because they own different resources.
 
 ## BB. Initial Failures Show Persistent Error State, Pagination Failures Show Toast
 
@@ -957,50 +1021,79 @@ When loading chapter images, transient errors (408, 429, 5xx, network, timeout) 
 
 ## BD. Provider Unreachable at Boot
 
-If the very first search on cold start fails (no cached results, no session to fall back to), the app shows a persistent error state with the error kind and a "Tap to retry" button — same as rule BB. The app does not crash or show a blank screen. If loading the active provider's JS bundle from IDB fails (corrupted or missing), the app shows "Provider unavailable" with retry. If no provider is installed at all, the app shows an empty state with a prompt to add a provider (see BF). The app requires a network connection to function — there is no offline mode.
+If the very first search on cold start fails (no cached results, no session to
+fall back to), the app shows a persistent error state with the error kind and a
+"Tap to retry" button — same as rule BB. The app does not crash or show a blank
+screen. If loading the Comix provider bundle fails, the app shows a
+provider/load failure with retry. The app requires a network connection for
+live search/comments and for cache misses/warming — there is no full offline
+mode.
 
 ## BE. IDB Storage Is Bounded by Design
 
-The app's IDB stores are designed to stay small without needing cleanup or pruning:
-- **progress** — one small entry per manga ever read, keyed by `repoUrl:providerId:mangaId` (~50 bytes). 10,000 manga = 500KB.
-- **favorites** — user-managed, add/remove manually, keyed by `repoUrl:providerId:mangaId`. Self-bounding.
-- **response times** — fixed window of 100 numbers per provider (~800 bytes each).
-- **repositories** — user-managed repo URLs with metadata (~200 bytes each). Self-bounding.
-- **installed-providers** — one entry per installed provider: id, repoUrl, version, JS bundle (~50–200KB each). Bounded by user action (install/uninstall).
+The app's frontend IDB stores are designed to stay small without cleanup or
+pruning:
 
-No images or large blobs are stored in IDB — the reader uses in-memory blob URLs that are revoked on cleanup. No TTL-based expiry or cache invalidation is needed. Provider JS bundles are the largest IDB entries but are bounded by explicit user installation.
+- **progress** — one small entry per manga ever read, keyed by manga id.
+- **favorites** — user-managed favorite rows with manga id plus the card
+  snapshot needed for instant favorite-list rendering.
+
+Search context, filters, group selections, and session state live in
+localStorage. Large manga data, chapter lists, image page maps, thumbnails, and
+byte-cache files belong to the backend SQLite/filesystem cache, not frontend
+IDB.
+
+No reader page images are stored in IDB. The reader uses in-memory blob URLs
+that are revoked on cleanup; browser HTTP cache and the server image
+proxy/store-host path handle refetch efficiency.
 
 ## BF. First Launch Shows Empty State
 
-On first launch with no installed provider, the list view shows an empty state: "Add a provider to get started" with a button that pushes the repos view. The search bar, filters, and all provider-dependent features are disabled — nothing works without an active provider. This is the only time the app pushes a view automatically outside of session restore.
+The current app is a Comix-focused PWA, not a multi-repository provider
+installer. On first launch it initializes the bundled/dynamic Comix provider
+and searches/restores from that provider. If provider loading fails, the app
+shows the provider/load failure state and retry path rather than pushing a
+repository-management flow.
 
 ## BG. Repository and Provider Management
 
-A repository is a URL pointing to an index file (JSON or JS) that lists available providers. Multiple repos can be added — all their providers are listed together. Provider identity is scoped by repo: a provider's unique key is `repoUrl:providerId`, so two repos listing a provider with the same ID are treated as separate providers with no clash. The repos view has an input field at the top for adding repo URLs. On submit, the app fetches and parses the index, listing each provider with its name, icon, language, and version. Repos can be removed — removing a repo does not uninstall providers already installed from it.
-
-Each listed provider has a single action button:
-- **Not installed:** + button. Tapping installs the provider (downloads its JS bundle to IDB), the button becomes -, the provider becomes the active provider, and the list view behind the repos view fires an empty-query search with the new provider. Swiping back reveals search results already loaded.
-- **Installed:** - button. Tapping shows a confirmation alert ("Uninstall? This will delete all progress, favorites, and settings for this provider."). On confirm, the provider is uninstalled — removes the JS bundle and all associated data (progress, favorites, filters, group blacklist, response times) for that provider. If uninstalling the active provider, the app falls back to another installed provider. If no providers remain, the app returns to the empty state (BF).
-
-The currently active provider is visually marked in the list. Tapping an already-installed provider (not the - button) switches to it — the list view behind reloads with that provider's filters and fires a fresh empty-query search.
-
-Provider updates are automatic. The app checks all repos for newer versions of installed providers at two triggers: cold start (in background, after the existing provider is loaded — see BI) and entering the repos view. If a newer version is found, the updated JS bundle is downloaded and stored in IDB silently — no user confirmation needed. The update takes effect on the next provider load (next cold start or provider switch), not the current session. On success, the repo button shows a notification badge so the user knows an update is ready. On failure, the old version is kept and a toast notifies the user that the update failed.
+Repository/provider installation UI is not part of the current product. The
+extension build still produces a provider manifest and the frontend can load
+the built Comix provider dynamically from `/providers/index.json`, but there is
+no user-facing repository list, provider install/uninstall flow, or provider
+switching state machine. Do not reintroduce a repo-management surface as part
+of cache/search/restore work unless the product direction changes explicitly.
 
 ## BH. Data Isolation Per Provider
 
-All persistent data is scoped by provider key (`repoUrl:providerId`):
-- **IDB progress** — keyed by `repoUrl:providerId:mangaId`
-- **IDB favorites** — keyed by `repoUrl:providerId:mangaId`
-- **localStorage filters** — keyed by `filters:{repoUrl}:{providerId}`
-- **localStorage group blacklist** — keyed by `groups:{repoUrl}:{providerId}`
-- **IDB response times** — keyed by `repoUrl:providerId`, 100 samples each (see BA)
-- **Session snapshot** — includes `activeProviderKey` (see AP)
+The app currently has one active provider domain: Comix. Client persistence is
+still shaped so provider scoping can be reintroduced later, but the current
+runtime does not switch providers and the session snapshot does not contain an
+`activeProviderKey`.
 
-Switching providers loads that provider's data context; the previous provider's data remains untouched in storage. Each provider has independent search results, filter state, progress, favorites, and group blacklist. There is no cross-provider data sharing.
+Current persistent domains:
+
+- **IDB progress** — one latest reader position per manga.
+- **IDB favorites** — favorite manga identities and card snapshots needed for
+  instant favorite-list rendering.
+- **localStorage filters** — current Comix search/filter state.
+- **localStorage group blacklist and per-manga group selection** — local group
+  filtering policy.
+- **Session snapshot** — current view/back stack, active/nested manga context,
+  owning search context, and per-layer manga scroll snapshots (see AP).
+
+Backend SQLite cache data is provider-owned by the server-side Comix provider
+and uses Comix manga/chapter identifiers as cache keys.
 
 ## BI. Provider Loading at Boot
 
-On cold start, the app reads `activeProviderKey` from the session snapshot. If present, it loads that provider's JS bundle from IDB and initializes it. If the bundle is missing or corrupted, the app shows "Provider unavailable" with retry (see BD). If no `activeProviderKey` is set but providers are installed, the app activates the first installed provider. If no providers are installed, the app shows the empty state (BF). The provider must be loaded before any search, chapter list, or image request can be made — it defines the `MangaProvider` interface the app calls.
+On cold start, the app initializes the Comix provider before search, restore,
+filter loading, manga-detail reads, reader image reads, or comments. The
+frontend first tries the built provider manifest from `/providers/index.json`;
+if that dynamic load fails, it falls back to the bundled Comix provider shipped
+with the app. Provider filters are fetched through the backend
+`/api/provider-filters/comix` route and fall back to the provider bundle's
+static filter definitions if the backend route fails.
 
 ## BJ. Live Network Paths Are Narrow Backend Endpoints
 
