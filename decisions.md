@@ -262,7 +262,7 @@ different states and must be represented separately.
 Use logs and typed stats to distinguish fetch gaps from unavailable upstream
 items. This prevents chasing false bugs and makes residual risk explicit.
 
-### 26. Use the Upstream Client as Evidence
+### 26. Use Upstream Runtime Capabilities as Evidence
 
 When an upstream product's behavior is unclear, inspect the client it ships.
 Its routes, query parameters, cache keys, and interaction handlers are stronger
@@ -272,11 +272,18 @@ Prefer following proven client paths over probing many speculative URLs. Once
 the source client's data flow is known, implement against that flow and verify
 through the local integration boundary.
 
-For Comix, the shipped client is not only evidence; for some encrypted
-responses it is the correct runtime owner. If the raw response is an encrypted
-shape such as `{ "e": "..." }`, do not cache or parse it downstream as if it
-were a typed payload. Run the same client path the site uses in the same
-browser runtime and normalize the result at the BrowserSession boundary.
+For Comix, the backend does not depend on fixed minified export names or
+copied signing code. The provider opens the current Comix runtime in
+BrowserSession, finds the HTTP client by capability, verifies it with a small
+chapter-list probe, and then stores that capability on the runtime page. The
+provider owns the Comix paths and response normalization; BrowserSession owns
+the browser page and calls the provider-resolved runtime HTTP client.
+
+This keeps the fragile site-specific part in the provider boundary. If Comix
+renames a minified export, the capability probe can still find a working
+client. If the runtime shape changes enough that no candidate passes the probe,
+the provider fails loudly with resolver logs instead of leaking encrypted or
+untyped payloads into the cache.
 
 ### 27. Log Ownership Boundaries
 
@@ -411,8 +418,11 @@ then replay only the domain owners needed for that path.
 Production data ownership is explicit:
 
 - Search is live. The frontend calls the narrow backend `/api/search` endpoint.
-- Comments are live. Manga-detail comments and reader chapter comments call the
-  backend comments endpoints and request fresh data each time.
+- Comments are live/fresh, but not BrowserSession-owned. Manga-detail comments
+  and reader chapter comments call backend comments endpoints with no-store
+  semantics. `CommentsService` reads cached manga detail to get the numeric
+  provider ID and page identifiers, then uses normal backend HTTP via
+  `proxyFetchJson` for thread lookup, root comments, and tree fills.
 - Manga detail metadata, chapter lists, and chapter images are cache-backed.
   The frontend reads those through `/api/cache/...` and does not restore the old
   live detail/chapter/image request paths.
@@ -436,9 +446,23 @@ Cache ownership:
 
 - Backend owns SQLite persistence, invalidation, priority, and store-health
   policy.
-- BrowserSession owns Comix runtime access and signed/encrypted upstream calls.
-- Frontend owns user intent and image outcome observations.
-- Image store failover/status is a cache concern, not a reader concern.
+- BrowserSession owns Comix runtime browser access for cache ingestion only.
+- The provider owns Comix-specific paths, runtime HTTP capability discovery,
+  and response normalization.
+- `CommentsService` owns comment identifier lookup from cached manga metadata
+  and fresh comment HTTP calls.
+- Frontend owns user intent, cache priority requests, and image outcome
+  observations. It does not know that BrowserSession exists.
+- Image store candidate generation and failover/status are backend concerns,
+  not reader-state concerns.
+
+Serving ownership:
+
+- Reader images use the cached/generated page URL strings and the server image
+  proxy/store-host failover path. They are not downloaded into the byte cache as
+  a cache-ingestion layer.
+- Thumbnails and comment/avatar images use `/api/byte`; `ByteCacheService`
+  downloads, stores, and serves those bytes from the local byte cache.
 
 Cache layers:
 
@@ -447,10 +471,9 @@ Cache layers:
 - Chapter-list caching fetches complete lists and stores them durably.
 - Chapter-image caching discovers complete page URLs and candidate store URLs
   after chapter lists exist.
-- Frontend priority requests can promote foreground cache work ahead of
-  background discovery.
-- Manual refresh invalidates the selected manga's cached detail/list data and
-  queues foreground recache work.
+- Frontend priority requests can promote foreground cache work ahead of queued
+  lower-priority work. Long non-foreground chapter-list and reconcile jobs also
+  yield at page boundaries when foreground work appears.
 
 SQLite stores:
 
@@ -460,11 +483,18 @@ SQLite stores:
 - `image_store_candidates`
 - `image_store_status`
 
-The cache worker has foreground jobs, background manga/list jobs, and an image
-backlog. Startup reconstructs image backlog from persisted chapter lists, so
-image discovery survives process death or power loss. Chapter image writes are
-atomic: the image payload and generated store candidates are committed in one
-SQLite transaction.
+The cache worker has foreground, observed, daily, and background data jobs.
+Power-off safety comes from durable job rows and atomic cache mutations:
+
+- Job rows are durable intent. If the process dies, running jobs are recovered
+  on restart and returned to the runnable queue.
+- Chapter-list jobs fetch pages into memory and commit the complete list only
+  after the job finishes. If they yield or the process dies before commit, the
+  old cache remains unchanged.
+- Chapter-image metadata writes are atomic: the image payload and generated
+  store candidates are committed in one SQLite transaction.
+- Cooperative yield is allowed only at safe boundaries between upstream page
+  requests, before the final cache write.
 
 ### 39. Cache Readiness Is a Contract
 
@@ -472,22 +502,22 @@ A row existing in SQLite is not enough to serve it as ready. Cache consumers
 need typed readiness contracts.
 
 Chapter images are user-visible `ready` only when the backend has populated
-every target page from Comix's own chapter detail client:
+every target page from Comix's runtime HTTP chapter detail path:
 
-- `source=site-client`
+- `source=runtime-http`
 - `targetCount > 0`
 - `pages.length === targetCount`
 - every page has a concrete image URL
 
-Empty, encrypted, partial, or DOM-observed payloads are diagnostic/incomplete
-states. They must not be served to the reader as loaded chapter images. The
-frontend also refuses zero-page cache payloads so the reader cannot hydrate an
-empty chapter as a successful load.
+Empty, partial, encrypted, or DOM-observed payloads are
+diagnostic/incomplete states. They must not be served to the reader as loaded
+chapter images. The frontend also refuses zero-page cache payloads so the
+reader cannot hydrate an empty chapter as a successful load.
 
-BrowserSession owns encrypted Comix runtime access. If raw upstream data is an
-encrypted shape such as `{ "e": "..." }`, do not cache or parse it downstream
-as if it were typed data. Use the shipped Comix client path in the same browser
-runtime and normalize the result at the BrowserSession/cache boundary.
+BrowserSession should not expose signed request details, minified export names,
+or provider-specific runtime mechanics outside the provider/cache boundary.
+The provider resolves the current runtime HTTP client by behavior; the cache
+stores only normalized typed payloads.
 
 Store candidates are expanded from real discovered image URLs by replacing only
 known `wowpic*.store` hosts while preserving the image path. The frontend
@@ -1019,9 +1049,13 @@ IntersectionObserver for simple sentinels or boundary observations elsewhere,
 but reader page image ownership comes from the virtual window described in AK
 and BL.
 
-## D6. comix.to Embeds Chapter Images in Two HTML Formats
+## D6. Chapter Image Metadata Comes from Runtime HTTP
 
-comix.to embeds chapter image data in `<script>` tags in two formats that vary between renders: escaped (`\"images\":[...]` inside JSON strings) and unescaped (`"images":[...]` in inline script blocks). The parser tries both patterns.
+Reader chapter image metadata is not parsed from rendered DOM scripts. The
+backend asks the provider-resolved Comix runtime HTTP client for
+`/chapters/{chapterId}` and normalizes `pages.baseUrl + pages.items[]` into
+full page URLs and dimensions. DOM extraction is not a normal cache path and
+must not be treated as a reader-ready source.
 
 ## D7. Cloudflare Cookie Domain Inheritance
 
@@ -1051,62 +1085,79 @@ Every frontend log event is a variant of the `LogEvent` union type. Adding a new
 
 Client-side `img-ok` was removed. The server's imageProxy already logs every proxied image fetch (see D11). Only `img-fail` is logged client-side because client-only failures (CORS, AbortError, blob creation) never reach the server.
 
-## D14. comix.to Chapters API Requires Per-Manga Signed `_` Parameter
+## D14. There Is No App-Owned Signing Layer
 
-The `/api/v2/manga/{id}/chapters` endpoint returns application-level 403 (HTTP 200, JSON `status: 403`) without a `_` query parameter generated by obfuscated client-side JS. The signature is per-manga (tied to the manga ID), but opaque to other URL params — limit, page, and order can be changed freely. The signature is stable within a browser session. The search endpoint does not require signing.
+The app no longer owns copied Comix signing logic, fixed minified export names,
+or a signature-capture scheduler. When cache ingestion needs Comix manga
+detail, chapter lists, recommendations, or chapter image metadata, the provider
+resolves the current runtime HTTP client inside BrowserSession and calls that
+client by capability.
 
-## D15. NavigationScheduler Is the Single Owner of Page Navigation
+Search remains a narrow backend route. Comments use `CommentsService` and
+normal backend fetches. Frontend code must not regain a generic "fetch Comix
+live" escape hatch or a signing API.
 
-Only NavigationScheduler creates and navigates Playwright pages for signed user requests. Background frontend prewarming was removed after the cache service became the owner of manga, chapter-list, and chapter-image data. Concurrency is capped at 4 workers. Pages are created per-request and closed immediately after sig capture — there is no page pool. Multiple requests for the same mangaId piggyback on the in-flight or queued item rather than creating duplicate work.
+## D15. BrowserSession Owns Runtime Pages, Not Product Policy
 
-NavigationScheduler also owns promise lifetimes for work started from those
-pages. The Playwright request handler may observe the signed chapters request
-and resolve signature/detail data, but it must not start chapter-list warmup
-promises. Chapter warmup starts in the scheduler worker after signature capture
-returns, and that same worker registers inflight/cache callbacks and attaches
-failure handling before exposing the promise. This keeps `page.evaluate`
-failures retryable/loggable instead of letting async event-handler rejections
-escape as process crashes.
+BrowserSession owns the Playwright/CloakBrowser context and the reusable Comix
+runtime HTTP page. It initializes the browser, lets the provider resolve the
+runtime HTTP client, executes provider-owned runtime calls, and logs runtime
+HTTP resets/failures.
+
+CacheService owns what work should run, priority, durability, retries, and
+which normalized payloads are ready to serve. The provider owns URL/path
+semantics and normalization. BrowserSession should not decide cache policy,
+comment behavior, frontend behavior, or product-level request routing.
 
 ## D16. Chapter Log Ownership: Consumer, Not API Layer
 
 The `chapters-page` and `chapters-done` log events are emitted by `MangaState.consumeChapterStream` (the consumer), not by `fetchChapterList` in the API layer. The API generator is called from two contexts (display load and restore probe) — the consumer owns the context and therefore owns the logging.
 
-## D17. BrowserSession fetchPage Stays on a Lightweight comix.to Page
+## D17. Runtime HTTP Page Is Reused and Reset on Failure
 
-The persistent `fetchPage` (used for `page.evaluate(fetch(...))` calls) stays on
-the Comix origin but is moved from the homepage to the lightweight
-`https://comix.to/api/v2` endpoint after initialization. It never navigates to
-manga title pages. Only NavigationScheduler's ephemeral pages navigate to title
-or chapter pages for signature capture and DOM-backed extraction. This keeps
-the fetchPage's cookies and origin stable for chapter fetches while avoiding
-homepage rendering/animation cost.
+BrowserSession keeps one reusable Comix runtime HTTP page for cache ingestion.
+The page starts from a provider runtime page URL, stores the provider-resolved
+HTTP client on `globalThis.__providerRuntimeHttp`, and serves manga detail,
+recommendations, chapter lists, and chapter image metadata through
+`page.evaluate()` calls into that client.
+
+If the runtime HTTP call fails, BrowserSession closes and recreates the runtime
+page once, then retries the request. This keeps stale runtime state local to
+BrowserSession instead of leaking fallback behavior into CacheService or the
+frontend.
 
 ## D18. CloakBrowser CPU Mitigation Under Xvfb
 
-Xvfb provides no vsync signal. Chromium's GPU compositor expects vsync to throttle frame production — without it, `SwapBuffers` returns instantly and the GPU process busy-loops (Chromium bugs #170681, #518209). Three layers of mitigation reduce total CloakBrowser CPU from ~545% to ~7%:
+The server still runs CloakBrowser under `xvfb-run`, but the app keeps browser
+work narrow. BrowserSession launches CloakBrowser with GPU and GPU compositing
+disabled, keeps one runtime HTTP page, and does not maintain a pool of
+ephemeral signature-capture pages. Browser work should remain cache-ingestion
+only; normal frontend rendering, comments, thumbnails, and image serving must
+not route through BrowserSession.
 
-1. **`--disable-gpu --disable-gpu-compositing`**: Reduces GPU process from 500% to ~70%. CloakBrowser's fingerprint patches force some GPU init via a compiled-in `gpu-preferences` protobuf, so the process still spins but at a fraction. Never add `--ignore-gpu-blocklist` back.
-2. **CDP `Emulation.setScriptExecutionDisabled`**: Kills page-originated JS (timers, animations, ads). `page.evaluate()` still works — it uses CDP `Runtime.evaluate` which bypasses this restriction.
-3. **Navigate fetchPage to lightweight same-origin URL** (`/api/v2`): After init on comix.to homepage (to load cookies), redirect to a minimal JSON endpoint. This eliminates CSS animation and rendering overhead that persists even with JS disabled. The page retains comix.to origin and cookies, so `page.evaluate(fetch(...))` works.
+## D19. No NavigationScheduler or Page Pool
 
-Tested and rejected: `--disable-software-rasterizer` (no effect), `--in-process-gpu` (moves spin into main process, worse for stability), `setScriptExecutionDisabled` alone without navigating away (28% CPU from CSS/rendering).
-
-## D19. No Page Pool — Create and Close Per Sig Capture
-
-NavigationScheduler creates a fresh page per sig capture and closes it immediately after. No page pool. Playwright persistent contexts leak memory via internal request/response bookkeeping that only flushes on context disposal (playwright#6319), and `page.evaluate()` on intervals leaks in the Node process (playwright#21345). Pooled pages on `about:blank` still hold live Chromium renderer processes (~60-170 MB each). Creating a new page within an existing context costs ~50-100ms — negligible vs the 500-900ms sig capture navigation. The tradeoff: slightly higher latency per sig, but zero idle CPU/memory from stale renderer processes.
+The old NavigationScheduler/signature-capture architecture is gone. There is
+no per-request page pool and no page-per-signature path. Cache ingestion uses
+the reusable runtime HTTP page described in D17. If a future provider needs
+navigation-heavy work, it must introduce an explicit owner and durability model
+instead of reviving ad hoc page pools.
 
 ## D20. Chromium Spare Renderer Process Is Expected
 
-After all sig capture pages are closed, one renderer process remains at 0% CPU (~62 MB). This is not a leak — it is Chromium's `SpareRenderProcessHostManager`, which pre-creates one warm renderer so the next `context.newPage()` is instant instead of cold-starting a process. Exactly one spare, always. Can be disabled with `--disable-features=SpareRendererForSitePerProcess`, but we keep it because it speeds up the next sig capture and costs nothing at idle.
+After BrowserSession is initialized, Chromium may keep an idle spare renderer
+process. This is not automatically a leak; Chromium's
+`SpareRenderProcessHostManager` can keep one warm renderer so the next page is
+cheap to create. Treat CPU activity, unbounded process growth, or memory growth
+as evidence of a leak, not the mere existence of one idle spare renderer.
 
 ## D21. Backend SQLite Cache Is the Durable Ingestion Owner
 
 The backend cache service owns durable manga/chapter/page-map metadata
 ingestion. Comix remains an upstream source, but normal cache population is
 backend-owned: SQLite is the source of durable truth, BrowserSession owns
-runtime access to Comix's signed/encrypted APIs and rendered chapter pages, and
-the frontend only expresses user intent, reports stale observations, or reports
+runtime browser access for provider-resolved runtime HTTP calls, and the
+frontend only expresses user intent, reports stale observations, or reports
 image-store observations.
 
 The cache has durable data layers:
@@ -1135,10 +1186,11 @@ resource policy, not labels:
 - `background` for detail, chapter-list, and chapter page-map completion
 
 Foreground and observed work outrank daily crawl work; daily crawl work outranks
-background completion. If a lower-priority job is already mid-request, it
-finishes its atomic request/write, then the next claim honors scheduler
-priority. This keeps the cache power-off robust without pretending arbitrary
-provider requests can be safely interrupted.
+background completion. Long non-foreground chapter-list and reconcile jobs
+cooperatively yield at page boundaries when foreground work is pending. A
+single upstream request still finishes; arbitrary provider requests are not
+hard-aborted. Yielding happens before the final cache write, so the cache stays
+power-off robust while user-visible work gets the next safe ownership turn.
 
 Power-off robustness is row-based. Completed cache rows are idempotent durable
 facts and queued work is durable intent. On startup, the service recovers
@@ -1178,19 +1230,20 @@ discovery of the same URL can requeue the failed durable job after a cooldown;
 foreground byte requests requeue immediately. A successful later fetch
 overwrites the failed row with `ready` and clears the error.
 
-BrowserSession is the boundary normalizer. If the signed chapter-list response
-is encrypted, it uses Comix's shipped site client from the same browser runtime.
-Chapter page-map discovery also uses Comix's shipped site client. Raw chapter
-detail responses can be encrypted as `{ "e": "..." }`; those payloads are not
-valid reader-ready page-map data and must not be cached as ready results.
-BrowserSession asks the site client for `/chapters/{chapterId}`, normalizes
-`pages.baseUrl + pages.items[]` into full `ChapterPage` URLs, and includes
-`source=site-client` plus `targetCount` in the normalized payload.
+The provider/BrowserSession boundary is the runtime normalizer. The provider
+does not rely on a fixed minified export key or copied signing logic; it probes
+the current Comix runtime for an HTTP client that can return a typed chapter
+list. BrowserSession then calls that provider-resolved runtime client for
+manga detail, recommendations, chapter lists, and chapter image metadata.
+Chapter page-map discovery asks the runtime client for
+`/chapters/{chapterId}`, normalizes `pages.baseUrl + pages.items[]` into full
+`ChapterPage` URLs, and includes `source=runtime-http` plus `targetCount` in
+the normalized payload.
 
 Chapter-image cache readiness is a completeness contract:
 
 - status must be `ready`
-- source must be `site-client`
+- source must be `runtime-http`
 - `targetCount` must be positive
 - `pages.length` must equal `targetCount`
 - every page must have a populated image URL
@@ -1212,4 +1265,4 @@ without corruption.
 The chapter-image readiness contract was verified on 2026-05-09 with
 `7ez2/8996924`: the backend first rejected the previous `empty pages=0` cache
 row as `not-ready`, promoted the foreground image job, then cached and served
-`source=site-client pages=15 targetCount=15 status=ready`.
+`source=runtime-http pages=15 targetCount=15 status=ready`.
