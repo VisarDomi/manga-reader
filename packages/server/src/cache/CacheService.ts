@@ -431,19 +431,20 @@ export class CacheService {
       if (job.kind === 'reconcile-chapters') {
         const fullJob = this.scheduler.jobsForResource('cache-chapters', job.mangaId)[0];
         if (fullJob) {
-          if (job.priority === 'foreground' && fullJob.priority < 1000) {
-            const payload = payloadObject(fullJob.payload);
-            const status = this.enqueueDurable({
-              kind: 'cache-chapters',
-              priority: 'foreground',
+          const priority = job.priority === 'foreground' ? 'foreground' : job.priority === 'observed' ? 'observed' : 'background';
+          this.scheduler.updateIntent(fullJob, {
+            kind: 'cache-chapters',
+            resourceKey: job.mangaId,
+            priority,
+            payload: {
               mangaId: job.mangaId,
-              force: payload.force === true,
+              force: true,
               reason: job.reason,
-            });
-            console.log(`[cache] job-promoted kind=cache-chapters manga=${job.mangaId} from=reconcile-conflict to=foreground reason=${job.reason}`);
-            this.drain();
-            return status === 'existing' ? 'promoted' : status;
-          }
+            },
+          });
+          console.log(`[cache] job-promoted kind=cache-chapters manga=${job.mangaId} from=reconcile-conflict to=${priority} force=true reason=${job.reason}`);
+          this.drain();
+          if (fullJob.priority < 1000 && priority === 'foreground') return 'promoted';
           return 'existing';
         }
       }

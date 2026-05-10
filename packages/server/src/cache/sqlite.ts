@@ -473,6 +473,22 @@ export class CacheDatabase {
     this.db.prepare('UPDATE cache_jobs SET priority = ?, updated_at = ? WHERE id = ?').run(priority, Date.now(), id);
   }
 
+  updateJobIntent(id: string, priority: number, payload: unknown, runAfter = Date.now()): void {
+    const now = Date.now();
+    this.db.prepare(`
+      UPDATE cache_jobs
+      SET priority = MAX(priority, ?),
+        payload_json = ?,
+        run_after = MIN(run_after, ?),
+        status = CASE WHEN status = 'failed' THEN 'queued' ELSE status END,
+        lease_owner = CASE WHEN status = 'failed' THEN NULL ELSE lease_owner END,
+        lease_until = CASE WHEN status = 'failed' THEN NULL ELSE lease_until END,
+        last_error = CASE WHEN status = 'failed' THEN NULL ELSE last_error END,
+        updated_at = ?
+      WHERE id = ?
+    `).run(priority, JSON.stringify(payload ?? {}), runAfter, now, id);
+  }
+
   retryJob(id: string, error: string, runAfter: number): void {
     const now = Date.now();
     const row = this.db.prepare('SELECT attempts, max_attempts FROM cache_jobs WHERE id = ?').get(id) as { attempts: number; max_attempts: number } | undefined;

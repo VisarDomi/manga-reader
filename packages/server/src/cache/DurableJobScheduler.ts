@@ -66,6 +66,13 @@ export class DurableJobScheduler {
     this.db.updateJobPriority(job.id, CACHE_JOB_PRIORITY[priority]);
   }
 
+  updateIntent(job: CacheJobRecord, input: DurableJobInput): void {
+    this.db.updateJobIntent(job.id, CACHE_JOB_PRIORITY[input.priority], {
+      ...(input.payload && typeof input.payload === 'object' ? input.payload as Record<string, unknown> : {}),
+      priority: input.priority,
+    }, input.runAfter);
+  }
+
   retry(job: CacheJobRecord, error: string, delayMs: number): void {
     const runAfter = Date.now() + delayMs;
     const message = conciseError(error);
