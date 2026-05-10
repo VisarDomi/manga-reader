@@ -9,6 +9,11 @@ export interface SearchContext {
     filters: SearchFilters | undefined;
 }
 
+export interface MangaScrollSnapshot {
+    mangaId: string;
+    scrollTop: number;
+}
+
 export interface SessionSnapshot {
     viewMode: ViewMode;
     viewStack: ViewMode[];
@@ -16,6 +21,7 @@ export interface SessionSnapshot {
     mangaStack?: Manga[];
     targetMangaId?: string;
     searchContext?: SearchContext;
+    mangaScroll?: MangaScrollSnapshot;
 }
 
 export function saveSession(snapshot: SessionSnapshot): void {

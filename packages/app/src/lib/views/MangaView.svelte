@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { tick } from 'svelte';
     import { appState } from '$lib/state/index.svelte.js';
     import { loadErrorMessage } from '$lib/state/errors.js';
     import * as api from '$lib/services/api.js';
@@ -14,6 +15,9 @@
     const isSwiping = $derived(appState.ui.isSwiping);
     const swipeAnimating = $derived(appState.ui.swipeAnimating);
     const nestedBack = $derived(appState.ui.viewMode === View.MANGA && appState.ui.peekBack() === View.MANGA && entries.length > 1);
+    const restoreTimers = new Map<string, ReturnType<typeof setTimeout>>();
+    const restoreWaitingLogged = new Set<string>();
+    const restoreAttempts = new Map<string, number>();
 
     function isActive(index: number) {
         return index === entries.length - 1;
@@ -25,6 +29,112 @@
 
     function handleClose() {
         appState.manga.closeManga();
+    }
+
+    $effect(() => {
+        for (let index = 0; index < entries.length; index++) {
+            const entry = entries[index];
+            if (isActive(index) && entry.scrollRestore) {
+                scheduleScrollRestore(entry);
+            }
+        }
+    });
+
+    function handleMangaScroll(entry: MangaEntry, active: boolean, event: Event) {
+        const el = event.currentTarget as HTMLElement | null;
+        if (!el) return;
+        if (entry.scrollRestore && event.isTrusted) {
+            appState.log.emit('manga-scroll-restore', {
+                action: 'aborted',
+                mangaId: entry.manga.id,
+                scrollTop: entry.scrollRestore.scrollTop,
+                currentScrollTop: Math.round(el.scrollTop),
+                scrollHeight: Math.round(el.scrollHeight),
+                clientHeight: Math.round(el.clientHeight),
+                reason: 'user-scroll',
+            });
+            appState.manga.consumeScrollRestore(entry.key);
+            clearRestoreTimer(entry.key);
+            return;
+        }
+        if (active) {
+            appState.trackMangaDetailScroll(entry.manga.id, el.scrollTop, el.scrollHeight, el.clientHeight);
+        }
+    }
+
+    function clearRestoreTimer(entryKey: string) {
+        const timer = restoreTimers.get(entryKey);
+        if (timer) clearTimeout(timer);
+        restoreTimers.delete(entryKey);
+        restoreWaitingLogged.delete(entryKey);
+        restoreAttempts.delete(entryKey);
+    }
+
+    function scheduleScrollRestore(entry: MangaEntry) {
+        if (!entry.scrollRestore || restoreTimers.has(entry.key)) return;
+        appState.log.emit('manga-scroll-restore', {
+            action: 'pending',
+            mangaId: entry.manga.id,
+            scrollTop: entry.scrollRestore.scrollTop,
+            currentScrollTop: 0,
+            scrollHeight: 0,
+            clientHeight: 0,
+        });
+        const attempt = async () => {
+            await tick();
+            const target = entry.scrollRestore;
+            const el = document.getElementById(`view-manga-entry-${entry.key}`);
+            if (!target || !el) {
+                clearRestoreTimer(entry.key);
+                return;
+            }
+            const attempts = (restoreAttempts.get(entry.key) ?? 0) + 1;
+            restoreAttempts.set(entry.key, attempts);
+            const maxScrollTop = Math.max(0, el.scrollHeight - el.clientHeight);
+            if (maxScrollTop >= target.scrollTop) {
+                const from = el.scrollTop;
+                el.scrollTop = target.scrollTop;
+                appState.log.emit('manga-scroll-restore', {
+                    action: 'applied',
+                    mangaId: entry.manga.id,
+                    scrollTop: Math.round(target.scrollTop),
+                    currentScrollTop: Math.round(from),
+                    scrollHeight: Math.round(el.scrollHeight),
+                    clientHeight: Math.round(el.clientHeight),
+                });
+                appState.manga.consumeScrollRestore(entry.key);
+                clearRestoreTimer(entry.key);
+                return;
+            }
+            if (!restoreWaitingLogged.has(entry.key)) {
+                restoreWaitingLogged.add(entry.key);
+                appState.log.emit('manga-scroll-restore', {
+                    action: 'waiting',
+                    mangaId: entry.manga.id,
+                    scrollTop: Math.round(target.scrollTop),
+                    currentScrollTop: Math.round(el.scrollTop),
+                    scrollHeight: Math.round(el.scrollHeight),
+                    clientHeight: Math.round(el.clientHeight),
+                    reason: 'target-out-of-range',
+                });
+            }
+            if (attempts >= 150) {
+                appState.log.emit('manga-scroll-restore', {
+                    action: 'skipped',
+                    mangaId: entry.manga.id,
+                    scrollTop: Math.round(target.scrollTop),
+                    currentScrollTop: Math.round(el.scrollTop),
+                    scrollHeight: Math.round(el.scrollHeight),
+                    clientHeight: Math.round(el.clientHeight),
+                    reason: 'target-never-reachable',
+                });
+                appState.manga.consumeScrollRestore(entry.key);
+                clearRestoreTimer(entry.key);
+                return;
+            }
+            restoreTimers.set(entry.key, setTimeout(attempt, 100));
+        };
+        restoreTimers.set(entry.key, setTimeout(attempt, 0));
     }
 </script>
 
@@ -40,6 +150,7 @@
         class:swipe-active={active && nestedBack && isSwiping}
         class:swipe-animating={active && nestedBack && swipeAnimating}
         style="{active && nestedBack && isSwiping ? 'transform:translateX(var(--swipe-progress, 0%))' : ''}"
+        onscroll={(event) => handleMangaScroll(entry, active, event)}
         use:swipeBack={{ onClose: handleClose, ui: appState.ui }}
     >
     <div class="manga-view">

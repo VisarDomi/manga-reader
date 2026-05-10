@@ -12,6 +12,7 @@ export type LogEvent =
     | { event: 'restore-target-missed'; targetId: string; pagesSearched: number; reason: 'not-found' | 'cancelled' | 'error' | 'no-chapters' }
     | { event: 'restore-ok'; view: string; mangaId?: string }
     | { event: 'restore-fallback'; view: string; reason: string; fallback?: string }
+    | { event: 'restore-foreground'; view: string; stack: string; mangaId: string | null; hasReader: boolean; hasComments: boolean }
     | { event: 'search-result'; query: string; page: number; resultCount: number; hasMore: boolean; includeGenres: number; excludeGenres: number; demographics: number; authors: number; artists: number; types: number; statuses: number; currentPage?: number; lastPage?: number; total?: number }
     | { event: 'cache-reconcile-request'; mangaId: string; observedLatestChapter: number; source: 'search-result' | 'manga-open'; priority: 'observed' | 'foreground' }
     | { event: 'cache-reconcile-result'; mangaId: string; observedLatestChapter: number | null; cachedMax: number | null; source: 'search-result' | 'manga-open'; priority: 'observed' | 'foreground'; status: string; action: string; reason: string }
@@ -22,6 +23,8 @@ export type LogEvent =
     | { event: 'manga-entry-state'; mangaId: string; phase: 'detail-applied' | 'chapters-page' | 'chapters-done' | 'comments-done'; recommendations: number; chapters: number; comments: number }
     | { event: 'manga-detail-error'; mangaId: string; error: string }
     | { event: 'manga-detail-done'; mangaId: string; ms: number }
+    | { event: 'manga-scroll-save'; mangaId: string; scrollTop: number; scrollHeight: number; clientHeight: number }
+    | { event: 'manga-scroll-restore'; action: 'pending' | 'applied' | 'aborted' | 'waiting' | 'skipped'; mangaId: string; scrollTop: number; currentScrollTop: number; scrollHeight: number; clientHeight: number; reason?: string }
     | { event: 'manga-comments-start'; mangaId: string }
     | { event: 'manga-comments-result'; mangaId: string; rootPages: number; replyPages: number; treeFills: number; top: number; total: number; maxDepth: number; missingReplies: number; unavailable: number; unavailableRoots: number; count: number }
     | { event: 'manga-comments-error'; mangaId: string; error: string }

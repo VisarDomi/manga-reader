@@ -3,6 +3,7 @@ import { View } from '../logic.js';
 import * as api from '../services/api.js';
 import * as storage from '../services/storage.js';
 import type { LogEmit } from '../services/LogService.js';
+import type { MangaScrollSnapshot } from './session.js';
 import type { UIState } from './ui.svelte.js';
 import type { ToastState } from './toast.svelte.js';
 import type { GroupFilterState } from './groupFilter.svelte.js';
@@ -23,6 +24,7 @@ export interface MangaEntry {
     includeBlockedChapters: boolean;
     scrollAnchorRatio: number | null;
     scrollTarget: { chapterId: string; ratio: number | null } | null;
+    scrollRestore: { scrollTop: number } | null;
 }
 
 let entrySeq = 0;
@@ -42,6 +44,7 @@ function createEntry(manga: Manga): MangaEntry {
         includeBlockedChapters: false,
         scrollAnchorRatio: null,
         scrollTarget: null,
+        scrollRestore: null,
     };
 }
 
@@ -503,7 +506,7 @@ export class MangaState {
         }
     }
 
-    async restoreManga(manga: Manga): Promise<boolean> {
+    async restoreManga(manga: Manga, scrollSnapshot?: MangaScrollSnapshot): Promise<boolean> {
         const stack = $state.snapshot(this.navigationStack);
         const restored = [...stack, manga].map(item => createEntry(item));
         this.entries = restored;
@@ -514,7 +517,38 @@ export class MangaState {
         }
 
         const active = restored[restored.length - 1];
+        if (active && scrollSnapshot?.mangaId === active.manga.id && scrollSnapshot.scrollTop > 0) {
+            active.scrollRestore = { scrollTop: scrollSnapshot.scrollTop };
+            this.replaceEntry(active);
+        }
         return active ? this.restoreEntry(active, { readyAfterFirstPage: true }) : false;
+    }
+
+    restoreMangaShell(manga: Manga, scrollSnapshot?: MangaScrollSnapshot): boolean {
+        const stack = $state.snapshot(this.navigationStack);
+        const restored = [...stack, manga].map(item => createEntry(item));
+        this.entries = restored;
+
+        const previous = restored.slice(0, -1);
+        for (const entry of previous) {
+            void this.restoreEntry(entry);
+        }
+
+        const active = restored[restored.length - 1];
+        if (!active) return false;
+        if (scrollSnapshot?.mangaId === active.manga.id && scrollSnapshot.scrollTop > 0) {
+            active.scrollRestore = { scrollTop: scrollSnapshot.scrollTop };
+            this.replaceEntry(active);
+        }
+        void this.restoreEntry(active, { readyAfterFirstPage: true });
+        return true;
+    }
+
+    consumeScrollRestore(entryKey: string): void {
+        const entry = this.entryFor(entryKey);
+        if (!entry || !entry.scrollRestore) return;
+        entry.scrollRestore = null;
+        this.replaceEntry(entry);
     }
 
     async restoreMangaForReader(manga: Manga, targetChapterId: string | null): Promise<boolean> {
