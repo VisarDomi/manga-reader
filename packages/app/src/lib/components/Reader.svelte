@@ -76,7 +76,12 @@
         ownerChapterId: string | null;
     };
 
-    function reconcileReaderWindow(source: 'initial' | 'scroll' | 'visible' | 'retry', scrollTopOverride?: number, queuedAt?: number) {
+    function reconcileReaderWindow(
+        source: 'initial' | 'scroll' | 'visible' | 'retry',
+        scrollTopOverride?: number,
+        queuedAt?: number,
+        physicalWindowStartOverride?: number,
+    ) {
         const startedAt = performance.now();
         const root = getReaderRoot();
         if (!root) return;
@@ -98,20 +103,22 @@
             scrollTop,
             clientHeight: root.clientHeight,
             clientWidth: root.clientWidth,
+            physicalWindowStart: physicalWindowStartOverride,
         }, source);
-        if (reconcile && Math.abs(root.scrollTop - reconcile.physicalScrollTop) > 1) {
-            const from = root.scrollTop;
-            root.scrollTop = reconcile.physicalScrollTop;
-            appState.log.emit('reader-scroll-write', {
-                source: 'physical-rebase',
-                from: Math.round(from),
-                to: Math.round(root.scrollTop),
-                delta: Math.round(root.scrollTop - from),
-            });
-        }
         const stateMs = performance.now() - stateStart;
         tick().then(() => {
             const tickStart = performance.now();
+            if (reconcile && appState.reader.windowFrameEpoch === reconcile.frameEpoch && Math.abs(root.scrollTop - reconcile.physicalScrollTop) > 1) {
+                const from = root.scrollTop;
+                root.scrollTop = reconcile.physicalScrollTop;
+                appState.log.emit('reader-scroll-write', {
+                    source: 'physical-rebase',
+                    frameEpoch: reconcile.frameEpoch,
+                    from: Math.round(from),
+                    to: Math.round(root.scrollTop),
+                    delta: Math.round(root.scrollTop - from),
+                });
+            }
             const imagePerf = scheduleVirtualImages(root);
             const imagesMs = imagePerf?.totalMs ?? performance.now() - tickStart;
             logReaderSurfaceSnapshot('after-images', root);
@@ -211,6 +218,18 @@
         let visibleImages = 0;
         let visibleLoadedImages = 0;
         let visibleNaturalPixels = 0;
+        let visibleSections = 0;
+        const sectionRanges: string[] = [];
+
+        for (const section of root.querySelectorAll<HTMLElement>('.reader-chapter')) {
+            const rect = section.getBoundingClientRect();
+            const relativeTop = Math.round(rect.top - rootRect.top);
+            const relativeBottom = Math.round(rect.bottom - rootRect.top);
+            if (rect.bottom >= rootRect.top && rect.top <= rootRect.bottom) visibleSections++;
+            if (sectionRanges.length < 8) {
+                sectionRanges.push(`${section.dataset.chapterId ?? 'unknown'}:${relativeTop}-${relativeBottom}`);
+            }
+        }
 
         for (const img of imgs) {
             const hasSrc = !!img.getAttribute('src');
@@ -253,9 +272,29 @@
             visibleImages,
             visibleLoadedImages,
             visibleNaturalMegapixels: Math.round(visibleNaturalPixels / 10_000) / 100,
+            visibleSections,
+            frameEpoch: appState.reader.windowFrameEpoch,
+            sectionRanges: sectionRanges.join('|'),
             transformActive: rootStyle.transform !== 'none' || root.style.transform !== '',
             rootClasses: root.className.toString(),
         });
+
+        if (pages.length > 0 && visiblePages === 0) {
+            appState.log.emit('reader-window-coverage-miss', {
+                source,
+                mangaId: appState.manga.activeManga?.id ?? null,
+                currentChapterId: appState.reader.currentChapterId,
+                frameEpoch: appState.reader.windowFrameEpoch,
+                scrollTop: Math.round(root.scrollTop),
+                clientHeight: Math.round(root.clientHeight),
+                scrollHeight: Math.round(root.scrollHeight),
+                stageHeight: Math.round(stage?.getBoundingClientRect().height ?? 0),
+                chapterSections: root.querySelectorAll('.reader-chapter').length,
+                pageElements: pages.length,
+                visibleSections,
+                sectionRanges: sectionRanges.join('|'),
+            });
+        }
     }
 
     function queueWindowReconcile(source: 'scroll' | 'visible' | 'retry' = 'scroll') {
@@ -505,7 +544,7 @@
         }
     }
 
-    function restoredPageScrollTop(root: HTMLElement, target: { pageIndex: number; scrollOffset: number }): number | null {
+    function restoredPageScrollTop(root: HTMLElement, target: { pageIndex: number; scrollOffset: number }): { scrollTop: number; physicalWindowStart: number } | null {
         const currentId = appState.reader.layoutChapterId;
         const chapter = chapters.find(ch => ch.id === currentId);
         if (!chapter || target.pageIndex < 0 || target.pageIndex >= chapter.pages.length) return null;
@@ -518,7 +557,7 @@
                 ? root.clientWidth * page.height / page.width
                 : root.clientWidth * READER_FALLBACK_PAGE_ASPECT_RATIO;
         }
-        return appState.reader.physicalScrollTopForLogical(top + target.scrollOffset, root.clientHeight);
+        return appState.reader.physicalTargetForLogical(top + target.scrollOffset, root.clientHeight);
     }
 
     async function restoreScrollPosition() {
@@ -535,8 +574,8 @@
             const from = root.scrollTop;
             const currentId = appState.reader.layoutChapterId;
             const logicalTarget = currentId ? appState.reader.logicalChapterScrollTop(currentId, root.clientWidth) ?? 0 : 0;
-            const target = appState.reader.physicalScrollTopForLogical(logicalTarget, root.clientHeight);
-            reconcileReaderWindow('initial', target);
+            const target = appState.reader.physicalTargetForLogical(logicalTarget, root.clientHeight);
+            reconcileReaderWindow('initial', target.scrollTop, undefined, target.physicalWindowStart);
             await tick();
             scrollToCurrentChapterAnchor(root);
             scrollCoordinator.cancelInitialPosition();
@@ -558,8 +597,8 @@
         if (restoreTop == null) {
             const currentId = appState.reader.layoutChapterId;
             const logicalTarget = currentId ? appState.reader.logicalChapterScrollTop(currentId, root.clientWidth) ?? 0 : 0;
-            const target = appState.reader.physicalScrollTopForLogical(logicalTarget, root.clientHeight);
-            reconcileReaderWindow('initial', target);
+            const target = appState.reader.physicalTargetForLogical(logicalTarget, root.clientHeight);
+            reconcileReaderWindow('initial', target.scrollTop, undefined, target.physicalWindowStart);
             await tick();
             scrollToCurrentChapterAnchor(root);
             appState.log.emit('reader-restore-scroll', {
@@ -573,9 +612,9 @@
             return;
         }
 
-        reconcileReaderWindow('initial', restoreTop);
+        reconcileReaderWindow('initial', restoreTop.scrollTop, undefined, restoreTop.physicalWindowStart);
         await tick();
-        root.scrollTop = restoreTop;
+        root.scrollTop = restoreTop.scrollTop;
         if (Math.abs(root.scrollTop - from) > 1) {
             appState.log.emit('reader-scroll-write', {
                 source: 'initial-restore-into-view',
