@@ -73,6 +73,12 @@ export class DurableJobScheduler {
     console.log(`[cache-scheduler] retry id=${job.id} kind=${job.kind} resource=${job.resourceKey} delayMs=${delayMs} error=${message}`);
   }
 
+  yield(job: CacheJobRecord, reason: string): void {
+    const message = conciseError(reason);
+    this.db.yieldJob(job.id, message);
+    console.log(`[cache-scheduler] yield id=${job.id} kind=${job.kind} resource=${job.resourceKey} reason=${message}`);
+  }
+
   fail(job: CacheJobRecord, error: string): void {
     const message = conciseError(error);
     this.db.failJob(job.id, message);

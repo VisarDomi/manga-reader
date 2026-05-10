@@ -51,6 +51,13 @@ interface CacheJob {
   reason: string;
 }
 
+class CacheJobYield extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'CacheJobYield';
+  }
+}
+
 function resultItems(data: unknown): unknown[] {
   if (!data || typeof data !== 'object') return [];
   const result = (data as Record<string, unknown>).result;
@@ -420,6 +427,14 @@ export class CacheService {
         .some(record => isRepair(this.recordToJob(record)));
   }
 
+  private shouldYieldToForeground(job: CacheJob): boolean {
+    return job.priority !== 'foreground' && this.scheduler.runnableCountAbove('observed') > 0;
+  }
+
+  private yieldToForeground(job: CacheJob, label: string): never {
+    throw new CacheJobYield(`${label}: foreground job pending`);
+  }
+
   private drain(): void {
     if (this.active) return;
     this.active = true;
@@ -446,6 +461,11 @@ export class CacheService {
         this.scheduler.complete(record);
         console.log(`[cache] job-done kind=${job.kind} manga=${job.mangaId ?? 'none'} reason=${job.reason} ${Date.now() - start}ms`);
       } catch (e) {
+        if (e instanceof CacheJobYield) {
+          this.scheduler.yield(record, e.message);
+          console.log(`[cache] job-yield kind=${job.kind} manga=${job.mangaId ?? 'none'} reason=${job.reason} ${Date.now() - start}ms ${e.message}`);
+          continue;
+        }
         const msg = conciseError((e as Error)?.message ?? String(e));
         this.scheduler.retry(record, msg, this.retryDelayMs(record.attempts));
         console.log(`[cache] job-failed kind=${job.kind} manga=${job.mangaId ?? 'none'} reason=${job.reason} ${Date.now() - start}ms ${msg}`);
@@ -595,6 +615,9 @@ export class CacheService {
     let failed = 0;
 
     for (let page = 2; page <= lastPage; page++) {
+      if (this.shouldYieldToForeground(job)) {
+        this.yieldToForeground(job, `cache-chapters manga=${mangaId} beforePage=${page}/${lastPage}`);
+      }
       if (this.scheduler.runnableCountAbove('background') > 0 && job.priority === 'background') {
         this.enqueue({ kind: 'cache-chapters', priority: 'background', mangaId, reason: 'resume-after-foreground' });
         console.log(`[cache] chapters yield manga=${mangaId} higherPriorityJobs=${this.scheduler.runnableCountAbove('background')}`);
@@ -652,6 +675,9 @@ export class CacheService {
     let lastPagination: Record<string, unknown> = resultPagination(cached.data);
 
     for (let page = 1; page <= RECONCILE_PAGE_BUDGET; page++) {
+      if (this.shouldYieldToForeground(job)) {
+        this.yieldToForeground(job, `reconcile-chapters manga=${mangaId} beforePage=${page}/${RECONCILE_PAGE_BUDGET}`);
+      }
       const data = await this.fetchChapterPage(mangaId, page);
       fetchedPages++;
       lastPagination = resultPagination(data);

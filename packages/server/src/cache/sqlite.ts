@@ -493,6 +493,20 @@ export class CacheDatabase {
     `).run(runAfter, error, now, id);
   }
 
+  yieldJob(id: string, reason: string): void {
+    const now = Date.now();
+    this.db.prepare(`
+      UPDATE cache_jobs
+      SET status = 'queued',
+        run_after = ?,
+        lease_owner = NULL,
+        lease_until = NULL,
+        last_error = ?,
+        updated_at = ?
+      WHERE id = ?
+    `).run(now, reason, now, id);
+  }
+
   failJob(id: string, error: string): void {
     this.db.prepare(`
       UPDATE cache_jobs
