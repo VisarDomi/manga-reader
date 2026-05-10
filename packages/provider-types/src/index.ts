@@ -20,7 +20,6 @@ export interface ChapterMeta {
   groupId?: string;
   groupName: string;
   uploadedAt?: number;
-  uploadedAtLabel?: string;
   url?: string;
 }
 

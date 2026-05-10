@@ -288,7 +288,7 @@ export class MangaState {
                         mangaId,
                         page: page.pagination.currentPage,
                         items: page.items.length,
-                        uploadedTimes: page.items.filter(ch => ch.uploadedAt != null || ch.uploadedAtLabel).length,
+                        uploadedTimes: page.items.filter(ch => ch.uploadedAt != null).length,
                         ...(pageCount === 1 ? {
                             lastPage: page.pagination.lastPage,
                             total: page.pagination.total,
@@ -309,7 +309,7 @@ export class MangaState {
                     mangaId,
                     pages: pageCount,
                     total: all.length,
-                    uploadedTimes: all.filter(ch => ch.uploadedAt != null || ch.uploadedAtLabel).length,
+                    uploadedTimes: all.filter(ch => ch.uploadedAt != null).length,
                 });
                 markReady();
             } catch (e) {
@@ -558,7 +558,7 @@ export class MangaState {
                 mangaId: current.manga.id,
                 pages: Math.max(1, Math.ceil(chapters.length / 100)),
                 total: chapters.length,
-                uploadedTimes: chapters.filter(ch => ch.uploadedAt != null || ch.uploadedAtLabel).length,
+                uploadedTimes: chapters.filter(ch => ch.uploadedAt != null).length,
             });
             this.emit('manga-open-done', { mangaId: current.manga.id, ms: Math.round(performance.now() - start) });
             return true;
@@ -590,7 +590,7 @@ export class MangaState {
                 mangaId,
                 page: page.pagination.currentPage,
                 items: page.items.length,
-                uploadedTimes: page.items.filter(ch => ch.uploadedAt != null || ch.uploadedAtLabel).length,
+                uploadedTimes: page.items.filter(ch => ch.uploadedAt != null).length,
                 ...(currentPage === 1 ? {
                     lastPage: page.pagination.lastPage,
                     total: page.pagination.total,

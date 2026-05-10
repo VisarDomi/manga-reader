@@ -181,7 +181,7 @@
     }
 
     function uploadTime(chapter: ChapterMeta): string {
-        return chapter.uploadedAtLabel ?? formatDate(chapter.uploadedAt);
+        return formatDate(chapter.uploadedAt);
     }
 
     function isChapterFiltered(ch: ChapterMeta): boolean {

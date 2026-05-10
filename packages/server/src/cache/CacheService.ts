@@ -66,6 +66,79 @@ function resultItems(data: unknown): unknown[] {
   return Array.isArray(items) ? items : [];
 }
 
+function uploadedAtFromRelativeLabel(label: unknown, referenceMs: number): number | null {
+  if (typeof label !== 'string') return null;
+  const text = label.trim().toLowerCase();
+  const match = /^(\d+)\s*(s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days|w|wk|wks|week|weeks|mo|mos|month|months|y|yr|yrs|year|years)$/.exec(text);
+  if (!match) return null;
+  const value = Number(match[1]);
+  if (!Number.isFinite(value) || value < 0) return null;
+  const unit = match[2];
+  const multipliers: Record<string, number> = {
+    s: 1,
+    sec: 1,
+    secs: 1,
+    second: 1,
+    seconds: 1,
+    m: 60,
+    min: 60,
+    mins: 60,
+    minute: 60,
+    minutes: 60,
+    h: 60 * 60,
+    hr: 60 * 60,
+    hrs: 60 * 60,
+    hour: 60 * 60,
+    hours: 60 * 60,
+    d: 24 * 60 * 60,
+    day: 24 * 60 * 60,
+    days: 24 * 60 * 60,
+    w: 7 * 24 * 60 * 60,
+    wk: 7 * 24 * 60 * 60,
+    wks: 7 * 24 * 60 * 60,
+    week: 7 * 24 * 60 * 60,
+    weeks: 7 * 24 * 60 * 60,
+    mo: 30 * 24 * 60 * 60,
+    mos: 30 * 24 * 60 * 60,
+    month: 30 * 24 * 60 * 60,
+    months: 30 * 24 * 60 * 60,
+    y: 365 * 24 * 60 * 60,
+    yr: 365 * 24 * 60 * 60,
+    yrs: 365 * 24 * 60 * 60,
+    year: 365 * 24 * 60 * 60,
+    years: 365 * 24 * 60 * 60,
+  };
+  const seconds = multipliers[unit];
+  if (!seconds) return null;
+  return Math.max(0, Math.floor(referenceMs / 1000) - (value * seconds));
+}
+
+function staticChapterListPayload(data: unknown, referenceMs = Date.now()): unknown {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return data;
+  const root = data as Record<string, unknown>;
+  const result = root.result;
+  if (!result || typeof result !== 'object' || Array.isArray(result)) return data;
+  const resultRoot = result as Record<string, unknown>;
+  const items = resultRoot.items;
+  if (!Array.isArray(items)) return data;
+  return {
+    ...root,
+    result: {
+      ...resultRoot,
+      items: items.map(item => {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) return item;
+        const copy = { ...item as Record<string, unknown> };
+        if (copy.created_at == null) {
+          const uploadedAt = uploadedAtFromRelativeLabel(copy.createdAtFormatted, referenceMs);
+          if (uploadedAt != null) copy.created_at = uploadedAt;
+        }
+        delete copy.createdAtFormatted;
+        return copy;
+      }),
+    },
+  };
+}
+
 function resultPagination(data: unknown): Record<string, unknown> {
   if (!data || typeof data !== 'object') return {};
   const result = (data as Record<string, unknown>).result;
@@ -647,7 +720,7 @@ export class CacheService {
         },
       },
     };
-    this.db.upsertChapterList(mangaId, cached, failed > 0 ? 'partial' : 'ready');
+    this.db.upsertChapterList(mangaId, staticChapterListPayload(cached), failed > 0 ? 'partial' : 'ready');
     const pageMapJobs = this.enqueueChapterPageMapJobs(mangaId, allItems, 'chapter-list-cached');
     console.log(`[cache] chapters cached manga=${mangaId} pages=${lastPage} items=${allItems.length} failed=${failed} pageMapJobs=${pageMapJobs.queued}/${pageMapJobs.discovered}`);
   }
@@ -738,7 +811,7 @@ export class CacheService {
       },
     };
 
-    this.db.upsertChapterList(mangaId, merged, cached.status === 'partial' ? 'partial' : 'ready');
+    this.db.upsertChapterList(mangaId, staticChapterListPayload(merged), cached.status === 'partial' ? 'partial' : 'ready');
     const pageMapJobs = this.enqueueChapterPageMapJobs(mangaId, newItems, 'chapter-reconcile-new');
     console.log(`[cache] reconcile merged manga=${mangaId} previousCount=${cachedItems.length} nextCount=${mergedItems.length} previousMax=${previousMax ?? 'unknown'} nextMax=${nextMax ?? 'unknown'} new=${newItems.length} pages=${fetchedPages} pageMapJobs=${pageMapJobs.queued}/${pageMapJobs.discovered}`);
   }
