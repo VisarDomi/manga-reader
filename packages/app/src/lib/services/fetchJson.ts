@@ -35,16 +35,17 @@ interface FetchOptions {
     body?: string;
     retry?: boolean;
     cache?: RequestCache;
+    timeoutMs?: number;
 }
 
 async function doFetch(url: string, opts: FetchOptions, parseResponse: (res: Response) => Promise<unknown>): Promise<unknown> {
-    const { signal: callerSignal, method, headers, body, retry = false, cache } = opts;
+    const { signal: callerSignal, method, headers, body, retry = false, cache, timeoutMs = FETCH_TIMEOUT_MS } = opts;
     let lastError: unknown;
 
     const maxAttempts = retry ? 2 : 1;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
         if (attempt > 0) await new Promise(r => setTimeout(r, 1000));
-        const timeoutSignal = AbortSignal.timeout(FETCH_TIMEOUT_MS);
+        const timeoutSignal = AbortSignal.timeout(timeoutMs);
         const signal = callerSignal
             ? AbortSignal.any([callerSignal, timeoutSignal])
             : timeoutSignal;
@@ -75,7 +76,7 @@ async function doFetch(url: string, opts: FetchOptions, parseResponse: (res: Res
                 if (retry && attempt < maxAttempts - 1) { lastError = err; continue; }
                 throw err;
             }
-            if (e instanceof DOMException && e.name === 'TimeoutError') {
+            if (timeoutSignal.aborted || (e instanceof DOMException && e.name === 'TimeoutError')) {
                 const err = new ApiError(ApiErrKind.TIMEOUT, undefined, e);
                 if (retry && attempt < maxAttempts - 1) { lastError = err; continue; }
                 throw err;

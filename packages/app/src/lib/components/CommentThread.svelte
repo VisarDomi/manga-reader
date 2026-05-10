@@ -9,11 +9,21 @@
         depth?: number;
     }
 
+    const COMMENT_VISUAL_DEPTH_LIMIT = 4;
     const { comment, depth = 1 }: Props = $props();
     const initial = $derived(comment.author.slice(0, 1).toUpperCase());
+    const visualDepth = $derived(Math.min(depth, COMMENT_VISUAL_DEPTH_LIMIT));
+    const isDepthCapped = $derived(depth > COMMENT_VISUAL_DEPTH_LIMIT);
+    const isAtDepthCap = $derived(depth >= COMMENT_VISUAL_DEPTH_LIMIT);
 </script>
 
-<article class="comment-thread" class:comment-reply={depth > 1} style:--comment-depth={Math.min(depth, 6)}>
+<article
+    class="comment-thread"
+    class:comment-reply={depth > 1}
+    class:comment-depth-capped={isDepthCapped}
+    class:comment-depth-at-cap={isAtDepthCap}
+    style:--comment-depth={visualDepth}
+>
     <div class="comment-main">
         <div class="comment-avatar">
             {#if comment.avatar}
@@ -57,6 +67,11 @@
     padding: 8px 0 0 10px;
     border-bottom: 0;
     border-left: 2px solid hsl(calc(150 + var(--comment-depth) * 20) 30% 30%);
+}
+
+.comment-thread.comment-depth-capped {
+    padding-left: 0;
+    border-left-style: dashed;
 }
 
 .comment-main {
@@ -125,5 +140,9 @@
 
 .comment-reply .comment-children {
     margin-left: 18px;
+}
+
+.comment-depth-at-cap > .comment-children {
+    margin-left: 0;
 }
 </style>

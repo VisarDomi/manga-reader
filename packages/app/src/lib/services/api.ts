@@ -18,6 +18,7 @@ export function setCloudflareCallback(cb: () => void): void {
 
 const CACHE_WARM_POLL_MS = 500;
 const CACHE_WARM_ATTEMPTS = 240;
+const COMMENTS_FETCH_TIMEOUT_MS = 45_000;
 
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -287,6 +288,7 @@ export async function fetchMangaComments(mangaId: string, signal?: AbortSignal):
         signal,
         cache: 'no-store',
         headers: { 'Cache-Control': 'no-cache' },
+        timeoutMs: COMMENTS_FETCH_TIMEOUT_MS,
     });
     const parsed = parseCommentsResult(data);
     emit('manga-comments-result', {
@@ -313,6 +315,7 @@ export async function fetchChapterComments(mangaId: string, chapter: ChapterMeta
         signal,
         cache: 'no-store',
         headers: { 'Cache-Control': 'no-cache' },
+        timeoutMs: COMMENTS_FETCH_TIMEOUT_MS,
     });
     const parsed = parseCommentsResult(data);
     emit('chapter-comments-result', {
