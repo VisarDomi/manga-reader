@@ -648,7 +648,7 @@ export class ReaderState {
         const plan = this.windowManager.plan({
             chapterList: this.chapterList,
             loadedChapters: this.loadedChapters,
-            scrollTop: viewport.scrollTop,
+            logicalScrollTop,
             physicalWindowStart: this.nextPhysicalWindowStart(logicalScrollTop, viewport.clientHeight),
             physicalBeforePx: READER_PHYSICAL_BEFORE_PX,
             physicalAfterPx: READER_PHYSICAL_AFTER_PX,
@@ -862,7 +862,6 @@ export class ReaderState {
         const windowEpoch = this.windowEpoch;
         const loadEpoch = this.loadEpoch;
         const queued = candidates
-            .filter(candidate => candidate.side !== 'current')
             .filter(candidate => {
                 const slot = this.loadedChapters.find(ch => ch.id === candidate.chapter.id);
                 return slot
@@ -1025,11 +1024,12 @@ export class ReaderState {
             return slots;
         }
 
+        const logicalScrollTop = this.logicalChapterScrollTop(_currentId, viewportWidth) ?? 0;
         const plan = this.windowManager.plan({
             chapterList: this.chapterList,
             loadedChapters: slots,
-            scrollTop: this.physicalScrollTopForLogical(this.logicalChapterScrollTop(_currentId, viewportWidth) ?? 0, Math.max(clientHeight, 1)),
-            physicalWindowStart: this.physicalWindowStart,
+            logicalScrollTop,
+            physicalWindowStart: this.nextPhysicalWindowStart(logicalScrollTop, Math.max(clientHeight, 1), true),
             physicalBeforePx: READER_PHYSICAL_BEFORE_PX,
             physicalAfterPx: READER_PHYSICAL_AFTER_PX,
             radiusPx: Math.max(clientHeight, 1) * READER_WINDOW_RADIUS_VIEWPORTS,

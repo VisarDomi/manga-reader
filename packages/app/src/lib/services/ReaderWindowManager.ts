@@ -40,7 +40,7 @@ export class ReaderWindowManager {
     plan({
         chapterList,
         loadedChapters,
-        scrollTop,
+        logicalScrollTop,
         physicalWindowStart,
         physicalBeforePx,
         physicalAfterPx,
@@ -54,7 +54,7 @@ export class ReaderWindowManager {
     }: {
         chapterList: ChapterMeta[];
         loadedChapters: LoadedChapter[];
-        scrollTop: number;
+        logicalScrollTop: number;
         physicalWindowStart: number;
         physicalBeforePx: number;
         physicalAfterPx: number;
@@ -68,12 +68,12 @@ export class ReaderWindowManager {
     }): ReaderWindowPlan {
         const layouts = this.getLayout(chapterList, loadedChapters, viewportWidth, heightRevision, estimateChapterHeight);
         const totalHeight = layouts.at(-1)?.bottom ?? Math.max(clientHeight, 1);
-        const logicalScrollTop = Math.max(0, Math.min(physicalWindowStart + scrollTop, Math.max(0, totalHeight - clientHeight)));
+        const ownedLogicalScrollTop = Math.max(0, Math.min(logicalScrollTop, Math.max(0, totalHeight - clientHeight)));
         const physicalStart = Math.max(0, Math.min(physicalWindowStart, Math.max(0, totalHeight - clientHeight)));
         const physicalEnd = Math.min(totalHeight, physicalStart + physicalBeforePx + clientHeight + physicalAfterPx);
         const physicalHeight = Math.max(clientHeight, physicalEnd - physicalStart);
-        const physicalScrollTop = Math.max(0, logicalScrollTop - physicalStart);
-        const viewportTop = logicalScrollTop;
+        const physicalScrollTop = Math.max(0, ownedLogicalScrollTop - physicalStart);
+        const viewportTop = ownedLogicalScrollTop;
         const viewportBottom = viewportTop + clientHeight;
         const probeY = viewportTop + clientHeight * 0.35;
         const probe = this.findLayoutAt(layouts, probeY) ?? this.nearestLayout(layouts, probeY);
@@ -111,7 +111,7 @@ export class ReaderWindowManager {
             wantedIds,
             totalHeight,
             probeChapterId: probe?.chapter.id ?? null,
-            logicalScrollTop,
+            logicalScrollTop: ownedLogicalScrollTop,
             physicalWindowStart: physicalStart,
             physicalHeight,
             physicalScrollTop,
