@@ -81,6 +81,7 @@ class AppState {
     private mangaScrollDebounce: ReturnType<typeof setTimeout> | null = null;
     private lastVisibleMangaId: string | null = null;
     private lastMangaScroll: MangaScrollSnapshot | null = null;
+    private lastMangaScrolls: MangaScrollSnapshot[] = [];
     private deferredSearchContext: SearchContext | undefined;
     private performanceProbe: PerformanceProbe;
 
@@ -223,28 +224,43 @@ class AppState {
             snapshot.searchContext = this.searchState.context;
         }
 
-        const mangaScroll = this.currentMangaScrollSnapshot();
-        if (mangaScroll) {
-            snapshot.mangaScroll = mangaScroll;
+        const mangaScrolls = this.currentMangaScrollSnapshots();
+        if (mangaScrolls.length > 0) {
+            snapshot.mangaScrolls = mangaScrolls;
+            snapshot.mangaScroll = mangaScrolls[mangaScrolls.length - 1];
         }
 
         saveSession(snapshot);
     }
 
-    private currentMangaScrollSnapshot(): MangaScrollSnapshot | null {
-        const manga = this.manga.activeManga;
-        const entryKey = this.manga.activeEntryKey;
-        if (!manga || !entryKey || typeof document === 'undefined') return this.lastMangaScroll;
-        const el = document.getElementById(`view-manga-entry-${entryKey}`);
-        if (!el) return this.lastMangaScroll?.mangaId === manga.id ? this.lastMangaScroll : null;
-        return {
-            mangaId: manga.id,
-            scrollTop: Math.round(el.scrollTop),
-        };
+    private currentMangaScrollSnapshots(): MangaScrollSnapshot[] {
+        const entries = this.manga.entries;
+        if (entries.length === 0 || typeof document === 'undefined') return this.lastMangaScrolls;
+        const snapshots: MangaScrollSnapshot[] = [];
+        for (let index = 0; index < entries.length; index++) {
+            const entry = entries[index];
+            const el = document.getElementById(`view-manga-entry-${entry.key}`);
+            const fallback = this.lastMangaScrolls.find(item => item.stackIndex === index && item.mangaId === entry.manga.id)
+                ?? (this.lastMangaScroll?.mangaId === entry.manga.id ? this.lastMangaScroll : null);
+            const scrollTop = el ? Math.round(el.scrollTop) : fallback?.scrollTop;
+            if (scrollTop == null) continue;
+            snapshots.push({
+                mangaId: entry.manga.id,
+                stackIndex: index,
+                scrollTop,
+            });
+        }
+        this.lastMangaScrolls = snapshots;
+        return snapshots;
     }
 
-    trackMangaDetailScroll(mangaId: string, scrollTop: number, scrollHeight: number, clientHeight: number) {
-        this.lastMangaScroll = { mangaId, scrollTop: Math.round(scrollTop) };
+    trackMangaDetailScroll(mangaId: string, stackIndex: number, scrollTop: number, scrollHeight: number, clientHeight: number) {
+        const snapshot = { mangaId, stackIndex, scrollTop: Math.round(scrollTop) };
+        this.lastMangaScroll = snapshot;
+        this.lastMangaScrolls = [
+            ...this.lastMangaScrolls.filter(item => !(item.stackIndex === stackIndex && item.mangaId === mangaId)),
+            snapshot,
+        ].sort((a, b) => (a.stackIndex ?? 0) - (b.stackIndex ?? 0));
         if (this.mangaScrollDebounce) clearTimeout(this.mangaScrollDebounce);
         this.mangaScrollDebounce = setTimeout(() => {
             this.mangaScrollDebounce = null;
@@ -287,7 +303,7 @@ class AppState {
         if (!snapshot.activeManga) return;
         const shouldReplaySearch = this.ownsSearchContext(snapshot.viewMode, viewStack);
         const targetId = snapshot.targetMangaId ?? null;
-        const ok = this.manga.restoreMangaShell(snapshot.activeManga, snapshot.mangaScroll);
+        const ok = this.manga.restoreMangaShell(snapshot.activeManga, snapshot.mangaScrolls ?? (snapshot.mangaScroll ? [snapshot.mangaScroll] : []));
         if (!ok) {
             this.manga.setNavigationStack([]);
             this.ui.setViewDirect(viewStack[0] ?? View.LIST, viewStack.slice(0, -1));
@@ -312,7 +328,7 @@ class AppState {
 
         void (async () => {
             const saved = this.progress.get(snapshot.activeManga!.id);
-            const ok = await this.manga.restoreMangaForReader(snapshot.activeManga!, saved?.chapterId ?? null);
+            const ok = await this.manga.restoreMangaForReader(snapshot.activeManga!, saved?.chapterId ?? null, snapshot.mangaScrolls ?? (snapshot.mangaScroll ? [snapshot.mangaScroll] : []));
             if (!ok) {
                 this.manga.setNavigationStack([]);
                 this.ui.setViewDirect(View.LIST, []);

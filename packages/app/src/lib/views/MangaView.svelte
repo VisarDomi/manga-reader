@@ -34,13 +34,13 @@
     $effect(() => {
         for (let index = 0; index < entries.length; index++) {
             const entry = entries[index];
-            if (isActive(index) && entry.scrollRestore) {
+            if (entry.scrollRestore) {
                 scheduleScrollRestore(entry);
             }
         }
     });
 
-    function handleMangaScroll(entry: MangaEntry, active: boolean, event: Event) {
+    function handleMangaScroll(entry: MangaEntry, index: number, active: boolean, event: Event) {
         const el = event.currentTarget as HTMLElement | null;
         if (!el) return;
         if (entry.scrollRestore && event.isTrusted) {
@@ -58,7 +58,7 @@
             return;
         }
         if (active) {
-            appState.trackMangaDetailScroll(entry.manga.id, el.scrollTop, el.scrollHeight, el.clientHeight);
+            appState.trackMangaDetailScroll(entry.manga.id, index, el.scrollTop, el.scrollHeight, el.clientHeight);
         }
     }
 
@@ -150,7 +150,7 @@
         class:swipe-active={active && nestedBack && isSwiping}
         class:swipe-animating={active && nestedBack && swipeAnimating}
         style="{active && nestedBack && isSwiping ? 'transform:translateX(var(--swipe-progress, 0%))' : ''}"
-        onscroll={(event) => handleMangaScroll(entry, active, event)}
+        onscroll={(event) => handleMangaScroll(entry, index, active, event)}
         use:swipeBack={{ onClose: handleClose, ui: appState.ui }}
     >
     <div class="manga-view">

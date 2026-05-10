@@ -11,6 +11,7 @@ export interface SearchContext {
 
 export interface MangaScrollSnapshot {
     mangaId: string;
+    stackIndex?: number;
     scrollTop: number;
 }
 
@@ -22,6 +23,7 @@ export interface SessionSnapshot {
     targetMangaId?: string;
     searchContext?: SearchContext;
     mangaScroll?: MangaScrollSnapshot;
+    mangaScrolls?: MangaScrollSnapshot[];
 }
 
 export function saveSession(snapshot: SessionSnapshot): void {
@@ -31,4 +33,3 @@ export function saveSession(snapshot: SessionSnapshot): void {
 export function loadSession(): SessionSnapshot | null {
     return storage.getJson<SessionSnapshot | null>(SESSION_KEY, null);
 }
-

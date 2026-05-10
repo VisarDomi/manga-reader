@@ -506,7 +506,19 @@ export class MangaState {
         }
     }
 
-    async restoreManga(manga: Manga, scrollSnapshot?: MangaScrollSnapshot): Promise<boolean> {
+    private applyScrollRestores(entries: MangaEntry[], scrollSnapshots?: MangaScrollSnapshot[]): void {
+        if (!scrollSnapshots || scrollSnapshots.length === 0) return;
+        for (let index = 0; index < entries.length; index++) {
+            const entry = entries[index];
+            const target = scrollSnapshots.find(item => item.stackIndex === index && item.mangaId === entry.manga.id)
+                ?? scrollSnapshots.find(item => item.stackIndex == null && item.mangaId === entry.manga.id);
+            if (!target || target.scrollTop <= 0) continue;
+            entry.scrollRestore = { scrollTop: target.scrollTop };
+            this.replaceEntry(entry);
+        }
+    }
+
+    async restoreManga(manga: Manga, scrollSnapshots?: MangaScrollSnapshot[]): Promise<boolean> {
         const stack = $state.snapshot(this.navigationStack);
         const restored = [...stack, manga].map(item => createEntry(item));
         this.entries = restored;
@@ -517,14 +529,11 @@ export class MangaState {
         }
 
         const active = restored[restored.length - 1];
-        if (active && scrollSnapshot?.mangaId === active.manga.id && scrollSnapshot.scrollTop > 0) {
-            active.scrollRestore = { scrollTop: scrollSnapshot.scrollTop };
-            this.replaceEntry(active);
-        }
+        this.applyScrollRestores(restored, scrollSnapshots);
         return active ? this.restoreEntry(active, { readyAfterFirstPage: true }) : false;
     }
 
-    restoreMangaShell(manga: Manga, scrollSnapshot?: MangaScrollSnapshot): boolean {
+    restoreMangaShell(manga: Manga, scrollSnapshots?: MangaScrollSnapshot[]): boolean {
         const stack = $state.snapshot(this.navigationStack);
         const restored = [...stack, manga].map(item => createEntry(item));
         this.entries = restored;
@@ -536,10 +545,7 @@ export class MangaState {
 
         const active = restored[restored.length - 1];
         if (!active) return false;
-        if (scrollSnapshot?.mangaId === active.manga.id && scrollSnapshot.scrollTop > 0) {
-            active.scrollRestore = { scrollTop: scrollSnapshot.scrollTop };
-            this.replaceEntry(active);
-        }
+        this.applyScrollRestores(restored, scrollSnapshots);
         void this.restoreEntry(active, { readyAfterFirstPage: true });
         return true;
     }
@@ -551,10 +557,17 @@ export class MangaState {
         this.replaceEntry(entry);
     }
 
-    async restoreMangaForReader(manga: Manga, targetChapterId: string | null): Promise<boolean> {
-        const restored = [$state.snapshot(manga)].map(item => createEntry(item));
+    async restoreMangaForReader(manga: Manga, targetChapterId: string | null, scrollSnapshots?: MangaScrollSnapshot[]): Promise<boolean> {
+        const stack = $state.snapshot(this.navigationStack);
+        const restored = [...stack, $state.snapshot(manga)].map(item => createEntry(item));
         this.entries = restored;
-        const active = restored[0];
+        const previous = restored.slice(0, -1);
+        for (const entry of previous) {
+            void this.restoreEntry(entry);
+        }
+        this.applyScrollRestores(restored, scrollSnapshots);
+
+        const active = restored[restored.length - 1];
         if (!active) return false;
 
         const start = performance.now();
