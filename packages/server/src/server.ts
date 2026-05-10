@@ -6,6 +6,7 @@ import { createApp } from './app.js';
 import { BrowserSession } from './services/BrowserSession.js';
 import { CacheService } from './cache/CacheService.js';
 import { ByteCacheService } from './cache/ByteCacheService.js';
+import { CommentsService } from './services/CommentsService.js';
 import { listStoreHosts } from './utils/storeHosts.js';
 import { comixServerProvider } from './providers/comix.js';
 
@@ -16,7 +17,8 @@ const SHUTDOWN_TIMEOUT = 10_000;
 const browserSession = new BrowserSession(comixServerProvider);
 const byteCacheService = new ByteCacheService();
 const cacheService = new CacheService(browserSession, comixServerProvider, byteCacheService);
-const app = createApp(browserSession, cacheService, byteCacheService);
+const commentsService = new CommentsService(cacheService, comixServerProvider);
+const app = createApp(browserSession, cacheService, byteCacheService, commentsService);
 
 const sslOptions = {
     key: fs.readFileSync(CERT_KEY_PATH),

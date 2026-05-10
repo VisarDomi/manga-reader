@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { asyncHandler } from '../middleware/errorHandler.js';
-import type { BrowserSession } from '../services/BrowserSession.js';
+import { CacheDataUnavailableError, type CommentsService } from '../services/CommentsService.js';
 
 function jsonApiStatus(data: unknown): string {
     if (!data || typeof data !== 'object') return 'none';
@@ -29,7 +29,7 @@ function commentsSummary(data: unknown): string {
     return `thread=${thread == null ? 'none' : thread} rootPages=${Number.isFinite(rootPages) ? rootPages : 1} replyPages=${Number.isFinite(replyPages) ? replyPages : 0} treeFills=${Number.isFinite(treeFills) ? treeFills : 0} top=${comments} total=${Number.isFinite(total) ? total : comments} maxDepth=${Number.isFinite(maxDepth) ? maxDepth : 0} missingReplies=${Number.isFinite(missingReplies) ? missingReplies : 0} unavailable=${Number.isFinite(unavailable) ? unavailable : 0} unavailableRoots=${Number.isFinite(unavailableRoots) ? unavailableRoots : 0} count=${Number.isFinite(count) ? count : comments} upstreamCount=${Number.isFinite(upstreamCount) ? upstreamCount : comments}`;
 }
 
-export function createCommentsRouter(browserSession: BrowserSession | null): Router {
+export function createCommentsRouter(commentsService: CommentsService | null): Router {
     const router = Router();
 
     router.get('/manga-comments/:mangaId', asyncHandler(async (req, res) => {
@@ -40,13 +40,22 @@ export function createCommentsRouter(browserSession: BrowserSession | null): Rou
             return;
         }
 
-        if (!browserSession?.ready) {
-            res.status(503).json({ error: 'BrowserSession not ready' });
+        if (!commentsService) {
+            res.status(503).json({ error: 'Comments service unavailable' });
             return;
         }
 
         res.set('Cache-Control', 'no-store');
-        const result = await browserSession.fetchMangaComments(mangaId);
+        let result;
+        try {
+            result = await commentsService.fetchMangaComments(mangaId);
+        } catch (error) {
+            if (error instanceof CacheDataUnavailableError) {
+                res.status(503).json({ error: error.message });
+                return;
+            }
+            throw error;
+        }
         console.log(`[proxy] manga-comments ${mangaId} api=${jsonApiStatus(result.data)} ${commentsSummary(result.data)} ${result.durationMs}ms`);
         res.json(result.data);
     }));
@@ -63,13 +72,22 @@ export function createCommentsRouter(browserSession: BrowserSession | null): Rou
             return;
         }
 
-        if (!browserSession?.ready) {
-            res.status(503).json({ error: 'BrowserSession not ready' });
+        if (!commentsService) {
+            res.status(503).json({ error: 'Comments service unavailable' });
             return;
         }
 
         res.set('Cache-Control', 'no-store');
-        const result = await browserSession.fetchChapterComments(mangaId, chapterId, chapterNumber, chapterUrl);
+        let result;
+        try {
+            result = await commentsService.fetchChapterComments(mangaId, chapterId, chapterNumber, chapterUrl);
+        } catch (error) {
+            if (error instanceof CacheDataUnavailableError) {
+                res.status(503).json({ error: error.message });
+                return;
+            }
+            throw error;
+        }
         console.log(`[proxy] chapter-comments ${mangaId}/${chapterId} number=${chapterNumber} api=${jsonApiStatus(result.data)} ${commentsSummary(result.data)} ${result.durationMs}ms`);
         res.json(result.data);
     }));

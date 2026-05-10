@@ -16,11 +16,17 @@ import providerFiltersRouter from './routes/providerFilters.js';
 import type { BrowserSession } from './services/BrowserSession.js';
 import type { CacheService } from './cache/CacheService.js';
 import type { ByteCacheService } from './cache/ByteCacheService.js';
+import type { CommentsService } from './services/CommentsService.js';
 import type { Request, Response } from 'express';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-export function createApp(browserSession: BrowserSession | null, cacheService: CacheService | null = null, byteCache: ByteCacheService | null = null): express.Express {
+export function createApp(
+    browserSession: BrowserSession | null,
+    cacheService: CacheService | null = null,
+    byteCache: ByteCacheService | null = null,
+    commentsService: CommentsService | null = null,
+): express.Express {
     const app = express();
     app.use(express.json());
 
@@ -46,7 +52,7 @@ export function createApp(browserSession: BrowserSession | null, cacheService: C
     app.use('/api', certRouter);
     app.use('/api', createCacheRouter(cacheService));
     app.use('/api', createSearchRouter());
-    app.use('/api', createCommentsRouter(browserSession));
+    app.use('/api', createCommentsRouter(commentsService));
     app.use('/api', providerFiltersRouter);
     app.use('/api', logRouter);
 
