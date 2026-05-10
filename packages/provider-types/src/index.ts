@@ -77,8 +77,6 @@ export interface HttpRequest {
   headers?: Record<string, string>;
   body?: string;
   cloudflareProtected?: boolean;
-  signingMangaId?: string;
-  signingPageUrl?: string;
 }
 
 export interface MangaProvider {

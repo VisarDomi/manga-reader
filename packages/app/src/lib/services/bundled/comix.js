@@ -577,9 +577,7 @@ var _ = {
 	chapterImagesRequest(e, t, n, r) {
 		return {
 			url: `${c}/chapters/${t}`,
-			cloudflareProtected: !0,
-			signingMangaId: e,
-			signingPageUrl: p(r ?? "") || void 0
+			cloudflareProtected: !0
 		};
 	},
 	parseChapterImagesResponse(e) {

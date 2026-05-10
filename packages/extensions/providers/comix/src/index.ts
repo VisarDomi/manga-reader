@@ -200,8 +200,6 @@ const provider: MangaProvider = {
     return {
       url: `${API_URL}/chapters/${chapterId}`,
       cloudflareProtected: true,
-      signingMangaId: mangaId,
-      signingPageUrl: absoluteComixUrl(chapterUrl ?? '') || undefined,
     };
   },
 
