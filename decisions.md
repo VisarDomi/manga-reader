@@ -644,7 +644,10 @@ Each genre filter cycles through three states on tap: empty (no filter) → incl
 
 All search inputs — filter toggles (genre, type, status) and text input — go through the same 500ms debounce. Every change (keystroke, filter toggle) restarts the debounce and aborts any in-flight search request. After 500ms of no changes, a new search fires from page 1 with the current text + current filters combined, replacing the entire result set. Any in-flight pagination (rule AD) is implicitly abandoned because the results are replaced. Pressing enter skips the debounce and fires immediately.
 
-The fetch is always non-blocking — the UI stays responsive while results load. The user can freely mix toggling filters and typing without the UI freezing or results resetting mid-edit. Filters and query persist to localStorage, scoped per provider (see BH).
+The fetch is always non-blocking — the UI stays responsive while results load.
+The user can freely mix toggling filters and typing without the UI freezing or
+results resetting mid-edit. Filters and query persist to localStorage for the
+current Comix-focused app.
 
 ## AD. Search Pagination with Deduplication
 
@@ -666,12 +669,14 @@ Manga cards show three chapter numbers as `read / filtered max / upstream max`.
 - **Filtered max:** The highest chapter number known after applying the current group filters. This comes from the backend-cached chapter list, then the frontend applies local provider-wide and per-manga group filters.
 - **Upstream max:** The max/latest chapter number returned by the provider's search/list API.
 
-Favorites store only favorite IDs locally. Card metadata and filtered max are
-hydrated from backend cache data; there is no card-owned prewarm path and no
-separate IndexedDB favorite snapshot that can drift from cached manga data.
-Search results still provide their upstream max directly from live search.
-Opening a manga remains the authoritative foreground path for displaying the
-full cached detail and chapter list.
+Favorites store favorite IDs plus the minimum card snapshot needed to render
+instantly when the favorites root is opened. The backend cache remains the
+authoritative source for chapter stats and full manga data; favorite snapshots
+are only a local card-start cache and can be refreshed from backend cache data.
+There is no card-owned prewarm path. Search results still provide their
+upstream max directly from live search. Opening a manga remains the
+authoritative foreground path for displaying the full cached detail and chapter
+list.
 
 ## AF. Chapter Group Filtering
 
@@ -809,7 +814,10 @@ When reopening a chapter that has saved progress (same chapterId as the stored p
 
 ## AM. Favorites Toggle Is Optimistic with Revert
 
-Toggling a favorite updates the UI immediately before the IDB write completes. If the write fails, the UI reverts to the previous state and shows a toast. This gives instant feedback without waiting for the database.
+Toggling a favorite updates the UI immediately before the IDB write completes.
+If opening the database throws before the write can be attempted, the UI
+reverts and shows a toast. Transaction-level write failures are logged through
+the DB logger and do not block the foreground interaction.
 
 ## BR. Favorites Are Ordered by Insertion Order
 
@@ -820,7 +828,10 @@ Favorites appear in the order they were added (oldest first, newest at bottom). 
 IDB operations follow these rules:
 
 - **Reads** (progress lookups, favorites listing): resolve with empty data so the app can still function, but show a one-time toast per session so the user knows their data didn't load.
-- **Writes** (saving progress, adding/removing favorites): reject on failure so callers can handle it. Callers decide how to handle the rejection — favorites reverts the optimistic update (rule AM), progress shows a toast on first failure per session.
+- **Writes** (saving progress, adding/removing favorites): callers apply the
+  user-facing state immediately and the DB layer logs write failures through
+  `db-error`. Open/init failures still surface to callers; transaction failures
+  should not crash reading or navigation.
 - **Database initialization failure**: show a clear error state (e.g. "Storage unavailable" toast), do not crash the app. The app should remain usable for browsing and reading — just without persistence.
 
 ## AO. View Mode Owns the Current Surface, View Stack Owns Back
