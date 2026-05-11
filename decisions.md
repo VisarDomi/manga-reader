@@ -808,6 +808,15 @@ a projection of the logical cursor into the bounded runway. During a rebase,
 the new physical runway start, then writes the new physical `scrollTop` as
 `logicalScrollTop - physicalWindowStart`.
 
+The physical projection is versioned. `ReaderState` owns a projection epoch
+that advances whenever the physical runway start changes. `Reader.svelte` owns
+the DOM-applied projection epoch and includes it with every scroll observation.
+A DOM scroll observation from an older projection cannot become authoritative
+cursor input after a rebase; it is logged as
+`reader-stale-physical-observation` and the current projection is reapplied.
+This closes the cross-event race where Safari can deliver a scroll value from
+the old runway after state has already committed the new runway.
+
 This rule exists because a bug on 2026-05-10 showed the failure mode clearly:
 the DOM scroll moved only about 700px, but the planner recomputed logical
 position after rebasing the runway and jumped about 121k px into the next
@@ -815,6 +824,13 @@ chapter. The reader then mounted only a placeholder chapter, `ReaderMemoryManage
 revoked the old blob URLs because the new geometry had zero pages, and the user
 saw a black screen. The fix was to make logical position the owned cursor and
 physical position a derived projection.
+
+A related 2026-05-11 bug showed the same ownership leak across event turns:
+after chapter 73 rebased the physical runway, a later stale DOM scroll
+observation from the old runway was combined with the new
+`physicalWindowStart`, making the planner select chapter 76 and drop chapter
+73. The projection epoch rule is the durable fix for that class of stale
+physical observations.
 
 Placeholder slots are layout hints, not visible-page authority. If a wanted
 placeholder is the current/probe candidate, fetch ownership must still start
@@ -843,7 +859,12 @@ placeholder chapters according to logical proximity. Fresh opens, restores,
 fast upward scrolls, and fast downward scrolls all use the same
 virtual-window planner.
 
-Chapter change is detected from the visible page probe at one-third down the viewport (see AJ), with `layoutChapterId` and `currentChapterId` used as preferred ownership hints. Visibility is an observation; it can update progress and title context, but it does not own virtual layout.
+Chapter change is detected from the visible page probe at one-third down the
+viewport (see AJ). `currentChapterId` is the live visible/progress owner;
+`layoutChapterId` is the initial/restored chapter anchor and must not override
+the live visible chapter in frame logs or hydration ownership once reading has
+moved. Visibility is an observation; it can update progress and title context,
+but it does not own virtual layout.
 
 A visual divider separates chapters in the reader.
 

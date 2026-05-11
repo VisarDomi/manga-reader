@@ -64,6 +64,7 @@
     let scrollSettledStableSamples = 0;
     let lastReconcileScrollTop = Number.NaN;
     let lastReconcileClientHeight = 0;
+    let domProjectionEpoch = 0;
     let lastPageTrackAt = 0;
     let frameRaf: number | null = null;
     let lastFrameAt = 0;
@@ -91,6 +92,7 @@
         scrollTopOverride?: number,
         queuedAt?: number,
         physicalWindowStartOverride?: number,
+        projectionEpoch = physicalWindowStartOverride == null ? domProjectionEpoch : appState.reader.projectionEpoch,
     ) {
         const startedAt = performance.now();
         const root = getReaderRoot();
@@ -114,6 +116,7 @@
             clientHeight: root.clientHeight,
             clientWidth: root.clientWidth,
             physicalWindowStart: physicalWindowStartOverride,
+            projectionEpoch,
         }, source);
         const stateMs = performance.now() - stateStart;
         tick().then(() => {
@@ -121,13 +124,19 @@
             if (reconcile && appState.reader.windowFrameEpoch === reconcile.frameEpoch && Math.abs(root.scrollTop - reconcile.physicalScrollTop) > 1) {
                 const from = root.scrollTop;
                 root.scrollTop = reconcile.physicalScrollTop;
+                domProjectionEpoch = reconcile.projectionEpoch;
+                lastReconcileScrollTop = root.scrollTop;
+                lastReconcileClientHeight = root.clientHeight;
                 appState.log.emit('reader-scroll-write', {
                     source: 'physical-rebase',
                     frameEpoch: reconcile.frameEpoch,
+                    projectionEpoch: reconcile.projectionEpoch,
                     from: Math.round(from),
                     to: Math.round(root.scrollTop),
                     delta: Math.round(root.scrollTop - from),
                 });
+            } else if (reconcile) {
+                domProjectionEpoch = reconcile.projectionEpoch;
             }
             const imagePerf = scheduleVirtualImages(root);
             const imagesMs = imagePerf?.totalMs ?? performance.now() - tickStart;
@@ -319,9 +328,10 @@
             }
         }
         const queuedAt = performance.now();
+        const queuedProjectionEpoch = domProjectionEpoch;
         windowReconcileTimer = setTimeout(() => {
             windowReconcileTimer = null;
-            reconcileReaderWindow(source, undefined, queuedAt);
+            reconcileReaderWindow(source, undefined, queuedAt, undefined, queuedProjectionEpoch);
         }, 0);
     }
 
@@ -621,6 +631,7 @@
             const delta = currentTop - anchor.top;
             if (Math.abs(delta) <= 1) return;
             root.scrollTop = Math.max(0, root.scrollTop + delta);
+            domProjectionEpoch = appState.reader.projectionEpoch;
             if (Math.abs(root.scrollTop - from) > 1) {
                 appState.log.emit('reader-scroll-write', {
                     source: 'layout-idle-anchor',
@@ -657,6 +668,7 @@
         const from = root.scrollTop;
         const target = appState.reader.chapterScrollTop(currentId, root.clientWidth) ?? 0;
         root.scrollTop = target;
+        domProjectionEpoch = appState.reader.projectionEpoch;
         if (Math.abs(root.scrollTop - from) > 1) {
             appState.log.emit('reader-scroll-write', {
                 source: 'initial-current-anchor',
@@ -738,6 +750,7 @@
         reconcileReaderWindow('initial', restoreTop.scrollTop, undefined, restoreTop.physicalWindowStart);
         await tick();
         root.scrollTop = restoreTop.scrollTop;
+        domProjectionEpoch = appState.reader.projectionEpoch;
         if (Math.abs(root.scrollTop - from) > 1) {
             appState.log.emit('reader-scroll-write', {
                 source: 'initial-restore-into-view',
@@ -811,11 +824,12 @@
         const count = chapters.length;
         if (count === 0) {
             if (initialized) {
-            memory.revokeAll();
-            appState.reader.clearHistorySync();
-            pageTracker.clearScroll();
-            initialized = false;
-            lastVisualSnapshotAt = 0;
+                memory.revokeAll();
+                appState.reader.clearHistorySync();
+                pageTracker.clearScroll();
+                initialized = false;
+                domProjectionEpoch = 0;
+                lastVisualSnapshotAt = 0;
                 failureTimestamps = [];
                 slowToastShown = false;
                 scrollCoordinator.cancelInitialPosition();
@@ -847,6 +861,7 @@
             initialized = true;
             lastReconcileScrollTop = Number.NaN;
             lastReconcileClientHeight = 0;
+            domProjectionEpoch = appState.reader.projectionEpoch;
             lastPageTrackAt = 0;
 
             const root = getReaderRoot();

@@ -39,11 +39,14 @@ export type ReaderScrollActivity = 'settled' | 'idle' | 'scrolling' | 'programma
 
 type ReaderWindowReconcileResult = {
     frameEpoch: number;
+    projectionEpoch: number;
+    projectionChanged: boolean;
     physicalScrollTop: number;
 };
 
 type ReaderWindowFrame = {
     epoch: number;
+    projectionEpoch: number;
     logicalScrollTop: number;
     physicalWindowStart: number;
     physicalScrollTop: number;
@@ -111,6 +114,7 @@ export class ReaderState {
     private lastWindowReconcileLogAt = 0;
     private lastWindowReconcileSignature = '';
     private readerWindowFrameEpoch = 0;
+    private readerProjectionEpoch = 0;
     private readerWindowFrameSignature = '';
     private readerWindowFrame: ReaderWindowFrame | null = null;
     private chapterDataById = new Map<string, LoadedChapter>();
@@ -140,6 +144,10 @@ export class ReaderState {
 
     get windowFrameEpoch(): number {
         return this.readerWindowFrameEpoch;
+    }
+
+    get projectionEpoch(): number {
+        return this.readerProjectionEpoch;
     }
 
     setScrollActivity(activity: ReaderScrollActivity, source: string): void {
@@ -199,6 +207,7 @@ export class ReaderState {
         this.lastWindowReconcileLogAt = 0;
         this.lastWindowReconcileSignature = '';
         this.readerWindowFrameEpoch = 0;
+        this.readerProjectionEpoch = 0;
         this.readerWindowFrameSignature = '';
         this.readerWindowFrame = null;
         this.chapterDataById.clear();
@@ -275,6 +284,7 @@ export class ReaderState {
         this.lastWindowReconcileLogAt = 0;
         this.lastWindowReconcileSignature = '';
         this.readerWindowFrameEpoch = 0;
+        this.readerProjectionEpoch = 0;
         this.readerWindowFrameSignature = '';
         this.readerWindowFrame = null;
         this.chapterDataById.clear();
@@ -669,6 +679,7 @@ export class ReaderState {
         this.lastWindowReconcileLogAt = 0;
         this.lastWindowReconcileSignature = '';
         this.readerWindowFrameEpoch = 0;
+        this.readerProjectionEpoch = 0;
         this.readerWindowFrameSignature = '';
         this.readerWindowFrame = null;
         this.chapterDataById.clear();
@@ -700,6 +711,7 @@ export class ReaderState {
         this.loadedChapters = [];
         this.virtualTotalHeight = 0;
         this.physicalWindowStart = 0;
+        this.readerProjectionEpoch = 0;
         this.currentChapterId = null;
         this.layoutChapterId = null;
         this.chapterComments = [];
@@ -714,10 +726,33 @@ export class ReaderState {
         this.ui.popView();
     }
 
-    reconcileReaderWindow(viewport: { scrollTop: number; clientHeight: number; clientWidth: number; chapterId?: string | null; physicalWindowStart?: number }, source: ReaderWindowSource): ReaderWindowReconcileResult | null {
+    reconcileReaderWindow(viewport: { scrollTop: number; clientHeight: number; clientWidth: number; chapterId?: string | null; physicalWindowStart?: number; projectionEpoch?: number }, source: ReaderWindowSource): ReaderWindowReconcileResult | null {
         const manga = this.manga.activeManga;
-        const layoutId = this.layoutChapterId ?? this.currentChapterId;
+        const layoutId = this.currentChapterId ?? this.layoutChapterId;
         if (!manga || !layoutId || this.chapterList.length === 0 || viewport.clientHeight <= 0) return null;
+
+        const ownsPhysicalProjection = viewport.physicalWindowStart != null;
+        const observedProjectionEpoch = viewport.projectionEpoch ?? this.readerProjectionEpoch;
+        if (!ownsPhysicalProjection && observedProjectionEpoch !== this.readerProjectionEpoch) {
+            const currentPhysicalScrollTop = this.readerWindowFrame?.physicalScrollTop ?? Math.max(0, this.lastWindowScrollTop - this.physicalWindowStart);
+            this.log.emit('reader-stale-physical-observation', {
+                source,
+                mangaId: manga.id,
+                currentChapterId: layoutId,
+                observedProjectionEpoch,
+                currentProjectionEpoch: this.readerProjectionEpoch,
+                observedScrollTop: Math.round(viewport.scrollTop),
+                currentPhysicalScrollTop: Math.round(currentPhysicalScrollTop),
+                physicalWindowStart: Math.round(this.physicalWindowStart),
+                frameEpoch: this.readerWindowFrameEpoch,
+            });
+            return {
+                frameEpoch: this.readerWindowFrameEpoch,
+                projectionEpoch: this.readerProjectionEpoch,
+                projectionChanged: false,
+                physicalScrollTop: currentPhysicalScrollTop,
+            };
+        }
 
         const physicalWindowStart = viewport.physicalWindowStart ?? this.physicalWindowStart;
         const logicalScrollTop = physicalWindowStart + viewport.scrollTop;
@@ -782,6 +817,7 @@ export class ReaderState {
             scrollTop: Math.round(viewport.scrollTop),
             logicalScrollTop: Math.round(plan.logicalScrollTop),
             physicalWindowStart: Math.round(plan.physicalWindowStart),
+            projectionEpoch: frame.projectionEpoch,
             physicalHeight: Math.round(plan.physicalHeight),
             clientHeight: Math.round(viewport.clientHeight),
             wantedCount: plan.wantedIds.size,
@@ -808,7 +844,12 @@ export class ReaderState {
             }
         }
         this.scheduleWindowFetches(manga, plan.candidates, source);
-        return { frameEpoch: frame.epoch, physicalScrollTop: frame.physicalScrollTop };
+        return {
+            frameEpoch: frame.epoch,
+            projectionEpoch: frame.projectionEpoch,
+            projectionChanged: frame.projectionChanged,
+            physicalScrollTop: frame.physicalScrollTop,
+        };
     }
 
     physicalScrollTopForLogical(logicalScrollTop: number, clientHeight: number): number {
@@ -852,7 +893,7 @@ export class ReaderState {
         physicalScrollTop: number;
         physicalHeight: number;
         slots: LoadedChapter[];
-    }): { epoch: number; renderChanged: boolean; physicalScrollTop: number } {
+    }): { epoch: number; projectionEpoch: number; projectionChanged: boolean; renderChanged: boolean; physicalScrollTop: number } {
         const renderSlots = this.materializeFrameSlots(slots);
         const slotSignature = this.windowSlotSignature(renderSlots);
         const frameSignature = [
@@ -867,6 +908,8 @@ export class ReaderState {
         if (!frameChanged) {
             return {
                 epoch: this.readerWindowFrameEpoch,
+                projectionEpoch: this.readerProjectionEpoch,
+                projectionChanged: false,
                 renderChanged: false,
                 physicalScrollTop,
             };
@@ -874,6 +917,10 @@ export class ReaderState {
 
         const previousPhysicalWindowStart = this.physicalWindowStart;
         const previousPhysicalHeight = this.virtualTotalHeight;
+        const projectionChanged = Math.round(physicalWindowStart) !== Math.round(previousPhysicalWindowStart);
+        if (projectionChanged) {
+            this.readerProjectionEpoch++;
+        }
         this.physicalWindowStart = physicalWindowStart;
         this.virtualTotalHeight = physicalHeight;
         this.loadedChapters = renderSlots;
@@ -881,6 +928,7 @@ export class ReaderState {
         this.readerWindowFrameEpoch++;
         this.readerWindowFrame = {
             epoch: this.readerWindowFrameEpoch,
+            projectionEpoch: this.readerProjectionEpoch,
             logicalScrollTop: physicalWindowStart + physicalScrollTop,
             physicalWindowStart,
             physicalScrollTop,
@@ -893,6 +941,7 @@ export class ReaderState {
             mangaId,
             currentChapterId,
             epoch: this.readerWindowFrameEpoch,
+            projectionEpoch: this.readerProjectionEpoch,
             direction,
             radiusPx: Math.round(radiusPx),
             physicalWindowStart: Math.round(physicalWindowStart),
@@ -906,7 +955,13 @@ export class ReaderState {
             placeholderCount: renderSlots.filter(slot => slot.slotState !== 'ready').length,
         });
 
-        return { epoch: this.readerWindowFrameEpoch, renderChanged: slotsChanged, physicalScrollTop };
+        return {
+            epoch: this.readerWindowFrameEpoch,
+            projectionEpoch: this.readerProjectionEpoch,
+            projectionChanged,
+            renderChanged: slotsChanged,
+            physicalScrollTop,
+        };
     }
 
     private windowSlotSignature(slots: LoadedChapter[]): string {
@@ -940,6 +995,7 @@ export class ReaderState {
         scrollTop: number;
         logicalScrollTop: number;
         physicalWindowStart: number;
+        projectionEpoch: number;
         physicalHeight: number;
         clientHeight: number;
         wantedCount: number;
@@ -970,6 +1026,7 @@ export class ReaderState {
             scrollTop: data.scrollTop,
             logicalScrollTop: data.logicalScrollTop,
             physicalWindowStart: data.physicalWindowStart,
+            projectionEpoch: data.projectionEpoch,
             physicalHeight: data.physicalHeight,
             clientHeight: data.clientHeight,
             wantedCount: data.wantedCount,
@@ -1077,7 +1134,7 @@ export class ReaderState {
         const frame = this.commitWindowFrame({
             source: 'visible',
             mangaId: this.activeMangaId,
-            currentChapterId: this.layoutChapterId ?? this.currentChapterId ?? positionedSlots[0]?.id ?? '',
+            currentChapterId: this.currentChapterId ?? this.layoutChapterId ?? positionedSlots[0]?.id ?? '',
             direction: 'idle',
             radiusPx: this.layoutViewportHeight() * READER_WINDOW_RADIUS_VIEWPORTS,
             physicalWindowStart: this.physicalWindowStart,
@@ -1209,7 +1266,7 @@ export class ReaderState {
         this.commitWindowFrame({
             source,
             mangaId: manga.id,
-            currentChapterId: this.layoutChapterId ?? this.currentChapterId ?? readyChapter.id,
+            currentChapterId: this.currentChapterId ?? this.layoutChapterId ?? readyChapter.id,
             direction: 'idle',
             radiusPx: this.layoutViewportHeight() * READER_WINDOW_RADIUS_VIEWPORTS,
             physicalWindowStart: this.physicalWindowStart,
@@ -1232,7 +1289,7 @@ export class ReaderState {
             chapterNumber: readyChapter.number,
             reason,
             currentChapterId: this.currentChapterId,
-            currentVirtualTop: this.chapterScrollTop(this.layoutChapterId ?? readyChapter.id, this.layoutViewportWidth(readyChapter.pages[0]?.width ?? 0)),
+            currentVirtualTop: this.chapterScrollTop(this.currentChapterId ?? this.layoutChapterId ?? readyChapter.id, this.layoutViewportWidth(readyChapter.pages[0]?.width ?? 0)),
             layoutViewportHeight: Math.round(this.layoutViewportHeight()),
         });
         this.log.emit('reader-window-fetch-ok', {
