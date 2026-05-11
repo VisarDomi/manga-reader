@@ -823,14 +823,12 @@ Destructive physical projection is also transactional and session-owned.
 Timer-derived labels such as "idle" or "settled" are not proof that Safari/iOS
 has finished scroll momentum or accepted a programmatic `scrollTop` write. RAF
 velocity samples are also only observations; slow inertial scrolling can look
-stable for a few frames and then continue. The reader therefore separates the
-green light from the action: the scroll-session owner first requires measured
-viewport stability with no active pointer, swipe, or programmatic scroll; only
-after that green light does it start a 1000ms quiet grant. Any new scroll,
-touch/pointer activity, swipe, or projection transaction cancels the grant and
-the session must prove stability again. This delay is not the primary detector;
-it is a conservative second-stage authorization after the detector says the
-browser has stopped moving.
+stable for a few frames and then continue. Native reader `scrollend` is the
+rebase authority. RAF stability may be logged for diagnostics, but it must not
+authorize a destructive rebase. When the reader element emits native
+`scrollend`, the scroll-session owner starts a 100ms quiet grant. Any new
+scroll, touch/pointer activity, swipe, or projection transaction cancels the
+grant and the session must wait for a new native `scrollend`.
 
 Once authorized, a rebase creates an explicit projection transaction:
 
@@ -890,22 +888,20 @@ accepted Safari's continued `320341` observation in the new projection and
 jumped from chapter `7523941` to `7523953`. The durable fix is stricter than a
 better motion detector: scroll-origin reconciles do not directly request
 destructive physical rebases. They can only start a scroll session. The
-scroll-session owner must observe stability, wait through the 1000ms quiet
-grant, and then ask `ReaderState` for an edge-pressure rebase target.
+scroll-session owner must wait for native reader `scrollend`, then ask
+`ReaderState` for an edge-pressure rebase target after the 100ms quiet grant.
 
-The 1000ms quiet grant is intentionally conservative. A 2026-05-11 edge test
-hit the bottom of the physical runway at about `scrollTop=400000`. The
-scroll-session owner repeatedly observed `stable`, but Safari still emitted
-late scroll events that cancelled the grant after roughly 64ms, 88ms, 116ms,
-252ms, 283ms, and 368ms. This proves that a 0ms or 100ms post-stability grant
-would have authorized a rebase while Safari still had pending movement, and a
-300ms grant would still be marginal. The successful rebase happened only after
-the viewport stayed quiet for the full 1000ms: `stable -> idle-granted
-quietMs=1000 -> rebase-request -> projection begin from=400000 to=200000 ->
-ack delta=0`. The tradeoff is visible: if the user scrolls continuously to the
-runway edge, they may briefly hit the physical end, pause, then continue after
-the rebase. That is preferable to rebasing during momentum and risking a
-chapter jump or black screen.
+Earlier tests used a 1000ms post-stability grant because a 2026-05-11 edge test
+showed Safari emitting late scroll events after RAF stability at roughly 64ms,
+88ms, 116ms, 252ms, 283ms, and 368ms. A follow-up test showed native reader
+`scrollend` firing after those late scrolls, and two real edge rebases completed
+smoothly with `quietMs=100`, `reason=native-scrollend`, and projection
+acknowledgments with `delta=0`. The reader therefore removed the
+`stable + 1000ms` fallback: keeping both authorities made the architecture
+harder to reason about and left two possible owners for destructive projection.
+If native `scrollend` is absent or wrong in a future environment, the logs
+should surface that as a browser-support problem rather than silently falling
+back to a timer-based rebase owner.
 
 Placeholder slots are layout hints, not visible-page authority. If a wanted
 placeholder is the current/probe candidate, fetch ownership must still start

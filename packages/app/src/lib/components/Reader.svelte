@@ -73,6 +73,9 @@
     let pointerActive = false;
     let stableScrollTop = 0;
     let stableFrameCount = 0;
+    let lastStableAt = 0;
+    let lastScrollEventAt = 0;
+    let lastNativeScrollendAt = 0;
     let lastPageTrackAt = 0;
     let frameRaf: number | null = null;
     let lastFrameAt = 0;
@@ -80,7 +83,7 @@
     const PAGE_TRACK_INTERVAL_MS = 250;
     const SCROLL_STABLE_EPSILON_PX = 0.5;
     const SCROLL_STABLE_FRAME_COUNT = 4;
-    const SCROLL_IDLE_REBASE_DELAY_MS = 1_000;
+    const NATIVE_SCROLLEND_REBASE_DELAY_MS = 100;
     const READER_DIAGNOSTICS = {
         frameGapProbe: true,
         visualSnapshot: true,
@@ -416,11 +419,15 @@
             clearTimeout(scrollIdleTimer);
             scrollIdleTimer = null;
             const root = getReaderRoot();
+            const now = performance.now();
             appState.log.emit('reader-scroll-session', {
                 phase: 'idle-cancelled',
                 mangaId: appState.manga.activeManga?.id ?? null,
                 scrollTop: Math.round(root?.scrollTop ?? stableScrollTop),
                 reason,
+                sinceStableMs: lastStableAt > 0 ? Math.round(now - lastStableAt) : null,
+                sinceLastScrollMs: lastScrollEventAt > 0 ? Math.round(now - lastScrollEventAt) : null,
+                sinceLastScrollendMs: lastNativeScrollendAt > 0 ? Math.round(now - lastNativeScrollendAt) : null,
             });
         }
     }
@@ -485,11 +492,14 @@
             scrollTop: Math.round(root.scrollTop),
             stableFrames: stableFrameCount,
             quietMs: 0,
+            edge: edgePressure(root),
+            sinceLastScrollMs: lastScrollEventAt > 0 ? Math.round(performance.now() - lastScrollEventAt) : null,
+            sinceLastScrollendMs: lastNativeScrollendAt > 0 ? Math.round(performance.now() - lastNativeScrollendAt) : null,
         });
-        scheduleIdleRebaseGrant(root.scrollTop);
+        lastStableAt = performance.now();
     }
 
-    function scheduleIdleRebaseGrant(scrollTopAtStable: number) {
+    function scheduleIdleRebaseGrant(scrollTopAtStable: number, delayMs: number, reason: string) {
         if (scrollIdleTimer != null) return;
         scrollIdleTimer = setTimeout(() => {
             scrollIdleTimer = null;
@@ -516,10 +526,15 @@
                 mangaId: appState.manga.activeManga?.id ?? null,
                 scrollTop: Math.round(root.scrollTop),
                 stableFrames: SCROLL_STABLE_FRAME_COUNT,
-                quietMs: SCROLL_IDLE_REBASE_DELAY_MS,
+                quietMs: delayMs,
+                reason,
+                edge: edgePressure(root),
+                sinceStableMs: lastStableAt > 0 ? Math.round(performance.now() - lastStableAt) : null,
+                sinceLastScrollMs: lastScrollEventAt > 0 ? Math.round(performance.now() - lastScrollEventAt) : null,
+                sinceLastScrollendMs: lastNativeScrollendAt > 0 ? Math.round(performance.now() - lastNativeScrollendAt) : null,
             });
             requestIdleRebaseIfNeeded(root);
-        }, SCROLL_IDLE_REBASE_DELAY_MS);
+        }, delayMs);
     }
 
     function requestIdleRebaseIfNeeded(root: HTMLElement) {
@@ -530,6 +545,9 @@
                 mangaId: appState.manga.activeManga?.id ?? null,
                 scrollTop: Math.round(root.scrollTop),
                 reason: 'no-edge-pressure',
+                sinceStableMs: lastStableAt > 0 ? Math.round(performance.now() - lastStableAt) : null,
+                sinceLastScrollMs: lastScrollEventAt > 0 ? Math.round(performance.now() - lastScrollEventAt) : null,
+                sinceLastScrollendMs: lastNativeScrollendAt > 0 ? Math.round(performance.now() - lastNativeScrollendAt) : null,
             });
             return;
         }
@@ -538,8 +556,17 @@
             mangaId: appState.manga.activeManga?.id ?? null,
             scrollTop: Math.round(root.scrollTop),
             edge: target.edge === 'prev' ? 'top' : 'bottom',
+            sinceStableMs: lastStableAt > 0 ? Math.round(performance.now() - lastStableAt) : null,
+            sinceLastScrollMs: lastScrollEventAt > 0 ? Math.round(performance.now() - lastScrollEventAt) : null,
+            sinceLastScrollendMs: lastNativeScrollendAt > 0 ? Math.round(performance.now() - lastNativeScrollendAt) : null,
         });
         reconcileReaderWindow('scroll', target.scrollTop, undefined, target.physicalWindowStart);
+    }
+
+    function edgePressure(root: HTMLElement): 'top' | 'bottom' | undefined {
+        const target = appState.reader.rebaseTargetIfNeeded(root.scrollTop, root.clientHeight);
+        if (!target) return undefined;
+        return target.edge === 'prev' ? 'top' : 'bottom';
     }
 
     function queueWindowReconcile(source: 'scroll' | 'visible' | 'retry' = 'scroll') {
@@ -899,6 +926,7 @@
         const previousScrollAt = lastScrollAt;
         const previousScrollTop = lastScrollTop;
         lastScrollAt = startedAt;
+        lastScrollEventAt = startedAt;
         lastScrollTop = root.scrollTop;
         appState.reader.setScrollActivity('scrolling', 'dom-scroll');
         startScrollSession('dom-scroll', root);
@@ -950,6 +978,25 @@
         if (root) startScrollSession('pointer-up', root);
     }
 
+    function handleReaderScrollend() {
+        const root = getReaderRoot();
+        if (!root) return;
+        const now = performance.now();
+        lastNativeScrollendAt = now;
+        appState.log.emit('reader-scroll-session', {
+            phase: 'native-scrollend',
+            mangaId: appState.manga.activeManga?.id ?? null,
+            scrollTop: Math.round(root.scrollTop),
+            edge: edgePressure(root),
+            reason: 'reader',
+            sinceStableMs: lastStableAt > 0 ? Math.round(now - lastStableAt) : null,
+            sinceLastScrollMs: lastScrollEventAt > 0 ? Math.round(now - lastScrollEventAt) : null,
+        });
+        cancelScrollIdle('native-scrollend-replaces-stable-grant');
+        lastStableAt = now;
+        scheduleIdleRebaseGrant(root.scrollTop, NATIVE_SCROLLEND_REBASE_DELAY_MS, 'native-scrollend');
+    }
+
     $effect(() => {
         const count = chapters.length;
         if (count === 0) {
@@ -980,6 +1027,9 @@
                 stopScrollSessionMonitor('reader-unmount');
                 pointerActive = false;
                 scrollSessionActive = false;
+                lastStableAt = 0;
+                lastScrollEventAt = 0;
+                lastNativeScrollendAt = 0;
                 if (projectionTransaction) {
                     appState.log.emit('reader-projection-transaction', {
                         phase: 'cancel',
@@ -1004,6 +1054,7 @@
                     root.removeEventListener('pointerdown', handlePointerDown);
                     root.removeEventListener('pointerup', handlePointerUp);
                     root.removeEventListener('pointercancel', handlePointerUp);
+                    root.removeEventListener('scrollend', handleReaderScrollend);
                 }
             }
             return;
@@ -1027,6 +1078,7 @@
                 root.addEventListener('pointerdown', handlePointerDown, { passive: true });
                 root.addEventListener('pointerup', handlePointerUp, { passive: true });
                 root.addEventListener('pointercancel', handlePointerUp, { passive: true });
+                root.addEventListener('scrollend', handleReaderScrollend, { passive: true });
                 startFrameProbe();
             }
 
