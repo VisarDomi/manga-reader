@@ -237,6 +237,12 @@ export class CacheDatabase {
       CREATE INDEX IF NOT EXISTS idx_cache_jobs_claim
       ON cache_jobs(status, run_after, priority, created_at);
 
+      CREATE INDEX IF NOT EXISTS idx_cache_jobs_kind_claim
+      ON cache_jobs(kind, status, run_after, priority, created_at);
+
+      CREATE INDEX IF NOT EXISTS idx_cache_jobs_kind_priority
+      ON cache_jobs(kind, priority, created_at);
+
       CREATE INDEX IF NOT EXISTS idx_cache_jobs_lease
       ON cache_jobs(status, lease_until);
 
