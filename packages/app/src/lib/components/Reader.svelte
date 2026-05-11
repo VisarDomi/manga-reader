@@ -71,7 +71,6 @@
     let frameRaf: number | null = null;
     let lastFrameAt = 0;
     const SCROLL_RECONCILE_STEP_VIEWPORTS = 0.75;
-    const PHYSICAL_REBASE_MARGIN_PX = 80_000;
     const PAGE_TRACK_INTERVAL_MS = 250;
     const READER_DIAGNOSTICS = {
         frameGapProbe: true,
@@ -91,7 +90,6 @@
         queuedAt?: number,
         physicalWindowStartOverride?: number,
         projectionEpoch = physicalWindowStartOverride == null ? domProjectionEpoch : appState.reader.projectionEpoch,
-        forcePhysicalRebase = false,
     ) {
         const startedAt = performance.now();
         const root = getReaderRoot();
@@ -116,7 +114,6 @@
             clientWidth: root.clientWidth,
             physicalWindowStart: physicalWindowStartOverride,
             projectionEpoch,
-            forcePhysicalRebase,
         }, source);
         const stateMs = performance.now() - stateStart;
         tick().then(() => {
@@ -323,11 +320,6 @@
         }
     }
 
-    function needsPhysicalRebase(root: HTMLElement): boolean {
-        return root.scrollTop < PHYSICAL_REBASE_MARGIN_PX
-            || root.scrollTop > root.scrollHeight - root.clientHeight - PHYSICAL_REBASE_MARGIN_PX;
-    }
-
     function beginProjectionTransaction(
         source: 'initial' | 'scroll' | 'visible' | 'retry',
         frameEpoch: number,
@@ -423,10 +415,9 @@
         }
         const queuedAt = performance.now();
         const queuedProjectionEpoch = domProjectionEpoch;
-        const forcePhysicalRebase = source === 'scroll' && !!root && needsPhysicalRebase(root);
         windowReconcileRaf = requestAnimationFrame(() => {
             windowReconcileRaf = null;
-            reconcileReaderWindow(source, undefined, queuedAt, undefined, queuedProjectionEpoch, forcePhysicalRebase);
+            reconcileReaderWindow(source, undefined, queuedAt, undefined, queuedProjectionEpoch);
         });
     }
 

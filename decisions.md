@@ -783,8 +783,10 @@ Ownership is split deliberately:
 Window policy:
 
 - **Physical runway:** reserve about 200k px above and 200k px below the
-  viewport. If the logical viewport approaches the runway edge, `ReaderState`
-  rebases `physicalWindowStart` and preserves the visible logical position.
+  viewport. `ReaderState` may rebase `physicalWindowStart` only when an
+  explicit lifecycle owner supplies a physical target, such as initial open or
+  restore. Live scroll observations may request soft window work, but they may
+  not authorize a hard physical projection write.
 - **Load window:** chapters whose logical slot intersects 10 viewports before
   or after the logical viewport are wanted. Wanted placeholder slots are fetched
   by priority.
@@ -817,11 +819,14 @@ cursor input after a rebase; it is logged as
 This closes the cross-event race where Safari can deliver a scroll value from
 the old runway after state has already committed the new runway.
 
-Destructive physical projection is also transactional. Timer-derived labels
-such as "idle" or "settled" are not proof that Safari/iOS has finished scroll
-momentum or accepted a programmatic `scrollTop` write. The reader therefore
-does not use timeout-based `scroll-idle` or `scroll-settled` gates as layout
-authority. A rebase creates an explicit projection transaction:
+Destructive physical projection is also transactional and lifecycle-owned.
+Timer-derived labels such as "idle" or "settled" are not proof that Safari/iOS
+has finished scroll momentum or accepted a programmatic `scrollTop` write. RAF
+velocity samples are also only observations; slow inertial scrolling can look
+stable for a few frames and then continue. The reader therefore does not use
+timeout-based gates, frame-sample gates, or live scroll events as layout
+authority for a hard rebase. A lifecycle rebase creates an explicit projection
+transaction:
 
 - `ReaderState` computes and commits the new owned projection.
 - `Reader.svelte` writes the derived physical `scrollTop`.
@@ -837,6 +842,14 @@ Timers may still schedule work elsewhere in the app, but they must not grant
 permission for destructive reader operations. Reader layout promotion is
 scheduled by frame and is blocked by active projection transactions, not by a
 guessed settled state.
+
+If a live scroll approaches the bounded runway edge, the reader logs
+`reader-rebase-deferred` and keeps the existing physical projection. This may
+surface a runway-size or edge-pressure problem, but it does not let Safari's
+ongoing momentum turn an old physical coordinate into a new logical chapter.
+The ownership rule is intentionally browser-independent: browser scroll events
+can describe motion, but only the reader lifecycle owner can write a new
+physical projection.
 
 This rule exists because a bug on 2026-05-10 showed the failure mode clearly:
 the DOM scroll moved only about 700px, but the planner recomputed logical
@@ -860,6 +873,15 @@ then browser scroll behavior continued at the old physical coordinate. The
 planner accepted that coordinate in the new projection and jumped from chapter
 80 to chapter 83. This is why physical rebases now require transaction
 acknowledgment instead of timer-based settle guesses.
+
+Another 2026-05-11 regression showed that a RAF motion lease was the same
+class of bug in a different form. The reader deferred a bottom-edge rebase
+while Safari was still scrolling, decided after several small deltas that
+motion was stable, wrote `scrollTop` from about `320325` to `200000`, then
+accepted Safari's continued `320341` observation in the new projection and
+jumped from chapter `7523941` to `7523953`. The fix is stricter than better
+motion detection: scroll-origin reconciles cannot request destructive physical
+rebases at all.
 
 Placeholder slots are layout hints, not visible-page authority. If a wanted
 placeholder is the current/probe candidate, fetch ownership must still start

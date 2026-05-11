@@ -726,7 +726,7 @@ export class ReaderState {
         this.ui.popView();
     }
 
-    reconcileReaderWindow(viewport: { scrollTop: number; clientHeight: number; clientWidth: number; chapterId?: string | null; physicalWindowStart?: number; projectionEpoch?: number; forcePhysicalRebase?: boolean }, source: ReaderWindowSource): ReaderWindowReconcileResult | null {
+    reconcileReaderWindow(viewport: { scrollTop: number; clientHeight: number; clientWidth: number; chapterId?: string | null; physicalWindowStart?: number; projectionEpoch?: number }, source: ReaderWindowSource): ReaderWindowReconcileResult | null {
         const manga = this.manga.activeManga;
         const layoutId = this.currentChapterId ?? this.layoutChapterId;
         if (!manga || !layoutId || this.chapterList.length === 0 || viewport.clientHeight <= 0) return null;
@@ -760,8 +760,8 @@ export class ReaderState {
         this.lastWindowScrollTop = logicalScrollTop;
         this.lastViewportWidth = viewport.clientWidth;
         this.lastViewportHeight = viewport.clientHeight;
-        const allowDestructiveProjection = !!viewport.forcePhysicalRebase || viewport.physicalWindowStart != null;
-        const nextPhysicalWindowStart = allowDestructiveProjection || viewport.physicalWindowStart != null
+        const allowDestructiveProjection = viewport.physicalWindowStart != null;
+        const nextPhysicalWindowStart = allowDestructiveProjection
             ? this.nextPhysicalWindowStart(logicalScrollTop, viewport.clientHeight, viewport.physicalWindowStart != null, physicalWindowStart)
             : physicalWindowStart;
 
