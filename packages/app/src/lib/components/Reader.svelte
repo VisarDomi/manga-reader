@@ -44,36 +44,34 @@
     };
 
     let initialized = false;
-    let windowReconcileTimer: ReturnType<typeof setTimeout> | null = null;
-    let idleLayoutTimer: ReturnType<typeof setTimeout> | null = null;
-    let idleLayoutSequence = 0;
-    let idleLayoutQueuedAt = 0;
-    let idleLayoutLastResetAt = 0;
-    let idleLayoutResetCount = 0;
-    let idleLayoutSource: 'scroll' | 'layout' = 'layout';
+    let windowReconcileRaf: number | null = null;
+    let layoutPromotionRaf: number | null = null;
+    let layoutPromotionSequence = 0;
+    let layoutPromotionQueuedAt = 0;
+    let layoutPromotionSource: 'layout' | 'projection' = 'layout';
     let lastVisualSnapshotAt = 0;
     let lastSurfaceSnapshotAt = 0;
     let lastScrollPerfAt = 0;
     let lastScrollAt = 0;
     let lastScrollTop = 0;
-    let scrollIdleTimer: ReturnType<typeof setTimeout> | null = null;
-    let scrollSettledTimer: ReturnType<typeof setTimeout> | null = null;
-    let scrollSettledGeneration = 0;
-    let scrollSettledQueuedAt = 0;
-    let scrollSettledLastTop = 0;
-    let scrollSettledStableSamples = 0;
     let lastReconcileScrollTop = Number.NaN;
     let lastReconcileClientHeight = 0;
     let domProjectionEpoch = 0;
+    let projectionTransaction: {
+        id: number;
+        source: 'initial' | 'scroll' | 'visible' | 'retry';
+        frameEpoch: number;
+        projectionEpoch: number;
+        targetScrollTop: number;
+        fromScrollTop: number;
+    } | null = null;
+    let projectionTransactionId = 0;
+    let projectionAckRaf: number | null = null;
     let lastPageTrackAt = 0;
     let frameRaf: number | null = null;
     let lastFrameAt = 0;
-    const IDLE_LAYOUT_DELAY_MS = 450;
-    const SCROLL_IDLE_DELAY_MS = 180;
-    const SCROLL_SETTLED_SAMPLE_MS = 120;
-    const SCROLL_SETTLED_REQUIRED_SAMPLES = 3;
-    const SCROLL_SETTLED_EPSILON_PX = 1;
     const SCROLL_RECONCILE_STEP_VIEWPORTS = 0.75;
+    const PHYSICAL_REBASE_MARGIN_PX = 80_000;
     const PAGE_TRACK_INTERVAL_MS = 250;
     const READER_DIAGNOSTICS = {
         frameGapProbe: true,
@@ -93,6 +91,7 @@
         queuedAt?: number,
         physicalWindowStartOverride?: number,
         projectionEpoch = physicalWindowStartOverride == null ? domProjectionEpoch : appState.reader.projectionEpoch,
+        forcePhysicalRebase = false,
     ) {
         const startedAt = performance.now();
         const root = getReaderRoot();
@@ -102,8 +101,8 @@
             appState.reader.recordChapterMeasurements(measureChapterHeights(root));
         }
         const measureMs = performance.now() - measureStart;
-        if (appState.reader.pendingLayoutMeasurementCount > 0) {
-            queueIdleLayoutPromotion('layout');
+        if (source !== 'scroll' && appState.reader.pendingLayoutMeasurementCount > 0) {
+            queueLayoutPromotion('layout');
         }
         const scrollTop = scrollTopOverride ?? root.scrollTop;
         if (source === 'scroll') {
@@ -117,6 +116,7 @@
             clientWidth: root.clientWidth,
             physicalWindowStart: physicalWindowStartOverride,
             projectionEpoch,
+            forcePhysicalRebase,
         }, source);
         const stateMs = performance.now() - stateStart;
         tick().then(() => {
@@ -127,6 +127,9 @@
                 domProjectionEpoch = reconcile.projectionEpoch;
                 lastReconcileScrollTop = root.scrollTop;
                 lastReconcileClientHeight = root.clientHeight;
+                if (reconcile.projectionChanged) {
+                    beginProjectionTransaction(source, reconcile.frameEpoch, reconcile.projectionEpoch, from, reconcile.physicalScrollTop);
+                }
                 appState.log.emit('reader-scroll-write', {
                     source: 'physical-rebase',
                     frameEpoch: reconcile.frameEpoch,
@@ -137,6 +140,9 @@
                 });
             } else if (reconcile) {
                 domProjectionEpoch = reconcile.projectionEpoch;
+                if (reconcile.projectionChanged) {
+                    beginProjectionTransaction(source, reconcile.frameEpoch, reconcile.projectionEpoch, root.scrollTop, reconcile.physicalScrollTop);
+                }
             }
             const imagePerf = scheduleVirtualImages(root);
             const imagesMs = imagePerf?.totalMs ?? performance.now() - tickStart;
@@ -166,7 +172,7 @@
             root.clientHeight,
             root.clientWidth,
             appState.reader.pageGeometry(root.clientWidth),
-            { allowCleanup: !appState.reader.isScrollActive },
+            { allowCleanup: projectionTransaction == null },
         );
         return perf;
     }
@@ -317,8 +323,96 @@
         }
     }
 
+    function needsPhysicalRebase(root: HTMLElement): boolean {
+        return root.scrollTop < PHYSICAL_REBASE_MARGIN_PX
+            || root.scrollTop > root.scrollHeight - root.clientHeight - PHYSICAL_REBASE_MARGIN_PX;
+    }
+
+    function beginProjectionTransaction(
+        source: 'initial' | 'scroll' | 'visible' | 'retry',
+        frameEpoch: number,
+        projectionEpoch: number,
+        fromScrollTop: number,
+        targetScrollTop: number,
+    ) {
+        projectionTransaction = {
+            id: ++projectionTransactionId,
+            source,
+            frameEpoch,
+            projectionEpoch,
+            targetScrollTop,
+            fromScrollTop,
+        };
+        appState.reader.setScrollActivity('programmatic', 'projection-transaction');
+        appState.log.emit('reader-projection-transaction', {
+            phase: 'begin',
+            source,
+            id: projectionTransaction.id,
+            frameEpoch,
+            projectionEpoch,
+            from: Math.round(fromScrollTop),
+            to: Math.round(targetScrollTop),
+            observed: Math.round(targetScrollTop),
+            delta: Math.round(targetScrollTop - fromScrollTop),
+        });
+        queueProjectionAck();
+    }
+
+    function queueProjectionAck() {
+        if (projectionAckRaf != null) cancelAnimationFrame(projectionAckRaf);
+        projectionAckRaf = requestAnimationFrame(() => {
+            projectionAckRaf = null;
+            acknowledgeProjectionTransaction();
+        });
+    }
+
+    function acknowledgeProjectionTransaction(): boolean {
+        const tx = projectionTransaction;
+        const root = getReaderRoot();
+        if (!tx || !root) return false;
+        const observed = root.scrollTop;
+        const delta = observed - tx.targetScrollTop;
+        if (Math.abs(delta) > 1) {
+            root.scrollTop = tx.targetScrollTop;
+            domProjectionEpoch = tx.projectionEpoch;
+            appState.log.emit('reader-projection-transaction', {
+                phase: 'reapply',
+                source: tx.source,
+                id: tx.id,
+                frameEpoch: tx.frameEpoch,
+                projectionEpoch: tx.projectionEpoch,
+                from: Math.round(tx.fromScrollTop),
+                to: Math.round(tx.targetScrollTop),
+                observed: Math.round(observed),
+                delta: Math.round(delta),
+            });
+            queueProjectionAck();
+            return false;
+        }
+
+        appState.log.emit('reader-projection-transaction', {
+            phase: 'ack',
+            source: tx.source,
+            id: tx.id,
+            frameEpoch: tx.frameEpoch,
+            projectionEpoch: tx.projectionEpoch,
+            from: Math.round(tx.fromScrollTop),
+            to: Math.round(tx.targetScrollTop),
+            observed: Math.round(observed),
+            delta: Math.round(delta),
+        });
+        projectionTransaction = null;
+        domProjectionEpoch = tx.projectionEpoch;
+        appState.reader.setScrollActivity('settled', 'projection-ack');
+        if (appState.reader.pendingLayoutMeasurementCount > 0) {
+            queueLayoutPromotion('projection');
+        }
+        return true;
+    }
+
     function queueWindowReconcile(source: 'scroll' | 'visible' | 'retry' = 'scroll') {
-        if (windowReconcileTimer != null) return;
+        if (projectionTransaction) return;
+        if (windowReconcileRaf != null) return;
         const root = getReaderRoot();
         if (source === 'scroll' && root) {
             const threshold = Math.max(240, root.clientHeight * SCROLL_RECONCILE_STEP_VIEWPORTS);
@@ -329,105 +423,11 @@
         }
         const queuedAt = performance.now();
         const queuedProjectionEpoch = domProjectionEpoch;
-        windowReconcileTimer = setTimeout(() => {
-            windowReconcileTimer = null;
-            reconcileReaderWindow(source, undefined, queuedAt, undefined, queuedProjectionEpoch);
-        }, 0);
-    }
-
-    function cancelScrollSettledTransaction(reason: 'scroll' | 'teardown' = 'scroll') {
-        const hadTimer = scrollSettledTimer != null;
-        if (scrollSettledTimer != null) {
-            clearTimeout(scrollSettledTimer);
-            scrollSettledTimer = null;
-        }
-        scrollSettledGeneration++;
-        if (reason === 'scroll' && hadTimer) {
-            const root = getReaderRoot();
-            appState.log.emit('reader-scroll-settle', {
-                mangaId: appState.manga.activeManga?.id ?? null,
-                phase: 'cancelled',
-                generation: scrollSettledGeneration,
-                stableSamples: scrollSettledStableSamples,
-                scrollTop: Math.round(root?.scrollTop ?? 0),
-                delta: 0,
-                queuedForMs: scrollSettledQueuedAt === 0 ? 0 : Math.round(performance.now() - scrollSettledQueuedAt),
-            });
-        }
-        scrollSettledStableSamples = 0;
-    }
-
-    function queueScrollSettledTransaction(root: HTMLElement) {
-        if (scrollSettledTimer != null) clearTimeout(scrollSettledTimer);
-        const generation = scrollSettledGeneration;
-        scrollSettledQueuedAt = performance.now();
-        scrollSettledLastTop = root.scrollTop;
-        scrollSettledStableSamples = 0;
-        appState.log.emit('reader-scroll-settle', {
-            mangaId: appState.manga.activeManga?.id ?? null,
-            phase: 'queued',
-            generation,
-            stableSamples: 0,
-            scrollTop: Math.round(root.scrollTop),
-            delta: 0,
-            queuedForMs: 0,
+        const forcePhysicalRebase = source === 'scroll' && !!root && needsPhysicalRebase(root);
+        windowReconcileRaf = requestAnimationFrame(() => {
+            windowReconcileRaf = null;
+            reconcileReaderWindow(source, undefined, queuedAt, undefined, queuedProjectionEpoch, forcePhysicalRebase);
         });
-
-        const sample = () => {
-            const currentRoot = getReaderRoot();
-            if (!currentRoot || generation !== scrollSettledGeneration) return;
-            const delta = currentRoot.scrollTop - scrollSettledLastTop;
-            if (Math.abs(delta) <= SCROLL_SETTLED_EPSILON_PX) {
-                scrollSettledStableSamples++;
-            } else {
-                scrollSettledStableSamples = 0;
-                scrollSettledLastTop = currentRoot.scrollTop;
-            }
-
-            if (scrollSettledStableSamples < SCROLL_SETTLED_REQUIRED_SAMPLES) {
-                appState.log.emit('reader-scroll-settle', {
-                    mangaId: appState.manga.activeManga?.id ?? null,
-                    phase: 'sample',
-                    generation,
-                    stableSamples: scrollSettledStableSamples,
-                    scrollTop: Math.round(currentRoot.scrollTop),
-                    delta: Math.round(delta),
-                    queuedForMs: Math.round(performance.now() - scrollSettledQueuedAt),
-                });
-                scrollSettledTimer = setTimeout(sample, SCROLL_SETTLED_SAMPLE_MS);
-                return;
-            }
-
-            scrollSettledTimer = null;
-            appState.reader.setScrollActivity('settled', 'scroll-settled');
-            appState.log.emit('reader-scroll-settle', {
-                mangaId: appState.manga.activeManga?.id ?? null,
-                phase: 'settled',
-                generation,
-                stableSamples: scrollSettledStableSamples,
-                scrollTop: Math.round(currentRoot.scrollTop),
-                delta: Math.round(delta),
-                queuedForMs: Math.round(performance.now() - scrollSettledQueuedAt),
-            });
-            reconcileReaderWindow('visible', currentRoot.scrollTop, scrollSettledQueuedAt);
-            scheduleVirtualImages(currentRoot);
-            if (appState.reader.pendingLayoutMeasurementCount > 0) {
-                queueIdleLayoutPromotion('layout');
-            }
-        };
-
-        scrollSettledTimer = setTimeout(sample, SCROLL_SETTLED_SAMPLE_MS);
-    }
-
-    function queueScrollIdleTransaction(root: HTMLElement) {
-        if (scrollIdleTimer != null) clearTimeout(scrollIdleTimer);
-        scrollIdleTimer = setTimeout(() => {
-            scrollIdleTimer = null;
-            appState.reader.setScrollActivity('idle', 'scroll-idle');
-            reconcileReaderWindow('visible', root.scrollTop);
-            scheduleVirtualImages(root);
-            queueScrollSettledTransaction(root);
-        }, SCROLL_IDLE_DELAY_MS);
     }
 
     function startFrameProbe() {
@@ -471,72 +471,59 @@
         });
     }
 
-    function queueIdleLayoutPromotion(source: 'scroll' | 'layout' = 'scroll') {
+    function queueLayoutPromotion(source: 'layout' | 'projection' = 'layout') {
         const root = getReaderRoot();
         const now = performance.now();
-        if (idleLayoutTimer == null) {
-            idleLayoutSequence++;
-            idleLayoutQueuedAt = now;
-            idleLayoutResetCount = 0;
-            idleLayoutSource = source;
-            appState.log.emit('reader-layout-idle-timer', {
+        if (layoutPromotionRaf == null) {
+            layoutPromotionSequence++;
+            layoutPromotionQueuedAt = now;
+            layoutPromotionSource = source;
+            appState.log.emit('reader-layout-promotion-frame', {
                 phase: 'queued',
                 mangaId: appState.manga.activeManga?.id ?? null,
-                sequence: idleLayoutSequence,
-                delayMs: IDLE_LAYOUT_DELAY_MS,
+                sequence: layoutPromotionSequence,
                 queuedForMs: 0,
-                sinceLastResetMs: 0,
-                resetCount: idleLayoutResetCount,
                 pendingMeasurements: appState.reader.pendingLayoutMeasurementCount,
                 scrollTop: Math.round(root?.scrollTop ?? 0),
                 source,
             });
         } else {
-            clearTimeout(idleLayoutTimer);
-            idleLayoutResetCount++;
-            if (source === 'scroll') idleLayoutSource = source;
+            cancelAnimationFrame(layoutPromotionRaf);
+            layoutPromotionSource = source;
         }
-        idleLayoutLastResetAt = now;
-        idleLayoutTimer = setTimeout(() => {
-            idleLayoutTimer = null;
-            void runIdleLayoutPromotion();
-        }, IDLE_LAYOUT_DELAY_MS);
+        layoutPromotionRaf = requestAnimationFrame(() => {
+            layoutPromotionRaf = null;
+            void runLayoutPromotion();
+        });
     }
 
-    async function runIdleLayoutPromotion() {
+    async function runLayoutPromotion() {
         const now = performance.now();
         const root = getReaderRoot();
         if (!root) {
-            appState.log.emit('reader-layout-idle-timer', {
+            appState.log.emit('reader-layout-promotion-frame', {
                 phase: 'fired',
                 mangaId: appState.manga.activeManga?.id ?? null,
-                sequence: idleLayoutSequence,
-                delayMs: IDLE_LAYOUT_DELAY_MS,
-                queuedForMs: Math.round(now - idleLayoutQueuedAt),
-                sinceLastResetMs: Math.round(now - idleLayoutLastResetAt),
-                resetCount: idleLayoutResetCount,
+                sequence: layoutPromotionSequence,
+                queuedForMs: Math.round(now - layoutPromotionQueuedAt),
                 pendingMeasurements: appState.reader.pendingLayoutMeasurementCount,
                 scrollTop: 0,
                 result: 'no-root',
-                source: idleLayoutSource,
+                source: layoutPromotionSource,
             });
             return;
         }
-        if (!appState.reader.isScrollSettled) {
-            appState.log.emit('reader-layout-idle-timer', {
+        if (projectionTransaction) {
+            appState.log.emit('reader-layout-promotion-frame', {
                 phase: 'fired',
                 mangaId: appState.manga.activeManga?.id ?? null,
-                sequence: idleLayoutSequence,
-                delayMs: IDLE_LAYOUT_DELAY_MS,
-                queuedForMs: Math.round(now - idleLayoutQueuedAt),
-                sinceLastResetMs: Math.round(now - idleLayoutLastResetAt),
-                resetCount: idleLayoutResetCount,
+                sequence: layoutPromotionSequence,
+                queuedForMs: Math.round(now - layoutPromotionQueuedAt),
                 pendingMeasurements: appState.reader.pendingLayoutMeasurementCount,
                 scrollTop: Math.round(root.scrollTop),
-                result: 'waiting-for-settle',
-                source: idleLayoutSource,
+                result: 'projection-active',
+                source: layoutPromotionSource,
             });
-            queueScrollSettledTransaction(root);
             return;
         }
         appState.reader.recordChapterMeasurements(measureChapterHeights(root));
@@ -550,18 +537,15 @@
             ownerChapterId: anchor?.ownerChapterId ?? null,
         });
         const result = appState.reader.promotePendingMeasurements(anchor?.key ?? null);
-        appState.log.emit('reader-layout-idle-timer', {
+        appState.log.emit('reader-layout-promotion-frame', {
             phase: 'fired',
             mangaId: appState.manga.activeManga?.id ?? null,
-            sequence: idleLayoutSequence,
-            delayMs: IDLE_LAYOUT_DELAY_MS,
-            queuedForMs: Math.round(now - idleLayoutQueuedAt),
-            sinceLastResetMs: Math.round(now - idleLayoutLastResetAt),
-            resetCount: idleLayoutResetCount,
+            sequence: layoutPromotionSequence,
+            queuedForMs: Math.round(now - layoutPromotionQueuedAt),
             pendingMeasurements: appState.reader.pendingLayoutMeasurementCount,
             scrollTop: Math.round(root.scrollTop),
             result: result.changed ? 'promoted' : 'unchanged',
-            source: idleLayoutSource,
+            source: layoutPromotionSource,
         });
         if (!result.changed) return;
         await tick();
@@ -777,14 +761,16 @@
         const startedAt = performance.now();
         const root = getReaderRoot();
         if (!root) return;
+        if (projectionTransaction) {
+            acknowledgeProjectionTransaction();
+            return;
+        }
         const previousScrollAt = lastScrollAt;
         const previousScrollTop = lastScrollTop;
         lastScrollAt = startedAt;
         lastScrollTop = root.scrollTop;
         appState.reader.setScrollActivity('scrolling', 'dom-scroll');
-        cancelScrollSettledTransaction('scroll');
         scrollCoordinator.noteUserScroll(root);
-        queueScrollIdleTransaction(root);
         const visualMs = 0;
         const queueStart = performance.now();
         queueWindowReconcile('scroll');
@@ -835,19 +821,32 @@
                 scrollCoordinator.cancelInitialPosition();
                 scrollCoordinator.cancelPrepend();
                 stopFrameProbe();
-                if (windowReconcileTimer != null) {
-                    clearTimeout(windowReconcileTimer);
-                    windowReconcileTimer = null;
+                if (windowReconcileRaf != null) {
+                    cancelAnimationFrame(windowReconcileRaf);
+                    windowReconcileRaf = null;
                 }
-                if (idleLayoutTimer != null) {
-                    clearTimeout(idleLayoutTimer);
-                    idleLayoutTimer = null;
+                if (layoutPromotionRaf != null) {
+                    cancelAnimationFrame(layoutPromotionRaf);
+                    layoutPromotionRaf = null;
                 }
-                if (scrollIdleTimer != null) {
-                    clearTimeout(scrollIdleTimer);
-                    scrollIdleTimer = null;
+                if (projectionAckRaf != null) {
+                    cancelAnimationFrame(projectionAckRaf);
+                    projectionAckRaf = null;
                 }
-                cancelScrollSettledTransaction('teardown');
+                if (projectionTransaction) {
+                    appState.log.emit('reader-projection-transaction', {
+                        phase: 'cancel',
+                        source: projectionTransaction.source,
+                        id: projectionTransaction.id,
+                        frameEpoch: projectionTransaction.frameEpoch,
+                        projectionEpoch: projectionTransaction.projectionEpoch,
+                        from: Math.round(projectionTransaction.fromScrollTop),
+                        to: Math.round(projectionTransaction.targetScrollTop),
+                        observed: Math.round(getReaderRoot()?.scrollTop ?? 0),
+                        delta: 0,
+                    });
+                    projectionTransaction = null;
+                }
 
                 const root = getReaderRoot();
                 if (root) root.removeEventListener('scroll', handleScroll);
@@ -875,7 +874,7 @@
         memory.ensureAbortController();
         tick().then(() => {
             scheduleVirtualImages();
-            queueIdleLayoutPromotion('layout');
+            queueLayoutPromotion('layout');
         });
     });
 

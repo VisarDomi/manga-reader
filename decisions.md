@@ -817,6 +817,27 @@ cursor input after a rebase; it is logged as
 This closes the cross-event race where Safari can deliver a scroll value from
 the old runway after state has already committed the new runway.
 
+Destructive physical projection is also transactional. Timer-derived labels
+such as "idle" or "settled" are not proof that Safari/iOS has finished scroll
+momentum or accepted a programmatic `scrollTop` write. The reader therefore
+does not use timeout-based `scroll-idle` or `scroll-settled` gates as layout
+authority. A rebase creates an explicit projection transaction:
+
+- `ReaderState` computes and commits the new owned projection.
+- `Reader.svelte` writes the derived physical `scrollTop`.
+- scroll observations are ignored for planning while the transaction is active.
+- a RAF acknowledgment checks that the DOM still reports the target physical
+  scroll position.
+- if the DOM reports a different physical position, the transaction reapplies
+  the target and logs `reader-projection-transaction` with `phase=reapply`.
+- only after `phase=ack` may normal scroll observations drive planning,
+  cleanup, or layout promotion again.
+
+Timers may still schedule work elsewhere in the app, but they must not grant
+permission for destructive reader operations. Reader layout promotion is
+scheduled by frame and is blocked by active projection transactions, not by a
+guessed settled state.
+
 This rule exists because a bug on 2026-05-10 showed the failure mode clearly:
 the DOM scroll moved only about 700px, but the planner recomputed logical
 position after rebasing the runway and jumped about 121k px into the next
@@ -831,6 +852,14 @@ observation from the old runway was combined with the new
 `physicalWindowStart`, making the planner select chapter 76 and drop chapter
 73. The projection epoch rule is the durable fix for that class of stale
 physical observations.
+
+A later 2026-05-11 bug showed that projection epochs alone were not enough:
+the old `scroll-settled` timer declared the reader settled after three stable
+samples, performed a destructive rebase from about `322179` to `200000`, and
+then browser scroll behavior continued at the old physical coordinate. The
+planner accepted that coordinate in the new projection and jumped from chapter
+80 to chapter 83. This is why physical rebases now require transaction
+acknowledgment instead of timer-based settle guesses.
 
 Placeholder slots are layout hints, not visible-page authority. If a wanted
 placeholder is the current/probe candidate, fetch ownership must still start
