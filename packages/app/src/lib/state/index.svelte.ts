@@ -84,6 +84,7 @@ class AppState {
     private lastMangaScrolls: MangaScrollSnapshot[] = [];
     private deferredSearchContext: SearchContext | undefined;
     private performanceProbe: PerformanceProbe;
+    private bootSnapshot: SessionSnapshot | null = null;
 
     constructor() {
         const emit = this.log.emit;
@@ -102,6 +103,8 @@ class AppState {
         }));
 
         this.ui = new UIState(emit);
+        this.bootSnapshot = loadSession();
+        this.applyRestoreShell(this.bootSnapshot);
         this.searchState = new SearchState(
             this.toast,
             () => this.recoverScrollContainers(),
@@ -299,6 +302,39 @@ class AppState {
         });
     }
 
+    private stackForRestoreShell(snapshot: SessionSnapshot): ViewMode[] | null {
+        if (snapshot.viewMode === View.LIST || snapshot.viewMode === View.FAVORITES) {
+            return [];
+        }
+        if (snapshot.viewMode === View.MANGA) {
+            if (!snapshot.activeManga) return null;
+            return snapshot.viewStack.length > 0 ? snapshot.viewStack : [View.LIST];
+        }
+        if (snapshot.viewMode === View.READER || snapshot.viewMode === View.CHAPTER_COMMENTS) {
+            if (!snapshot.activeManga) return null;
+            return snapshot.viewStack.length > 0 ? snapshot.viewStack : [View.LIST, View.MANGA];
+        }
+        return null;
+    }
+
+    private applyRestoreShell(snapshot: SessionSnapshot | null): ViewMode[] | null {
+        if (!snapshot) return null;
+        const stack = this.stackForRestoreShell(snapshot);
+        if (!stack) return null;
+        this.ui.setViewDirect(snapshot.viewMode, stack);
+        return stack;
+    }
+
+    private logRestoreShell(snapshot: SessionSnapshot, stack: ViewMode[]): void {
+        this.log.emit('restore-shell', {
+            view: snapshot.viewMode,
+            stack: stack.join(','),
+            mangaId: snapshot.activeManga?.id ?? null,
+            hasReader: snapshot.viewMode === View.READER || snapshot.viewStack.includes(View.READER),
+            hasComments: snapshot.viewMode === View.CHAPTER_COMMENTS,
+        });
+    }
+
     private hydrateRestoredManga(snapshot: SessionSnapshot, viewStack: ViewMode[]): void {
         if (!snapshot.activeManga) return;
         const shouldReplaySearch = this.ownsSearchContext(snapshot.viewMode, viewStack);
@@ -360,9 +396,9 @@ class AppState {
         })();
     }
 
-    private async restoreSession(): Promise<boolean> {
+    private async restoreSession(snapshotOverride?: SessionSnapshot | null): Promise<boolean> {
         const emit = this.log.emit;
-        const snapshot = loadSession();
+        const snapshot = snapshotOverride ?? loadSession();
         if (!snapshot) {
             emit('restore-none');
             return false;
@@ -548,6 +584,10 @@ class AppState {
 
         await this.log.start();
         emit('boot-start');
+        const restoreShell = this.applyRestoreShell(this.bootSnapshot);
+        if (this.bootSnapshot && restoreShell) {
+            this.logRestoreShell(this.bootSnapshot, restoreShell);
+        }
         this.performanceProbe.start();
 
         setDbLogger((op, error) => emit('db-error', { op, error }));
@@ -568,7 +608,7 @@ class AppState {
 
             await Promise.all([this.progress.init(), this.favorites.init()]);
 
-            const restored = await this.restoreSession();
+            const restored = await this.restoreSession(this.bootSnapshot);
             if (!restored) {
                 await this.searchState.search(this.searchState.inputQuery);
             }
