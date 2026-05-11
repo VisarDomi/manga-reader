@@ -56,12 +56,14 @@
     let lastScrollPerfAt = 0;
     let lastScrollAt = 0;
     let lastScrollTop = 0;
+    let scrollIdleTimer: ReturnType<typeof setTimeout> | null = null;
     let lastReconcileScrollTop = Number.NaN;
     let lastReconcileClientHeight = 0;
     let lastPageTrackAt = 0;
     let frameRaf: number | null = null;
     let lastFrameAt = 0;
     const IDLE_LAYOUT_DELAY_MS = 450;
+    const SCROLL_IDLE_DELAY_MS = 180;
     const SCROLL_RECONCILE_STEP_VIEWPORTS = 0.75;
     const PAGE_TRACK_INTERVAL_MS = 250;
     const READER_DIAGNOSTICS = {
@@ -147,6 +149,7 @@
             root.clientHeight,
             root.clientWidth,
             appState.reader.pageGeometry(root.clientWidth),
+            { allowCleanup: !appState.reader.isScrollActive },
         );
         return perf;
     }
@@ -314,6 +317,16 @@
         }, 0);
     }
 
+    function queueScrollIdleTransaction(root: HTMLElement) {
+        if (scrollIdleTimer != null) clearTimeout(scrollIdleTimer);
+        scrollIdleTimer = setTimeout(() => {
+            scrollIdleTimer = null;
+            appState.reader.setScrollActivity('idle', 'scroll-idle');
+            reconcileReaderWindow('visible', root.scrollTop);
+            scheduleVirtualImages(root);
+        }, SCROLL_IDLE_DELAY_MS);
+    }
+
     function startFrameProbe() {
         if (!READER_DIAGNOSTICS.frameGapProbe) return;
         if (!appState.log.isEnabled) return;
@@ -350,7 +363,7 @@
         const currentRoot = getReaderRoot();
         if (!currentRoot) return;
         lastPageTrackAt = now;
-        pageTracker.handleScroll(currentRoot, appState.reader.pageGeometry(currentRoot.clientWidth), [appState.reader.layoutChapterId, appState.reader.currentChapterId], (visible) => {
+        pageTracker.handleScroll(currentRoot, memory.pageDataMap, [appState.reader.layoutChapterId, appState.reader.currentChapterId], (visible) => {
             appState.reader.trackVisiblePage(visible.chapterId, visible.pageIndex, visible.scrollOffset, 'scroll', visible);
         });
     }
@@ -645,7 +658,9 @@
         const previousScrollTop = lastScrollTop;
         lastScrollAt = startedAt;
         lastScrollTop = root.scrollTop;
+        appState.reader.setScrollActivity('scrolling', 'dom-scroll');
         scrollCoordinator.noteUserScroll(root);
+        queueScrollIdleTransaction(root);
         const visualMs = 0;
         const queueStart = performance.now();
         queueWindowReconcile('scroll');
@@ -675,7 +690,7 @@
     function handleClose() {
         const root = getReaderRoot();
         if (root) logVisualSnapshot(root, 'close', true);
-        const visible = root ? pageTracker.findVisible(root, appState.reader.pageGeometry(root.clientWidth), [appState.reader.layoutChapterId, appState.reader.currentChapterId]) : null;
+        const visible = root ? pageTracker.findVisible(root, memory.pageDataMap, [appState.reader.layoutChapterId, appState.reader.currentChapterId]) : null;
         appState.reader.logCloseSnapshot(visible);
         if (visible) appState.reader.trackVisiblePage(visible.chapterId, visible.pageIndex, visible.scrollOffset, 'close', visible);
         onClose();
@@ -702,6 +717,10 @@
                 if (idleLayoutTimer != null) {
                     clearTimeout(idleLayoutTimer);
                     idleLayoutTimer = null;
+                }
+                if (scrollIdleTimer != null) {
+                    clearTimeout(scrollIdleTimer);
+                    scrollIdleTimer = null;
                 }
 
                 const root = getReaderRoot();

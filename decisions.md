@@ -355,6 +355,12 @@ grow that space after the DOM has rendered and before the user reaches it.
 Active scroll should update observations and priorities; idle layout should own
 geometry mutation.
 
+Reader destructive work follows the same rule. During active scroll, the
+reader may hydrate wanted images and observe mounted pages, but it may not
+physically rebase the runway, retire top/bottom slots, revoke blob URLs, or
+remove image `src` values. Those destructive projection and cleanup operations
+belong to idle/initial transactions, not scroll ticks.
+
 ### 32. Synthetic Reproductions Prove Narrow Claims Only
 
 A reduced test app is useful for proving one isolated claim, such as whether
@@ -701,6 +707,22 @@ local deduplication, sorting, and group filtering for display. It does not
 stream Comix chapter pages directly and it does not write thousands of
 intermediate chapter-list states into Svelte.
 
+Manga details have one frontend commit owner. Opening or restoring a manga
+first peeks cached detail and cached chapters:
+
+- if both are hot cache hits, manga metadata, recommendations, and the chapter
+  list are committed together as one foreground snapshot
+- if either cache row is warming, title/cover from the existing card remains
+  visible while the loader commits detail metadata first, chapters second,
+  recommendations third, and comments last
+- if a later section is already ready when an earlier dependency resolves, the
+  ready sections are batched into the same commit
+
+This prevents cached manga-details from behaving like the old live mode, where
+detail, recommendations, chapters, and comments raced each other and mounted
+large sections in random order. Comments are still fresh live data and remain
+the final background section.
+
 ## AH. Progress Is Tracked Per Manga
 
 Reading progress stores chapterId, chapterNumber, pageIndex, and scrollOffset
@@ -721,6 +743,12 @@ The visible page is determined by which page element sits at 1/3 of the viewport
 Reader page images are scheduled by the reader memory manager from current virtual geometry, not by per-chapter IntersectionObservers. On each reader render or scroll pass, mounted page elements inside a 14-viewport image window are prioritized by distance from the visible-page probe. Blob URLs outside that image window are revoked and removed from their image elements.
 
 This image window is separate from the reader chapter window in AK and from list-view infinite scroll in AE. Chapter slots decide which chapters exist in the DOM; the memory manager decides which mounted page images should hold blob URLs.
+
+Image cleanup is lease-like rather than observer-authoritative. A page leaving
+the image window becomes a cleanup candidate; it is not immediately destructive
+while scrolling or while a rebase/projection transaction is active. Cleanup is
+allowed only when the reader is idle and the page is still outside the owned
+window. This keeps image memory ownership from flashing visible pages black.
 
 ## AK. Reader Uses a Bounded Physical Scroller over Logical Chapter Windows
 
@@ -783,6 +811,12 @@ placeholder is the current/probe candidate, fetch ownership must still start
 the chapter image metadata request. The reader must not treat `side=current` as
 a reason to skip fetching a non-ready slot. A chapter can become the visible
 progress/title owner only when ready page geometry exists for it.
+
+Committed render-frame geometry is separate from planner/cache geometry.
+`ReaderWindowManager` may plan with placeholder and cached chapter data, but
+visibility, page tracking, image scheduling, and progress must read from the
+mounted render projection owned by `ReaderState` and `ReaderMemoryManager`.
+Planner data can request work; it cannot become a visible-page fact.
 
 When a chapter hydrates and its real height differs from the placeholder,
 logical layout may change. The physical runway absorbs that change by keeping
@@ -1235,9 +1269,18 @@ which normalized payloads are ready to serve. The provider owns URL/path
 semantics and normalization. BrowserSession should not decide cache policy,
 comment behavior, frontend behavior, or product-level request routing.
 
-## D16. Chapter Log Ownership: Consumer, Not API Layer
+## D16. Chapter Log Ownership: Manga Content Owner, Not API Layer
 
-The `chapters-page` and `chapters-done` log events are emitted by `MangaState.consumeChapterStream` (the consumer), not by `fetchChapterList` in the API layer. The API generator is called from two contexts (display load and restore probe) — the consumer owns the context and therefore owns the logging.
+The `chapters-page` and `chapters-done` log events are emitted by the
+foreground manga content owner, not by the cache API helpers. The API layer can
+peek, poll, and parse cached payloads, but it does not know whether the caller
+is opening manga details, restoring a backing layer, or preparing a reader
+path.
+
+MangaState owns the display context and therefore owns the logging and commit
+phase: detail metadata, chapter list, recommendations, and comments. This keeps
+logs aligned with the user-visible section commits instead of raw cache
+transport.
 
 ## D17. Runtime HTTP Page Is Reused and Reset on Failure
 

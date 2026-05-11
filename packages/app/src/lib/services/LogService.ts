@@ -20,7 +20,7 @@ export type LogEvent =
     | { event: 'manga-open-start'; mangaId: string }
     | { event: 'manga-detail-start'; mangaId: string }
     | { event: 'manga-detail-result'; mangaId: string; tags: number; genres: number; altTitles: number; recommendations: number; description: boolean }
-    | { event: 'manga-entry-state'; mangaId: string; phase: 'detail-applied' | 'chapters-page' | 'chapters-done' | 'comments-done'; recommendations: number; chapters: number; comments: number }
+    | { event: 'manga-entry-state'; mangaId: string; phase: 'detail-applied' | 'recommendations-applied' | 'chapters-page' | 'chapters-done' | 'comments-done'; recommendations: number; chapters: number; comments: number }
     | { event: 'manga-detail-error'; mangaId: string; error: string }
     | { event: 'manga-detail-done'; mangaId: string; ms: number }
     | { event: 'manga-scroll-save'; mangaId: string; scrollTop: number; scrollHeight: number; clientHeight: number }

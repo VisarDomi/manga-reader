@@ -9,6 +9,7 @@ import {
 export class ReaderMemoryManager {
     private blobUrls = new Map<string, string>();
     private loadingKeys = new Set<string>();
+    private retiredAtByKey = new Map<string, number>();
     private abortController: AbortController | undefined;
     private emit: LogEmit;
     private pageElementsByKey = new Map<string, HTMLElement>();
@@ -18,6 +19,7 @@ export class ReaderMemoryManager {
     private lastScheduleLogAt = 0;
     private lastScheduleLogSignature = '';
     private lastSchedulePerfLogAt = 0;
+    private static readonly RETIRE_GRACE_MS = 2_000;
 
     constructor(emit: LogEmit) {
         this.emit = emit;
@@ -71,6 +73,7 @@ export class ReaderMemoryManager {
         clientHeight: number,
         clientWidth: number,
         geometry?: ReaderPageGeometry[],
+        options: { allowCleanup?: boolean } = {},
     ): { totalMs: number; pageCount: number; jobs: number; kept: number; mounted: number; started: number; revoked: number } | null {
         if (!this.abortController || clientHeight <= 0 || clientWidth <= 0) return null;
 
@@ -133,14 +136,20 @@ export class ReaderMemoryManager {
             const wrapper = this.pageElementsByKey.get(job.key);
             if (!wrapper) continue;
             mounted++;
+            this.retiredAtByKey.delete(job.key);
             const img = wrapper.querySelector('img');
             if (!img || img.src) continue;
+            const existingBlobUrl = this.blobUrls.get(job.key);
+            if (existingBlobUrl) {
+                img.src = existingBlobUrl;
+                continue;
+            }
             this.loadImage(job.url, job.key, img);
             started++;
         }
         startMs = performance.now() - startStart;
         const cleanupStart = performance.now();
-        const revoked = this.cleanupOutsideVirtualWindow(keepKeys);
+        const revoked = options.allowCleanup === false ? 0 : this.cleanupOutsideVirtualWindow(keepKeys);
         cleanupMs = performance.now() - cleanupStart;
         const totalMs = performance.now() - t0;
 
@@ -213,6 +222,7 @@ export class ReaderMemoryManager {
     loadImage(url: string, key: string, img: HTMLImageElement): void {
         if (!this.abortController) return;
         if (this.blobUrls.has(key) || this.loadingKeys.has(key)) return;
+        this.retiredAtByKey.delete(key);
         this.loadingKeys.add(key);
 
         const signal = this.abortController.signal;
@@ -241,11 +251,22 @@ export class ReaderMemoryManager {
     }
 
     private cleanupOutsideVirtualWindow(keepKeys: Set<string>): number {
+        const now = performance.now();
         let revoked = 0;
         for (const [key, blobUrl] of this.blobUrls) {
-            if (keepKeys.has(key)) continue;
+            if (keepKeys.has(key)) {
+                this.retiredAtByKey.delete(key);
+                continue;
+            }
+            const retiredAt = this.retiredAtByKey.get(key);
+            if (retiredAt == null) {
+                this.retiredAtByKey.set(key, now);
+                continue;
+            }
+            if (now - retiredAt < ReaderMemoryManager.RETIRE_GRACE_MS) continue;
             URL.revokeObjectURL(blobUrl);
             this.blobUrls.delete(key);
+            this.retiredAtByKey.delete(key);
             revoked++;
 
             const wrapper = this.pageElementsByKey.get(key);
@@ -263,6 +284,7 @@ export class ReaderMemoryManager {
         for (const url of this.blobUrls.values()) URL.revokeObjectURL(url);
         this.blobUrls.clear();
         this.loadingKeys.clear();
+        this.retiredAtByKey.clear();
         this.pageElementsByKey.clear();
         this.pageDataMap.clear();
         this.lastScheduleLogAt = 0;

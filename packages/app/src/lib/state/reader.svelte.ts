@@ -35,6 +35,7 @@ const EDGE_LOAD_RETRY_DELAYS_MS = [750, 1500] as const;
 const READER_PHYSICAL_BEFORE_PX = 200_000;
 const READER_PHYSICAL_AFTER_PX = 200_000;
 const READER_PHYSICAL_REBASE_MARGIN_PX = 80_000;
+export type ReaderScrollActivity = 'idle' | 'scrolling' | 'programmatic';
 
 type ReaderWindowReconcileResult = {
     frameEpoch: number;
@@ -116,6 +117,7 @@ export class ReaderState {
     private chapterDataById = new Map<string, LoadedChapter>();
     private windowManager = new ReaderWindowManager();
     private pendingMangaScrollTargetChapterId: string | null = null;
+    private scrollActivity: ReaderScrollActivity = 'idle';
     readonly pageTracker = new PageTracker();
 
     private ui: UIState;
@@ -139,6 +141,22 @@ export class ReaderState {
 
     get windowFrameEpoch(): number {
         return this.readerWindowFrameEpoch;
+    }
+
+    setScrollActivity(activity: ReaderScrollActivity, source: string): void {
+        if (activity === this.scrollActivity) return;
+        const previous = this.scrollActivity;
+        this.scrollActivity = activity;
+        this.log.emit('reader-scroll-activity', {
+            mangaId: this.manga.activeManga?.id ?? this.activeMangaId,
+            from: previous,
+            to: activity,
+            source,
+        });
+    }
+
+    get isScrollActive(): boolean {
+        return this.scrollActivity !== 'idle';
     }
 
     private plannerChapters(): LoadedChapter[] {
@@ -191,6 +209,7 @@ export class ReaderState {
         this.readerWindowFrame = null;
         this.chapterDataById.clear();
         this.pendingMangaScrollTargetChapterId = null;
+        this.scrollActivity = 'idle';
         this.nextRetryWake = null;
         this.activeMangaId = manga.id;
         this.mangaEntryKey = mangaEntryKey;
@@ -270,6 +289,7 @@ export class ReaderState {
         this.readerWindowFrame = null;
         this.chapterDataById.clear();
         this.pendingMangaScrollTargetChapterId = null;
+        this.scrollActivity = 'idle';
         this.nextRetryWake = null;
         this.activeMangaId = manga.id;
         this.mangaEntryKey = this.manga.activeEntryKey;
@@ -457,7 +477,7 @@ export class ReaderState {
     pageGeometry(viewportWidth: number): ReaderPageGeometry[] {
         return this.windowManager.pageGeometry(
             this.chapterList,
-            this.plannerChapters(),
+            this.loadedChapters,
             viewportWidth,
             this.heightRevision,
             (id, width) => this.estimateChapterHeight(id, width),
@@ -666,6 +686,7 @@ export class ReaderState {
         this.readerWindowFrameSignature = '';
         this.readerWindowFrame = null;
         this.chapterDataById.clear();
+        this.scrollActivity = 'idle';
         this.commentsEpoch++;
         this.commentsAbort?.abort();
         this.commentsAbort = null;
@@ -718,6 +739,10 @@ export class ReaderState {
         this.lastWindowScrollTop = logicalScrollTop;
         this.lastViewportWidth = viewport.clientWidth;
         this.lastViewportHeight = viewport.clientHeight;
+        const allowDestructiveProjection = source !== 'scroll' && this.scrollActivity === 'idle';
+        const nextPhysicalWindowStart = allowDestructiveProjection || viewport.physicalWindowStart != null
+            ? this.nextPhysicalWindowStart(logicalScrollTop, viewport.clientHeight, viewport.physicalWindowStart != null, physicalWindowStart)
+            : physicalWindowStart;
 
         const radiusPx = viewport.clientHeight * READER_WINDOW_RADIUS_VIEWPORTS;
         const keepPx = viewport.clientHeight * READER_DOM_KEEP_RADIUS_VIEWPORTS;
@@ -725,7 +750,7 @@ export class ReaderState {
             chapterList: this.chapterList,
             loadedChapters: this.plannerChapters(),
             logicalScrollTop,
-            physicalWindowStart: this.nextPhysicalWindowStart(logicalScrollTop, viewport.clientHeight, false, physicalWindowStart),
+            physicalWindowStart: nextPhysicalWindowStart,
             physicalBeforePx: READER_PHYSICAL_BEFORE_PX,
             physicalAfterPx: READER_PHYSICAL_AFTER_PX,
             radiusPx,
@@ -735,6 +760,7 @@ export class ReaderState {
             direction,
             heightRevision: this.heightRevision,
             estimateChapterHeight: (chapterId, viewportWidth) => this.estimateChapterHeight(chapterId, viewportWidth),
+            preserveLoadedSlots: !allowDestructiveProjection,
         });
 
         const nextSlots = plan.nextSlots;
@@ -777,6 +803,24 @@ export class ReaderState {
             loadedChapterIds: afterIds.join(','),
             placeholderCount: nextSlots.filter(slot => slot.slotState !== 'ready').length,
         });
+        if (!allowDestructiveProjection) {
+            const currentPhysicalScrollTop = logicalScrollTop - physicalWindowStart;
+            const physicalHeight = READER_PHYSICAL_BEFORE_PX + viewport.clientHeight + READER_PHYSICAL_AFTER_PX;
+            const nearTop = currentPhysicalScrollTop < READER_PHYSICAL_REBASE_MARGIN_PX;
+            const nearBottom = currentPhysicalScrollTop > physicalHeight - viewport.clientHeight - READER_PHYSICAL_REBASE_MARGIN_PX;
+            if (nearTop || nearBottom) {
+                this.log.emit('reader-rebase-deferred', {
+                    source,
+                    mangaId: manga.id,
+                    activity: this.scrollActivity,
+                    edge: nearTop ? 'top' : 'bottom',
+                    currentPhysicalScrollTop: Math.round(currentPhysicalScrollTop),
+                    physicalWindowStart: Math.round(physicalWindowStart),
+                    physicalHeight: Math.round(physicalHeight),
+                    clientHeight: Math.round(viewport.clientHeight),
+                });
+            }
+        }
         this.scheduleWindowFetches(manga, plan.candidates, source);
         return { frameEpoch: frame.epoch, physicalScrollTop: frame.physicalScrollTop };
     }

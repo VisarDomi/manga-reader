@@ -51,6 +51,7 @@ export class ReaderWindowManager {
         direction,
         heightRevision,
         estimateChapterHeight,
+        preserveLoadedSlots = false,
     }: {
         chapterList: ChapterMeta[];
         loadedChapters: LoadedChapter[];
@@ -65,6 +66,7 @@ export class ReaderWindowManager {
         direction: ReaderScrollDirection;
         heightRevision: number;
         estimateChapterHeight: EstimateChapterHeight;
+        preserveLoadedSlots?: boolean;
     }): ReaderWindowPlan {
         const layouts = this.getLayout(chapterList, loadedChapters, viewportWidth, heightRevision, estimateChapterHeight);
         const totalHeight = layouts.at(-1)?.bottom ?? Math.max(clientHeight, 1);
@@ -92,7 +94,7 @@ export class ReaderWindowManager {
 
         const existing = new Map(loadedChapters.map(ch => [ch.id, ch]));
         const nextSlots = layouts
-            .filter(layout => this.intersects(layout.top, layout.bottom, keepTop, keepBottom) || wantedIds.has(layout.chapter.id))
+            .filter(layout => this.intersects(layout.top, layout.bottom, keepTop, keepBottom) || wantedIds.has(layout.chapter.id) || (preserveLoadedSlots && existing.has(layout.chapter.id)))
             .map(layout => {
                 const slot = existing.get(layout.chapter.id) ?? this.createPlaceholderSlot(layout.chapter, viewportWidth, estimateChapterHeight);
                 return {
