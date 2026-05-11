@@ -75,8 +75,6 @@ const EMPTY_COMMENT_STATS: MangaCommentStats = {
 };
 
 export class ReaderState {
-    // Render projection of the committed ReaderWindowFrame. Ready page data lives in chapterDataById,
-    // but cached data is not itself render residency.
     loadedChapters = $state<LoadedChapter[]>([]);
     currentChapterId = $state<string | null>(null);
     layoutChapterId = $state<string | null>(null);

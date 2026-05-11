@@ -43,7 +43,6 @@ body {
     overscroll-behavior-x: none;
 }
 
-/* ============ UTILITY ============ */
 .empty {
     text-align: center;
     color: #555;

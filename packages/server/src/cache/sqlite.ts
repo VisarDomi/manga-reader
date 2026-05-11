@@ -754,7 +754,6 @@ export class CacheDatabase {
         attach(row.manga_id, 'card', medium || large);
         attach(row.manga_id, 'detail', large || medium);
       } catch {
-        // Ignore corrupt cache rows; the owning data jobs will refresh them.
       }
     }
 
@@ -776,7 +775,6 @@ export class CacheDatabase {
           attach(mangaId, 'card', medium || large);
         }
       } catch {
-        // Ignore corrupt search page snapshots.
       }
     }
 

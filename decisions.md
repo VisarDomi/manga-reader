@@ -1140,6 +1140,11 @@ no user-facing repository list, provider install/uninstall flow, or provider
 switching state machine. Do not reintroduce a repo-management surface as part
 of cache/search/restore work unless the product direction changes explicitly.
 
+Provider builds are self-describing. The extension build imports each built
+provider bundle to read its metadata, writes the provider manifest, and copies
+the bundle into the app's bundled fallback directory. That fallback exists so
+the Comix-focused app can still boot if the dynamic manifest path fails.
+
 ## BH. Data Isolation Per Provider
 
 The app currently has one active provider domain: Comix. Client persistence is
@@ -1170,6 +1175,12 @@ if that dynamic load fails, it falls back to the bundled Comix provider shipped
 with the app. Provider filters are fetched through the backend
 `/api/provider-filters/comix` route and fall back to the provider bundle's
 static filter definitions if the backend route fails.
+
+The dynamic provider import is intentionally runtime-resolved from the manifest
+URL. Vite cannot statically analyze `/providers/${bundle}` imports, so the
+frontend keeps the explicit Vite ignore directive there. This is not a
+type-check escape hatch; removing it only produces Vite's variable bare import
+warning while preserving the same runtime behavior.
 
 ## BJ. Live Network Paths Are Narrow Backend Endpoints
 
@@ -1237,6 +1248,11 @@ Provider JS bundles are served with `Cache-Control: no-cache` so updates take ef
 ## D9. HTTPS Required for iOS PWA
 
 iOS Safari requires HTTPS for PWA installation (Add to Home Screen). The server uses mkcert certificates. The manga-reader and gallery-reader backends crash without certs (no HTTP fallback).
+
+The app also ships a minimal service worker for iOS 18 PWA installability. It
+claims clients and has a no-op `fetch` listener, but it does not cache
+requests and does not make the app offline-capable. Avoid adding service-worker
+cache policy unless offline mode becomes an explicit product decision.
 
 ## D10. Server Runs Under xvfb-run
 
@@ -1383,6 +1399,11 @@ worker. If power dies mid chapter-list job, no partial chapter-list row is
 committed and the durable job is reclaimed. If power dies mid page-map job, the
 page-map payload and generated store candidates are in one SQLite transaction,
 so startup either sees the completed row and skips it or reclaims the job.
+
+Corrupt cache rows are not fatal during rebuild/discovery passes. If a cached
+manga row or saved search page snapshot cannot be parsed while rebuilding cover
+ownership, that row is skipped and the owning data job is expected to refresh
+it. Cache repair belongs to the cache worker, not to a broad startup crash.
 
 The cache layers discover their own lower-layer work. Search crawl rows enqueue
 owned `card` cover byte jobs from `poster.medium` only. Manga-detail caching

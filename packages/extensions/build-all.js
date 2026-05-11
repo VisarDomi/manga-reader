@@ -18,14 +18,12 @@ for (const name of readdirSync(PROVIDERS_DIR)) {
   console.log(`Building provider: ${name}`);
   execSync('npm run build', { cwd: providerDir, stdio: 'inherit' });
 
-  // Read metadata from the built bundle
   const bundlePath = join(DIST_DIR, 'bundles', `${name}.js`);
   if (!existsSync(bundlePath)) {
     console.error(`  Bundle not found: ${bundlePath}`);
     continue;
   }
 
-  // Extract metadata by importing the bundle
   const mod = await import(bundlePath);
   const provider = mod.default;
   index.push({
@@ -37,7 +35,6 @@ for (const name of readdirSync(PROVIDERS_DIR)) {
     bundle: `bundles/${name}.js`,
   });
 
-  // Copy bundle to app's bundled fallback directory
   const appBundleDest = join(APP_BUNDLED_DIR, `${name}.js`);
   copyFileSync(bundlePath, appBundleDest);
   console.log(`  Copied to app bundled fallback: ${appBundleDest}`);
