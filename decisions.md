@@ -821,28 +821,7 @@ Destructive physical projection is also transactional. Timer-derived labels
 such as "idle" or "settled" are not proof that Safari/iOS has finished scroll
 momentum or accepted a programmatic `scrollTop` write. The reader therefore
 does not use timeout-based `scroll-idle` or `scroll-settled` gates as layout
-authority.
-
-There are two classes of reader window work:
-
-- **Soft window work:** update logical window planning, fetch nearby chapters,
-  schedule page images, observe visible pages, and preserve progress. This may
-  continue during user scroll or momentum.
-- **Hard physical projection:** write browser `scrollTop` to re-center the
-  bounded physical runway. This is destructive to native momentum and must not
-  run just because the logical planner needs a new runway.
-
-When the scroll position approaches a bounded runway edge, `ReaderWindowOwner`
-may request a physical rebase, but `ScrollMotionOwner` grants the actual
-`scrollTop` write only after measured RAF samples show the viewport is stable.
-This is a motion lease, not a timeout gate: if the user scrolls away from the
-edge before stability, the pending rebase is cancelled. Native `scrollend` is
-not currently used as the sole authority because there is no prior successful
-reader history with it and iOS PWA semantics are not trusted enough for a hard
-projection write.
-
-Once the motion lease is granted, the hard rebase creates an explicit
-projection transaction:
+authority. A rebase creates an explicit projection transaction:
 
 - `ReaderState` computes and commits the new owned projection.
 - `Reader.svelte` writes the derived physical `scrollTop`.
@@ -881,14 +860,6 @@ then browser scroll behavior continued at the old physical coordinate. The
 planner accepted that coordinate in the new projection and jumped from chapter
 80 to chapter 83. This is why physical rebases now require transaction
 acknowledgment instead of timer-based settle guesses.
-
-A later 2026-05-11 test showed another failure mode: a correct transaction can
-still kill iOS momentum if it writes `scrollTop` while momentum is active. The
-reader hit the bottom runway edge around `scrollTop=320273`, rebased to
-`200000`, and Safari stopped inertial scroll cold. The durable rule is now:
-soft reader work may continue during motion, but hard physical rebases are
-deferred and logged as `reader-rebase-deferred` until measured motion stability
-grants the projection write.
 
 Placeholder slots are layout hints, not visible-page authority. If a wanted
 placeholder is the current/probe candidate, fetch ownership must still start
