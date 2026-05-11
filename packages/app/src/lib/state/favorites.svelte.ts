@@ -94,11 +94,10 @@ export class FavoritesState {
         const generation = this.hydrationGeneration;
         this.ids = rows.map(row => row.id);
         this.items = rows.map(row => this.items.find(item => item.id === row.id) ?? this.placeholder(row.id, row.snapshot));
-        const missing = rows.filter(row => !row.snapshot);
-        if (missing.length > 0) void this.migrateMissingSnapshots(missing, generation);
+        if (rows.length > 0) void this.refreshFavoriteSnapshots(rows, generation);
     }
 
-    private async migrateMissingSnapshots(rows: db.FavoriteIdRow[], generation: number): Promise<void> {
+    private async refreshFavoriteSnapshots(rows: db.FavoriteIdRow[], generation: number): Promise<void> {
         const startedAt = performance.now();
         const fallbacks = rows.map(row => this.items.find(item => item.id === row.id) ?? this.placeholder(row.id, row.snapshot));
         this.log.emit('favorites-hydration', {
@@ -139,7 +138,7 @@ export class FavoritesState {
     }
 
     private async repairCardSnapshots(fallbacks: Manga[], generation: number): Promise<number | null> {
-        const snapshots = await api.fetchMangaCardSnapshots(fallbacks).catch(() => []);
+        const snapshots = await api.fetchMangaCardSnapshots(fallbacks, undefined, true).catch(() => []);
         if (generation !== this.hydrationGeneration) return null;
 
         const activeIds = new Set(this.ids);

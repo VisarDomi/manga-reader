@@ -184,6 +184,10 @@ export async function fetchMangaCardSnapshots(fallbacks: Manga[], signal?: Abort
             latestChapter: detail.latestChapter ?? fallback.latestChapter,
         };
         const chapters = snapshot.chapters ? provider.parseChapterListResponse(snapshot.chapters).items : null;
+        if (chapters && chapters.length > 0) {
+            const chapterMax = chapters.reduce((max, chapter) => Math.max(max, Number.isFinite(chapter.number) ? chapter.number : 0), 0);
+            if (chapterMax > (manga.latestChapter ?? 0)) manga.latestChapter = chapterMax;
+        }
         return {
             manga,
             chapters,
