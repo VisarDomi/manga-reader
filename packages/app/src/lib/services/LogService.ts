@@ -65,9 +65,11 @@ export type LogEvent =
     | { event: 'reader-window-height-delta'; source: 'initial' | 'scroll' | 'visible' | 'retry'; mangaId: string; chapterId: string; previousEstimatedHeight: number | null; estimatedHeight: number; delta: number | null }
     | { event: 'reader-layout-measurement'; mangaId: string; chapterId: string; contentHeight: number; slotHeight: number; delta: number }
     | { event: 'reader-layout-prime'; mangaId: string | null; chapterId: string | null; viewportWidth: number; clientHeight: number; changedCount: number; totalDelta: number }
-    | { event: 'reader-layout-idle-timer'; phase: 'queued' | 'fired'; mangaId: string | null; sequence: number; delayMs: number; queuedForMs: number; sinceLastResetMs: number; resetCount: number; pendingMeasurements: number; scrollTop: number; source?: 'scroll' | 'layout'; result?: 'promoted' | 'unchanged' | 'no-root' }
+    | { event: 'reader-layout-idle-timer'; phase: 'queued' | 'fired'; mangaId: string | null; sequence: number; delayMs: number; queuedForMs: number; sinceLastResetMs: number; resetCount: number; pendingMeasurements: number; scrollTop: number; source?: 'scroll' | 'layout'; result?: 'promoted' | 'unchanged' | 'no-root' | 'waiting-for-settle' }
     | { event: 'reader-layout-anchor-choice'; mangaId: string | null; currentChapterId: string | null; layoutChapterId: string | null; anchorKey: string | null; selection: 'owner' | 'probe' | 'none'; ownerChapterId: string | null }
     | { event: 'reader-layout-idle-promote'; mangaId: string; changedCount: number; totalDelta: number; anchorKey: string | null }
+    | { event: 'reader-scroll-activity'; mangaId: string | null; from: string; to: string; source: string }
+    | { event: 'reader-scroll-settle'; mangaId: string | null; phase: 'queued' | 'sample' | 'settled' | 'cancelled'; generation: number; stableSamples: number; scrollTop: number; delta: number; queuedForMs: number }
     | { event: 'reader-window-hydration-applied'; source: 'initial' | 'scroll' | 'visible' | 'retry'; mangaId: string; chapterId: string; chapterNumber: number; reason: 'current' | 'window'; currentChapterId?: string | null; currentVirtualTop?: number | null; layoutViewportHeight?: number }
     | { event: 'reader-window-fetch-stale'; source: 'initial' | 'scroll' | 'visible' | 'retry'; mangaId: string; chapterId: string; reason: 'epoch' | 'slot-missing' }
     | { event: 'reader-window-fetch-failed'; source: 'initial' | 'scroll' | 'visible' | 'retry'; mangaId: string; chapterId: string; error: string }

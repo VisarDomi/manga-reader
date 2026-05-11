@@ -57,6 +57,11 @@
     let lastScrollAt = 0;
     let lastScrollTop = 0;
     let scrollIdleTimer: ReturnType<typeof setTimeout> | null = null;
+    let scrollSettledTimer: ReturnType<typeof setTimeout> | null = null;
+    let scrollSettledGeneration = 0;
+    let scrollSettledQueuedAt = 0;
+    let scrollSettledLastTop = 0;
+    let scrollSettledStableSamples = 0;
     let lastReconcileScrollTop = Number.NaN;
     let lastReconcileClientHeight = 0;
     let lastPageTrackAt = 0;
@@ -64,6 +69,9 @@
     let lastFrameAt = 0;
     const IDLE_LAYOUT_DELAY_MS = 450;
     const SCROLL_IDLE_DELAY_MS = 180;
+    const SCROLL_SETTLED_SAMPLE_MS = 120;
+    const SCROLL_SETTLED_REQUIRED_SAMPLES = 3;
+    const SCROLL_SETTLED_EPSILON_PX = 1;
     const SCROLL_RECONCILE_STEP_VIEWPORTS = 0.75;
     const PAGE_TRACK_INTERVAL_MS = 250;
     const READER_DIAGNOSTICS = {
@@ -317,6 +325,90 @@
         }, 0);
     }
 
+    function cancelScrollSettledTransaction(reason: 'scroll' | 'teardown' = 'scroll') {
+        const hadTimer = scrollSettledTimer != null;
+        if (scrollSettledTimer != null) {
+            clearTimeout(scrollSettledTimer);
+            scrollSettledTimer = null;
+        }
+        scrollSettledGeneration++;
+        if (reason === 'scroll' && hadTimer) {
+            const root = getReaderRoot();
+            appState.log.emit('reader-scroll-settle', {
+                mangaId: appState.manga.activeManga?.id ?? null,
+                phase: 'cancelled',
+                generation: scrollSettledGeneration,
+                stableSamples: scrollSettledStableSamples,
+                scrollTop: Math.round(root?.scrollTop ?? 0),
+                delta: 0,
+                queuedForMs: scrollSettledQueuedAt === 0 ? 0 : Math.round(performance.now() - scrollSettledQueuedAt),
+            });
+        }
+        scrollSettledStableSamples = 0;
+    }
+
+    function queueScrollSettledTransaction(root: HTMLElement) {
+        if (scrollSettledTimer != null) clearTimeout(scrollSettledTimer);
+        const generation = scrollSettledGeneration;
+        scrollSettledQueuedAt = performance.now();
+        scrollSettledLastTop = root.scrollTop;
+        scrollSettledStableSamples = 0;
+        appState.log.emit('reader-scroll-settle', {
+            mangaId: appState.manga.activeManga?.id ?? null,
+            phase: 'queued',
+            generation,
+            stableSamples: 0,
+            scrollTop: Math.round(root.scrollTop),
+            delta: 0,
+            queuedForMs: 0,
+        });
+
+        const sample = () => {
+            const currentRoot = getReaderRoot();
+            if (!currentRoot || generation !== scrollSettledGeneration) return;
+            const delta = currentRoot.scrollTop - scrollSettledLastTop;
+            if (Math.abs(delta) <= SCROLL_SETTLED_EPSILON_PX) {
+                scrollSettledStableSamples++;
+            } else {
+                scrollSettledStableSamples = 0;
+                scrollSettledLastTop = currentRoot.scrollTop;
+            }
+
+            if (scrollSettledStableSamples < SCROLL_SETTLED_REQUIRED_SAMPLES) {
+                appState.log.emit('reader-scroll-settle', {
+                    mangaId: appState.manga.activeManga?.id ?? null,
+                    phase: 'sample',
+                    generation,
+                    stableSamples: scrollSettledStableSamples,
+                    scrollTop: Math.round(currentRoot.scrollTop),
+                    delta: Math.round(delta),
+                    queuedForMs: Math.round(performance.now() - scrollSettledQueuedAt),
+                });
+                scrollSettledTimer = setTimeout(sample, SCROLL_SETTLED_SAMPLE_MS);
+                return;
+            }
+
+            scrollSettledTimer = null;
+            appState.reader.setScrollActivity('settled', 'scroll-settled');
+            appState.log.emit('reader-scroll-settle', {
+                mangaId: appState.manga.activeManga?.id ?? null,
+                phase: 'settled',
+                generation,
+                stableSamples: scrollSettledStableSamples,
+                scrollTop: Math.round(currentRoot.scrollTop),
+                delta: Math.round(delta),
+                queuedForMs: Math.round(performance.now() - scrollSettledQueuedAt),
+            });
+            reconcileReaderWindow('visible', currentRoot.scrollTop, scrollSettledQueuedAt);
+            scheduleVirtualImages(currentRoot);
+            if (appState.reader.pendingLayoutMeasurementCount > 0) {
+                queueIdleLayoutPromotion('layout');
+            }
+        };
+
+        scrollSettledTimer = setTimeout(sample, SCROLL_SETTLED_SAMPLE_MS);
+    }
+
     function queueScrollIdleTransaction(root: HTMLElement) {
         if (scrollIdleTimer != null) clearTimeout(scrollIdleTimer);
         scrollIdleTimer = setTimeout(() => {
@@ -324,6 +416,7 @@
             appState.reader.setScrollActivity('idle', 'scroll-idle');
             reconcileReaderWindow('visible', root.scrollTop);
             scheduleVirtualImages(root);
+            queueScrollSettledTransaction(root);
         }, SCROLL_IDLE_DELAY_MS);
     }
 
@@ -417,6 +510,23 @@
                 result: 'no-root',
                 source: idleLayoutSource,
             });
+            return;
+        }
+        if (!appState.reader.isScrollSettled) {
+            appState.log.emit('reader-layout-idle-timer', {
+                phase: 'fired',
+                mangaId: appState.manga.activeManga?.id ?? null,
+                sequence: idleLayoutSequence,
+                delayMs: IDLE_LAYOUT_DELAY_MS,
+                queuedForMs: Math.round(now - idleLayoutQueuedAt),
+                sinceLastResetMs: Math.round(now - idleLayoutLastResetAt),
+                resetCount: idleLayoutResetCount,
+                pendingMeasurements: appState.reader.pendingLayoutMeasurementCount,
+                scrollTop: Math.round(root.scrollTop),
+                result: 'waiting-for-settle',
+                source: idleLayoutSource,
+            });
+            queueScrollSettledTransaction(root);
             return;
         }
         appState.reader.recordChapterMeasurements(measureChapterHeights(root));
@@ -659,6 +769,7 @@
         lastScrollAt = startedAt;
         lastScrollTop = root.scrollTop;
         appState.reader.setScrollActivity('scrolling', 'dom-scroll');
+        cancelScrollSettledTransaction('scroll');
         scrollCoordinator.noteUserScroll(root);
         queueScrollIdleTransaction(root);
         const visualMs = 0;
@@ -722,6 +833,7 @@
                     clearTimeout(scrollIdleTimer);
                     scrollIdleTimer = null;
                 }
+                cancelScrollSettledTransaction('teardown');
 
                 const root = getReaderRoot();
                 if (root) root.removeEventListener('scroll', handleScroll);
