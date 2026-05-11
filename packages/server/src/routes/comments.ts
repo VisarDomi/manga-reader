@@ -56,7 +56,7 @@ export function createCommentsRouter(commentsService: CommentsService | null): R
             }
             throw error;
         }
-        console.log(`[proxy] manga-comments ${mangaId} api=${jsonApiStatus(result.data)} ${commentsSummary(result.data)} ${result.durationMs}ms`);
+        console.log(`[comments] manga ${mangaId} api=${jsonApiStatus(result.data)} ${commentsSummary(result.data)} ${result.durationMs}ms`);
         res.json(result.data);
     }));
 
@@ -88,7 +88,7 @@ export function createCommentsRouter(commentsService: CommentsService | null): R
             }
             throw error;
         }
-        console.log(`[proxy] chapter-comments ${mangaId}/${chapterId} number=${chapterNumber} api=${jsonApiStatus(result.data)} ${commentsSummary(result.data)} ${result.durationMs}ms`);
+        console.log(`[comments] chapter ${mangaId}/${chapterId} number=${chapterNumber} api=${jsonApiStatus(result.data)} ${commentsSummary(result.data)} ${result.durationMs}ms`);
         res.json(result.data);
     }));
 

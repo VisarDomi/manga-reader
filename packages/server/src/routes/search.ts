@@ -47,7 +47,7 @@ export default function createSearchRouter(): Router {
       cloudflareProtected: upstream.cloudflareProtected,
     });
     const parsed = provider.parseSearchResponse(data);
-    console.log(`[proxy] search query="${query || '(browse)'}" page=${page} http=${meta.status} count=${parsed.items.length} current=${parsed.pagination?.currentPage ?? page} last=${parsed.pagination?.lastPage ?? 'unknown'} total=${parsed.pagination?.total ?? parsed.items.length} ${Date.now() - started}ms`);
+    console.log(`[search] query="${query || '(browse)'}" page=${page} http=${meta.status} count=${parsed.items.length} current=${parsed.pagination?.currentPage ?? page} last=${parsed.pagination?.lastPage ?? 'unknown'} total=${parsed.pagination?.total ?? parsed.items.length} ${Date.now() - started}ms`);
     res.json(data);
   }));
 
