@@ -865,6 +865,21 @@ export class ReaderState {
         };
     }
 
+    rebaseTargetIfNeeded(physicalScrollTop: number, clientHeight: number): { edge: ReaderEdge; physicalWindowStart: number; scrollTop: number } | null {
+        if (clientHeight <= 0) return null;
+        const logicalScrollTop = this.physicalWindowStart + physicalScrollTop;
+        const physicalHeight = READER_PHYSICAL_BEFORE_PX + clientHeight + READER_PHYSICAL_AFTER_PX;
+        const nearTop = physicalScrollTop < READER_PHYSICAL_REBASE_MARGIN_PX;
+        const nearBottom = physicalScrollTop > physicalHeight - clientHeight - READER_PHYSICAL_REBASE_MARGIN_PX;
+        if (!nearTop && !nearBottom) return null;
+        const target = this.physicalTargetForLogical(logicalScrollTop, clientHeight);
+        if (Math.abs(target.scrollTop - physicalScrollTop) <= 1 && Math.abs(target.physicalWindowStart - this.physicalWindowStart) <= 1) return null;
+        return {
+            edge: nearTop ? 'prev' : 'next',
+            ...target,
+        };
+    }
+
     private nextPhysicalWindowStart(logicalScrollTop: number, clientHeight: number, forceCenter = false, currentWindowStart = this.physicalWindowStart): number {
         const currentPhysicalScrollTop = logicalScrollTop - currentWindowStart;
         const physicalHeight = READER_PHYSICAL_BEFORE_PX + clientHeight + READER_PHYSICAL_AFTER_PX;

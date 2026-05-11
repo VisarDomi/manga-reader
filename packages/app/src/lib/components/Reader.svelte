@@ -67,11 +67,20 @@
     } | null = null;
     let projectionTransactionId = 0;
     let projectionAckRaf: number | null = null;
+    let scrollSessionRaf: number | null = null;
+    let scrollIdleTimer: ReturnType<typeof setTimeout> | null = null;
+    let scrollSessionActive = false;
+    let pointerActive = false;
+    let stableScrollTop = 0;
+    let stableFrameCount = 0;
     let lastPageTrackAt = 0;
     let frameRaf: number | null = null;
     let lastFrameAt = 0;
     const SCROLL_RECONCILE_STEP_VIEWPORTS = 0.75;
     const PAGE_TRACK_INTERVAL_MS = 250;
+    const SCROLL_STABLE_EPSILON_PX = 0.5;
+    const SCROLL_STABLE_FRAME_COUNT = 4;
+    const SCROLL_IDLE_REBASE_DELAY_MS = 1_000;
     const READER_DIAGNOSTICS = {
         frameGapProbe: true,
         visualSnapshot: true,
@@ -400,6 +409,137 @@
             queueLayoutPromotion('projection');
         }
         return true;
+    }
+
+    function cancelScrollIdle(reason: string) {
+        if (scrollIdleTimer != null) {
+            clearTimeout(scrollIdleTimer);
+            scrollIdleTimer = null;
+            const root = getReaderRoot();
+            appState.log.emit('reader-scroll-session', {
+                phase: 'idle-cancelled',
+                mangaId: appState.manga.activeManga?.id ?? null,
+                scrollTop: Math.round(root?.scrollTop ?? stableScrollTop),
+                reason,
+            });
+        }
+    }
+
+    function stopScrollSessionMonitor(reason: string) {
+        if (scrollSessionRaf != null) {
+            cancelAnimationFrame(scrollSessionRaf);
+            scrollSessionRaf = null;
+        }
+        cancelScrollIdle(reason);
+        stableFrameCount = 0;
+    }
+
+    function startScrollSession(source: string, root: HTMLElement) {
+        cancelScrollIdle(source);
+        stableScrollTop = root.scrollTop;
+        stableFrameCount = 0;
+        if (!scrollSessionActive) {
+            scrollSessionActive = true;
+            appState.log.emit('reader-scroll-session', {
+                phase: 'start',
+                mangaId: appState.manga.activeManga?.id ?? null,
+                scrollTop: Math.round(root.scrollTop),
+                reason: source,
+            });
+        }
+        if (scrollSessionRaf == null) {
+            scrollSessionRaf = requestAnimationFrame(observeScrollSession);
+        }
+    }
+
+    function observeScrollSession() {
+        scrollSessionRaf = null;
+        const root = getReaderRoot();
+        if (!root || projectionTransaction || pointerActive || appState.ui.isSwiping || appState.ui.isForwardSwiping) {
+            if (root && scrollSessionActive) {
+                stableScrollTop = root.scrollTop;
+                stableFrameCount = 0;
+                scrollSessionRaf = requestAnimationFrame(observeScrollSession);
+            }
+            return;
+        }
+
+        const delta = Math.abs(root.scrollTop - stableScrollTop);
+        if (delta > SCROLL_STABLE_EPSILON_PX) {
+            stableScrollTop = root.scrollTop;
+            stableFrameCount = 0;
+            cancelScrollIdle('scroll-moved');
+            scrollSessionRaf = requestAnimationFrame(observeScrollSession);
+            return;
+        }
+
+        stableFrameCount++;
+        if (stableFrameCount < SCROLL_STABLE_FRAME_COUNT) {
+            scrollSessionRaf = requestAnimationFrame(observeScrollSession);
+            return;
+        }
+
+        appState.log.emit('reader-scroll-session', {
+            phase: 'stable',
+            mangaId: appState.manga.activeManga?.id ?? null,
+            scrollTop: Math.round(root.scrollTop),
+            stableFrames: stableFrameCount,
+            quietMs: 0,
+        });
+        scheduleIdleRebaseGrant(root.scrollTop);
+    }
+
+    function scheduleIdleRebaseGrant(scrollTopAtStable: number) {
+        if (scrollIdleTimer != null) return;
+        scrollIdleTimer = setTimeout(() => {
+            scrollIdleTimer = null;
+            const root = getReaderRoot();
+            if (!root) return;
+            if (projectionTransaction) {
+                startScrollSession('projection-active', root);
+                return;
+            }
+            if (pointerActive || appState.ui.isSwiping || appState.ui.isForwardSwiping) {
+                startScrollSession('gesture-active', root);
+                return;
+            }
+            if (Math.abs(root.scrollTop - scrollTopAtStable) > SCROLL_STABLE_EPSILON_PX) {
+                startScrollSession('scroll-moved-during-idle-delay', root);
+                return;
+            }
+
+            scrollSessionActive = false;
+            stableFrameCount = 0;
+            appState.reader.setScrollActivity('settled', 'scroll-session-idle');
+            appState.log.emit('reader-scroll-session', {
+                phase: 'idle-granted',
+                mangaId: appState.manga.activeManga?.id ?? null,
+                scrollTop: Math.round(root.scrollTop),
+                stableFrames: SCROLL_STABLE_FRAME_COUNT,
+                quietMs: SCROLL_IDLE_REBASE_DELAY_MS,
+            });
+            requestIdleRebaseIfNeeded(root);
+        }, SCROLL_IDLE_REBASE_DELAY_MS);
+    }
+
+    function requestIdleRebaseIfNeeded(root: HTMLElement) {
+        const target = appState.reader.rebaseTargetIfNeeded(root.scrollTop, root.clientHeight);
+        if (!target) {
+            appState.log.emit('reader-scroll-session', {
+                phase: 'rebase-skipped',
+                mangaId: appState.manga.activeManga?.id ?? null,
+                scrollTop: Math.round(root.scrollTop),
+                reason: 'no-edge-pressure',
+            });
+            return;
+        }
+        appState.log.emit('reader-scroll-session', {
+            phase: 'rebase-request',
+            mangaId: appState.manga.activeManga?.id ?? null,
+            scrollTop: Math.round(root.scrollTop),
+            edge: target.edge === 'prev' ? 'top' : 'bottom',
+        });
+        reconcileReaderWindow('scroll', target.scrollTop, undefined, target.physicalWindowStart);
     }
 
     function queueWindowReconcile(source: 'scroll' | 'visible' | 'retry' = 'scroll') {
@@ -761,6 +901,7 @@
         lastScrollAt = startedAt;
         lastScrollTop = root.scrollTop;
         appState.reader.setScrollActivity('scrolling', 'dom-scroll');
+        startScrollSession('dom-scroll', root);
         scrollCoordinator.noteUserScroll(root);
         const visualMs = 0;
         const queueStart = performance.now();
@@ -797,6 +938,18 @@
         onClose();
     }
 
+    function handlePointerDown() {
+        pointerActive = true;
+        const root = getReaderRoot();
+        if (root) startScrollSession('pointer-down', root);
+    }
+
+    function handlePointerUp() {
+        pointerActive = false;
+        const root = getReaderRoot();
+        if (root) startScrollSession('pointer-up', root);
+    }
+
     $effect(() => {
         const count = chapters.length;
         if (count === 0) {
@@ -824,6 +977,9 @@
                     cancelAnimationFrame(projectionAckRaf);
                     projectionAckRaf = null;
                 }
+                stopScrollSessionMonitor('reader-unmount');
+                pointerActive = false;
+                scrollSessionActive = false;
                 if (projectionTransaction) {
                     appState.log.emit('reader-projection-transaction', {
                         phase: 'cancel',
@@ -840,7 +996,15 @@
                 }
 
                 const root = getReaderRoot();
-                if (root) root.removeEventListener('scroll', handleScroll);
+                if (root) {
+                    root.removeEventListener('scroll', handleScroll);
+                    root.removeEventListener('touchstart', handlePointerDown);
+                    root.removeEventListener('touchend', handlePointerUp);
+                    root.removeEventListener('touchcancel', handlePointerUp);
+                    root.removeEventListener('pointerdown', handlePointerDown);
+                    root.removeEventListener('pointerup', handlePointerUp);
+                    root.removeEventListener('pointercancel', handlePointerUp);
+                }
             }
             return;
         }
@@ -857,6 +1021,12 @@
             const root = getReaderRoot();
             if (root) {
                 root.addEventListener('scroll', handleScroll, { passive: true });
+                root.addEventListener('touchstart', handlePointerDown, { passive: true });
+                root.addEventListener('touchend', handlePointerUp, { passive: true });
+                root.addEventListener('touchcancel', handlePointerUp, { passive: true });
+                root.addEventListener('pointerdown', handlePointerDown, { passive: true });
+                root.addEventListener('pointerup', handlePointerUp, { passive: true });
+                root.addEventListener('pointercancel', handlePointerUp, { passive: true });
                 startFrameProbe();
             }
 

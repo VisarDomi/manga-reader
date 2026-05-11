@@ -819,14 +819,20 @@ cursor input after a rebase; it is logged as
 This closes the cross-event race where Safari can deliver a scroll value from
 the old runway after state has already committed the new runway.
 
-Destructive physical projection is also transactional and lifecycle-owned.
+Destructive physical projection is also transactional and session-owned.
 Timer-derived labels such as "idle" or "settled" are not proof that Safari/iOS
 has finished scroll momentum or accepted a programmatic `scrollTop` write. RAF
 velocity samples are also only observations; slow inertial scrolling can look
-stable for a few frames and then continue. The reader therefore does not use
-timeout-based gates, frame-sample gates, or live scroll events as layout
-authority for a hard rebase. A lifecycle rebase creates an explicit projection
-transaction:
+stable for a few frames and then continue. The reader therefore separates the
+green light from the action: the scroll-session owner first requires measured
+viewport stability with no active pointer, swipe, or programmatic scroll; only
+after that green light does it start a 1000ms quiet grant. Any new scroll,
+touch/pointer activity, swipe, or projection transaction cancels the grant and
+the session must prove stability again. This delay is not the primary detector;
+it is a conservative second-stage authorization after the detector says the
+browser has stopped moving.
+
+Once authorized, a rebase creates an explicit projection transaction:
 
 - `ReaderState` computes and commits the new owned projection.
 - `Reader.svelte` writes the derived physical `scrollTop`.
@@ -838,17 +844,19 @@ transaction:
 - only after `phase=ack` may normal scroll observations drive planning,
   cleanup, or layout promotion again.
 
-Timers may still schedule work elsewhere in the app, but they must not grant
-permission for destructive reader operations. Reader layout promotion is
-scheduled by frame and is blocked by active projection transactions, not by a
-guessed settled state.
+Timers may still schedule work elsewhere in the app, but a timer alone must not
+grant permission for destructive reader operations. The only timer allowed in
+reader projection is the post-stability quiet grant owned by the scroll-session
+owner. Reader layout promotion is scheduled by frame and is blocked by active
+projection transactions, not by a guessed settled state.
 
-If a live scroll approaches the bounded runway edge, the reader logs
-`reader-rebase-deferred` and keeps the existing physical projection. This may
-surface a runway-size or edge-pressure problem, but it does not let Safari's
-ongoing momentum turn an old physical coordinate into a new logical chapter.
-The ownership rule is intentionally browser-independent: browser scroll events
-can describe motion, but only the reader lifecycle owner can write a new
+If a live scroll approaches the bounded runway edge before the scroll-session
+owner grants idle authority, the reader logs `reader-rebase-deferred` and keeps
+the existing physical projection. This may surface a runway-size or
+edge-pressure problem, but it does not let Safari's ongoing momentum turn an
+old physical coordinate into a new logical chapter. The ownership rule is
+intentionally browser-independent: browser scroll events can describe motion,
+but only the reader lifecycle owner or the scroll-session owner can write a new
 physical projection.
 
 This rule exists because a bug on 2026-05-10 showed the failure mode clearly:
@@ -879,9 +887,11 @@ class of bug in a different form. The reader deferred a bottom-edge rebase
 while Safari was still scrolling, decided after several small deltas that
 motion was stable, wrote `scrollTop` from about `320325` to `200000`, then
 accepted Safari's continued `320341` observation in the new projection and
-jumped from chapter `7523941` to `7523953`. The fix is stricter than better
-motion detection: scroll-origin reconciles cannot request destructive physical
-rebases at all.
+jumped from chapter `7523941` to `7523953`. The durable fix is stricter than a
+better motion detector: scroll-origin reconciles do not directly request
+destructive physical rebases. They can only start a scroll session. The
+scroll-session owner must observe stability, wait through the 1000ms quiet
+grant, and then ask `ReaderState` for an edge-pressure rebase target.
 
 Placeholder slots are layout hints, not visible-page authority. If a wanted
 placeholder is the current/probe candidate, fetch ownership must still start
