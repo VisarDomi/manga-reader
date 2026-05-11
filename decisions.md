@@ -947,17 +947,21 @@ behind it.
 On app launch, if a session snapshot exists, the app restores it automatically.
 The restore owner first recreates the saved foreground shell: `viewMode`,
 `viewStack`, manga stack entries, and any overlay/reader surface implied by the
-snapshot. Hydration then runs behind that shell. This keeps app launch
+snapshot. This foreground shell is applied before favorites, search replay,
+manga hydration, reader image metadata, or comments can make a different layer
+visible. Hydration then runs behind that shell. This keeps app launch
 responsive and prevents the root list/favorites surface from staying visible
 until manga, reader, comments, or search replay finishes.
 
-While restoring, a passive "Restoring last position..." toast is shown. If the
-user takes any action during restore (scrolls, taps a manga, changes view, or
-starts a new search), the restore is cancelled silently — user action always
-wins. Each phase is independently abortable.
+Restore is silent during normal cold start. If the user takes any action during
+restore (scrolls, taps a manga, changes view, or starts a new search), the
+restore is cancelled silently — user action always wins. Each phase is
+independently abortable.
 
-All restore sequences require the active provider to be loaded first (see BI).
-Each sequence restores only the owners implied by `viewMode` and `viewStack`:
+The foreground shell can be applied from the local session snapshot before the
+provider is ready. Data hydration still requires the active provider to be
+loaded first (see BI). Each sequence restores only the owners implied by
+`viewMode` and `viewStack`:
 
 **Search/list restore:**
 - Replay the saved search context, or run the current empty/default search.
@@ -1245,6 +1249,11 @@ Individual image proxy successes accumulate in a batch. A summary (count, avg tt
 ## D12. LogEvent Is a Discriminated Union
 
 Every frontend log event is a variant of the `LogEvent` union type. Adding a new event requires adding it to the union first — the compiler forces every emitter to supply the correct payload. The `emit` function extracts the `event` field as the first arg and type-checks the payload against the event name.
+
+Svelte component emitters should still be audited when new log points are
+added. The union is the ownership contract for log payload shape; keeping it in
+sync matters even when a build path does not surface a Svelte-side type issue
+as loudly as a plain TypeScript file.
 
 ## D13. Image Load Success Logged Server-Side Only
 
