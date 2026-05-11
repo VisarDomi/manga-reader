@@ -8,7 +8,7 @@
 
     let { manga, source = 'search' }: { manga: Manga; source?: MangaListSource } = $props();
 
-    const coverUrl = $derived(manga.cover ? api.coverProxyUrl(manga.cover) : '');
+    const coverUrl = $derived(api.coverProxyUrl(manga.id, 'card', manga.cover || undefined));
     const latestChapter = $derived(manga.latestChapter ?? 0);
     let progress = $state<ProgressData | null>(null);
     let filteredMaxSnapshot = $state({ filteredMax: null as number | null });

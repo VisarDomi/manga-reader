@@ -1,13 +1,20 @@
 import { Router } from 'express';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import type { CacheJobPriority, CacheReconcileSource, CacheService } from '../cache/CacheService.js';
+import { isAllowedImageDomain } from '../services/imageProxy.js';
+import type { ByteCacheService } from '../cache/ByteCacheService.js';
+import type { MangaCoverVariant } from '../cache/sqlite.js';
 
 function singleParam(value: string | string[] | undefined): string | null {
   if (typeof value !== 'string' || value.length === 0) return null;
   return value;
 }
 
-export function createCacheRouter(cache: CacheService | null): Router {
+function coverVariant(value: string | string[] | undefined): MangaCoverVariant | null {
+  return value === 'card' || value === 'detail' ? value : null;
+}
+
+export function createCacheRouter(cache: CacheService | null, byteCache: ByteCacheService | null = null): Router {
   const router = Router();
 
   router.get('/cache/status', asyncHandler(async (_req, res) => {
@@ -16,6 +23,37 @@ export function createCacheRouter(cache: CacheService | null): Router {
       return;
     }
     res.json(cache.status());
+  }));
+
+  router.get('/cache/manga/:mangaId/cover/:variant', asyncHandler(async (req, res) => {
+    if (!byteCache) {
+      res.status(503).json({ error: 'Cover cache unavailable', status: 503 });
+      return;
+    }
+    const mangaId = singleParam(req.params.mangaId);
+    const variant = coverVariant(req.params.variant);
+    if (!mangaId || !variant) {
+      res.status(400).json({ error: 'Missing mangaId or cover variant', status: 400 });
+      return;
+    }
+    const sourceUrl = typeof req.query.source === 'string' && req.query.source.length > 0
+      ? req.query.source
+      : undefined;
+    if (sourceUrl) {
+      let parsed: URL;
+      try {
+        parsed = new URL(sourceUrl);
+      } catch {
+        res.status(400).json({ error: 'Invalid cover source URL', status: 400 });
+        return;
+      }
+      if (!isAllowedImageDomain(parsed.hostname)) {
+        res.status(403).json({ error: 'Only image provider domains are allowed', status: 403 });
+        return;
+      }
+    }
+    const callerUA = req.headers['user-agent'] || '';
+    await byteCache.streamCover(mangaId, variant, sourceUrl, res, String(callerUA), req.query.referer as string | undefined);
   }));
 
   router.post('/cache/manga/cards', asyncHandler(async (req, res) => {

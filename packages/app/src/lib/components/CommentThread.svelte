@@ -1,6 +1,5 @@
 <script lang="ts">
     import type { MangaComment } from '$lib/types.js';
-    import * as api from '$lib/services/api.js';
     import CommentThread from './CommentThread.svelte';
     import CommentContent from './CommentContent.svelte';
 
@@ -27,7 +26,7 @@
     <div class="comment-main">
         <div class="comment-avatar">
             {#if comment.avatar}
-                <img src={api.coverProxyUrl(comment.avatar)} alt="" loading="lazy" />
+                <img src={comment.avatar} alt="" loading="lazy" />
             {:else}
                 <span>{initial}</span>
             {/if}

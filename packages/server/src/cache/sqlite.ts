@@ -52,6 +52,19 @@ interface ByteCacheRow {
   error: string | null;
 }
 
+interface MangaCoverCacheRow {
+  manga_id: string;
+  variant: string;
+  source_url: string;
+  local_key: string | null;
+  content_type: string | null;
+  bytes: number | null;
+  status: string;
+  last_checked_at: number | null;
+  updated_at: number;
+  error: string | null;
+}
+
 type CacheJobStatus = 'queued' | 'running' | 'retry' | 'failed';
 
 export interface CachedManga {
@@ -115,6 +128,21 @@ export type CacheJobEnqueueResult = 'queued' | 'promoted' | 'requeued' | 'existi
 export interface ByteCacheRecord {
   sourceUrl: string;
   localKey: string;
+  contentType: string | null;
+  bytes: number | null;
+  status: string;
+  lastCheckedAt: number | null;
+  updatedAt: number;
+  error: string | null;
+}
+
+export type MangaCoverVariant = 'card' | 'detail';
+
+export interface MangaCoverCacheRecord {
+  mangaId: string;
+  variant: MangaCoverVariant;
+  sourceUrl: string;
+  localKey: string | null;
   contentType: string | null;
   bytes: number | null;
   status: string;
@@ -222,6 +250,23 @@ export class CacheDatabase {
         updated_at INTEGER NOT NULL,
         error TEXT
       );
+
+      CREATE TABLE IF NOT EXISTS manga_cover_cache (
+        manga_id TEXT NOT NULL,
+        variant TEXT NOT NULL,
+        source_url TEXT NOT NULL,
+        local_key TEXT,
+        content_type TEXT,
+        bytes INTEGER,
+        status TEXT NOT NULL,
+        last_checked_at INTEGER,
+        updated_at INTEGER NOT NULL,
+        error TEXT,
+        PRIMARY KEY (manga_id, variant)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_manga_cover_source
+      ON manga_cover_cache(source_url);
     `);
   }
 
@@ -603,6 +648,135 @@ export class CacheDatabase {
     return row ? this.mapByteCacheRow(row) : null;
   }
 
+  getMangaCover(mangaId: string, variant: MangaCoverVariant): MangaCoverCacheRecord | null {
+    const row = this.db.prepare(`
+      SELECT manga_id, variant, source_url, local_key, content_type, bytes, status, last_checked_at, updated_at, error
+      FROM manga_cover_cache
+      WHERE manga_id = ? AND variant = ?
+    `).get(mangaId, variant) as MangaCoverCacheRow | undefined;
+    return row ? this.mapMangaCoverRow(row) : null;
+  }
+
+  upsertMangaCoverPending(mangaId: string, variant: MangaCoverVariant, sourceUrl: string): void {
+    const now = Date.now();
+    this.db.prepare(`
+      INSERT INTO manga_cover_cache (manga_id, variant, source_url, local_key, content_type, bytes, status, last_checked_at, updated_at, error)
+      VALUES (?, ?, ?, NULL, NULL, NULL, 'queued', NULL, ?, NULL)
+      ON CONFLICT(manga_id, variant) DO UPDATE SET
+        source_url = excluded.source_url,
+        status = CASE
+          WHEN manga_cover_cache.source_url = excluded.source_url AND manga_cover_cache.status = 'ready' THEN manga_cover_cache.status
+          ELSE excluded.status
+        END,
+        updated_at = excluded.updated_at,
+        error = NULL
+    `).run(mangaId, variant, sourceUrl, now);
+  }
+
+  upsertMangaCoverReady(mangaId: string, variant: MangaCoverVariant, sourceUrl: string, localKey: string, contentType: string, bytes: number): void {
+    const now = Date.now();
+    this.db.prepare(`
+      INSERT INTO manga_cover_cache (manga_id, variant, source_url, local_key, content_type, bytes, status, last_checked_at, updated_at, error)
+      VALUES (?, ?, ?, ?, ?, ?, 'ready', ?, ?, NULL)
+      ON CONFLICT(manga_id, variant) DO UPDATE SET
+        source_url = excluded.source_url,
+        local_key = excluded.local_key,
+        content_type = excluded.content_type,
+        bytes = excluded.bytes,
+        status = excluded.status,
+        last_checked_at = excluded.last_checked_at,
+        updated_at = excluded.updated_at,
+        error = NULL
+    `).run(mangaId, variant, sourceUrl, localKey, contentType, bytes, now, now);
+  }
+
+  upsertMangaCoverFailed(mangaId: string, variant: MangaCoverVariant, sourceUrl: string, localKey: string, error: string): void {
+    const now = Date.now();
+    this.db.prepare(`
+      INSERT INTO manga_cover_cache (manga_id, variant, source_url, local_key, content_type, bytes, status, last_checked_at, updated_at, error)
+      VALUES (?, ?, ?, ?, NULL, NULL, 'failed', ?, ?, ?)
+      ON CONFLICT(manga_id, variant) DO UPDATE SET
+        source_url = excluded.source_url,
+        local_key = excluded.local_key,
+        status = excluded.status,
+        last_checked_at = excluded.last_checked_at,
+        updated_at = excluded.updated_at,
+        error = excluded.error
+    `).run(mangaId, variant, sourceUrl, localKey, now, now, error);
+  }
+
+  purgeUnownedByteCache(): { rows: number } {
+    const result = this.db.prepare(`
+      DELETE FROM byte_cache
+      WHERE NOT EXISTS (
+        SELECT 1 FROM manga_cover_cache
+        WHERE manga_cover_cache.source_url = byte_cache.source_url
+      )
+    `).run();
+    return { rows: Number(result.changes ?? 0) };
+  }
+
+  rebuildMangaCoverOwnershipFromCachedPayloads(): { card: number; detail: number; ready: number } {
+    let card = 0;
+    let detail = 0;
+    let ready = 0;
+    const attach = (mangaId: string, variant: MangaCoverVariant, sourceUrl: string): void => {
+      if (!mangaId || !sourceUrl) return;
+      const byte = this.getByteCache(sourceUrl);
+      if (byte?.status === 'ready' && byte.localKey) {
+        this.upsertMangaCoverReady(mangaId, variant, sourceUrl, byte.localKey, byte.contentType || 'application/octet-stream', byte.bytes ?? 0);
+        ready++;
+      } else {
+        this.upsertMangaCoverPending(mangaId, variant, sourceUrl);
+      }
+      if (variant === 'card') card++;
+      else detail++;
+    };
+
+    const mangaRows = this.db.prepare('SELECT manga_id, data_json FROM manga_cache').all() as Array<{ manga_id: string; data_json: string }>;
+    for (const row of mangaRows) {
+      try {
+        const parsed = JSON.parse(row.data_json) as unknown;
+        const result = parsed && typeof parsed === 'object'
+          ? ((parsed as Record<string, unknown>).result ?? parsed) as Record<string, unknown>
+          : {};
+        const poster = result.poster && typeof result.poster === 'object'
+          ? result.poster as Record<string, unknown>
+          : {};
+        const medium = typeof poster.medium === 'string' ? poster.medium : '';
+        const large = typeof poster.large === 'string' ? poster.large : '';
+        attach(row.manga_id, 'card', medium || large);
+        attach(row.manga_id, 'detail', large || medium);
+      } catch {
+        // Ignore corrupt cache rows; the owning data jobs will refresh them.
+      }
+    }
+
+    const searchRows = this.db.prepare("SELECT value FROM cache_meta WHERE key LIKE 'newest-page-%'").all() as Array<{ value: string }>;
+    for (const row of searchRows) {
+      try {
+        const parsed = JSON.parse(row.value) as unknown;
+        const result = parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>).result : undefined;
+        const items = result && typeof result === 'object' && Array.isArray((result as Record<string, unknown>).items)
+          ? (result as Record<string, unknown>).items as unknown[]
+          : [];
+        for (const item of items) {
+          if (!item || typeof item !== 'object') continue;
+          const raw = item as Record<string, unknown>;
+          const mangaId = stringFrom(raw.hid ?? raw.hash_id ?? raw.id ?? raw.slug);
+          const poster = raw.poster && typeof raw.poster === 'object' ? raw.poster as Record<string, unknown> : {};
+          const medium = typeof poster.medium === 'string' ? poster.medium : '';
+          const large = typeof poster.large === 'string' ? poster.large : '';
+          attach(mangaId, 'card', medium || large);
+        }
+      } catch {
+        // Ignore corrupt search page snapshots.
+      }
+    }
+
+    return { card, detail, ready };
+  }
+
   upsertByteCacheReady(sourceUrl: string, localKey: string, contentType: string, bytes: number): void {
     const now = Date.now();
     this.db.prepare(`
@@ -634,7 +808,7 @@ export class CacheDatabase {
   }
 
   counts(): Record<string, number> {
-    const tables = ['manga_cache', 'chapter_list_cache', 'chapter_image_cache', 'image_store_candidates', 'image_store_status', 'cache_jobs', 'byte_cache'] as const;
+    const tables = ['manga_cache', 'chapter_list_cache', 'chapter_image_cache', 'image_store_candidates', 'image_store_status', 'cache_jobs', 'byte_cache', 'manga_cover_cache'] as const;
     const result: Record<string, number> = {};
     for (const table of tables) {
       const row = this.db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as { count: number };
@@ -674,4 +848,25 @@ export class CacheDatabase {
       error: row.error,
     };
   }
+
+  private mapMangaCoverRow(row: MangaCoverCacheRow): MangaCoverCacheRecord {
+    return {
+      mangaId: row.manga_id,
+      variant: row.variant === 'detail' ? 'detail' : 'card',
+      sourceUrl: row.source_url,
+      localKey: row.local_key,
+      contentType: row.content_type,
+      bytes: row.bytes,
+      status: row.status,
+      lastCheckedAt: row.last_checked_at,
+      updatedAt: row.updated_at,
+      error: row.error,
+    };
+  }
+}
+
+function stringFrom(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  return '';
 }

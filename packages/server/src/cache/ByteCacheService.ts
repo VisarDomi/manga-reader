@@ -5,7 +5,7 @@ import { pipeline } from 'node:stream/promises';
 import type { Response } from 'express';
 import { BYTE_CACHE_DIR, CACHE_MAX_AGE } from '../config.js';
 import { proxyFetch } from '../utils/proxyFetch.js';
-import { CacheDatabase, type CacheJobEnqueueResult } from './sqlite.js';
+import { CacheDatabase, type CacheJobEnqueueResult, type MangaCoverVariant } from './sqlite.js';
 import { DurableJobScheduler, type CacheJobPriorityName } from './DurableJobScheduler.js';
 
 const BYTE_CACHE_WORKER_ID = 'byte-cache-service';
@@ -40,12 +40,13 @@ export class ByteCacheService {
     console.log('[byteCache] start');
   }
 
-  warm(sourceUrl: string, referer: string | undefined, priority: CacheJobPriorityName, reason: string): CacheJobEnqueueResult {
+  warmCover(mangaId: string, variant: MangaCoverVariant, sourceUrl: string, referer: string | undefined, priority: CacheJobPriorityName, reason: string): CacheJobEnqueueResult {
+    this.db.upsertMangaCoverPending(mangaId, variant, sourceUrl);
     const status = this.scheduler.enqueueUnique({
       kind: BYTE_CACHE_JOB_KIND,
-      resourceKey: sourceUrl,
+      resourceKey: `cover:${mangaId}:${variant}`,
       priority,
-      payload: { sourceUrl, referer, reason },
+      payload: { sourceUrl, referer, reason, mangaId, variant },
       maxAttempts: 5,
       retryFailedAfterMs: priority === 'foreground' ? 0 : FAILED_BYTE_RETRY_MS,
     });
@@ -53,24 +54,29 @@ export class ByteCacheService {
     return status;
   }
 
-  async stream(sourceUrl: string, res: Response, callerUA: string, referer?: string): Promise<void> {
-    const localKey = this.localKey(sourceUrl);
-    const finalPath = this.localPath(localKey);
-    const cached = this.db.getByteCache(sourceUrl);
-
-    if (cached?.status === 'ready' && fs.existsSync(finalPath)) {
-      const contentType = cached.contentType || 'application/octet-stream';
-      res.set('Content-Type', contentType);
-      res.set('Cache-Control', `public, max-age=${CACHE_MAX_AGE}`);
-      if (cached.bytes != null) res.set('Content-Length', String(cached.bytes));
-      await pipeline(fs.createReadStream(finalPath), res);
+  async streamCover(mangaId: string, variant: MangaCoverVariant, sourceUrl: string | undefined, res: Response, callerUA: string, referer?: string): Promise<void> {
+    const owned = this.db.getMangaCover(mangaId, variant);
+    const usableSourceUrl = sourceUrl || owned?.sourceUrl;
+    if (!usableSourceUrl) {
+      res.status(404).json({ error: 'Cover source unavailable', status: 404, mangaId, variant });
       return;
     }
 
-    await this.proxyAndStore(sourceUrl, localKey, finalPath, res, callerUA, referer);
+    const localKey = this.localKey(usableSourceUrl);
+    const finalPath = this.localPath(localKey);
+    if (owned?.status === 'ready' && owned.localKey && fs.existsSync(this.localPath(owned.localKey))) {
+      const contentType = owned.contentType || 'application/octet-stream';
+      res.set('Content-Type', contentType);
+      res.set('Cache-Control', `public, max-age=${CACHE_MAX_AGE}`);
+      if (owned.bytes != null) res.set('Content-Length', String(owned.bytes));
+      await pipeline(fs.createReadStream(this.localPath(owned.localKey)), res);
+      return;
+    }
+
+    await this.proxyAndStoreCover(mangaId, variant, usableSourceUrl, localKey, finalPath, res, callerUA, referer);
   }
 
-  private async proxyAndStore(sourceUrl: string, localKey: string, finalPath: string, res: Response, callerUA: string, referer?: string): Promise<void> {
+  private async proxyAndStoreCover(mangaId: string, variant: MangaCoverVariant, sourceUrl: string, localKey: string, finalPath: string, res: Response, callerUA: string, referer?: string): Promise<void> {
     const start = Date.now();
     const headers: Record<string, string> = { 'User-Agent': callerUA };
     if (referer) headers.Referer = referer;
@@ -85,27 +91,30 @@ export class ByteCacheService {
       const buffer = Buffer.from(await response.arrayBuffer());
       this.writeAtomically(finalPath, buffer);
       this.db.upsertByteCacheReady(sourceUrl, localKey, contentType, buffer.byteLength);
+      this.db.upsertMangaCoverReady(mangaId, variant, sourceUrl, localKey, contentType, buffer.byteLength);
 
       res.set('Content-Type', contentType);
       res.set('Cache-Control', `public, max-age=${CACHE_MAX_AGE}`);
       res.set('Content-Length', String(buffer.byteLength));
       res.send(buffer);
 
-      console.log(`[byteCache] miss-store ok domain=${meta.domain} bytes=${buffer.byteLength} ttfbMs=${meta.durationMs} totalMs=${Date.now() - start}`);
+      console.log(`[coverCache] miss-store ok manga=${mangaId} variant=${variant} domain=${meta.domain} bytes=${buffer.byteLength} ttfbMs=${meta.durationMs} totalMs=${Date.now() - start}`);
     } catch (e) {
       const message = conciseError((e as Error)?.message ?? String(e));
       this.db.upsertByteCacheFailed(sourceUrl, localKey, message);
-      console.log(`[byteCache] miss-store failed url=${sourceUrl} totalMs=${Date.now() - start} error=${message}`);
+      this.db.upsertMangaCoverFailed(mangaId, variant, sourceUrl, localKey, message);
+      console.log(`[coverCache] miss-store failed manga=${mangaId} variant=${variant} url=${sourceUrl} totalMs=${Date.now() - start} error=${message}`);
       if (!res.headersSent) res.status(502).json({ error: message, status: 502 });
       else res.destroy();
     }
   }
 
-  private async cacheByte(sourceUrl: string, referer?: string): Promise<{ bytes: number; durationMs: number; skipped: boolean }> {
+  private async cacheByte(sourceUrl: string, referer?: string, owner?: { mangaId: string; variant: MangaCoverVariant }): Promise<{ bytes: number; durationMs: number; skipped: boolean }> {
     const localKey = this.localKey(sourceUrl);
     const finalPath = this.localPath(localKey);
     const cached = this.db.getByteCache(sourceUrl);
     if (cached?.status === 'ready' && fs.existsSync(finalPath)) {
+      if (owner) this.db.upsertMangaCoverReady(owner.mangaId, owner.variant, sourceUrl, localKey, cached.contentType || 'application/octet-stream', cached.bytes ?? 0);
       return { bytes: cached.bytes ?? 0, durationMs: 0, skipped: true };
     }
 
@@ -122,10 +131,12 @@ export class ByteCacheService {
       const buffer = Buffer.from(await response.arrayBuffer());
       this.writeAtomically(finalPath, buffer);
       this.db.upsertByteCacheReady(sourceUrl, localKey, contentType, buffer.byteLength);
+      if (owner) this.db.upsertMangaCoverReady(owner.mangaId, owner.variant, sourceUrl, localKey, contentType, buffer.byteLength);
       return { bytes: buffer.byteLength, durationMs: Date.now() - start, skipped: false };
     } catch (e) {
       const message = conciseError((e as Error)?.message ?? String(e));
       this.db.upsertByteCacheFailed(sourceUrl, localKey, message);
+      if (owner) this.db.upsertMangaCoverFailed(owner.mangaId, owner.variant, sourceUrl, localKey, message);
       console.log(`[byteCache] job-store failed url=${sourceUrl} totalMs=${Date.now() - start} error=${message}`);
       throw e;
     }
@@ -148,9 +159,11 @@ export class ByteCacheService {
       const sourceUrl = stringOrUndefined(payload.sourceUrl) ?? record.resourceKey;
       const referer = stringOrUndefined(payload.referer);
       const reason = stringOrUndefined(payload.reason) ?? 'durable-byte-job';
+      const mangaId = stringOrUndefined(payload.mangaId);
+      const variant = coverVariant(payload.variant);
       this.currentJob = { sourceUrl, reason };
       try {
-        const result = await this.cacheByte(sourceUrl, referer);
+        const result = await this.cacheByte(sourceUrl, referer, mangaId && variant ? { mangaId, variant } : undefined);
         this.recordSummary(result);
         this.scheduler.complete(record);
       } catch (e) {
@@ -203,6 +216,10 @@ export class ByteCacheService {
   private retryDelayMs(attempts: number): number {
     return Math.min(60_000, 1000 * Math.max(1, attempts));
   }
+}
+
+function coverVariant(value: unknown): MangaCoverVariant | null {
+  return value === 'card' || value === 'detail' ? value : null;
 }
 
 function conciseError(error: string): string {

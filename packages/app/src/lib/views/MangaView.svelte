@@ -24,7 +24,7 @@
     }
 
     function coverUrl(entry: MangaEntry): string {
-        return entry.manga.cover ? api.coverProxyUrl(entry.manga.cover) : '';
+        return api.coverProxyUrl(entry.manga.id, 'detail', entry.manga.cover || undefined);
     }
 
     function handleClose() {

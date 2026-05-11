@@ -14,6 +14,7 @@ const DATA_CACHE_JOB_KINDS = ['seed-newest', 'crawl-search-page', 'cache-manga-d
 const CACHE_DAY_ROLLOVER_HOUR = 4;
 const CACHE_DAY_ROLLOVER_MINUTE = 45;
 const FAILED_DATA_RETRY_MS = 6 * 60 * 60 * 1000;
+const COVER_OWNERSHIP_REBUILD_VERSION = '1';
 
 type CacheJobKind = 'seed-newest' | 'crawl-search-page' | 'cache-manga-detail' | 'cache-chapters' | 'reconcile-chapters' | 'cache-chapter-page-map';
 export type CacheJobPriority = 'foreground' | 'observed' | 'daily' | 'background';
@@ -252,25 +253,16 @@ function imageStoreCandidates(imageUrl: string): string[] {
   return [...candidates];
 }
 
-function collectSearchThumbnailUrls(data: unknown): string[] {
-  const urls = new Set<string>();
-  const visit = (value: unknown): void => {
-    if (typeof value === 'string') {
-      if (/^https?:\/\//.test(value) && /\.(?:jpg|jpeg|png|webp)(?:[?#].*)?$/i.test(value)) {
-        urls.add(value);
-      }
-      return;
-    }
-    if (Array.isArray(value)) {
-      for (const item of value) visit(item);
-      return;
-    }
-    if (value && typeof value === 'object') {
-      for (const child of Object.values(value as Record<string, unknown>)) visit(child);
-    }
-  };
-  visit(data);
-  return [...urls];
+function coverUrlFromItem(data: unknown, variant: 'card' | 'detail'): string | null {
+  if (!data || typeof data !== 'object') return null;
+  const raw = data as Record<string, unknown>;
+  const poster = raw.poster && typeof raw.poster === 'object'
+    ? raw.poster as Record<string, unknown>
+    : {};
+  const preferred = variant === 'detail'
+    ? poster.large ?? poster.medium ?? poster.small
+    : poster.medium ?? poster.large ?? poster.small;
+  return typeof preferred === 'string' && preferred.length > 0 ? preferred : null;
 }
 
 export class CacheService {
@@ -291,6 +283,15 @@ export class CacheService {
     if (this.started) return;
     this.started = true;
     this.scheduler.recoverWorker(CACHE_WORKER_ID);
+    if (this.byteCache) {
+      const version = this.db.getMeta('cover-ownership-rebuild-version');
+      if (version !== COVER_OWNERSHIP_REBUILD_VERSION) {
+        const rebuilt = this.db.rebuildMangaCoverOwnershipFromCachedPayloads();
+        const purged = this.db.purgeUnownedByteCache();
+        this.db.setMeta('cover-ownership-rebuild-version', COVER_OWNERSHIP_REBUILD_VERSION);
+        console.log(`[coverCache] ownership-rebuild card=${rebuilt.card} detail=${rebuilt.detail} ready=${rebuilt.ready} purgedBytes=${purged.rows}`);
+      }
+    }
     this.startDailyNewestCrawl();
     this.scheduleDailyRollover();
   }
@@ -600,15 +601,15 @@ export class CacheService {
     this.db.setMeta(`crawl-search-newest:${crawlDate}:last-page`, String(page));
 
     let queued = 0;
-    let thumbnailDiscovered = 0;
-    let thumbnailQueued = 0;
+    let coverDiscovered = 0;
+    let coverQueued = 0;
     for (const item of items) {
       const mangaId = mangaIdFromItem(item);
       if (!mangaId) continue;
       this.db.upsertManga(mangaId, item);
-      const thumbnailJobs = this.enqueueSearchThumbnailJobs(item, 'search-newest', 'daily');
-      thumbnailDiscovered += thumbnailJobs.discovered;
-      thumbnailQueued += thumbnailJobs.queued;
+      const coverJobs = this.enqueueMangaCoverJob(mangaId, item, 'card', 'search-newest', 'daily');
+      coverDiscovered += coverJobs.discovered;
+      coverQueued += coverJobs.queued;
       this.enqueue({ kind: 'cache-manga-detail', priority: 'background', mangaId, reason });
       this.enqueue({ kind: 'cache-chapters', priority: 'background', mangaId, reason });
       queued++;
@@ -631,7 +632,7 @@ export class CacheService {
     const next = hasNext
       ? otherFrontierExists ? 'existing-frontier' : page + 1
       : 'none';
-    console.log(`[cache] search-crawl page=${page}/${lastPage} date=${crawlDate} fetched=${items.length} queuedManga=${queued} thumbnails=${thumbnailDiscovered} queuedThumbnails=${thumbnailQueued} next=${next} http=${meta.status} fetchMs=${Date.now() - start}`);
+    console.log(`[cache] search-crawl page=${page}/${lastPage} date=${crawlDate} fetched=${items.length} queuedManga=${queued} covers=${coverDiscovered} queuedCovers=${coverQueued} next=${next} http=${meta.status} fetchMs=${Date.now() - start}`);
   }
 
   private async cacheMangaDetail(mangaId: string, job: CacheJob): Promise<void> {
@@ -651,7 +652,8 @@ export class CacheService {
     const tags = Array.isArray(r.tags) ? r.tags.length : 0;
     const genres = Array.isArray(r.genres) ? r.genres.length : 0;
     const description = Boolean(r.synopsis || r.description);
-    console.log(`[cache] manga-detail cached manga=${mangaId} recommendations=${recommendations} genres=${genres} tags=${tags} description=${description} fetchMs=${result.durationMs}`);
+    const coverJobs = this.enqueueMangaCoverJob(mangaId, r, 'detail', 'manga-detail', job.priority);
+    console.log(`[cache] manga-detail cached manga=${mangaId} recommendations=${recommendations} genres=${genres} tags=${tags} description=${description} cover=${coverJobs.queued}/${coverJobs.discovered} fetchMs=${result.durationMs}`);
   }
 
   private crawlSearchJobsForDate(crawlDate: string): CacheJob[] {
@@ -822,26 +824,11 @@ export class CacheService {
     return result.data;
   }
 
-  private enqueueSearchThumbnailJobs(data: unknown, reason: string, priority: CacheJobPriorityName): { discovered: number; queued: number } {
-    const urls = collectSearchThumbnailUrls(data);
-    let queued = 0;
-    for (const url of urls) {
-      const status = this.byteCache
-        ? this.byteCache.warm(url, this.provider.searchThumbnailReferer(), priority, reason)
-        : this.scheduler.enqueueUnique({
-            kind: 'cache-byte',
-            resourceKey: url,
-            priority,
-            payload: {
-              sourceUrl: url,
-              referer: this.provider.searchThumbnailReferer(),
-              reason,
-            },
-            maxAttempts: 5,
-          });
-      if (status === 'queued' || status === 'promoted') queued++;
-    }
-    return { discovered: urls.length, queued };
+  private enqueueMangaCoverJob(mangaId: string, data: unknown, variant: 'card' | 'detail', reason: string, priority: CacheJobPriorityName): { discovered: number; queued: number } {
+    const url = coverUrlFromItem(data, variant);
+    if (!url || !this.byteCache) return { discovered: 0, queued: 0 };
+    const status = this.byteCache.warmCover(mangaId, variant, url, this.provider.searchThumbnailReferer(), priority, reason);
+    return { discovered: 1, queued: status === 'queued' || status === 'promoted' || status === 'requeued' ? 1 : 0 };
   }
 
   private enqueueChapterPageMapJobs(mangaId: string, chapters: unknown[], reason: string): { discovered: number; queued: number } {

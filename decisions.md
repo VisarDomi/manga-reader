@@ -485,8 +485,13 @@ Serving ownership:
 - Reader images use the cached/generated page URL strings and the server image
   proxy/store-host failover path. They are not downloaded into the byte cache as
   a cache-ingestion layer.
-- Thumbnails and comment/avatar images use `/api/byte`; `ByteCacheService`
-  downloads, stores, and serves those bytes from the local byte cache.
+- Manga covers are owned resources. Search crawl owns `card` covers from
+  `poster.medium`; manga-detail caching owns `detail` covers from
+  `poster.large`. `ByteCacheService` stores the bytes, but
+  `manga_cover_cache` records the manga id, variant, source URL, local key,
+  status, and error.
+- There is no generic `/api/byte` route. Comment avatars/content images are not
+  cover-cache data, and reader page images remain on the image proxy path.
 
 Cache layers:
 
@@ -679,10 +684,10 @@ Favorites store favorite IDs plus the minimum card snapshot needed to render
 instantly when the favorites root is opened. The backend cache remains the
 authoritative source for chapter stats and full manga data; favorite snapshots
 are only a local card-start cache and can be refreshed from backend cache data.
-There is no card-owned prewarm path. Search results still provide their
-upstream max directly from live search. Opening a manga remains the
+There is no card-owned chapter prewarm path. Search results still provide
+their upstream max directly from live search. Opening a manga remains the
 authoritative foreground path for displaying the full cached detail and chapter
-list.
+list. Card cover bytes are separately owned by the backend cover cache.
 
 ## AF. Chapter Group Filtering
 
@@ -1335,9 +1340,10 @@ The cache has durable data layers:
 2. `chapter_list_cache`: full chapter lists by manga.
 3. `chapter_image_cache` plus `image_store_candidates`: chapter page-map
    payloads and possible store URLs for each discovered image URL.
-4. `byte_cache`: local small-byte files for covers, thumbnails, avatars, and
-   similar list/detail assets. Reader page image bytes remain on the reader
-   image proxy/store-failover path.
+4. `byte_cache`: local physical byte files for manga covers.
+5. `manga_cover_cache`: the ownership index for cover bytes, keyed by
+   `(manga_id, variant)` where variant is `card` or `detail`. Reader page image
+   bytes remain on the reader image proxy/store-failover path.
 
 `image_store_status` records frontend/backend observations for each
 image/store pair: status code, ok/not-ok, source, and last check time. The
@@ -1351,7 +1357,7 @@ resource policy, not labels:
 - `foreground` for explicit user intent, such as opening a manga/chapter
 - `observed` for user-adjacent stale observations, such as search seeing a
   newer max chapter than the cache has
-- `daily` for newest crawl and thumbnail-byte discovery
+- `daily` for newest crawl and cover-byte discovery
 - `background` for detail, chapter-list, and chapter page-map completion
 
 Foreground and observed work outrank daily crawl work; daily crawl work outranks
@@ -1370,11 +1376,13 @@ page-map payload and generated store candidates are in one SQLite transaction,
 so startup either sees the completed row and skips it or reclaims the job.
 
 The cache layers discover their own lower-layer work. Search crawl rows enqueue
-thumbnail `cache-byte` jobs from live search payloads only. Manga detail cache
-does not scan for thumbnails. When a chapter list is cached or reconciled, the
-backend enqueues missing `cache-chapter-page-map` jobs for those chapters.
-The frontend can promote a specific page-map job by opening a reader chapter,
-but it is not responsible for ordinary page-map discovery.
+owned `card` cover byte jobs from `poster.medium` only. Manga-detail caching
+enqueues owned `detail` cover byte jobs from `poster.large`. The cover cache is
+field-specific; it must not recursively scan arbitrary payloads for image-like
+URLs. When a chapter list is cached or reconciled, the backend enqueues missing
+`cache-chapter-page-map` jobs for those chapters. The frontend can promote a
+specific page-map job by opening a reader chapter, but it is not responsible
+for ordinary page-map discovery.
 
 Daily search crawl uses `crawl-search-page:{crawlDate}:{page}` jobs with a
 cache-day key that rolls over at local `04:45`, not at midnight. The rollover
@@ -1386,18 +1394,25 @@ frontier, older unfinished search-page crawl jobs are demoted to background
 priority and the current cache day's newest page runs first. Duplicate
 resources are promoted/refreshed, not duplicated.
 
-The byte cache is a separate engine. `/api/byte?url=...` serves local bytes
-when `byte_cache.status = ready`; on miss it proxy-and-stores to preserve UI
-behavior, then records the file atomically. Background `cache-byte` jobs warm
-small images discovered from search rows. Provider-shaped JSON stays raw; the
-app-facing URL helper maps covers/thumbnails to `/api/byte`.
+The byte cache is a separate engine, but it no longer exposes a generic URL
+proxy. The public route is cover-owned:
+`/api/cache/manga/:mangaId/cover/:variant`. On a ready owner row it streams the
+local file. On a foreground request with a source URL it can proxy-and-store
+that source while atomically updating both `byte_cache` and
+`manga_cover_cache`.
 
 Byte-cache failures are observations, not permanent truth. A fetch timeout or
-transient upstream failure writes `byte_cache.status = failed` and the durable
-job retries up to its attempt budget. If the job exhausts attempts, later
-discovery of the same URL can requeue the failed durable job after a cooldown;
-foreground byte requests requeue immediately. A successful later fetch
-overwrites the failed row with `ready` and clears the error.
+transient upstream failure writes the owned cover row as failed and the durable
+job retries up to its attempt budget. Later discovery of the same owned cover
+can requeue the failed durable job after a cooldown; foreground cover requests
+requeue immediately. A successful later fetch overwrites the failed row with
+`ready` and clears the error.
+
+The one-time cover-ownership rebuild attached existing `byte_cache` rows to
+`manga_cover_cache` by scanning cached manga/search payloads, then purged
+unowned byte rows. This removed comment avatars, comment images, and other
+non-cover bytes from the cover cache. A DB meta marker prevents repeating the
+expensive backfill on every restart.
 
 The provider/BrowserSession boundary is the runtime normalizer. The provider
 does not rely on a fixed minified export key or copied signing logic; it probes

@@ -1,7 +1,5 @@
 <script lang="ts">
     import type { MangaCommentPart } from '$lib/types.js';
-    import * as api from '$lib/services/api.js';
-
     let {
         content,
         parts,
@@ -30,7 +28,7 @@
             </button>
         {:else if part.type === 'image'}
             <a class="comment-image-link" href={part.url} target="_blank" rel="noreferrer">
-                <img src={api.coverProxyUrl(part.url)} alt={part.alt} loading="lazy" decoding="async" />
+                <img src={part.url} alt={part.alt} loading="lazy" decoding="async" />
             </a>
         {/if}
     {/each}

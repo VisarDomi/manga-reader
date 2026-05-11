@@ -9,7 +9,6 @@ import imageRouter from './routes/image.js';
 import certRouter from './routes/cert.js';
 import { createCommentsRouter } from './routes/comments.js';
 import { createCacheRouter } from './routes/cache.js';
-import { createByteRouter } from './routes/byte.js';
 import createSearchRouter from './routes/search.js';
 import logRouter from './routes/log.js';
 import providerFiltersRouter from './routes/providerFilters.js';
@@ -48,9 +47,8 @@ export function createApp(
 
     app.use('/api', healthRouter);
     app.use('/api', imageRouter);
-    app.use('/api', createByteRouter(byteCache));
     app.use('/api', certRouter);
-    app.use('/api', createCacheRouter(cacheService));
+    app.use('/api', createCacheRouter(cacheService, byteCache));
     app.use('/api', createSearchRouter());
     app.use('/api', createCommentsRouter(commentsService));
     app.use('/api', providerFiltersRouter);
