@@ -1,4 +1,3 @@
-import { imageProxyUrl as _imageProxyUrl } from '../config.js';
 import { fetchJson, ApiError, ApiErrKind } from './fetchJson.js';
 import { getProvider } from './provider.js';
 import type { Manga, ChapterMeta, ChapterPage, MangaComment, MangaCommentStats } from '../types.js';
@@ -78,12 +77,6 @@ async function peekCachedPayload(url: string, signal: AbortSignal | undefined, r
     }
     emit('cache-read', { resource, action: 'hit', mangaId, chapterId, count: 0 });
     return { status: 'hit', data };
-}
-
-export function imageProxyUrl(url: string, mangaId: string, chapterId: string, chapterNumber: number, chapterUrl?: string): string {
-    const provider = getProvider();
-    const referer = provider.imageHeaders?.(mangaId, chapterId, chapterNumber, chapterUrl)?.['Referer'];
-    return _imageProxyUrl(url, referer);
 }
 
 export function coverProxyUrl(mangaId: string, variant: 'card' | 'detail', sourceUrl?: string): string {

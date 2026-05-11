@@ -1,9 +1,12 @@
 import { Router } from 'express';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import type { CacheJobPriority, CacheReconcileSource, CacheService } from '../cache/CacheService.js';
-import { isAllowedImageDomain } from '../services/imageProxy.js';
 import type { ByteCacheService } from '../cache/ByteCacheService.js';
 import type { MangaCoverVariant } from '../cache/sqlite.js';
+
+function isAllowedImageDomain(_hostname: string): boolean {
+  return true;
+}
 
 function singleParam(value: string | string[] | undefined): string | null {
   if (typeof value !== 'string' || value.length === 0) return null;

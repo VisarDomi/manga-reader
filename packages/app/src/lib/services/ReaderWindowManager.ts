@@ -156,6 +156,7 @@ export class ReaderWindowManager {
                 pages.push({
                     key: `${chapter.id}-${pageIndex}`,
                     url: page.url,
+                    candidates: page.candidates,
                     chapterId: chapter.id,
                     pageIndex,
                     top,

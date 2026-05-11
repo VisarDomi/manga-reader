@@ -11,7 +11,7 @@ export type LogEvent =
     | { event: 'restore-target-found'; targetId: string; page: number; scrolled: boolean }
     | { event: 'restore-target-missed'; targetId: string; pagesSearched: number; reason: 'not-found' | 'cancelled' | 'error' | 'no-chapters' }
     | { event: 'restore-ok'; view: string; mangaId?: string }
-    | { event: 'restore-fallback'; view: string; reason: string; fallback?: string }
+    | { event: 'restore-fallback'; view: string; reason: string; fallback?: string; error?: string }
     | { event: 'restore-shell'; view: string; stack: string; mangaId: string | null; hasReader: boolean; hasComments: boolean }
     | { event: 'restore-foreground'; view: string; stack: string; mangaId: string | null; hasReader: boolean; hasComments: boolean }
     | { event: 'search-result'; query: string; page: number; resultCount: number; hasMore: boolean; includeGenres: number; excludeGenres: number; demographics: number; authors: number; artists: number; types: number; statuses: number; currentPage?: number; lastPage?: number; total?: number }
@@ -98,12 +98,13 @@ export type LogEvent =
     | { event: 'watchdog-freeze'; gapMs: number }
     | { event: 'sentinel-forced-resume'; frozenSeconds: number }
     | { event: 'img-fail'; key: string; totalMs: number; error: string; pending: number }
+    | { event: 'reader-image-candidate'; key: string; index: number; total: number; ok: boolean; status: number; totalMs: number; host: string; error?: string }
     | { event: 'uncaught-error'; message: string; source: string; line: number; col: number; stack: string }
     | { event: 'unhandled-rejection'; message: string; stack: string }
     | { event: 'db-error'; op: string; error: string }
     | { event: 'favorites-toggle-failed'; message: string }
     | { event: 'manga-list-lifecycle'; source: 'search' | 'favorites'; phase: 'mount' | 'update' | 'unmount'; total: number; trackVisible: boolean; updateCount: number; dtMs: number }
-    | { event: 'manga-cover-image'; source: 'search' | 'favorites'; phase: 'mount' | 'load' | 'error'; mangaId: string; hasCover: boolean; dtMs: number; naturalWidth?: number; naturalHeight?: number }
+    | { event: 'manga-cover-image'; source: 'search' | 'favorites' | 'detail'; phase: 'mount' | 'load' | 'error'; mangaId: string; hasCover: boolean; dtMs: number; naturalWidth?: number; naturalHeight?: number }
     | { event: 'favorites-hydration'; phase: 'start' | 'batch' | 'done' | 'cancelled'; total: number; batchSize: number; batchIndex?: number; count?: number; dtMs: number }
     | { event: 'manga-card-subscription-summary'; searchCards: number; favoriteCards: number; mountedSearch: number; mountedFavorites: number; unmountedSearch: number; unmountedFavorites: number; progressSearch: number; progressFavorites: number; statsSearch: number; statsFavorites: number }
     | { event: 'favorites-view-lifecycle'; phase: 'mount' | 'update' | 'unmount'; items: number; isLoading: boolean; updateCount: number; dtMs: number }

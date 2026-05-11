@@ -381,7 +381,7 @@ class AppState {
                     this.bgReplaySearch(snapshot.searchContext);
                 }
                 this.persistSession();
-                this.log.emit('restore-fallback', { view: 'reader', reason: 'reader-load-failed', fallback: 'manga' });
+                this.log.emit('restore-fallback', { view: 'reader', reason: 'reader-load-failed', fallback: 'manga', error: this.reader.error?.message });
                 return;
             }
 

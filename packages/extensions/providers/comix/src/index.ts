@@ -208,6 +208,9 @@ const provider: MangaProvider = {
     const parsed = (result?.pages ?? []) as { url: string; width?: number; height?: number }[];
     return parsed.map(img => ({
       url: String(img.url ?? ''),
+      candidates: Array.isArray((img as { candidates?: unknown }).candidates)
+        ? ((img as { candidates: unknown[] }).candidates).filter((url): url is string => typeof url === 'string' && url.length > 0)
+        : [String(img.url ?? '')].filter(Boolean),
       width: Number(img.width ?? 0),
       height: Number(img.height ?? 0),
     }));

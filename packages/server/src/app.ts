@@ -5,7 +5,6 @@ import { fileURLToPath } from 'node:url';
 import { FRONTEND_BUILD_DIR } from './config.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import healthRouter from './routes/health.js';
-import imageRouter from './routes/image.js';
 import certRouter from './routes/cert.js';
 import { createCommentsRouter } from './routes/comments.js';
 import { createCacheRouter } from './routes/cache.js';
@@ -46,7 +45,6 @@ export function createApp(
     }
 
     app.use('/api', healthRouter);
-    app.use('/api', imageRouter);
     app.use('/api', certRouter);
     app.use('/api', createCacheRouter(cacheService, byteCache));
     app.use('/api', createSearchRouter());

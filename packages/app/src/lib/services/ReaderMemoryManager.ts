@@ -55,8 +55,8 @@ export class ReaderMemoryManager {
         return this.pageDataMap.size;
     }
 
-    registerPage(node: HTMLElement, chapterId: string, pageIndex: number, url: string): void {
-        const data = { key: this.pageKey(chapterId, pageIndex), url };
+    registerPage(node: HTMLElement, chapterId: string, pageIndex: number, url: string, candidates: string[]): void {
+        const data = { key: this.pageKey(chapterId, pageIndex), url, candidates: candidates.length > 0 ? candidates : [url] };
         this.pageDataMap.set(node, data);
         this.pageElementsByKey.set(data.key, node);
     }
@@ -79,7 +79,7 @@ export class ReaderMemoryManager {
 
         const t0 = performance.now();
         const radiusPx = clientHeight * READER_IMAGE_KEEP_RADIUS_VIEWPORTS;
-        const jobs: Array<{ key: string; url: string; priority: number }> = [];
+        const jobs: Array<{ key: string; url: string; candidates: string[]; priority: number }> = [];
         const keepKeys = new Set<string>();
         let pageCount = 0;
         let scanMs = 0;
@@ -97,7 +97,7 @@ export class ReaderMemoryManager {
                 if (page.bottom < rangeStart || page.top > rangeEnd) continue;
                 const center = page.top + page.height / 2;
                 keepKeys.add(page.key);
-                jobs.push({ key: page.key, url: page.url, priority: Math.abs(center - viewportProbe) });
+                jobs.push({ key: page.key, url: page.url, candidates: page.candidates, priority: Math.abs(center - viewportProbe) });
             }
         } else {
             const rangeStart = scrollTop - radiusPx;
@@ -118,7 +118,7 @@ export class ReaderMemoryManager {
                         const key = this.pageKey(chapter.id, pageIndex);
                         const center = pageTop + pageHeight / 2;
                         keepKeys.add(key);
-                        jobs.push({ key, url: page.url, priority: Math.abs(center - viewportProbe) });
+                        jobs.push({ key, url: page.url, candidates: page.candidates, priority: Math.abs(center - viewportProbe) });
                     }
                     pageTop = pageBottom;
                 }
@@ -144,7 +144,7 @@ export class ReaderMemoryManager {
                 img.src = existingBlobUrl;
                 continue;
             }
-            this.loadImage(job.url, job.key, img);
+            this.loadImage(job.url, job.candidates, job.key, img);
             started++;
         }
         startMs = performance.now() - startStart;
@@ -219,7 +219,7 @@ export class ReaderMemoryManager {
         });
     }
 
-    loadImage(url: string, key: string, img: HTMLImageElement): void {
+    loadImage(url: string, candidates: string[], key: string, img: HTMLImageElement): void {
         if (!this.abortController) return;
         if (this.blobUrls.has(key) || this.loadingKeys.has(key)) return;
         this.retiredAtByKey.delete(key);
@@ -228,8 +228,7 @@ export class ReaderMemoryManager {
         const signal = this.abortController.signal;
         const t0 = performance.now();
 
-        fetch(url, { signal })
-            .then(r => r.blob())
+        this.fetchFirstImageCandidate(url, candidates.length > 0 ? candidates : [url], key, signal)
             .then(blob => {
                 const blobUrl = URL.createObjectURL(blob);
                 this.blobUrls.set(key, blobUrl);
@@ -248,6 +247,56 @@ export class ReaderMemoryManager {
                 }
             })
             .finally(() => this.loadingKeys.delete(key));
+    }
+
+    private async fetchFirstImageCandidate(canonicalUrl: string, candidates: string[], key: string, signal: AbortSignal): Promise<Blob> {
+        let lastError = 'no candidates';
+        for (let index = 0; index < candidates.length; index++) {
+            const candidateUrl = candidates[index];
+            const startedAt = performance.now();
+            try {
+                const response = await fetch(candidateUrl, { signal, mode: 'cors', credentials: 'omit' });
+                const totalMs = Math.round(performance.now() - startedAt);
+                this.recordImageCandidate(canonicalUrl, candidateUrl, key, index, candidates.length, response.status, response.ok, totalMs);
+                if (!response.ok) {
+                    lastError = `HTTP ${response.status}`;
+                    continue;
+                }
+                return await response.blob();
+            } catch (err) {
+                if ((err as { name?: string })?.name === 'AbortError') throw err;
+                const totalMs = Math.round(performance.now() - startedAt);
+                lastError = err instanceof Error ? err.message : String(err);
+                this.recordImageCandidate(canonicalUrl, candidateUrl, key, index, candidates.length, 0, false, totalMs, lastError);
+            }
+        }
+        throw new Error(lastError);
+    }
+
+    private recordImageCandidate(
+        canonicalUrl: string,
+        candidateUrl: string,
+        key: string,
+        index: number,
+        total: number,
+        status: number,
+        ok: boolean,
+        totalMs: number,
+        error?: string,
+    ): void {
+        let host = 'invalid';
+        try {
+            host = new URL(candidateUrl).hostname;
+        } catch {
+            // Keep the log path alive for malformed candidates.
+        }
+        this.emit('reader-image-candidate', { key, index, total, ok, status, totalMs, host, error });
+        void fetch('/api/cache/image-store', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ imageUrl: canonicalUrl, storeUrl: candidateUrl, status, ok }),
+            keepalive: true,
+        }).catch(() => {});
     }
 
     private cleanupOutsideVirtualWindow(keepKeys: Set<string>): number {

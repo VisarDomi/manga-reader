@@ -50,11 +50,13 @@ export type ViewMode = 'list' | 'favorites' | 'manga' | 'reader' | 'chapter-comm
 export interface ReaderPageData {
     key: string;
     url: string;
+    candidates: string[];
 }
 
 export interface ReaderPageGeometry {
     key: string;
     url: string;
+    candidates: string[];
     chapterId: string;
     pageIndex: number;
     top: number;

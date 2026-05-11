@@ -1,8 +1,9 @@
 import type { BrowserSession } from '../services/BrowserSession.js';
 import { learnStoreHostFromUrl, listStoreHosts } from '../utils/storeHosts.js';
 import { proxyFetchJson } from '../utils/proxyFetch.js';
+import { DATA_CACHE_BACKGROUND_ENABLED } from '../config.js';
 import { CacheDatabase, type CacheJobEnqueueResult, type ImageStoreObservation } from './sqlite.js';
-import { DurableJobScheduler, type CacheJobPriorityName } from './DurableJobScheduler.js';
+import { CACHE_JOB_PRIORITY, DurableJobScheduler, type CacheJobPriorityName } from './DurableJobScheduler.js';
 import type { ByteCacheService } from './ByteCacheService.js';
 import type { ServerMangaProvider } from '../providers/types.js';
 
@@ -253,6 +254,39 @@ function imageStoreCandidates(imageUrl: string): string[] {
   return [...candidates];
 }
 
+function shuffled<T>(items: T[]): T[] {
+  const result = [...items];
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
+}
+
+function withImageStoreCandidates(data: unknown): unknown {
+  if (!data || typeof data !== 'object') return data;
+  const root = data as Record<string, unknown>;
+  const result = root.result;
+  if (!result || typeof result !== 'object') return data;
+  const resultRecord = result as Record<string, unknown>;
+  if (!Array.isArray(resultRecord.pages)) return data;
+
+  return {
+    ...root,
+    result: {
+      ...resultRecord,
+      pages: resultRecord.pages.map(page => {
+        const imageUrl = pageImageUrl(page);
+        if (!imageUrl || !page || typeof page !== 'object') return page;
+        return {
+          ...(page as Record<string, unknown>),
+          candidates: shuffled(imageStoreCandidates(imageUrl)),
+        };
+      }),
+    },
+  };
+}
+
 function coverUrlFromItem(data: unknown, variant: 'card' | 'detail'): string | null {
   if (!data || typeof data !== 'object') return null;
   const raw = data as Record<string, unknown>;
@@ -292,9 +326,13 @@ export class CacheService {
         console.log(`[coverCache] ownership-rebuild card=${rebuilt.card} detail=${rebuilt.detail} ready=${rebuilt.ready} purgedBytes=${purged.rows}`);
       }
     }
-    this.startDailyNewestCrawl();
-    this.drain();
-    this.scheduleDailyRollover();
+    if (DATA_CACHE_BACKGROUND_ENABLED) {
+      this.startDailyNewestCrawl();
+      this.drain();
+      this.scheduleDailyRollover();
+    } else {
+      console.log('[cache] background-data-cache disabled; foreground requests only');
+    }
   }
 
   stop(): void {
@@ -340,7 +378,7 @@ export class CacheService {
       console.log(`[cache] chapter-images not-ready manga=${mangaId} chapter=${chapterId} status=${cached.status} pages=${readiness.pages} targetCount=${readiness.targetCount ?? 'unknown'} source=${readiness.source}`);
       return null;
     }
-    return cached.data;
+    return withImageStoreCandidates(cached.data);
   }
 
   getMangaCardSnapshots(mangaIds: string[], options: { includeChapters?: boolean } = {}): CacheMangaCardSnapshot[] {
@@ -490,7 +528,8 @@ export class CacheService {
   }
 
   private nextJob() {
-    return this.scheduler.claimNext(CACHE_WORKER_ID, 30 * 60 * 1000, DATA_CACHE_JOB_KINDS);
+    const minPriority = DATA_CACHE_BACKGROUND_ENABLED ? undefined : CACHE_JOB_PRIORITY.foreground;
+    return this.scheduler.claimNext(CACHE_WORKER_ID, 30 * 60 * 1000, DATA_CACHE_JOB_KINDS, minPriority);
   }
 
   private hasChapterRepairWork(mangaId: string): boolean {
@@ -868,19 +907,12 @@ export class CacheService {
     const result = await this.browserSession.fetchChapterImages(mangaId, chapterId);
     const pages = resultPages(result.data);
     const readiness = chapterImageReadiness(result.data);
-    let candidates = 0;
-    this.db.transaction(() => {
-      for (const page of pages) {
-        const imageUrl = pageImageUrl(page);
-        if (!imageUrl) continue;
-        for (const candidateUrl of imageStoreCandidates(imageUrl)) {
-          this.db.observeImageCandidate(imageUrl, candidateUrl);
-          candidates++;
-        }
-      }
-      this.db.upsertChapterImages(mangaId, chapterId, result.data, readiness.ready ? 'ready' : 'empty');
-    });
-    console.log(`[cache] chapter-page-map cached manga=${mangaId} chapter=${chapterId} status=${readiness.ready ? 'ready' : 'empty'} pages=${pages.length} targetCount=${readiness.targetCount ?? 'unknown'} source=${readiness.source} storeCandidates=${candidates} fetchMs=${result.durationMs} totalMs=${Date.now() - start}`);
+    for (const page of pages) {
+      const imageUrl = pageImageUrl(page);
+      if (imageUrl) learnStoreHostFromUrl(imageUrl);
+    }
+    this.db.upsertChapterImages(mangaId, chapterId, result.data, readiness.ready ? 'ready' : 'empty');
+    console.log(`[cache] chapter-page-map cached manga=${mangaId} chapter=${chapterId} status=${readiness.ready ? 'ready' : 'empty'} pages=${pages.length} targetCount=${readiness.targetCount ?? 'unknown'} source=${readiness.source} fetchMs=${result.durationMs} totalMs=${Date.now() - start}`);
   }
 
   private resourceKey(job: CacheJob): string | null {

@@ -582,6 +582,7 @@ var _ = {
 	parseChapterImagesResponse(e) {
 		return (e.result?.pages ?? []).map((e) => ({
 			url: String(e.url ?? ""),
+			candidates: Array.isArray(e.candidates) ? e.candidates.filter((e) => typeof e == "string" && e.length > 0) : [String(e.url ?? "")].filter(Boolean),
 			width: Number(e.width ?? 0),
 			height: Number(e.height ?? 0)
 		}));

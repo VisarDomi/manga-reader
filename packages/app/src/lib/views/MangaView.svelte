@@ -27,6 +27,43 @@
         return api.coverProxyUrl(entry.manga.id, 'detail', entry.manga.cover || undefined);
     }
 
+    function observeDetailCover(node: HTMLImageElement, entry: MangaEntry) {
+        const mountedAt = performance.now();
+        const src = node.currentSrc || node.src;
+        let loadLogged = false;
+
+        function emit(phase: 'mount' | 'load' | 'error') {
+            appState.log.emit('manga-cover-image', {
+                source: 'detail',
+                phase,
+                mangaId: entry.manga.id,
+                hasCover: !!src,
+                dtMs: Math.round(performance.now() - mountedAt),
+                naturalWidth: phase === 'load' ? node.naturalWidth : undefined,
+                naturalHeight: phase === 'load' ? node.naturalHeight : undefined,
+            });
+        }
+
+        const onLoad = () => {
+            if (loadLogged) return;
+            loadLogged = true;
+            emit('load');
+        };
+        const onError = () => emit('error');
+
+        emit('mount');
+        node.addEventListener('load', onLoad);
+        node.addEventListener('error', onError);
+        if (node.complete && node.naturalWidth > 0) queueMicrotask(onLoad);
+
+        return {
+            destroy() {
+                node.removeEventListener('load', onLoad);
+                node.removeEventListener('error', onError);
+            },
+        };
+    }
+
     function handleClose() {
         appState.manga.closeManga();
     }
@@ -163,7 +200,7 @@
             </div>
             {#if coverUrl(entry)}
                 <div class="manga-view-cover">
-                    <img src={coverUrl(entry)} alt={manga.title} />
+                    <img src={coverUrl(entry)} alt={manga.title} use:observeDetailCover={entry} />
                 </div>
             {/if}
             {#if manga.altTitles?.length}

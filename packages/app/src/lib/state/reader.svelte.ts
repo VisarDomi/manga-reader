@@ -230,18 +230,14 @@ export class ReaderState {
 
         try {
             const pages = await api.fetchChapterImages(manga.id, chapter.id, chapter.number, chapter.url);
-            const proxiedPages = pages.map(p => ({
-                ...p,
-                url: api.imageProxyUrl(p.url, manga.id, chapter.id, chapter.number, chapter.url),
-            }));
             this.error = null;
             const readyChapter: LoadedChapter = {
                 id: chapter.id,
                 number: chapter.number,
-                pages: proxiedPages,
+                pages,
                 groupName: chapter.groupName,
                 slotState: 'ready',
-                estimatedHeight: this.estimateLoadedChapterHeight(proxiedPages, 0),
+                estimatedHeight: this.estimateLoadedChapterHeight(pages, 0),
             };
             this.chapterDataById.set(chapter.id, readyChapter);
             this.loadedChapters = [readyChapter];
@@ -308,18 +304,14 @@ export class ReaderState {
 
         try {
             const pages = await api.fetchChapterImages(manga.id, chapter.id, chapter.number, chapter.url);
-            const proxiedPages = pages.map(p => ({
-                ...p,
-                url: api.imageProxyUrl(p.url, manga.id, chapter.id, chapter.number, chapter.url),
-            }));
             this.error = null;
             const readyChapter: LoadedChapter = {
                 id: chapter.id,
                 number: chapter.number,
-                pages: proxiedPages,
+                pages,
                 groupName: chapter.groupName,
                 slotState: 'ready',
-                estimatedHeight: this.estimateLoadedChapterHeight(proxiedPages, 0),
+                estimatedHeight: this.estimateLoadedChapterHeight(pages, 0),
             };
             this.chapterDataById.set(chapter.id, readyChapter);
             this.loadedChapters = [readyChapter];
@@ -1359,16 +1351,12 @@ export class ReaderState {
     private async loadChapter(req: ChapterLoadRequest): Promise<ChapterLoadResult> {
         try {
             const pages = await api.fetchChapterImages(req.manga.id, req.chapter.id, req.chapter.number, req.chapter.url);
-            const proxiedPages = pages.map(p => ({
-                ...p,
-                url: api.imageProxyUrl(p.url, req.manga.id, req.chapter.id, req.chapter.number, req.chapter.url),
-            }));
             return {
                 kind: 'loaded',
                 chapter: {
                     id: req.chapter.id,
                     number: req.chapter.number,
-                    pages: proxiedPages,
+                    pages,
                     groupName: req.chapter.groupName,
                 },
             };

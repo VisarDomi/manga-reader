@@ -206,16 +206,6 @@ export class CacheDatabase {
         PRIMARY KEY (manga_id, chapter_id)
       );
 
-      CREATE TABLE IF NOT EXISTS image_store_candidates (
-        image_url TEXT NOT NULL,
-        store_url TEXT NOT NULL,
-        first_seen_at INTEGER NOT NULL,
-        last_seen_at INTEGER NOT NULL,
-        last_status INTEGER,
-        last_ok INTEGER,
-        PRIMARY KEY (image_url, store_url)
-      );
-
       CREATE TABLE IF NOT EXISTS cache_jobs (
         id TEXT PRIMARY KEY,
         kind TEXT NOT NULL,
@@ -274,6 +264,7 @@ export class CacheDatabase {
       CREATE INDEX IF NOT EXISTS idx_manga_cover_source
       ON manga_cover_cache(source_url);
     `);
+    this.db.exec('DROP TABLE IF EXISTS image_store_candidates');
   }
 
   transaction<T>(fn: () => T): T {
@@ -368,21 +359,6 @@ export class CacheDatabase {
       Date.now(),
     );
 
-    this.db.prepare(`
-      INSERT INTO image_store_candidates (image_url, store_url, first_seen_at, last_seen_at, last_status, last_ok)
-      VALUES (?, ?, ?, ?, ?, ?)
-      ON CONFLICT(image_url, store_url) DO UPDATE SET
-        last_seen_at = excluded.last_seen_at,
-        last_status = excluded.last_status,
-        last_ok = excluded.last_ok
-    `).run(
-      observation.imageUrl,
-      observation.storeUrl,
-      Date.now(),
-      Date.now(),
-      observation.status,
-      observation.ok ? 1 : 0,
-    );
   }
 
   upsertChapterImages(mangaId: string, chapterId: string, data: unknown, status = 'ready'): void {
@@ -401,14 +377,6 @@ export class CacheDatabase {
       .get(mangaId, chapterId) as ChapterImageRow | undefined;
     if (!row) return null;
     return { mangaId: row.manga_id, chapterId: row.chapter_id, data: JSON.parse(row.data_json), updatedAt: row.updated_at, status: row.status };
-  }
-
-  observeImageCandidate(imageUrl: string, storeUrl: string): void {
-    this.db.prepare(`
-      INSERT INTO image_store_candidates (image_url, store_url, first_seen_at, last_seen_at)
-      VALUES (?, ?, ?, ?)
-      ON CONFLICT(image_url, store_url) DO UPDATE SET last_seen_at = excluded.last_seen_at
-    `).run(imageUrl, storeUrl, Date.now(), Date.now());
   }
 
   enqueueJob(input: CacheJobInput): CacheJobEnqueueResult {
@@ -474,11 +442,13 @@ export class CacheDatabase {
     });
   }
 
-  claimNextJob(workerId: string, leaseMs: number, now = Date.now(), kinds?: string[]): CacheJobRecord | null {
+  claimNextJob(workerId: string, leaseMs: number, now = Date.now(), kinds?: string[], minPriority?: number): CacheJobRecord | null {
     return this.transaction(() => {
       const kindFilter = kinds && kinds.length > 0
         ? `AND kind IN (${kinds.map(() => '?').join(', ')})`
         : '';
+      const priorityFilter = minPriority != null ? 'AND priority >= ?' : '';
+      const params = minPriority != null ? [...(kinds ?? []), minPriority] : (kinds ?? []);
       const row = this.db.prepare(`
         SELECT id, kind, resource_key, priority, payload_json, status, run_after, attempts, max_attempts,
           lease_owner, lease_until, last_error, created_at, updated_at
@@ -488,9 +458,10 @@ export class CacheDatabase {
           OR (status = 'running' AND lease_until IS NOT NULL AND lease_until < ?)
         )
         ${kindFilter}
+        ${priorityFilter}
         ORDER BY priority DESC, run_after ASC, created_at ASC
         LIMIT 1
-      `).get(now, now, ...(kinds ?? [])) as CacheJobRow | undefined;
+      `).get(now, now, ...params) as CacheJobRow | undefined;
 
       if (!row) return null;
 
@@ -812,7 +783,7 @@ export class CacheDatabase {
   }
 
   counts(): Record<string, number> {
-    const tables = ['manga_cache', 'chapter_list_cache', 'chapter_image_cache', 'image_store_candidates', 'image_store_status', 'cache_jobs', 'byte_cache', 'manga_cover_cache'] as const;
+    const tables = ['manga_cache', 'chapter_list_cache', 'chapter_image_cache', 'image_store_status', 'cache_jobs', 'byte_cache', 'manga_cover_cache'] as const;
     const result: Record<string, number> = {};
     for (const table of tables) {
       const row = this.db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as { count: number };
