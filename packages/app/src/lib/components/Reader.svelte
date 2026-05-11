@@ -67,11 +67,26 @@
     } | null = null;
     let projectionTransactionId = 0;
     let projectionAckRaf: number | null = null;
+    let pendingPhysicalRebase: {
+        source: 'scroll' | 'visible' | 'retry';
+        edge: 'top' | 'bottom';
+        requestedAt: number;
+        physicalScrollTop: number;
+        physicalWindowStart: number;
+        projectionEpoch: number;
+    } | null = null;
+    let motionRaf: number | null = null;
+    let motionLastAt = 0;
+    let motionLastTop = 0;
+    let motionStableFrames = 0;
     let lastPageTrackAt = 0;
     let frameRaf: number | null = null;
     let lastFrameAt = 0;
     const SCROLL_RECONCILE_STEP_VIEWPORTS = 0.75;
     const PHYSICAL_REBASE_MARGIN_PX = 80_000;
+    const MOTION_STABLE_FRAMES = 4;
+    const MOTION_STABLE_DELTA_PX = 1.5;
+    const MOTION_STABLE_VELOCITY_PX_PER_MS = 0.03;
     const PAGE_TRACK_INTERVAL_MS = 250;
     const READER_DIAGNOSTICS = {
         frameGapProbe: true,
@@ -323,9 +338,78 @@
         }
     }
 
-    function needsPhysicalRebase(root: HTMLElement): boolean {
-        return root.scrollTop < PHYSICAL_REBASE_MARGIN_PX
-            || root.scrollTop > root.scrollHeight - root.clientHeight - PHYSICAL_REBASE_MARGIN_PX;
+    function physicalRebaseEdge(root: HTMLElement): 'top' | 'bottom' | null {
+        if (root.scrollTop < PHYSICAL_REBASE_MARGIN_PX) return 'top';
+        if (root.scrollTop > root.scrollHeight - root.clientHeight - PHYSICAL_REBASE_MARGIN_PX) return 'bottom';
+        return null;
+    }
+
+    function requestPhysicalRebase(source: 'scroll' | 'visible' | 'retry', root: HTMLElement, edge: 'top' | 'bottom') {
+        const now = performance.now();
+        const existing = pendingPhysicalRebase;
+        pendingPhysicalRebase = {
+            source,
+            edge,
+            requestedAt: existing?.requestedAt ?? now,
+            physicalScrollTop: root.scrollTop,
+            physicalWindowStart: appState.reader.physicalWindowStart,
+            projectionEpoch: domProjectionEpoch,
+        };
+        appState.log.emit('reader-rebase-deferred', {
+            source,
+            mangaId: appState.manga.activeManga?.id ?? 'unknown',
+            activity: appState.reader.scrollActivityState,
+            edge,
+            currentPhysicalScrollTop: Math.round(root.scrollTop),
+            physicalWindowStart: Math.round(appState.reader.physicalWindowStart),
+            physicalHeight: Math.round(root.scrollHeight),
+            clientHeight: Math.round(root.clientHeight),
+        });
+        startMotionProbe(root);
+    }
+
+    function startMotionProbe(root: HTMLElement) {
+        if (motionRaf != null) return;
+        motionLastAt = performance.now();
+        motionLastTop = root.scrollTop;
+        motionStableFrames = 0;
+        motionRaf = requestAnimationFrame(sampleMotionForRebase);
+    }
+
+    function sampleMotionForRebase(now: number) {
+        motionRaf = null;
+        const root = getReaderRoot();
+        const pending = pendingPhysicalRebase;
+        if (!root || !pending) {
+            motionStableFrames = 0;
+            return;
+        }
+        if (projectionTransaction) {
+            startMotionProbe(root);
+            return;
+        }
+        const currentEdge = physicalRebaseEdge(root);
+        if (!currentEdge || currentEdge !== pending.edge) {
+            pendingPhysicalRebase = null;
+            motionStableFrames = 0;
+            return;
+        }
+        const delta = root.scrollTop - motionLastTop;
+        const dt = Math.max(1, now - motionLastAt);
+        const velocity = Math.abs(delta) / dt;
+        motionLastAt = now;
+        motionLastTop = root.scrollTop;
+        if (Math.abs(delta) <= MOTION_STABLE_DELTA_PX && velocity <= MOTION_STABLE_VELOCITY_PX_PER_MS) {
+            motionStableFrames++;
+        } else {
+            motionStableFrames = 0;
+        }
+        if (motionStableFrames >= MOTION_STABLE_FRAMES) {
+            pendingPhysicalRebase = null;
+            reconcileReaderWindow(pending.source, undefined, pending.requestedAt, undefined, domProjectionEpoch, true);
+            return;
+        }
+        motionRaf = requestAnimationFrame(sampleMotionForRebase);
     }
 
     function beginProjectionTransaction(
@@ -415,6 +499,8 @@
         if (windowReconcileRaf != null) return;
         const root = getReaderRoot();
         if (source === 'scroll' && root) {
+            const edge = physicalRebaseEdge(root);
+            if (edge) requestPhysicalRebase(source, root, edge);
             const threshold = Math.max(240, root.clientHeight * SCROLL_RECONCILE_STEP_VIEWPORTS);
             const sameViewport = root.clientHeight === lastReconcileClientHeight;
             if (sameViewport && Number.isFinite(lastReconcileScrollTop) && Math.abs(root.scrollTop - lastReconcileScrollTop) < threshold) {
@@ -423,7 +509,7 @@
         }
         const queuedAt = performance.now();
         const queuedProjectionEpoch = domProjectionEpoch;
-        const forcePhysicalRebase = source === 'scroll' && !!root && needsPhysicalRebase(root);
+        const forcePhysicalRebase = false;
         windowReconcileRaf = requestAnimationFrame(() => {
             windowReconcileRaf = null;
             reconcileReaderWindow(source, undefined, queuedAt, undefined, queuedProjectionEpoch, forcePhysicalRebase);
@@ -833,6 +919,11 @@
                     cancelAnimationFrame(projectionAckRaf);
                     projectionAckRaf = null;
                 }
+                if (motionRaf != null) {
+                    cancelAnimationFrame(motionRaf);
+                    motionRaf = null;
+                }
+                pendingPhysicalRebase = null;
                 if (projectionTransaction) {
                     appState.log.emit('reader-projection-transaction', {
                         phase: 'cancel',

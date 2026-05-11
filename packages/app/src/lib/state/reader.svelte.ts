@@ -170,6 +170,10 @@ export class ReaderState {
         return this.scrollActivity === 'settled';
     }
 
+    get scrollActivityState(): ReaderScrollActivity {
+        return this.scrollActivity;
+    }
+
     private plannerChapters(): LoadedChapter[] {
         return this.loadedChapters.map(slot => this.materializeFrameSlot(slot));
     }
