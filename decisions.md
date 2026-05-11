@@ -889,6 +889,16 @@ the chapter image metadata request. The reader must not treat `side=current` as
 a reason to skip fetching a non-ready slot. A chapter can become the visible
 progress/title owner only when ready page geometry exists for it.
 
+Ready chapter slot height is owned by page geometry. Placeholder/reserved height
+may keep runway space while metadata is missing, but it must not survive as the
+height of a ready chapter. A 2026-05-11 dead-space bug showed why: chapter 87
+hydrated from a 48,809px placeholder to 34,479px of real pages, but the render
+slot kept the old `virtualHeight`; the viewport could then sit inside the
+chapter section with `visiblePages=0` and `visibleImages=0`. The durable rule is
+that `virtualHeight` is a reservation for non-ready slots, while ready slots use
+real estimated/measured page height. Destructive physical rebases must not be
+used as accidental stale-height cleanup.
+
 Committed render-frame geometry is separate from planner/cache geometry.
 `ReaderWindowManager` may plan with placeholder and cached chapter data, but
 visibility, page tracking, image scheduling, and progress must read from the

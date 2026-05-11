@@ -181,15 +181,16 @@ export class ReaderState {
     private materializeFrameSlot(slot: LoadedChapter): LoadedChapter {
         const ready = this.chapterDataById.get(slot.id);
         if (!ready) return slot;
+        const readyHeight = ready.estimatedHeight ?? slot.estimatedHeight ?? slot.virtualHeight;
 
         return {
             ...ready,
             slotState: 'ready',
             logicalTop: slot.logicalTop,
-            logicalHeight: slot.logicalHeight,
+            logicalHeight: readyHeight ?? slot.logicalHeight,
             virtualTop: slot.virtualTop,
-            virtualHeight: slot.virtualHeight,
-            estimatedHeight: ready.estimatedHeight ?? slot.estimatedHeight,
+            virtualHeight: readyHeight,
+            estimatedHeight: readyHeight,
         };
     }
 
@@ -1248,9 +1249,9 @@ export class ReaderState {
         const previousSlot = this.loadedChapters[index];
         const previousHeight = previousSlot.estimatedHeight ?? null;
         const reservedHeight = previousSlot.virtualHeight ?? previousSlot.estimatedHeight ?? readyChapter.estimatedHeight ?? 0;
-        this.estimatedChapterHeights.set(readyChapter.id, reservedHeight);
-        this.resetWindowLayoutCache();
         const estimatedHeight = readyChapter.estimatedHeight ?? 0;
+        this.estimatedChapterHeights.set(readyChapter.id, estimatedHeight);
+        this.resetWindowLayoutCache();
         const cachedReadyChapter = {
             ...readyChapter,
             estimatedHeight,
@@ -1260,7 +1261,7 @@ export class ReaderState {
             ...previousSlot,
             slotState: 'ready',
             estimatedHeight,
-            virtualHeight: reservedHeight,
+            virtualHeight: estimatedHeight,
         });
         const nextSlots = this.loadedChapters.map(slot => slot.id === readyChapter.id ? positionedReadyChapter : slot);
         this.commitWindowFrame({
@@ -1279,6 +1280,7 @@ export class ReaderState {
             mangaId: manga.id,
             chapterId: readyChapter.id,
             previousEstimatedHeight: previousHeight == null ? null : Math.round(previousHeight),
+            reservedHeight: Math.round(reservedHeight),
             estimatedHeight: Math.round(estimatedHeight),
             delta: previousHeight == null ? null : Math.round(estimatedHeight - previousHeight),
         });
@@ -1315,7 +1317,7 @@ export class ReaderState {
 
         const loaded = this.chapterDataById.get(chapterId) ?? this.loadedChapters.find(ch => ch.id === chapterId && ch.pages.length > 0);
         if (loaded) {
-            const height = loaded.virtualHeight ?? loaded.estimatedHeight ?? this.estimateLoadedChapterHeight(loaded.pages, viewportWidth);
+            const height = loaded.estimatedHeight ?? this.estimateLoadedChapterHeight(loaded.pages, viewportWidth);
             this.estimatedChapterHeights.set(chapterId, height);
             return height;
         }

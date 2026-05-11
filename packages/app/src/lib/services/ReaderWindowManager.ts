@@ -213,7 +213,10 @@ export class ReaderWindowManager {
         for (let index = 0; index < chapterList.length; index++) {
             const chapter = chapterList[index];
             const slot = existing.get(chapter.id);
-            const height = Math.max(1, slot?.virtualHeight ?? slot?.estimatedHeight ?? estimateChapterHeight(chapter.id, viewportWidth));
+            const readyHeight = slot && (slot.slotState === 'ready' || slot.pages.length > 0)
+                ? slot.estimatedHeight
+                : null;
+            const height = Math.max(1, readyHeight ?? slot?.virtualHeight ?? slot?.estimatedHeight ?? estimateChapterHeight(chapter.id, viewportWidth));
             const bottom = top + height;
             layouts.push({ chapter, index, top, height, bottom });
             top = bottom;
