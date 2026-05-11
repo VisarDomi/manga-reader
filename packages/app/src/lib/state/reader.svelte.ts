@@ -75,7 +75,8 @@ const EMPTY_COMMENT_STATS: MangaCommentStats = {
 };
 
 export class ReaderState {
-    // Render projection of the committed ReaderWindowFrame. Ready page data lives in chapterDataById.
+    // Render projection of the committed ReaderWindowFrame. Ready page data lives in chapterDataById,
+    // but cached data is not itself render residency.
     loadedChapters = $state<LoadedChapter[]>([]);
     currentChapterId = $state<string | null>(null);
     layoutChapterId = $state<string | null>(null);
@@ -160,16 +161,7 @@ export class ReaderState {
     }
 
     private plannerChapters(): LoadedChapter[] {
-        const byId = new Map<string, LoadedChapter>();
-        for (const slot of this.loadedChapters) {
-            byId.set(slot.id, this.materializeFrameSlot(slot));
-        }
-        for (const chapter of this.chapterDataById.values()) {
-            if (!byId.has(chapter.id)) {
-                byId.set(chapter.id, chapter);
-            }
-        }
-        return [...byId.values()];
+        return this.loadedChapters.map(slot => this.materializeFrameSlot(slot));
     }
 
     private materializeFrameSlots(slots: LoadedChapter[]): LoadedChapter[] {
