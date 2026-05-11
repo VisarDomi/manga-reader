@@ -497,9 +497,11 @@ export class CacheService {
       job != null
       && job.mangaId === mangaId
       && (job.kind === 'reconcile-chapters' || (job.kind === 'cache-chapters' && job.force === true));
-    return isRepair(this.currentJob)
-      || this.scheduler.jobsByKinds(['reconcile-chapters', 'cache-chapters'])
-        .some(record => isRepair(this.recordToJob(record)));
+    if (isRepair(this.currentJob)) return true;
+    const chapterJobs = this.scheduler.jobsForResource('cache-chapters', mangaId);
+    if (chapterJobs.some(record => isRepair(this.recordToJob(record)))) return true;
+    const reconcileJobs = this.scheduler.jobsForResource('reconcile-chapters', mangaId);
+    return reconcileJobs.some(record => isRepair(this.recordToJob(record)));
   }
 
   private shouldYieldToForeground(job: CacheJob): boolean {
