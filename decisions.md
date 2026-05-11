@@ -893,6 +893,20 @@ destructive physical rebases. They can only start a scroll session. The
 scroll-session owner must observe stability, wait through the 1000ms quiet
 grant, and then ask `ReaderState` for an edge-pressure rebase target.
 
+The 1000ms quiet grant is intentionally conservative. A 2026-05-11 edge test
+hit the bottom of the physical runway at about `scrollTop=400000`. The
+scroll-session owner repeatedly observed `stable`, but Safari still emitted
+late scroll events that cancelled the grant after roughly 64ms, 88ms, 116ms,
+252ms, 283ms, and 368ms. This proves that a 0ms or 100ms post-stability grant
+would have authorized a rebase while Safari still had pending movement, and a
+300ms grant would still be marginal. The successful rebase happened only after
+the viewport stayed quiet for the full 1000ms: `stable -> idle-granted
+quietMs=1000 -> rebase-request -> projection begin from=400000 to=200000 ->
+ack delta=0`. The tradeoff is visible: if the user scrolls continuously to the
+runway edge, they may briefly hit the physical end, pause, then continue after
+the rebase. That is preferable to rebasing during momentum and risking a
+chapter jump or black screen.
+
 Placeholder slots are layout hints, not visible-page authority. If a wanted
 placeholder is the current/probe candidate, fetch ownership must still start
 the chapter image metadata request. The reader must not treat `side=current` as
