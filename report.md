@@ -1,331 +1,388 @@
 # Infinite Manga Reader Architecture Research
 
-Date: 2026-05-10
+Date: 2026-05-11
 
 ## Scope
 
-This report looks at how other manga/comic readers and virtual scrolling systems handle continuous readers, dynamic page loading, and scroll stability. The goal is to sanity-check our current reader direction after rare black-screen/jump bugs in the bounded physical scroller.
+This report records the reference work behind the current reader architecture.
+It is not a generic survey of manga apps. The product constraint is specific:
+keep native browser/iOS momentum scrolling while supporting fast continuous
+scroll across many chapters without black flashes, false chapter changes, or
+giant browser scroll surfaces.
 
-Reference material checked:
+Reference material checked locally:
 
-- Local: `/home/visar/Documents/reference/TachiyomiSY`
-- Local: `/home/visar/Documents/reference/yomikiru`
-- Local: `/home/visar/Documents/reference/teemii`
-- Local: `/home/visar/Documents/reference/go-reader`
-- Local: `/home/visar/Documents/reference/virtual` (TanStack Virtual)
-- Local: `/home/visar/Documents/reference/react-virtuoso`
-- Web: WebKit bugs around momentum/prepend scrolling
+- `/home/visar/Documents/reference/TachiyomiSY`
+- `/home/visar/Documents/reference/yomikiru`
+- `/home/visar/Documents/reference/teemii`
+- `/home/visar/Documents/reference/go-reader`
+- `/home/visar/Documents/reference/virtual` (TanStack Virtual)
+- `/home/visar/Documents/reference/react-virtuoso`
 
-## Short Verdict
+Current app files checked while refreshing this report:
 
-The reader bugs we are seeing are a known class of problem: continuous manga readers are easy when all content is rendered in one static document, but they become fragile when the app virtualizes content, prepends previous content, changes measured heights, or writes `scrollTop` while the browser is still scrolling.
+- `packages/app/src/lib/state/reader.svelte.ts`
+- `packages/app/src/lib/services/ReaderWindowManager.ts`
+- `packages/app/src/lib/services/ReaderMemoryManager.ts`
+- `packages/app/src/lib/components/Reader.svelte`
 
-The stronger architecture is not another guard. It is a stricter ownership model:
+## Current Verdict
 
-- one owner computes the scroll model,
-- one committed frame owns all physical geometry,
-- DOM scroll writes only target a rendered frame,
-- image loading consumes the committed frame but does not own layout,
-- visibility/progress are observations, never layout authority.
+The current reader direction is still the right one: a browser-scroll-preserving
+virtualizer with strict ownership boundaries. The older report described a
+future `ReaderWindowFrame`-style direction. The shipped code now implements the
+important part of that direction differently: the committed render projection
+owned by `ReaderState` is the authority, and planner/cache geometry is only an
+input for future work.
 
-Our current `ReaderWindowFrame` direction matches the best pattern found in mature virtualizers. The part that must stay strict is atomicity: physical start, physical height, slot positions, slot heights, mounted slot membership, and scroll target must move together.
+The key correction from the latest black-screen bugs is this:
 
-## What Mature Manga Readers Do
+- planner geometry can request work
+- mounted DOM geometry can report visible facts
+- image memory can hydrate or release bytes
+- only the reader state owner can commit physical scroll geometry
+
+Anything else risks landing Safari's viewport in a coordinate space that the
+DOM has not rendered yet.
+
+## What Mature Manga Readers Prove
 
 ### TachiyomiSY Webtoon Reader
 
-Files:
+Relevant files:
 
-- `/home/visar/Documents/reference/TachiyomiSY/app/src/main/java/eu/kanade/tachiyomi/ui/reader/viewer/webtoon/WebtoonViewer.kt`
-- `/home/visar/Documents/reference/TachiyomiSY/app/src/main/java/eu/kanade/tachiyomi/ui/reader/viewer/webtoon/WebtoonAdapter.kt`
-- `/home/visar/Documents/reference/TachiyomiSY/app/src/main/java/eu/kanade/tachiyomi/ui/reader/viewer/webtoon/WebtoonLayoutManager.kt`
-- `/home/visar/Documents/reference/TachiyomiSY/app/src/main/java/eu/kanade/tachiyomi/ui/reader/loader/HttpPageLoader.kt`
+- `app/src/main/java/eu/kanade/tachiyomi/ui/reader/viewer/webtoon/WebtoonViewer.kt`
+- `app/src/main/java/eu/kanade/tachiyomi/ui/reader/viewer/webtoon/WebtoonAdapter.kt`
+- `app/src/main/java/eu/kanade/tachiyomi/ui/reader/viewer/webtoon/WebtoonLayoutManager.kt`
+- `app/src/main/java/eu/kanade/tachiyomi/ui/reader/loader/HttpPageLoader.kt`
 
-Tachiyomi's webtoon mode is built on Android `RecyclerView`, not a manually maintained giant DOM. That matters because RecyclerView has one layout manager that owns item positions and scroll state.
+TachiyomiSY uses Android `RecyclerView`. That gives it something the web app
+does not get for free: a native layout manager that owns recycling, visible
+positions, and scroll state.
 
-Important patterns:
+Useful patterns:
 
-- The adapter builds one ordered item list containing previous chapter pages, transition item, current chapter pages, next transition, and next chapter pages.
-- Changes are applied through `DiffUtil`, so the list changes as a dataset transaction rather than scattered DOM edits.
-- `WebtoonLayoutManager` uses extra layout space and explicitly disables item prefetch because the reader wants holders laid out early enough to avoid black views.
-- Page selection is observation from the layout manager's visible item positions.
-- Preloading next/previous chapters is a side effect of selected pages/transitions, not an owner of scroll geometry.
-- Page image loading uses a priority queue in `HttpPageLoader`; current page has higher priority, following pages have lower priority.
+- The adapter builds a single ordered item list from previous chapter pages,
+  transition items, current chapter pages, next transition, and next chapter
+  pages.
+- Updates go through `DiffUtil`, so dataset changes are transactions rather
+  than scattered view mutations.
+- The layout manager owns visible item positions. Page selection is observation
+  from the layout manager, not layout authority.
+- Preloading next/previous chapters is a side effect of visible position and
+  transition pages.
+- Image loading has priority, but it does not own layout.
 
-What applies to us:
+What applies to this app:
 
-- The webtoon reader has a single layout manager. Our equivalent should be `ReaderWindowManager` plus a committed `ReaderWindowFrame`.
-- Chapter preloading should remain an output of the frame/probe, not something that mutates geometry directly.
-- Visibility should update progress/title/preload, but must not change layout authority.
+- We need a single reader layout owner.
+- Visibility/progress may observe, but must not mutate layout.
+- Chapter preloading is derived from the current layout/cursor, not a separate
+  geometry writer.
+- Image loading should follow the committed render model.
 
-What does not directly apply:
+What does not apply directly:
 
-- RecyclerView owns native scroll physics and recycling. A web PWA does not get this for free, especially on iOS Safari.
+- RecyclerView solves native recycling and scroll physics on Android. iOS
+  Safari does not give this app the same guarantee.
 
 ### Yomikiru
 
-Files:
+Relevant files:
 
-- `/home/visar/Documents/reference/yomikiru/src/renderer/features/reader/manga/Reader.tsx`
-- `/home/visar/Documents/reference/yomikiru/src/renderer/features/settings/components/GeneralSettings.tsx`
-- `/home/visar/Documents/reference/yomikiru/src/renderer/utils/readerSettingsSchema.ts`
+- `src/renderer/features/reader/manga/Reader.tsx`
+- `src/renderer/features/settings/components/GeneralSettings.tsx`
+- `src/renderer/utils/readerSettingsSchema.ts`
 
-Yomikiru is useful mostly as a warning. It has a vertical scroll reader, but its dynamic image loading setting explicitly warns that dynamic loading can cause inconsistent scroll size and stuttering while scrolling. It also has a canvas-based rendering mode described as smoother for high-res images, with the tradeoff of high RAM and less sharp images.
+Yomikiru is mostly useful as a warning. Its vertical reader has settings around
+dynamic loading and smoother rendering modes, and those settings acknowledge
+that dynamic loading can cause inconsistent scroll size and stutter.
 
-Patterns:
+What applies:
 
-- It often loads the full chapter image list first.
-- It tracks page number from visible DOM.
-- It restores page by `scrollIntoView`.
-- Dynamic loading is optional and documented as risky for scroll stability.
-- It has a setting note that focusing current chapter in a large side list can cause huge performance loss.
-
-What applies to us:
-
-- Dynamic loading that changes scroll size during reading is inherently fragile.
-- If we want infinite cross-chapter scroll, the browser must see stable geometry before the user reaches it.
-- Heavy sibling UI can hurt reader feel even if reader code is correct.
+- Changing scroll size during reading is inherently fragile.
+- If the app wants continuous cross-chapter scroll, stable geometry has to be
+  prepared before the user reaches it.
+- Heavy sibling UI can make the reader feel worse even when reader code is not
+  the direct bug owner.
 
 What does not apply:
 
-- Yomikiru is desktop Electron/local files. It does not solve iOS Safari momentum behavior.
+- Yomikiru is a desktop Electron/local-file app. It is not solving iOS PWA
+  momentum constraints.
 
 ### Teemii
 
-Files:
+Relevant files:
 
-- `/home/visar/Documents/reference/teemii/app/src/views/chapter.vue`
-- `/home/visar/Documents/reference/teemii/app/src/components/page.vue`
+- `app/src/views/chapter.vue`
+- `app/src/components/page.vue`
 
-Teemii's reader is simpler. It loads one chapter, lazy-loads images by replacing `data-src`, updates visible page, and navigates previous/next chapter by route reload.
+Teemii uses a simpler model: one chapter view, lazy image loading, visible page
+tracking, and route navigation for previous/next chapters.
 
-What applies to us:
+What applies:
 
-- It avoids the hardest case by not keeping a seamless cross-chapter virtual runway.
-- The simplicity is stable because it does not constantly rebase a physical scroller.
+- Simpler readers are stable partly because they avoid the hard problem.
+- If only one chapter is mounted, there is no giant cross-chapter virtual
+  runway to keep coherent.
 
 What does not apply:
 
-- It is not trying to solve our feature: fast continuous scroll across many chapters.
+- The current app intentionally wants fast continuous scrolling through many
+  chapters, so Teemii's route-per-chapter design does not satisfy the core
+  product behavior.
 
 ### go-reader
 
-Files:
+Relevant files:
 
-- `/home/visar/Documents/reference/go-reader/core/Streamer.gd`
-- `/home/visar/Documents/reference/go-reader/core/Tex.gd`
-- `/home/visar/Documents/reference/go-reader/Main.gd`
+- `core/Streamer.gd`
+- `core/Tex.gd`
+- `Main.gd`
 
-go-reader uses a game-engine camera and texture nodes. It streams pages around the current camera position with buffers and unloads textures outside the buffer.
+go-reader uses a game-engine camera and streamed texture nodes. The camera is
+the cursor; pages are loaded and unloaded around the camera with a buffer.
 
-Important patterns:
+What applies:
 
-- The camera position is the reader cursor.
-- Page objects are streamed in a buffer around current page.
-- Jumping is treated as a special mode with explicit post-jump loading before normal streaming resumes.
-- Unloading is based on distance from current page, not on arbitrary DOM visibility.
-
-What applies to us:
-
-- The owned cursor should be logical/camera-like, not browser `scrollTop`.
-- Jump/rebase should be an explicit transaction mode.
-- Loading/unloading should be relative to the owned cursor/frame.
+- The owned cursor should be logical/camera-like.
+- Jump/rebase should be an explicit transaction.
+- Loading and unloading should be relative to the owned cursor, not arbitrary
+  observer timing.
 
 What does not apply:
 
-- A game engine camera avoids browser scroll anchoring/momentum entirely. We cannot take that route without rewriting gestures/scroll physics.
+- A game camera avoids browser scroll anchoring and iOS momentum entirely. That
+  would mean replacing native browser scroll/gestures, which is a last resort
+  for this app.
 
-## What Virtual Scrolling Libraries Teach
+## What Virtualizers Prove
 
 ### TanStack Virtual
 
-Files/docs:
+Relevant file:
 
-- `/home/visar/Documents/reference/virtual/packages/virtual-core/src/index.ts`
-- https://tanstack.com/virtual/latest/docs/api/virtualizer
-- https://tanstack.com/virtual/latest/docs
+- `packages/virtual-core/src/index.ts`
 
-Relevant ideas:
+Important patterns:
 
-- A virtualizer owns the scroll model.
-- It exposes `scrollToOffset` and `scrollToIndex`, with alignment as part of the model.
-- Dynamic sizes require explicit measurement and optional scroll adjustment policy.
-- It has `shouldAdjustScrollPositionOnItemSizeChange`, which is effectively an ownership hook for height changes.
-- It recommends block translation for smooth scrolling because measuring only a buffered range can otherwise shift target positions.
+- The virtualizer owns scroll offset, measured item sizes, range extraction,
+  overscan, and scroll-to behavior.
+- Scroll observation reports offset and an `isScrolling` phase.
+- Resize observation can be deferred through animation frame when needed.
+- Dynamic size changes go through virtualizer policy such as scroll adjustment,
+  not local component compensation.
 
-What applies to us:
+What applies:
 
-- Height measurement cannot directly mutate DOM scroll state. It must go through the virtualizer owner.
-- Scroll adjustment is a policy owned by the scroll model, not a local component fix.
-- Rendered block/slot geometry must be coherent as one model.
+- Measurement is input to the scroll model, not a direct DOM scroll mutation.
+- Active scrolling is a distinct phase, and expensive/destructive projection
+  should respect it.
+- Range extraction and overscan belong to the virtualizer owner.
 
 ### React Virtuoso
 
-Files/docs:
+Relevant files:
 
-- `/home/visar/Documents/reference/react-virtuoso/packages/react-virtuoso/src/`
-- https://virtuoso.dev/react-virtuoso/
+- `packages/react-virtuoso/src/listStateSystem.ts`
+- `packages/react-virtuoso/src/domIOSystem.ts`
+- `packages/react-virtuoso/src/sizeSystem.ts`
+- `packages/react-virtuoso/src/scrollToIndexSystem.ts`
 
-Relevant ideas:
+Important patterns:
 
-- It supports variable item sizes automatically.
-- It has prepend/load-more behavior that retains scroll position.
-- This is presented as a first-class virtualizer behavior, not an app-level afterthought.
+- The system is split into small owners: DOM IO, sizes, list state, scrolling
+  state, scroll-to-index, recalc.
+- `listStateSystem` builds one coherent state containing visible items,
+  offsets, top/bottom spacers, total count, and first item index.
+- `domIOSystem` owns scroll container readings and scroll write streams.
+- Dynamic measurement and scroll changes are coordinated through streams rather
+  than scattered local effects.
 
-What applies to us:
+What applies:
 
-- Prepend and dynamic item size are core virtualizer responsibilities.
-- Our app should not scatter prepend compensation or scroll writes through reader/image/progress code.
+- Split owners by resource, not by convenience.
+- List state should contain the coherent render projection, not just item IDs.
+- DOM IO should be a boundary. It reports measurements and applies scroll
+  writes; it should not own product policy.
 
 ## iOS/WebKit Constraints
 
-References:
+Observed and previously tested constraints:
 
-- https://bugs.webkit.org/show_bug.cgi?id=187449
-- https://bugs.webkit.org/show_bug.cgi?id=285306
-- https://safari-ios-getboundingclientrect-scroll-bug.glitch.me/
+- Prepending content while scrolling can jump the viewport on iOS Safari.
+- Setting `scrollTop` during momentum can break the user's flow even when the
+  numeric target is mathematically correct.
+- `getBoundingClientRect()` during active scroll should be treated as an
+  observation, not a source of ownership.
 
-Relevant findings:
+These constraints are why the app cannot fix reader bugs by adding another
+guard near progress saves. The important question is always: did the reader
+change physical geometry, image ownership, or visible authority while Safari
+was still scrolling?
 
-- WebKit has had issues setting `scrollTop` during momentum scroll. The reported behavior is that setting `scrollTop` during momentum can cause jitter or fail to preserve momentum.
-- A recent WebKit bug reports prepending into a scroll container causing scroll to jump to newly inserted content, while Chrome/Firefox preserve the visible child.
-- `getBoundingClientRect()` readings can fluctuate on iOS Safari during scroll in certain layouts.
+## Pattern Behind Our Reader Bugs
 
-What applies to us:
+The hard failures have had the same shape:
 
-- Avoid programmatic `scrollTop` writes during active momentum unless they are unavoidable and tied to a rendered frame.
-- Avoid prepending/slot movement as unowned DOM changes.
-- Logs should not over-trust raw rect readings without also logging frame epoch and slot ranges.
+1. User is reading normally.
+2. Reader changes internal virtual/physical state.
+3. One owner observes or cleans up against a geometry version that has not
+   become the committed rendered frame.
+4. The viewport lands in a gap, or visible images are removed, or progress
+   briefly reports a chapter that is not actually mounted.
 
-## Pattern Behind Our Bugs
+Concrete examples from the recent work:
 
-Both black-screen/jump failures share the same shape:
+- A physical rebase mixed a new physical window start with old scroll/slot
+  assumptions. The result was a logical jump and a black screen.
+- Planner/cache geometry made non-mounted pages look eligible for progress or
+  image scheduling. That created false chapter observations.
+- Image cleanup could revoke blob URLs while scroll/rebase was still active,
+  causing a visible flash even though network/cache was not the bug.
 
-1. The user is reading normally.
-2. The reader internally changes the physical scroll model.
-3. One piece of state moves before another related piece.
-4. The browser viewport lands in a coordinate space not covered by current DOM pages.
+## Current Shipped Architecture
 
-In the first black-screen bug, logical cursor ownership was wrong. The planner mixed a new physical window start with an old physical `scrollTop`, producing a bogus logical jump and revoking the visible images.
+The current architecture is a bounded physical scroller over a logical manga
+coordinate space.
 
-In the second black-screen bug, the logical cursor was coherent, but frame geometry was not atomic. `physicalWindowStart` changed and `scrollTop` was written while slot geometry could still reflect the previous physical frame. Logs showed `registeredPages=120` and `visiblePages=0`, which means the problem was not network or image fetch. The DOM had pages; the viewport was in a gap.
+### ReaderState
 
-## Architecture Recommendation
+Owns:
 
-The best architecture for this app is a browser-scroll-preserving virtualizer, not a synthetic scroller and not a full rewrite.
+- logical cursor
+- physical window start
+- physical scroll projection
+- committed render slots
+- active scroll phase: `idle`, `scrolling`, `programmatic`
+- rebase/destructive projection policy
 
-### Ownership Boundaries
+During active scroll, `reconcileReaderWindow('scroll')` is non-destructive. It
+keeps the current physical runway start and preserves mounted slots. Idle or
+initial transactions can rebase and compact.
 
-`ReaderWindowManager`
+### ReaderWindowManager
 
-- Pure planner.
-- Inputs: chapter list, known page/chapter heights, logical cursor, viewport, current physical window.
-- Output: full `ReaderWindowFrame`.
-- No DOM writes.
-- No image loads.
-- No progress writes.
+Owns pure planning:
 
-`ReaderState`
+- full logical chapter layout
+- wanted chapter candidates
+- DOM keep window
+- virtual top/height calculations
+- placeholder slot creation
 
-- Owns the logical cursor and committed frame.
-- Commits the whole frame atomically.
-- Owns height measurement promotion policy.
-- Owns fetch priority decisions derived from the frame.
+It does not own DOM, image memory, progress, or scroll writes. Its plan can
+request work, but it cannot become a visible fact until `ReaderState` commits
+the render projection.
 
-`Reader.svelte`
+### Reader.svelte
 
-- Owns DOM observation and DOM scroll writes.
-- Applies a scroll write only after the matching frame epoch has rendered.
-- Reports measurements/visibility as facts.
+Owns DOM observation and DOM scroll writes:
 
-`ReaderMemoryManager`
+- reads scroll container state
+- registers page DOM nodes
+- reports measurements and visible facts
+- applies programmatic scroll writes after the reader owner asks for them
 
-- Owns image blob lifecycle.
-- Consumes mounted page geometry after render.
-- Never changes frame geometry.
+It should not invent layout policy.
 
-`PageTracker`
+### ReaderMemoryManager
 
-- Owns progress observation.
-- Never changes layout.
+Owns image blob lifetime:
 
-### Frame Shape
+- page DOM node registration
+- image scheduling inside the image window
+- blob URL creation/reuse
+- cleanup when allowed by reader state
 
-A reader frame should contain:
+It consumes committed page geometry from `ReaderState.pageGeometry()` and
+mounted DOM facts from `pageDataMap`. Cleanup is disabled during active scroll.
+That is ownership, not a blind delay: active scroll is the phase where image
+cleanup can visually destroy a still-relevant frame.
 
-- `epoch`
-- `logicalScrollTop`
-- `physicalWindowStart`
-- `physicalScrollTop`
-- `physicalHeight`
-- `slots[]`
-- each slot's `chapterId`, `slotState`, `logicalTop`, `logicalHeight`, `virtualTop`, `virtualHeight`, page count
-- `wantedIds`
-- fetch candidates
+### PageTracker
 
-If any render-relevant field changes, it is a new frame. Chapter IDs alone are not enough.
+Owns visible progress observation:
 
-### Rebase Transaction
+- observes mounted `.reader-page` DOM nodes
+- prefers layout/current chapter hints only as tie-breakers
+- never promotes a non-mounted planner/cache page into visible progress
 
-Correct flow:
+This is the important correction from the previous architecture. Visibility is
+DOM-owned, not planner-owned.
 
-1. Read current browser scroll.
-2. Convert to logical cursor using the currently committed frame.
-3. Plan next frame.
-4. Commit next frame atomically.
-5. Wait for Svelte/DOM render.
-6. If the frame epoch still matches, write physical `scrollTop`.
-7. Schedule images from the rendered frame.
-8. Log coverage.
+## What Changed Since the Older Report
 
-Incorrect flow:
+The older report recommended a fuller `ReaderWindowFrame` object with epoch,
+slots, scroll target, and coverage. The current code uses a lighter version of
+that idea:
 
-1. Change `physicalWindowStart`.
-2. Keep old slots because IDs did not change.
-3. Write `scrollTop` immediately.
-4. Let DOM catch up later.
+- `ReaderState` commits render-relevant slot geometry through
+  `commitWindowFrame`.
+- `ReaderWindowManager.plan()` can preserve existing loaded slots when
+  destructive projection is not allowed.
+- `ReaderState.pageGeometry()` reads the committed render projection, not all
+  planner/cache data.
+- `ReaderMemoryManager.loadVirtualWindow(..., { allowCleanup })` hydrates
+  images during scroll but skips cleanup when active.
+- `Reader.svelte` passes `memory.pageDataMap` to page tracking, so mounted DOM
+  nodes own visible-page facts.
 
-That incorrect flow is how a viewport can land in a black gap.
+This means the code no longer exactly matches the old "future direction"
+language. The architectural intent remains the same, but the shipped
+implementation is now stricter about committed render geometry and active
+scroll non-destruction.
 
 ## What To Avoid
 
-- Guarding visible chapter saves instead of fixing layout ownership.
-- Treating prepend as a local DOM operation.
-- Letting image loading decide layout.
-- Writing `scrollTop` before the target frame renders.
-- Measuring heights and applying scroll compensation from multiple places.
-- Using `loadedChapters` as both data cache and render-frame geometry forever.
-- Trusting item IDs as the only render-change signal.
-- Rebuilding toward a synthetic scroller unless browser scroll physics become impossible.
+- Guarding progress saves to hide false chapter changes.
+- Treating prepending/removing content as a local DOM operation.
+- Letting image cleanup decide what the reader can safely show.
+- Writing `scrollTop` while scroll activity is active unless it is an explicit
+  programmatic transaction.
+- Using planner/cache pages as visible-page authority.
+- Using a delay gate as the primary fix. A delay can hide symptoms, but the
+  owner still has to know whether cleanup/projection is allowed.
+- Replacing native scroll with a synthetic/game-engine scroller unless browser
+  scroll physics become impossible.
 
-## Stronger Future Direction
+## Remaining Risk
 
-The current frame-epoch fix is the right near-term architecture. If bugs continue, the next step should not be a guard; it should be a fuller separation:
+The reader has not been fully revalidated on the user's iPhone after the latest
+ownership changes. `plan.md` remains intentionally present for that reason.
 
-- `chapterDataById`: ready pages and metadata
-- `ReaderWindowFrame`: only render geometry
-- `fetchQueue`: desired chapter/image work from the frame
-- `progressObserver`: visible page facts
+Good signatures in logs:
 
-That would remove the remaining ambiguity where `loadedChapters` still acts as both loaded data and render slot list.
+- no `reader-scroll-write source=physical-rebase` while
+  `reader-scroll-activity` is `scrolling`
+- no false `reader-chapter-change` to a non-mounted chapter
+- `reader-image-schedule-perf revoked=0` while active scroll cleanup is
+  disabled
+- `reader-surface-snapshot visiblePages > 0` and `visibleLoadedImages > 0`
+  after rebase
+- no `reader-window-coverage-miss`
 
-The even larger alternative is a game-engine-style logical camera/synthetic scroller. That would avoid WebKit scroll bugs but risks breaking native iOS momentum and gestures. It should remain a last resort.
+Bad signatures:
 
-## Practical Test Signals
+- `registeredPages > 0`, `pageElements > 0`, `visiblePages = 0`
+- a physical rebase and a black flash in the same time window
+- `reader-chapter-change` reports a chapter absent from mounted DOM page data
+- image revokes happen during `scrolling`
 
-The logs should prove frame correctness. Useful events:
+## Final Recommendation
 
-- `reader-window-frame`
-- `reader-scroll-write source=physical-rebase frameEpoch=...`
-- `reader-surface-snapshot visiblePages=... visibleSections=... frameEpoch=...`
-- `reader-window-coverage-miss`
+Keep the current ownership split and validate it in the real PWA:
 
-Failure signature to watch:
+- browser owns native scroll/momentum
+- gestures own navigation gestures
+- `ReaderState` owns committed reader geometry
+- `ReaderWindowManager` plans only
+- DOM owns visible facts
+- `ReaderMemoryManager` owns image bytes and cleans only when the reader phase
+  allows destruction
 
-- `registeredPages > 0`
-- `pageElements > 0`
-- `visiblePages = 0`
-- big `physicalStartDelta`
-- scroll write near the same timestamp
-
-If that appears again, the bug is still frame coverage/atomicity. If `visiblePages > 0` but `visibleLoadedImages = 0`, then the bug moved to image scheduling/cache. If both are zero and there are no page elements, then the bug moved to fetch/window membership.
+If another black-screen bug appears, do not add a guard first. Check which
+owner crossed a boundary: geometry changed during active scroll, planner data
+became visible authority, image cleanup destroyed a visible frame, or DOM
+scroll was written before the committed projection existed.
