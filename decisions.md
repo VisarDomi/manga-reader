@@ -477,29 +477,32 @@ Cache ownership:
   and fresh comment HTTP calls.
 - Frontend owns user intent, cache priority requests, and image outcome
   observations. It does not know that BrowserSession exists.
-- Image store candidate generation and failover/status are backend concerns,
-  not reader-state concerns.
+- Image store candidate generation is a response-time backend projection, not
+  durable cache data. Runtime candidate selection belongs to the reader image
+  loader, and observed candidate outcomes are reported back to the backend.
 
 Serving ownership:
 
-- Reader images use the cached/generated page URL strings and the server image
-  proxy/store-host failover path. They are not downloaded into the byte cache as
-  a cache-ingestion layer.
+- Reader images use cached canonical page metadata plus generated direct store
+  candidates. The frontend tries those candidates directly and reports
+  outcomes. Reader page bytes are not downloaded into the backend byte cache and
+  no longer pass through `/api/image`.
 - Manga covers are owned resources. Search crawl owns `card` covers from
   `poster.medium`; manga-detail caching owns `detail` covers from
   `poster.large`. `ByteCacheService` stores the bytes, but
   `manga_cover_cache` records the manga id, variant, source URL, local key,
   status, and error.
-- There is no generic `/api/byte` route. Comment avatars/content images are not
-  cover-cache data, and reader page images remain on the image proxy path.
+- There is no generic `/api/byte` route and no reader `/api/image` proxy.
+  Comment avatars/content images are not cover-cache data.
 
 Cache layers:
 
 - Startup seeds the cache from newest 100 manga and queues those manga for
   detail and chapter-list caching.
 - Chapter-list caching fetches complete lists and stores them durably.
-- Chapter-image caching discovers complete page URLs and candidate store URLs
-  after chapter lists exist.
+- Chapter-image caching discovers complete canonical page URLs after chapter
+  lists exist. Store candidates are generated when a chapter-image response is
+  served, not persisted as cache rows.
 - Frontend priority requests can promote foreground cache work ahead of queued
   lower-priority work. Long non-foreground chapter-list and reconcile jobs also
   yield at page boundaries when foreground work appears.
@@ -509,7 +512,6 @@ SQLite stores:
 - `manga_cache`
 - `chapter_list_cache`
 - `chapter_image_cache`
-- `image_store_candidates`
 - `image_store_status`
 
 The cache worker has foreground, observed, daily, and background data jobs.
@@ -520,8 +522,9 @@ Power-off safety comes from durable job rows and atomic cache mutations:
 - Chapter-list jobs fetch pages into memory and commit the complete list only
   after the job finishes. If they yield or the process dies before commit, the
   old cache remains unchanged.
-- Chapter-image metadata writes are atomic: the image payload and generated
-  store candidates are committed in one SQLite transaction.
+- Chapter-image metadata writes are atomic canonical payload writes. Generated
+  store candidates are not persisted, so power loss cannot leave a candidate
+  expansion half-written.
 - Cooperative yield is allowed only at safe boundaries between upstream page
   requests, before the final cache write.
 
@@ -549,8 +552,10 @@ The provider resolves the current runtime HTTP client by behavior; the cache
 stores only normalized typed payloads.
 
 Store candidates are expanded from real discovered image URLs by replacing only
-known `wowpic*.store` hosts while preserving the image path. The frontend
-reports image outcomes; the backend updates per-image/per-store status.
+known `wowpic*.store` hosts while preserving the image path. The backend
+currently randomizes candidate order so real frontend attempts can collect
+store-quality evidence. The frontend reports image outcomes; the backend
+updates per-image/per-store status in `image_store_status`.
 
 ### 41. Large Search Lists Still Need Optimization
 
@@ -850,9 +855,14 @@ Image fetch failures are handled differently based on the error:
 - **Retry path:** Because image loading is geometry-driven, a later render or scroll pass can attempt the image again if the page is still inside the image window and no blob URL or in-flight load exists for that page.
 - **Slow connection detection:** If 3+ image fetches fail within 10 seconds, show a one-time "Slow connection — images may not load" toast per session.
 
-## BQ. Image Proxy Responses Are HTTP-Cached for 24 Hours
+## BQ. Reader Images Rely on Direct Store and Browser Cache
 
-The server's image proxy sets `Cache-Control: max-age=86400` on every proxied image response. This works as a complement to BO: when the reader closes, blob URLs are revoked and memory is freed — but the browser's HTTP disk cache retains the image bytes for 24 hours. If the user reopens the same chapter, new blob URLs are created but the underlying `fetch()` calls hit the disk cache instead of round-tripping through the server to the CDN. This gives the memory benefits of blob revocation (BO) without the network cost of re-fetching on reopen.
+Reader image bytes are fetched from direct CDN store candidates. When the
+reader closes, blob URLs are revoked and memory is freed. Reopening the same
+chapter can still benefit from browser HTTP cache if the candidate order is
+stable enough to hit the same URL. Current candidate order is randomized for
+store-quality discovery; the next optimization is to switch to a smart
+deterministic order once observations identify dependable hosts.
 
 ## BN. Details List Syncs with Reader Position
 
@@ -1120,8 +1130,8 @@ byte-cache files belong to the backend SQLite/filesystem cache, not frontend
 IDB.
 
 No reader page images are stored in IDB. The reader uses in-memory blob URLs
-that are revoked on cleanup; browser HTTP cache and the server image
-proxy/store-host path handle refetch efficiency.
+that are revoked on cleanup. Direct CDN store requests and browser HTTP cache
+handle refetch efficiency.
 
 ## BF. First Launch Shows Empty State
 
@@ -1189,8 +1199,8 @@ network operations are narrow backend endpoints with explicit ownership:
 
 - `/api/search` for live search
 - comments endpoints for live comments
-- cache endpoints for cached manga detail, chapter lists, and chapter images
-- image proxy for image bytes
+- cache endpoints for cached manga detail, chapter lists, chapter images, cover
+  bytes, and image-store observations
 
 For search, the backend route delegates request construction and response
 parsing to the provider bundle, then owns transport through `proxyFetchJson`.
@@ -1258,9 +1268,13 @@ cache policy unless offline mode becomes an explicit product decision.
 
 The manga-reader systemd service is wrapped in `xvfb-run` because Playwright/CloakBrowser needs a display for Cloudflare solving. Never kill the process directly or restart with nohup — always use `systemctl --user restart manga-reader`.
 
-## D11. imageProxy Batches Success Logs
+## D11. Reader Image Candidate Logs Are Frontend-Owned
 
-Individual image proxy successes accumulate in a batch. A summary (count, avg ttfb, avg size, peak inflight) flushes when activity quiets down (1 second with no new result). Failures are always logged immediately and individually. This reduced log volume from ~6,500 lines/day to ~50-100 batch summaries.
+There is no reader image proxy success path. Reader image loading tries direct
+store candidates in the frontend, logs compact `reader-image-candidate` events,
+and reports actual outcomes to `/api/cache/image-store`. Backend persistence is
+limited to observed `(image_url, store_url)` status rows. Generated candidates
+are never stored just because they could exist.
 
 ## D12. LogEvent Is a Discriminated Union
 
@@ -1271,9 +1285,12 @@ added. The union is the ownership contract for log payload shape; keeping it in
 sync matters even when a build path does not surface a Svelte-side type issue
 as loudly as a plain TypeScript file.
 
-## D13. Image Load Success Logged Server-Side Only
+## D13. Image Load Outcomes Are Logged at the Attempt Owner
 
-Client-side `img-ok` was removed. The server's imageProxy already logs every proxied image fetch (see D11). Only `img-fail` is logged client-side because client-only failures (CORS, AbortError, blob creation) never reach the server.
+Reader image outcomes are logged by the frontend because the frontend owns
+candidate selection and direct CDN attempts. Successful and failed candidate
+attempts are reported to the backend as observations. `img-fail` remains the
+page-level failure after all candidates fail.
 
 ## D14. There Is No App-Owned Signing Layer
 
@@ -1363,12 +1380,12 @@ The cache has durable data layers:
 
 1. `manga_cache`: live search/newest manga rows discovered from Comix.
 2. `chapter_list_cache`: full chapter lists by manga.
-3. `chapter_image_cache` plus `image_store_candidates`: chapter page-map
-   payloads and possible store URLs for each discovered image URL.
+3. `chapter_image_cache`: canonical chapter page-map payloads for each
+   discovered chapter.
 4. `byte_cache`: local physical byte files for manga covers.
 5. `manga_cover_cache`: the ownership index for cover bytes, keyed by
    `(manga_id, variant)` where variant is `card` or `detail`. Reader page image
-   bytes remain on the reader image proxy/store-failover path.
+   bytes remain direct frontend CDN fetches through generated store candidates.
 
 `image_store_status` records frontend/backend observations for each
 image/store pair: status code, ok/not-ok, source, and last check time. The
@@ -1397,8 +1414,8 @@ facts and queued work is durable intent. On startup, the service recovers
 stale `running` leases for both the data cache worker and the byte cache
 worker. If power dies mid chapter-list job, no partial chapter-list row is
 committed and the durable job is reclaimed. If power dies mid page-map job, the
-page-map payload and generated store candidates are in one SQLite transaction,
-so startup either sees the completed row and skips it or reclaims the job.
+canonical page-map payload is written atomically, so startup either sees the
+completed row and skips it or reclaims the job.
 
 Corrupt cache rows are not fatal during rebuild/discovery passes. If a cached
 manga row or saved search page snapshot cannot be parsed while rebuilding cover
@@ -1468,7 +1485,31 @@ serving them as hits. The frontend also rejects zero-page chapter payloads so
 the reader cannot mark an empty chapter as successfully loaded.
 
 The cache layer expands each real discovered store URL across known
-`wowpic*.store` hosts by preserving the path and replacing only the host.
+`wowpic*.store` hosts by preserving the path and replacing only the host when a
+chapter-image response is served. This expansion is a generated view, not
+durable data.
+
+A 2026-05-11 storage audit found that persisting 25 generated full URLs per
+image had created 23.6M `image_store_candidates` rows and about 7.9 GB of
+table/index bloat inside a 9.43 GB database. Dropping that table, vacuuming
+SQLite, and generating candidates on demand reduced the DB to about 1.43 GB.
+
+With generated candidates removed, the dominant growth model is approximately
+one canonical page-map row per chapter instead of 25 generated candidate rows
+per image. The current sample projects full canonical metadata storage around
+32-35 GB rather than terabyte scale:
+
+- 88,889 manga in `manga_cache`
+- 17,772 cached chapter lists with 883,481 known chapters
+- about 49.71 chapters per manga on average
+- about 4.42M projected chapter page maps
+- about 6.8 KB DB cost per canonical chapter page map
+
+Background data caching is therefore enabled. At the observed post-restart
+rate of about one page-map job per second, full page-map completion is expected
+to take weeks, roughly 51-57 days unless throughput changes. This is acceptable
+because storage growth is now real data growth, not generated URL
+multiplication.
 
 This was verified on 2026-05-09 by hard-killing
 `manga-reader.service` with `systemctl --user kill --signal=KILL`, starting it
