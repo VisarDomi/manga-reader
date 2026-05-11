@@ -293,6 +293,7 @@ export class CacheService {
       }
     }
     this.startDailyNewestCrawl();
+    this.drain();
     this.scheduleDailyRollover();
   }
 
