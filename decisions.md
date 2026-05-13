@@ -232,19 +232,6 @@ should land on the saved foreground first. If a backing layer needs data before
 its saved scroll can be applied, that layer owns a pending restore target and
 applies it when its height/data is ready.
 
-For reader restore, "foreground first" is owned by the reader DOM surface, not
-by AppState guessing from outside. Reader emits readiness only after its initial
-window reconciliation, restored scroll write, virtual image scheduling, pending
-layout-promotion attempt, and paint-boundary waits have completed. Backing
-manga/root layers may mount only after that reader-owned signal.
-
-Treat the iOS PWA black/white/black cold-start flash as a platform artifact
-unless logs show an app-owned paint or layout regression at the same time. The
-app should not chase that flash with visual hacks. Its owned contract is to
-restore the saved foreground reader first, keep hidden layer work from mounting
-before the reader restore transaction completes, and log frame gaps around the
-handoff so real main-thread regressions stay visible.
-
 For nested manga details, each manga layer owns its own scroll snapshot. A
 single "current manga scroll" is not enough because the stack can contain
 multiple independent manga-detail surfaces. Persist and restore scroll by
@@ -1145,9 +1132,6 @@ loaded first (see BI). Each sequence restores only the owners implied by
   swipe-back surfaces are preserved.
 - Prime reader layout from the actual restored viewport before applying reader
   progress, then restore reader position from IDB progress (see AR).
-- Wait for the reader-owned restore transaction before mounting backing manga
-  and root layers. The transaction logs `reader-restore-transaction` and then
-  emits `reader-ui-ready`; AppState consumes the signal but does not define it.
 - Replay search in the background only if the rebuilt stack contains `list`.
 - If the snapshot was comments, open comments after reader restore.
 

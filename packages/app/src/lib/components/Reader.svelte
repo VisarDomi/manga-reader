@@ -102,10 +102,10 @@
         queuedAt?: number,
         physicalWindowStartOverride?: number,
         projectionEpoch = physicalWindowStartOverride == null ? domProjectionEpoch : appState.reader.projectionEpoch,
-    ): Promise<void> {
+    ) {
         const startedAt = performance.now();
         const root = getReaderRoot();
-        if (!root) return Promise.resolve();
+        if (!root) return;
         const measureStart = performance.now();
         if (source !== 'scroll') {
             appState.reader.recordChapterMeasurements(measureChapterHeights(root));
@@ -128,7 +128,7 @@
             projectionEpoch,
         }, source);
         const stateMs = performance.now() - stateStart;
-        return tick().then(() => {
+        tick().then(() => {
             const tickStart = performance.now();
             if (reconcile && appState.reader.windowFrameEpoch === reconcile.frameEpoch && Math.abs(root.scrollTop - reconcile.physicalScrollTop) > 1) {
                 const from = root.scrollTop;
@@ -171,33 +171,6 @@
                 pendingMeasurements: appState.reader.pendingLayoutMeasurementCount,
             });
         });
-    }
-
-    function nextFrame(): Promise<void> {
-        return new Promise(resolve => requestAnimationFrame(() => resolve()));
-    }
-
-    async function finishRestoreTransaction(root: HTMLElement, reason: string, startedAt: number) {
-        scheduleVirtualImages(root);
-        if (appState.reader.pendingLayoutMeasurementCount > 0) {
-            await runLayoutPromotion();
-        }
-        await nextFrame();
-        await nextFrame();
-        scheduleVirtualImages(root);
-        appState.log.emit('reader-restore-transaction', {
-            phase: 'ready',
-            mangaId: appState.manga.activeManga?.id ?? null,
-            reason,
-            totalMs: Math.round(performance.now() - startedAt),
-            scrollTop: Math.round(root.scrollTop),
-            registeredPages: memory.pageDataMap.size,
-            pageElements: root.querySelectorAll('.reader-page').length,
-            imgElements: root.querySelectorAll('.reader-page img').length,
-            imgWithSrc: root.querySelectorAll('.reader-page img[src]').length,
-            pendingMeasurements: appState.reader.pendingLayoutMeasurementCount,
-        });
-        appState.reader.markUiReady(reason);
     }
 
     function scheduleVirtualImages(root = getReaderRoot()) {
@@ -865,7 +838,6 @@
     }
 
     async function restoreScrollPosition() {
-        const transactionStartedAt = performance.now();
         const root = getReaderRoot();
         if (!root) {
             return;
@@ -880,7 +852,8 @@
             const currentId = appState.reader.layoutChapterId;
             const logicalTarget = currentId ? appState.reader.logicalChapterScrollTop(currentId, root.clientWidth) ?? 0 : 0;
             const target = appState.reader.physicalTargetForLogical(logicalTarget, root.clientHeight);
-            await reconcileReaderWindow('initial', target.scrollTop, undefined, target.physicalWindowStart);
+            reconcileReaderWindow('initial', target.scrollTop, undefined, target.physicalWindowStart);
+            await tick();
             scrollToCurrentChapterAnchor(root);
             scrollCoordinator.cancelInitialPosition();
             appState.log.emit('reader-restore-scroll', {
@@ -889,7 +862,6 @@
                 from: Math.round(from),
                 to: Math.round(root.scrollTop),
             });
-            await finishRestoreTransaction(root, 'restore-reset', transactionStartedAt);
             requestAnimationFrame(() => {
                 appState.reader.clearPageRestore();
             });
@@ -903,7 +875,8 @@
             const currentId = appState.reader.layoutChapterId;
             const logicalTarget = currentId ? appState.reader.logicalChapterScrollTop(currentId, root.clientWidth) ?? 0 : 0;
             const target = appState.reader.physicalTargetForLogical(logicalTarget, root.clientHeight);
-            await reconcileReaderWindow('initial', target.scrollTop, undefined, target.physicalWindowStart);
+            reconcileReaderWindow('initial', target.scrollTop, undefined, target.physicalWindowStart);
+            await tick();
             scrollToCurrentChapterAnchor(root);
             appState.log.emit('reader-restore-scroll', {
                 action: 'fallback',
@@ -913,11 +886,11 @@
                 from: Math.round(from),
                 to: Math.round(root.scrollTop),
             });
-            await finishRestoreTransaction(root, 'restore-fallback', transactionStartedAt);
             return;
         }
 
-        await reconcileReaderWindow('initial', restoreTop.scrollTop, undefined, restoreTop.physicalWindowStart);
+        reconcileReaderWindow('initial', restoreTop.scrollTop, undefined, restoreTop.physicalWindowStart);
+        await tick();
         root.scrollTop = restoreTop.scrollTop;
         domProjectionEpoch = appState.reader.projectionEpoch;
         if (Math.abs(root.scrollTop - from) > 1) {
@@ -936,7 +909,6 @@
             from: Math.round(from),
             to: Math.round(root.scrollTop),
         });
-        await finishRestoreTransaction(root, 'restore-page', transactionStartedAt);
 
         requestAnimationFrame(() => {
             appState.reader.clearPageRestore();

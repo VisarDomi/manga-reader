@@ -14,7 +14,6 @@ export type LogEvent =
     | { event: 'restore-fallback'; view: string; reason: string; fallback?: string; error?: string }
     | { event: 'restore-shell'; view: string; stack: string; mangaId: string | null; hasReader: boolean; hasComments: boolean }
     | { event: 'restore-foreground'; view: string; stack: string; mangaId: string | null; hasReader: boolean; hasComments: boolean }
-    | { event: 'restore-layer-work'; phase: 'begin' | 'advance' | 'done'; active: string; mounted: string; reason: string; layers?: number }
     | { event: 'search-result'; query: string; page: number; resultCount: number; hasMore: boolean; includeGenres: number; excludeGenres: number; demographics: number; authors: number; artists: number; types: number; statuses: number; currentPage?: number; lastPage?: number; total?: number }
     | { event: 'cache-reconcile-request'; mangaId: string; observedLatestChapter: number; source: 'search-result' | 'manga-open'; priority: 'observed' | 'foreground' | 'interactive' }
     | { event: 'cache-reconcile-result'; mangaId: string; observedLatestChapter: number | null; cachedMax: number | null; source: 'search-result' | 'manga-open'; priority: 'observed' | 'foreground' | 'interactive'; status: string; action: string; reason: string }
@@ -76,7 +75,6 @@ export type LogEvent =
     | { event: 'reader-layout-promotion-frame'; phase: 'queued' | 'fired'; mangaId: string | null; sequence: number; queuedForMs: number; pendingMeasurements: number; scrollTop: number; source?: 'layout' | 'projection'; result?: 'promoted' | 'unchanged' | 'no-root' | 'projection-active' }
     | { event: 'reader-layout-anchor-choice'; mangaId: string | null; currentChapterId: string | null; layoutChapterId: string | null; anchorKey: string | null; selection: 'owner' | 'probe' | 'none'; ownerChapterId: string | null }
     | { event: 'reader-layout-idle-promote'; mangaId: string; changedCount: number; totalDelta: number; anchorKey: string | null }
-    | { event: 'reader-restore-transaction'; phase: 'ready'; mangaId: string | null; reason: string; totalMs: number; scrollTop: number; registeredPages: number; pageElements: number; imgElements: number; imgWithSrc: number; pendingMeasurements: number }
     | { event: 'reader-scroll-activity'; mangaId: string | null; from: string; to: string; source: string }
     | { event: 'reader-window-hydration-applied'; source: 'initial' | 'scroll' | 'visible' | 'retry'; mangaId: string; chapterId: string; chapterNumber: number; reason: 'current' | 'window'; currentChapterId?: string | null; currentVirtualTop?: number | null; layoutViewportHeight?: number }
     | { event: 'reader-window-fetch-stale'; source: 'initial' | 'scroll' | 'visible' | 'retry'; mangaId: string; chapterId: string; reason: 'epoch' | 'slot-missing' }
@@ -110,12 +108,12 @@ export type LogEvent =
     | { event: 'favorites-toggle-failed'; message: string }
     | { event: 'manga-list-lifecycle'; source: 'search' | 'favorites'; phase: 'mount' | 'update' | 'unmount'; total: number; trackVisible: boolean; updateCount: number; dtMs: number }
     | { event: 'manga-cover-image'; source: 'search' | 'favorites' | 'detail'; phase: 'mount' | 'load' | 'error'; mangaId: string; hasCover: boolean; dtMs: number; naturalWidth?: number; naturalHeight?: number }
-    | { event: 'favorites-hydration'; phase: 'deferred' | 'start' | 'batch' | 'done' | 'cancelled'; total: number; batchSize: number; batchIndex?: number; count?: number; dtMs: number }
+    | { event: 'favorites-hydration'; phase: 'start' | 'batch' | 'done' | 'cancelled'; total: number; batchSize: number; batchIndex?: number; count?: number; dtMs: number }
     | { event: 'manga-card-subscription-summary'; searchCards: number; favoriteCards: number; mountedSearch: number; mountedFavorites: number; unmountedSearch: number; unmountedFavorites: number; progressSearch: number; progressFavorites: number; statsSearch: number; statsFavorites: number }
     | { event: 'favorites-view-lifecycle'; phase: 'mount' | 'update' | 'unmount'; items: number; isLoading: boolean; updateCount: number; dtMs: number }
     | { event: 'perf-observer-status'; performanceObserver: boolean; supportedEntryTypes: string; longtaskSupported: boolean }
     | { event: 'perf-frame-burst'; source: 'app-raf'; count: number; maxGapMs: number; avgGapMs: number; durationMs: number; view: string; backView: string | null; isSwiping: boolean; isForwardSwiping: boolean; searchResults: number; favorites: number; activeMangaId: string | null; activeChapters: number; activeComments: number; readerChapters: number; readerPages: number; searchCards: number; favoriteCards: number }
-    | { event: 'foreground-work'; owner: 'search' | 'favorites' | 'manga-comments' | 'manga-recommendations' | 'reader-ui' | 'manga-ui'; action: 'run' | 'defer' | 'resume' | 'cancel' | 'ready'; view: string; reason?: string; count?: number; mangaId?: string };
+    | { event: 'foreground-work'; owner: 'search' | 'manga-comments'; action: 'run' | 'defer' | 'resume' | 'cancel'; view: string; reason?: string; count?: number; mangaId?: string };
 
 type EventName = LogEvent['event'];
 type PayloadOf<E extends EventName> = Omit<Extract<LogEvent, { event: E }>, 'event'>;

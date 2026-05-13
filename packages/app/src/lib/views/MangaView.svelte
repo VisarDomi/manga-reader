@@ -23,10 +23,6 @@
         return index === entries.length - 1;
     }
 
-    function canMountEntry(entry: MangaEntry) {
-        return appState.ui.canMountMangaEntry(entry.key);
-    }
-
     function coverUrl(entry: MangaEntry): string {
         return api.coverProxyUrl(entry.manga.id, 'detail', entry.manga.cover || undefined);
     }
@@ -75,11 +71,8 @@
     $effect(() => {
         for (let index = 0; index < entries.length; index++) {
             const entry = entries[index];
-            if (!canMountEntry(entry)) continue;
             if (entry.scrollRestore) {
                 scheduleScrollRestore(entry);
-            } else if (!entry.isLoading) {
-                tick().then(() => appState.manga.markEntryUiReady(entry.key, 'mounted'));
             }
         }
     });
@@ -138,12 +131,7 @@
             await tick();
             const target = entry.scrollRestore;
             const el = document.getElementById(`view-manga-entry-${entry.key}`);
-            if (!target) {
-                appState.manga.markEntryUiReady(entry.key, 'scroll-restore-cleared');
-                clearRestoreTimer(entry.key);
-                return;
-            }
-            if (!el) {
+            if (!target || !el) {
                 clearRestoreTimer(entry.key);
                 return;
             }
@@ -162,7 +150,6 @@
                     clientHeight: Math.round(el.clientHeight),
                 });
                 appState.manga.consumeScrollRestore(entry.key);
-                appState.manga.markEntryUiReady(entry.key, 'scroll-restore-applied');
                 clearRestoreTimer(entry.key);
                 return;
             }
@@ -189,7 +176,6 @@
                     reason: 'target-never-reachable',
                 });
                 appState.manga.consumeScrollRestore(entry.key);
-                appState.manga.markEntryUiReady(entry.key, 'scroll-restore-skipped');
                 clearRestoreTimer(entry.key);
                 return;
             }
@@ -201,7 +187,6 @@
 
 <div class="manga-stack">
 {#each entries as entry, index (entry.key)}
-    {#if canMountEntry(entry)}
     {@const manga = entry.manga}
     {@const active = isActive(index)}
     <div
@@ -293,7 +278,6 @@
         <CommentsSection title="Comments" comments={entry.comments} count={entry.commentsCount} isLoading={entry.isCommentsLoading} error={entry.commentsError} />
     </div>
     </div>
-    {/if}
 {/each}
 </div>
 

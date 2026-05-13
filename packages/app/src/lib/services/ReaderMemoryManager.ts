@@ -3,8 +3,6 @@ import type { LogEmit } from '$lib/services/LogService.js';
 import {
     READER_CHAPTER_SEPARATOR_HEIGHT,
     READER_IMAGE_KEEP_RADIUS_VIEWPORTS,
-    READER_PHYSICAL_AFTER_PX,
-    READER_PHYSICAL_BEFORE_PX,
     VISIBLE_PAGE_RATIO,
 } from '$lib/constants.js';
 
@@ -82,7 +80,7 @@ export class ReaderMemoryManager {
         if (!this.abortController || clientHeight <= 0 || clientWidth <= 0) return null;
 
         const t0 = performance.now();
-        const radiusPx = Math.max(clientHeight * READER_IMAGE_KEEP_RADIUS_VIEWPORTS, READER_PHYSICAL_BEFORE_PX, READER_PHYSICAL_AFTER_PX);
+        const radiusPx = clientHeight * READER_IMAGE_KEEP_RADIUS_VIEWPORTS;
         const jobs: Array<{ key: string; url: string; candidates: string[]; priority: number }> = [];
         const keepKeys = new Set<string>();
         let pageCount = 0;
