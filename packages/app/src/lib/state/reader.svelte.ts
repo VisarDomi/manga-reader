@@ -15,6 +15,9 @@ import {
     READER_CHAPTER_SEPARATOR_HEIGHT,
     READER_DOM_KEEP_RADIUS_VIEWPORTS,
     READER_FALLBACK_PAGE_ASPECT_RATIO,
+    READER_PHYSICAL_AFTER_PX,
+    READER_PHYSICAL_BEFORE_PX,
+    READER_PHYSICAL_REBASE_MARGIN_PX,
     READER_WINDOW_RADIUS_VIEWPORTS,
 } from '../constants.js';
 
@@ -32,9 +35,6 @@ type ChapterLoadResult =
 
 type RetryWaitResult = 'timer' | 'manual' | 'stale';
 const EDGE_LOAD_RETRY_DELAYS_MS = [750, 1500] as const;
-const READER_PHYSICAL_BEFORE_PX = 200_000;
-const READER_PHYSICAL_AFTER_PX = 200_000;
-const READER_PHYSICAL_REBASE_MARGIN_PX = 80_000;
 export type ReaderScrollActivity = 'settled' | 'idle' | 'scrolling' | 'programmatic';
 
 type ReaderWindowReconcileResult = {
@@ -766,8 +766,8 @@ export class ReaderState {
             ? this.nextPhysicalWindowStart(logicalScrollTop, viewport.clientHeight, viewport.physicalWindowStart != null, physicalWindowStart)
             : physicalWindowStart;
 
-        const radiusPx = viewport.clientHeight * READER_WINDOW_RADIUS_VIEWPORTS;
-        const keepPx = viewport.clientHeight * READER_DOM_KEEP_RADIUS_VIEWPORTS;
+        const radiusPx = Math.max(viewport.clientHeight * READER_WINDOW_RADIUS_VIEWPORTS, READER_PHYSICAL_BEFORE_PX, READER_PHYSICAL_AFTER_PX);
+        const keepPx = Math.max(viewport.clientHeight * READER_DOM_KEEP_RADIUS_VIEWPORTS, READER_PHYSICAL_BEFORE_PX, READER_PHYSICAL_AFTER_PX);
         const plan = this.windowManager.plan({
             chapterList: this.chapterList,
             loadedChapters: this.plannerChapters(),
@@ -1152,7 +1152,7 @@ export class ReaderState {
             mangaId: this.activeMangaId,
             currentChapterId: this.currentChapterId ?? this.layoutChapterId ?? positionedSlots[0]?.id ?? '',
             direction: 'idle',
-            radiusPx: this.layoutViewportHeight() * READER_WINDOW_RADIUS_VIEWPORTS,
+            radiusPx: Math.max(this.layoutViewportHeight() * READER_WINDOW_RADIUS_VIEWPORTS, READER_PHYSICAL_BEFORE_PX, READER_PHYSICAL_AFTER_PX),
             physicalWindowStart: this.physicalWindowStart,
             physicalScrollTop: Math.max(0, this.lastWindowScrollTop - this.physicalWindowStart),
             physicalHeight,
@@ -1284,7 +1284,7 @@ export class ReaderState {
             mangaId: manga.id,
             currentChapterId: this.currentChapterId ?? this.layoutChapterId ?? readyChapter.id,
             direction: 'idle',
-            radiusPx: this.layoutViewportHeight() * READER_WINDOW_RADIUS_VIEWPORTS,
+            radiusPx: Math.max(this.layoutViewportHeight() * READER_WINDOW_RADIUS_VIEWPORTS, READER_PHYSICAL_BEFORE_PX, READER_PHYSICAL_AFTER_PX),
             physicalWindowStart: this.physicalWindowStart,
             physicalScrollTop: Math.max(0, this.lastWindowScrollTop - this.physicalWindowStart),
             physicalHeight: this.virtualTotalHeight,
@@ -1368,8 +1368,8 @@ export class ReaderState {
             physicalWindowStart,
             physicalBeforePx: READER_PHYSICAL_BEFORE_PX,
             physicalAfterPx: READER_PHYSICAL_AFTER_PX,
-            radiusPx: Math.max(clientHeight, 1) * READER_WINDOW_RADIUS_VIEWPORTS,
-            keepPx: Math.max(clientHeight, 1) * READER_DOM_KEEP_RADIUS_VIEWPORTS,
+            radiusPx: Math.max(Math.max(clientHeight, 1) * READER_WINDOW_RADIUS_VIEWPORTS, READER_PHYSICAL_BEFORE_PX, READER_PHYSICAL_AFTER_PX),
+            keepPx: Math.max(Math.max(clientHeight, 1) * READER_DOM_KEEP_RADIUS_VIEWPORTS, READER_PHYSICAL_BEFORE_PX, READER_PHYSICAL_AFTER_PX),
             viewportWidth,
             clientHeight: Math.max(clientHeight, 1),
             direction: 'idle',
@@ -1381,7 +1381,7 @@ export class ReaderState {
             mangaId: this.activeMangaId,
             currentChapterId: plan.probeChapterId ?? _currentId,
             direction: 'idle',
-            radiusPx: Math.max(clientHeight, 1) * READER_WINDOW_RADIUS_VIEWPORTS,
+            radiusPx: Math.max(Math.max(clientHeight, 1) * READER_WINDOW_RADIUS_VIEWPORTS, READER_PHYSICAL_BEFORE_PX, READER_PHYSICAL_AFTER_PX),
             physicalWindowStart: plan.physicalWindowStart,
             physicalScrollTop: plan.physicalScrollTop,
             physicalHeight: plan.physicalHeight,

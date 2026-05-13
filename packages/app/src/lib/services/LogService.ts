@@ -14,6 +14,7 @@ export type LogEvent =
     | { event: 'restore-fallback'; view: string; reason: string; fallback?: string; error?: string }
     | { event: 'restore-shell'; view: string; stack: string; mangaId: string | null; hasReader: boolean; hasComments: boolean }
     | { event: 'restore-foreground'; view: string; stack: string; mangaId: string | null; hasReader: boolean; hasComments: boolean }
+    | { event: 'restore-layer-work'; phase: 'begin' | 'advance' | 'done'; active: string; mounted: string; reason: string }
     | { event: 'search-result'; query: string; page: number; resultCount: number; hasMore: boolean; includeGenres: number; excludeGenres: number; demographics: number; authors: number; artists: number; types: number; statuses: number; currentPage?: number; lastPage?: number; total?: number }
     | { event: 'cache-reconcile-request'; mangaId: string; observedLatestChapter: number; source: 'search-result' | 'manga-open'; priority: 'observed' | 'foreground' | 'interactive' }
     | { event: 'cache-reconcile-result'; mangaId: string; observedLatestChapter: number | null; cachedMax: number | null; source: 'search-result' | 'manga-open'; priority: 'observed' | 'foreground' | 'interactive'; status: string; action: string; reason: string }

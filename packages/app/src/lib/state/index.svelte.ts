@@ -206,6 +206,48 @@ class AppState {
         return viewMode === View.LIST || viewStack.includes(View.LIST);
     }
 
+    private rootViewsForRestore(stack: ViewMode[]): ViewMode[] {
+        const roots: ViewMode[] = [];
+        if (stack.includes(View.LIST)) roots.push(View.LIST);
+        if (stack.includes(View.FAVORITES)) roots.push(View.FAVORITES);
+        if (roots.length === 0) roots.push(View.LIST);
+        return roots;
+    }
+
+    private beginRestoreLayerWork(active: ViewMode, reason: string): void {
+        this.ui.beginRestoreWork(active);
+        this.log.emit('restore-layer-work', {
+            phase: 'begin',
+            active,
+            mounted: active,
+            reason,
+        });
+    }
+
+    private advanceRestoreLayerWork(active: ViewMode, views: ViewMode[], reason: string): void {
+        this.ui.advanceRestoreWork(views);
+        this.log.emit('restore-layer-work', {
+            phase: 'advance',
+            active,
+            mounted: views.join(','),
+            reason,
+        });
+    }
+
+    private finishRestoreLayerWork(active: ViewMode, reason: string): void {
+        this.ui.finishRestoreWork();
+        this.log.emit('restore-layer-work', {
+            phase: 'done',
+            active,
+            mounted: 'all',
+            reason,
+        });
+    }
+
+    private nextFrame(): Promise<void> {
+        return new Promise(resolve => requestAnimationFrame(() => resolve()));
+    }
+
     private persistSession() {
         const snapshot: SessionSnapshot = {
             viewMode: this.ui.viewMode,
@@ -323,6 +365,7 @@ class AppState {
         const stack = this.stackForRestoreShell(snapshot);
         if (!stack) return null;
         this.ui.setViewDirect(snapshot.viewMode, stack);
+        this.beginRestoreLayerWork(snapshot.viewMode, 'shell');
         return stack;
     }
 
@@ -344,6 +387,7 @@ class AppState {
         if (!ok) {
             this.manga.setNavigationStack([]);
             this.ui.setViewDirect(viewStack[0] ?? View.LIST, viewStack.slice(0, -1));
+            this.finishRestoreLayerWork(viewStack[0] ?? View.LIST, 'manga-shell-failed');
             this.persistSession();
             this.log.emit('restore-fallback', { view: 'manga', reason: 'manga-shell-failed' });
             return;
@@ -352,6 +396,12 @@ class AppState {
         if (shouldReplaySearch) {
             this.bgReplaySearch(snapshot.searchContext);
         }
+        void (async () => {
+            await this.nextFrame();
+            this.advanceRestoreLayerWork(snapshot.viewMode, [snapshot.viewMode, ...this.rootViewsForRestore(viewStack)], 'manga-shell-ready');
+            this.manga.restoreInactiveEntries();
+            this.finishRestoreLayerWork(snapshot.viewMode, 'manga-root-available');
+        })();
         this.persistSession();
     }
 
@@ -369,6 +419,7 @@ class AppState {
             if (!ok) {
                 this.manga.setNavigationStack([]);
                 this.ui.setViewDirect(View.LIST, []);
+                this.finishRestoreLayerWork(View.LIST, 'reader-manga-load-failed');
                 this.persistSession();
                 this.log.emit('restore-fallback', { view: 'reader', reason: 'manga-load-failed' });
                 return;
@@ -377,14 +428,29 @@ class AppState {
             const readerOk = await this.reader.restoreReader(snapshot.activeManga!);
             if (!readerOk) {
                 this.ui.setViewDirect(View.MANGA, mangaFallbackStack.length > 0 ? mangaFallbackStack : [View.LIST]);
+                this.advanceRestoreLayerWork(View.MANGA, [View.MANGA], 'reader-fallback');
                 if (targetId && shouldReplaySearch) this.restore.start(targetId);
                 if (shouldReplaySearch) {
                     this.bgReplaySearch(snapshot.searchContext);
                 }
                 this.persistSession();
+                this.finishRestoreLayerWork(View.MANGA, 'reader-load-failed');
                 this.log.emit('restore-fallback', { view: 'reader', reason: 'reader-load-failed', fallback: 'manga', error: this.reader.error?.message });
                 return;
             }
+
+            const activeView = snapshot.viewMode;
+            const rootViews = this.rootViewsForRestore(readerStack);
+            const foregroundViews = activeView === View.CHAPTER_COMMENTS
+                ? [View.CHAPTER_COMMENTS, View.READER, View.MANGA]
+                : [View.READER, View.MANGA];
+            await this.nextFrame();
+            this.advanceRestoreLayerWork(activeView, foregroundViews, 'reader-ready');
+            this.manga.restoreInactiveEntries();
+            await this.nextFrame();
+            this.advanceRestoreLayerWork(activeView, [...foregroundViews, ...rootViews], 'manga-layer-ready');
+            await this.nextFrame();
+            this.finishRestoreLayerWork(activeView, 'root-layer-ready');
 
             if (targetId && shouldReplaySearch) this.restore.start(targetId);
             if (shouldReplaySearch) {
@@ -427,6 +493,7 @@ class AppState {
                 this.bgPaginateToTarget();
             }
             this.persistSession();
+            this.finishRestoreLayerWork(View.LIST, 'list-restored');
             emit('restore-ok', { view: 'list' });
             return true;
         }
@@ -435,6 +502,7 @@ class AppState {
             this.manga.setNavigationStack([]);
             this.ui.setViewDirect(View.FAVORITES, []);
             this.persistSession();
+            this.finishRestoreLayerWork(View.FAVORITES, 'favorites-restored');
             emit('restore-ok', { view: 'favorites' });
             return true;
         }
@@ -461,6 +529,7 @@ class AppState {
         }
 
         this.persistSession();
+        this.finishRestoreLayerWork(snapshot.viewMode, 'unknown-view');
         emit('restore-fallback', { view: snapshot.viewMode, reason: 'unknown-view' });
         return false;
     }

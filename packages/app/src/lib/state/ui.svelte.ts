@@ -5,6 +5,7 @@ import { View } from '../logic.js';
 export class UIState {
     viewMode = $state<ViewMode>(View.LIST);
     viewStack = $state<ViewMode[]>([]);
+    restoreMountedViews = $state<ViewMode[] | null>(null);
     listViewGeneration = $state(0);
     mangaListScrolls: Record<string, number> = {};
     swipeProgress = $state(0);
@@ -23,6 +24,7 @@ export class UIState {
     }
 
     pushView(mode: ViewMode) {
+        this.finishRestoreWork();
         const from = this.viewMode;
         this.viewStack = [...this.viewStack, this.viewMode];
         this.viewMode = mode;
@@ -32,6 +34,7 @@ export class UIState {
     }
 
     popView() {
+        this.finishRestoreWork();
         const stack = this.viewStack;
         if (stack.length === 0) return;
         const from = this.viewMode;
@@ -52,6 +55,7 @@ export class UIState {
     }
 
     resetTo(mode: ViewMode) {
+        this.finishRestoreWork();
         this.viewStack = [];
         this.viewMode = mode;
         if (mode === View.LIST) this.listViewGeneration++;
@@ -63,6 +67,26 @@ export class UIState {
         this.viewStack = stack;
         this.viewMode = mode;
         if (mode === View.LIST) this.listViewGeneration++;
+    }
+
+    beginRestoreWork(active: ViewMode) {
+        this.restoreMountedViews = [active];
+    }
+
+    advanceRestoreWork(views: ViewMode[]) {
+        const unique: ViewMode[] = [];
+        for (const view of views) {
+            if (!unique.includes(view)) unique.push(view);
+        }
+        this.restoreMountedViews = unique;
+    }
+
+    finishRestoreWork() {
+        this.restoreMountedViews = null;
+    }
+
+    canMountView(view: ViewMode): boolean {
+        return this.restoreMountedViews == null || this.restoreMountedViews.includes(view);
     }
 
     get previousViewMode(): ViewMode {

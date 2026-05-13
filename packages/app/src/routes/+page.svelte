@@ -32,8 +32,14 @@
     const inManga = $derived(viewMode === View.MANGA);
     const isNestedMangaSwipe = $derived(inManga && backView === View.MANGA);
     const inFavorites = $derived(viewMode === View.FAVORITES);
+    const mountList = $derived(appState.ui.canMountView(View.LIST) || backView === View.LIST);
+    const mountFavorites = $derived(appState.ui.canMountView(View.FAVORITES) || backView === View.FAVORITES);
+    const mountManga = $derived(appState.ui.canMountView(View.MANGA) || backView === View.MANGA);
+    const mountReader = $derived(appState.ui.canMountView(View.READER) || backView === View.READER);
+    const mountChapterComments = $derived(appState.ui.canMountView(View.CHAPTER_COMMENTS) || showingChapterComments);
 </script>
 
+{#if mountList}
 <div
     id="view-list"
     class="view-layer"
@@ -43,7 +49,9 @@
 >
     <ListView />
 </div>
+{/if}
 
+{#if mountFavorites}
 <div
     id="view-favorites"
     class="view-layer"
@@ -55,7 +63,9 @@
 >
     <FavoritesView />
 </div>
+{/if}
 
+{#if mountManga}
 <div
     id="view-manga"
     class="view-layer"
@@ -67,7 +77,9 @@
 >
     <MangaView />
 </div>
+{/if}
 
+{#if mountReader}
 <div
     bind:this={readerRoot}
     id="view-reader"
@@ -80,7 +92,9 @@
 >
     <ReaderView />
 </div>
+{/if}
 
+{#if mountChapterComments}
 <div
     id="view-chapter-comments"
     class="view-layer"
@@ -91,6 +105,7 @@
 >
     <ChapterCommentsView />
 </div>
+{/if}
 
 <Toast />
 

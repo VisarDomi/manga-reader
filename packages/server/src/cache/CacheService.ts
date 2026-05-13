@@ -20,13 +20,12 @@ const STORE_OBSERVATION_LIMIT = 50_000;
 const STORE_RANKING_TTL_MS = 30_000;
 const STORE_RECENCY_HALF_LIFE_MS = 24 * 60 * 60 * 1000;
 const STORE_EXPLOIT_RATE = 0.8;
-const STORE_BOOTSTRAP_WINNER_HOST = 'jloo.wowpic1.store';
+const STORE_MIN_EXPLOIT_SAMPLES = 50;
 const STORE_FALLBACK_FAILURE_PENALTY_MS = 12_000;
 const STORE_TAIL_WEIGHTS = {
-  p90: 0.2,
-  p95: 0.35,
-  p98: 0.3,
-  max: 0.15,
+  p90: 0.25,
+  p95: 0.4,
+  p98: 0.35,
 };
 
 type CacheJobKind = 'seed-newest' | 'crawl-search-page' | 'cache-manga-detail' | 'cache-chapters' | 'reconcile-chapters' | 'cache-chapter-page-map';
@@ -536,9 +535,7 @@ export class CacheService {
     const ranking = this.currentStoreRanking();
     const winner = ranking.winnerHost && byHost.has(ranking.winnerHost)
       ? ranking.winnerHost
-      : byHost.has(STORE_BOOTSTRAP_WINNER_HOST)
-        ? STORE_BOOTSTRAP_WINNER_HOST
-        : null;
+      : null;
     const exploit = winner != null && Math.random() < STORE_EXPLOIT_RATE;
     const firstHost = exploit
       ? winner
@@ -557,12 +554,21 @@ export class CacheService {
     const observations = this.db.getImageStoreObservations(STORE_OBSERVATION_LIMIT);
     const ranking = this.computeStoreRanking(observations, now);
     this.storeRanking = { ...ranking, expiresAt: now + STORE_RANKING_TTL_MS };
-    const winner = ranking.winnerHost ?? STORE_BOOTSTRAP_WINNER_HOST;
-    const best = ranking.scores[0];
-    if (best) {
-      console.log(`[cache] store-ranking winner=${winner} score=${Math.round(best.score)} p90=${Math.round(best.p90)} p95=${Math.round(best.p95)} p98=${Math.round(best.p98)} max=${Math.round(best.max)} attempts=${best.attempts} penalty=${Math.round(ranking.failurePenaltyMs)} observations=${observations.length}`);
+    const eligibleScores = ranking.scores.filter(score => score.attempts >= STORE_MIN_EXPLOIT_SAMPLES);
+    const winnerScore = ranking.winnerHost ? ranking.scores.find(score => score.host === ranking.winnerHost) : null;
+    const rawBest = ranking.scores[0];
+    const eligibleBest = eligibleScores[0];
+    const raw = rawBest
+      ? ` rawBest=${rawBest.host} rawScore=${Math.round(rawBest.score)} rawAttempts=${rawBest.attempts}`
+      : ' rawBest=none';
+    if (winnerScore) {
+      console.log(`[cache] store-ranking winner=${winnerScore.host} eligibleBest=${winnerScore.host} score=${Math.round(winnerScore.score)} p90=${Math.round(winnerScore.p90)} p95=${Math.round(winnerScore.p95)} p98=${Math.round(winnerScore.p98)} max=${Math.round(winnerScore.max)} attempts=${winnerScore.attempts} minSamples=${STORE_MIN_EXPLOIT_SAMPLES}${raw} penalty=${Math.round(ranking.failurePenaltyMs)} observations=${observations.length}`);
+    } else if (eligibleBest) {
+      console.log(`[cache] store-ranking winner=none source=eligible-unselected eligibleBest=${eligibleBest.host} eligibleScore=${Math.round(eligibleBest.score)} eligibleAttempts=${eligibleBest.attempts} minSamples=${STORE_MIN_EXPLOIT_SAMPLES}${raw} penalty=${Math.round(ranking.failurePenaltyMs)} observations=${observations.length}`);
+    } else if (rawBest) {
+      console.log(`[cache] store-ranking winner=none source=insufficient-samples eligibleBest=none minSamples=${STORE_MIN_EXPLOIT_SAMPLES}${raw} penalty=${Math.round(ranking.failurePenaltyMs)} observations=${observations.length}`);
     } else {
-      console.log(`[cache] store-ranking winner=${winner} source=bootstrap observations=0 penalty=${Math.round(ranking.failurePenaltyMs)}`);
+      console.log(`[cache] store-ranking winner=none source=no-observations eligibleBest=none rawBest=none minSamples=${STORE_MIN_EXPLOIT_SAMPLES} penalty=${Math.round(ranking.failurePenaltyMs)}`);
     }
     return this.storeRanking;
   }
@@ -596,16 +602,16 @@ export class CacheService {
       const p90 = weightedPercentile(samples, 0.90);
       const p95 = weightedPercentile(samples, 0.95);
       const p98 = weightedPercentile(samples, 0.98);
-      const max = samples.reduce((largest, sample) => Math.max(largest, sample.value), 0);
       const score = (p90 * STORE_TAIL_WEIGHTS.p90)
         + (p95 * STORE_TAIL_WEIGHTS.p95)
-        + (p98 * STORE_TAIL_WEIGHTS.p98)
-        + (max * STORE_TAIL_WEIGHTS.max);
+        + (p98 * STORE_TAIL_WEIGHTS.p98);
+      const max = samples.reduce((largest, sample) => Math.max(largest, sample.value), 0);
       scores.push({ host, attempts: samples.length, score, p90, p95, p98, max });
     }
     scores.sort((a, b) => a.score - b.score || b.attempts - a.attempts || a.host.localeCompare(b.host));
+    const eligibleScores = scores.filter(score => score.attempts >= STORE_MIN_EXPLOIT_SAMPLES);
     return {
-      winnerHost: scores[0]?.host ?? null,
+      winnerHost: eligibleScores[0]?.host ?? null,
       failurePenaltyMs,
       scores,
     };

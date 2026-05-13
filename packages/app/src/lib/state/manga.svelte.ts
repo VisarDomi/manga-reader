@@ -150,6 +150,14 @@ export class MangaState {
         return this.entries.find(entry => entry.key === key) ?? null;
     }
 
+    restoreInactiveEntries(): void {
+        const previous = this.entries.slice(0, -1);
+        for (const entry of previous) {
+            if (!entry.isLoading && entry.chapters.length > 0) continue;
+            void this.restoreEntry(entry);
+        }
+    }
+
     filteredChaptersFor(entry: MangaEntry): ChapterMeta[] {
         let chs = entry.includeBlockedChapters || this.gf.count === 0
             ? entry.chapters
@@ -686,11 +694,6 @@ export class MangaState {
         const restored = [...stack, manga].map(item => createEntry(item));
         this.entries = restored;
 
-        const previous = restored.slice(0, -1);
-        for (const entry of previous) {
-            void this.restoreEntry(entry);
-        }
-
         const active = restored[restored.length - 1];
         if (!active) return false;
         this.applyScrollRestores(restored, scrollSnapshots);
@@ -709,10 +712,6 @@ export class MangaState {
         const stack = $state.snapshot(this.navigationStack);
         const restored = [...stack, $state.snapshot(manga)].map(item => createEntry(item));
         this.entries = restored;
-        const previous = restored.slice(0, -1);
-        for (const entry of previous) {
-            void this.restoreEntry(entry);
-        }
         this.applyScrollRestores(restored, scrollSnapshots);
 
         const active = restored[restored.length - 1];
