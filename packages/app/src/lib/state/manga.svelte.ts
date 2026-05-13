@@ -72,7 +72,9 @@ export class MangaState {
     private onOpen: (() => void) | null;
     private canRunBackgroundWork: (() => boolean);
     private pendingComments = new Set<string>();
+    private pendingRecommendations = new Map<string, Manga>();
     private commentControllers = new Map<string, AbortController>();
+    private entryUiReady = new Map<string, { ready: boolean; promise: Promise<void>; resolve: () => void }>();
 
     constructor(ui: UIState, toast: ToastState, gf: GroupFilterState, chapterStats: ChapterStatsState, progress: ProgressState, emit: LogEmit, onOpen?: () => void, canRunBackgroundWork?: () => boolean) {
         this.ui = ui;
@@ -135,6 +137,37 @@ export class MangaState {
 
     private replaceEntry(entry: MangaEntry): void {
         this.entries = this.entries.map(item => item.key === entry.key ? entry : item);
+    }
+
+    private ensureEntryUiReady(entryKey: string): { ready: boolean; promise: Promise<void>; resolve: () => void } {
+        const existing = this.entryUiReady.get(entryKey);
+        if (existing) return existing;
+        let resolve!: () => void;
+        const promise = new Promise<void>(done => {
+            resolve = done;
+        });
+        const state = { ready: false, promise, resolve };
+        this.entryUiReady.set(entryKey, state);
+        return state;
+    }
+
+    markEntryUiReady(entryKey: string, reason: string): void {
+        const state = this.ensureEntryUiReady(entryKey);
+        if (state.ready) return;
+        state.ready = true;
+        state.resolve();
+        const entry = this.entryFor(entryKey);
+        this.emit('foreground-work', {
+            owner: 'manga-ui',
+            action: 'ready',
+            view: this.ui.viewMode,
+            mangaId: entry?.manga.id,
+            reason,
+        });
+    }
+
+    waitForEntryUiReady(entryKey: string): Promise<void> {
+        return this.ensureEntryUiReady(entryKey).promise;
     }
 
     private updateEntry(key: string, update: (entry: MangaEntry) => void): MangaEntry | null {
@@ -448,6 +481,44 @@ export class MangaState {
         return current;
     }
 
+    private applyRecommendations(entryKey: string, manga: Manga): MangaEntry | null {
+        const current = this.entryFor(entryKey);
+        if (!current) return null;
+        const merged: Manga = {
+            ...current.manga,
+            recommendations: manga.recommendations ?? [],
+        };
+        current.manga = merged;
+        this.replaceEntry(current);
+        this.emitEntryState(current, 'recommendations-applied');
+        return current;
+    }
+
+    private queueMangaRecommendations(entry: MangaEntry, manga: Manga): void {
+        if ((manga.recommendations?.length ?? 0) === 0) return;
+        if (!this.canRunBackgroundWork()) {
+            this.pendingRecommendations.set(entry.key, manga);
+            this.emit('foreground-work', {
+                owner: 'manga-recommendations',
+                action: 'defer',
+                view: this.ui.viewMode,
+                mangaId: entry.manga.id,
+                reason: 'foreground-reader',
+            });
+            return;
+        }
+        this.pendingRecommendations.delete(entry.key);
+        const current = this.applyRecommendations(entry.key, manga);
+        if (current) {
+            this.emit('foreground-work', {
+                owner: 'manga-recommendations',
+                action: 'run',
+                view: this.ui.viewMode,
+                mangaId: current.manga.id,
+            });
+        }
+    }
+
     private async loadMangaContent(entry: MangaEntry, start: number): Promise<boolean> {
         const mangaId = entry.manga.id;
         this.emit('manga-detail-start', { mangaId });
@@ -460,7 +531,7 @@ export class MangaState {
             const [detailPeek, chapterPeek] = await Promise.all([detailPeekPromise, chapterPeekPromise]);
             if (detailPeek.status === 'hit' && detailPeek.manga && chapterPeek.status === 'hit' && chapterPeek.page) {
                 const committed = this.commitMangaContent(entry.key, {
-                    manga: detailPeek.manga,
+                    manga: hideRecommendations(detailPeek.manga),
                     chapters: chapterPeek.page.items,
                     isLoading: false,
                     error: null,
@@ -471,6 +542,7 @@ export class MangaState {
                 this.emitEntryState(committed, 'chapters-done');
                 this.emit('manga-detail-done', { mangaId, ms: Math.round(performance.now() - start) });
                 this.emit('manga-open-done', { mangaId, ms: Math.round(performance.now() - start) });
+                this.queueMangaRecommendations(committed, detailPeek.manga);
                 this.queueMangaComments(committed);
                 return true;
             }
@@ -511,14 +583,13 @@ export class MangaState {
                 this.emitEntryState(chapterCommitted, 'chapters-done');
             }
 
-            const withRecommendations = this.commitMangaContent(entry.key, { manga: detailResult.manga });
-            if (withRecommendations) {
-                this.emitEntryState(withRecommendations, 'recommendations-applied');
-                this.emit('manga-detail-done', { mangaId, ms: Math.round(performance.now() - start) });
-                this.emit('manga-open-done', { mangaId, ms: Math.round(performance.now() - start) });
-                this.queueMangaComments(withRecommendations);
-            }
-            return !!withRecommendations;
+            const current = this.entryFor(entry.key);
+            if (!current) return false;
+            this.emit('manga-detail-done', { mangaId, ms: Math.round(performance.now() - start) });
+            this.emit('manga-open-done', { mangaId, ms: Math.round(performance.now() - start) });
+            this.queueMangaRecommendations(current, detailResult.manga);
+            this.queueMangaComments(current);
+            return true;
         } catch (e) {
             const current = this.commitMangaContent(entry.key, {
                 isLoading: false,
@@ -567,6 +638,21 @@ export class MangaState {
 
     resumeBackgroundWork(): void {
         if (!this.canRunBackgroundWork()) return;
+        const pendingRecommendations = [...this.pendingRecommendations];
+        this.pendingRecommendations.clear();
+        for (const [key, manga] of pendingRecommendations) {
+            const entry = this.entryFor(key);
+            if (!entry) continue;
+            const current = this.applyRecommendations(key, manga);
+            if (!current) continue;
+            this.emit('foreground-work', {
+                owner: 'manga-recommendations',
+                action: 'resume',
+                view: this.ui.viewMode,
+                mangaId: current.manga.id,
+            });
+        }
+
         const pending = [...this.pendingComments];
         this.pendingComments.clear();
         for (const key of pending) {

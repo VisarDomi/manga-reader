@@ -561,10 +561,11 @@ and appends durable latency evidence to `image_store_observations`.
 
 Candidate selection is adaptive:
 
-- Compute a store winner from recency-weighted observations with a 24h
+- Compute a store winner from recency-weighted observations with a 30-day
   half-life.
-- Score each store by weighted tail latency: p90 `0.2`, p95 `0.35`, p98 `0.3`,
-  and max `0.15`; lower score wins.
+- Score each store by weighted tail latency: p90 `0.25`, p95 `0.4`, and p98
+  `0.35`; lower score wins. Do not include max latency in the score because it
+  is too noisy for normal reader policy, while p98 still captures tail risk.
 - Treat non-200 observations as a flow-level failure by assigning them a
   dynamic penalty near the average observed successful max latency.
 - Serve the winner first 80% of the time, then randomize the remaining stores.

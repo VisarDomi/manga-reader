@@ -10,6 +10,7 @@ import * as storage from '../services/storage.js';
 import { View } from '../logic.js';
 import { Msg } from '../messages.js';
 import { UIState } from './ui.svelte.js';
+import type { RestoreLayer } from './ui.svelte.js';
 import { SearchState } from './search.svelte.js';
 import { MangaState } from './manga.svelte.js';
 import { ReaderState } from './reader.svelte.js';
@@ -189,6 +190,9 @@ class AppState {
     private resumeBackgroundWork(): void {
         if (!this.canRunBackgroundWork()) return;
         this.manga.resumeBackgroundWork();
+        if (this.ui.viewMode === View.FAVORITES) {
+            this.favorites.hydrateSnapshots('visible-root');
+        }
 
         const searchContext = this.deferredSearchContext;
         this.deferredSearchContext = undefined;
@@ -224,13 +228,40 @@ class AppState {
         });
     }
 
-    private advanceRestoreLayerWork(active: ViewMode, views: ViewMode[], reason: string): void {
-        this.ui.advanceRestoreWork(views);
+    private restoreLayerLabel(layer: RestoreLayer): string {
+        return layer.entryKey ? `${layer.view}:${layer.entryKey}` : layer.view;
+    }
+
+    private viewLayers(views: ViewMode[]): RestoreLayer[] {
+        return views.map(view => ({ view }));
+    }
+
+    private mangaRestoreLayers(): RestoreLayer[] {
+        return [...this.manga.entries]
+            .reverse()
+            .map(entry => ({ view: View.MANGA, entryKey: entry.key }));
+    }
+
+    private async advanceMangaRestoreLayers(active: ViewMode, mounted: RestoreLayer[], reasonPrefix: string): Promise<RestoreLayer[]> {
+        let nextMounted = mounted;
+        const layers = this.mangaRestoreLayers();
+        for (let index = 0; index < layers.length; index++) {
+            const layer = layers[index];
+            nextMounted = [...nextMounted, layer];
+            this.advanceRestoreLayerWork(active, nextMounted, index === 0 ? `${reasonPrefix}-active` : `${reasonPrefix}-stack`);
+            await this.manga.waitForEntryUiReady(layer.entryKey);
+        }
+        return nextMounted;
+    }
+
+    private advanceRestoreLayerWork(active: ViewMode, layers: RestoreLayer[], reason: string): void {
+        this.ui.advanceRestoreWork(layers);
         this.log.emit('restore-layer-work', {
             phase: 'advance',
             active,
-            mounted: views.join(','),
+            mounted: layers.map(layer => this.restoreLayerLabel(layer)).join(','),
             reason,
+            layers: layers.length,
         });
     }
 
@@ -398,9 +429,13 @@ class AppState {
         }
         void (async () => {
             await this.nextFrame();
-            this.advanceRestoreLayerWork(snapshot.viewMode, [snapshot.viewMode, ...this.rootViewsForRestore(viewStack)], 'manga-shell-ready');
+            let mounted = await this.advanceMangaRestoreLayers(snapshot.viewMode, [], 'manga-layer-ready');
             this.manga.restoreInactiveEntries();
-            this.finishRestoreLayerWork(snapshot.viewMode, 'manga-root-available');
+            const roots = this.viewLayers(this.rootViewsForRestore(viewStack));
+            for (const root of roots) {
+                mounted = [...mounted, root];
+                this.advanceRestoreLayerWork(snapshot.viewMode, mounted, 'root-layer-ready');
+            }
         })();
         this.persistSession();
     }
@@ -441,16 +476,21 @@ class AppState {
 
             const activeView = snapshot.viewMode;
             const rootViews = this.rootViewsForRestore(readerStack);
-            const foregroundViews = activeView === View.CHAPTER_COMMENTS
-                ? [View.CHAPTER_COMMENTS, View.READER, View.MANGA]
-                : [View.READER, View.MANGA];
-            await this.nextFrame();
-            this.advanceRestoreLayerWork(activeView, foregroundViews, 'reader-ready');
+            const foregroundLayers = activeView === View.CHAPTER_COMMENTS
+                ? this.viewLayers([View.CHAPTER_COMMENTS, View.READER])
+                : this.viewLayers([View.READER]);
+            let mounted = [...foregroundLayers];
+            if (activeView === View.CHAPTER_COMMENTS) {
+                this.advanceRestoreLayerWork(activeView, mounted, 'reader-layer-mounted');
+            }
+            await this.reader.waitForUiReady();
+            this.advanceRestoreLayerWork(activeView, mounted, 'reader-ui-ready');
+            mounted = await this.advanceMangaRestoreLayers(activeView, mounted, 'manga-layer-ready');
             this.manga.restoreInactiveEntries();
-            await this.nextFrame();
-            this.advanceRestoreLayerWork(activeView, [...foregroundViews, ...rootViews], 'manga-layer-ready');
-            await this.nextFrame();
-            this.finishRestoreLayerWork(activeView, 'root-layer-ready');
+            for (const root of this.viewLayers(rootViews)) {
+                mounted = [...mounted, root];
+                this.advanceRestoreLayerWork(activeView, mounted, 'root-layer-ready');
+            }
 
             if (targetId && shouldReplaySearch) this.restore.start(targetId);
             if (shouldReplaySearch) {
@@ -676,7 +716,10 @@ class AppState {
             }
             this.searchState.filters.seedDefaults(nsfwIds);
 
-            await Promise.all([this.progress.init(), this.favorites.init()]);
+            await Promise.all([
+                this.progress.init(),
+                this.favorites.init({ hydrate: this.bootSnapshot?.viewMode === View.FAVORITES }),
+            ]);
 
             const restored = await this.restoreSession(this.bootSnapshot);
             if (!restored) {
