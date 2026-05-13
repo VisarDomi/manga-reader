@@ -576,6 +576,10 @@ Candidate selection is adaptive:
 
 - Compute a store winner from recency-weighted observations with a 30-day
   half-life.
+- Require at least 200 observations before a store can become the exploited
+  winner. On 2026-05-13 this did not change the selected winner
+  (`80pd.wowpic1.store`), but it prevents a low-sample lucky store from taking
+  over normal reading.
 - Score each store by weighted tail latency: p90 `0.25`, p95 `0.4`, and p98
   `0.35`; lower score wins. Do not include max latency in the score because it
   is too noisy for normal reader policy, while p98 still captures tail risk.
@@ -590,6 +594,12 @@ Candidate selection is adaptive:
 - Monitor whether the winner stabilizes and improves first-image latency. The
   80/20 split is a policy knob and should only be tightened after the logs show
   enough adaptive observations.
+- Do not make the system fully random for long data collection. The normal
+  reading path is the primary citizen, so the policy should keep serving the
+  best observed winner while the 20% exploration path continues collecting
+  evidence from the other stores. If future tuning needs better separation,
+  tag image observation sessions by reader activity mode such as restore,
+  slow-scroll, fast-scroll, momentum, and idle-preload.
 
 ### 41. Large Search Lists Still Need Optimization
 
