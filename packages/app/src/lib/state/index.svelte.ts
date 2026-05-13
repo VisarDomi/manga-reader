@@ -126,6 +126,7 @@ class AppState {
             this.toast,
             this.groupFilter,
             this.chapterStats,
+            this.progress,
             emit,
             () => this.restore.cancel(),
             () => this.canRunBackgroundWork(),

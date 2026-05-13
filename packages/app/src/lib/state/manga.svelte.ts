@@ -8,7 +8,14 @@ import type { UIState } from './ui.svelte.js';
 import type { ToastState } from './toast.svelte.js';
 import type { GroupFilterState } from './groupFilter.svelte.js';
 import type { ChapterStatsState } from './chapterStats.svelte.js';
+import type { ProgressState } from './progress.svelte.js';
 import { type LoadError, toLoadError } from './errors.js';
+
+type MangaScrollTarget = {
+    chapterId: string;
+    ratio: number | null;
+    source: 'reader-back' | 'history';
+};
 
 export interface MangaEntry {
     key: string;
@@ -23,7 +30,7 @@ export interface MangaEntry {
     selectedGroups: Set<string>;
     includeBlockedChapters: boolean;
     scrollAnchorRatio: number | null;
-    scrollTarget: { chapterId: string; ratio: number | null } | null;
+    scrollTarget: MangaScrollTarget | null;
     scrollRestore: { scrollTop: number } | null;
 }
 
@@ -60,17 +67,19 @@ export class MangaState {
     private toast: ToastState;
     private gf: GroupFilterState;
     private chapterStats: ChapterStatsState;
+    private progress: ProgressState;
     private emit: LogEmit;
     private onOpen: (() => void) | null;
     private canRunBackgroundWork: (() => boolean);
     private pendingComments = new Set<string>();
     private commentControllers = new Map<string, AbortController>();
 
-    constructor(ui: UIState, toast: ToastState, gf: GroupFilterState, chapterStats: ChapterStatsState, emit: LogEmit, onOpen?: () => void, canRunBackgroundWork?: () => boolean) {
+    constructor(ui: UIState, toast: ToastState, gf: GroupFilterState, chapterStats: ChapterStatsState, progress: ProgressState, emit: LogEmit, onOpen?: () => void, canRunBackgroundWork?: () => boolean) {
         this.ui = ui;
         this.toast = toast;
         this.gf = gf;
         this.chapterStats = chapterStats;
+        this.progress = progress;
         this.emit = emit;
         this.onOpen = onOpen ?? null;
         this.canRunBackgroundWork = canRunBackgroundWork ?? (() => true);
@@ -120,7 +129,7 @@ export class MangaState {
         return this.activeEntry?.selectedGroups ?? new Set();
     }
 
-    get scrollTarget(): { chapterId: string; ratio: number | null } | null {
+    get scrollTarget(): MangaScrollTarget | null {
         return this.activeEntry?.scrollTarget ?? null;
     }
 
@@ -243,8 +252,27 @@ export class MangaState {
     updateScrollTarget(chapterId: string, entryKey?: string) {
         const entry = this.entryFor(entryKey);
         if (!entry) return;
-        entry.scrollTarget = { chapterId, ratio: entry.scrollAnchorRatio };
+        entry.scrollTarget = { chapterId, ratio: entry.scrollAnchorRatio, source: 'reader-back' };
         this.replaceEntry(entry);
+    }
+
+    consumeScrollTarget(entryKey: string, source?: MangaScrollTarget['source']): void {
+        const entry = this.entryFor(entryKey);
+        if (!entry || !entry.scrollTarget) return;
+        if (source && entry.scrollTarget.source !== source) return;
+        entry.scrollTarget = null;
+        this.replaceEntry(entry);
+    }
+
+    private applyHistoryScrollIntent(entry: MangaEntry): void {
+        const saved = this.progress.get(entry.manga.id);
+        if (!saved?.chapterId) return;
+        entry.scrollTarget = { chapterId: saved.chapterId, ratio: null, source: 'history' };
+        this.emit('manga-history-scroll', {
+            action: 'pending',
+            mangaId: entry.manga.id,
+            chapterId: saved.chapterId,
+        });
     }
 
     selectAllGroups(entryKey?: string) {
@@ -596,7 +624,7 @@ export class MangaState {
     private async reconcileBeforeForegroundRead(manga: Manga): Promise<void> {
         const latest = manga.latestChapter;
         if (typeof latest !== 'number' || !Number.isFinite(latest) || latest <= 0) return;
-        await api.reconcileMangaCache(manga.id, latest, 'manga-open', 'foreground');
+        await api.reconcileMangaCache(manga.id, latest, 'manga-open', 'interactive');
     }
 
     async openManga(manga: Manga) {
@@ -610,6 +638,7 @@ export class MangaState {
 
         const entry = createEntry(manga);
         this.resetBlockedChapterVisibility(entry);
+        this.applyHistoryScrollIntent(entry);
         this.entries = [...this.entries, entry];
         this.ui.pushView(View.MANGA);
 

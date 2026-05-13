@@ -40,6 +40,7 @@ function cacheStatus(data: unknown): string | null {
 }
 
 type CacheResource = 'manga-detail' | 'chapter-list' | 'chapter-images';
+type CachePriority = 'interactive' | 'foreground' | 'observed';
 
 interface CachedPayloadResult {
     data: unknown;
@@ -199,7 +200,7 @@ export async function reconcileMangaCache(
     mangaId: string,
     observedLatestChapter: number,
     source: 'search-result' | 'manga-open',
-    priority: 'observed' | 'foreground',
+    priority: CachePriority,
     signal?: AbortSignal,
 ): Promise<void> {
     emit('cache-reconcile-request', { mangaId, observedLatestChapter, source, priority });
@@ -283,7 +284,7 @@ export interface ChapterListCachePeek {
 }
 
 export async function peekMangaDetailCache(manga: Manga, signal?: AbortSignal): Promise<MangaDetailCachePeek> {
-    const raw = await peekCachedPayload(`/api/cache/manga/${encodeURIComponent(manga.id)}`, signal, 'manga-detail', manga.id);
+    const raw = await peekCachedPayload(`/api/cache/manga/${encodeURIComponent(manga.id)}?priority=interactive`, signal, 'manga-detail', manga.id);
     if (raw.status === 'warming') return { status: 'warming' };
     const merged = mergeMangaDetail(manga, raw.data);
     emitMangaDetailResult(merged);
@@ -292,7 +293,7 @@ export async function peekMangaDetailCache(manga: Manga, signal?: AbortSignal): 
 
 export async function fetchMangaDetailWithCacheInfo(manga: Manga, signal?: AbortSignal): Promise<MangaDetailCacheResult> {
     try {
-        const raw = await fetchCachedPayloadWithMeta(`/api/cache/manga/${encodeURIComponent(manga.id)}`, signal, 'manga-detail', manga.id);
+        const raw = await fetchCachedPayloadWithMeta(`/api/cache/manga/${encodeURIComponent(manga.id)}?priority=interactive`, signal, 'manga-detail', manga.id);
         const merged = mergeMangaDetail(manga, raw.data);
         emit('cache-read', { resource: 'manga-detail', action: 'hit', mangaId: manga.id });
         emitMangaDetailResult(merged);
@@ -410,14 +411,14 @@ async function fetchCachedChapterListPage(mangaId: string, signal?: AbortSignal)
 
 export async function peekChapterListCache(mangaId: string, signal?: AbortSignal): Promise<ChapterListCachePeek> {
     const provider = getProvider();
-    const raw = await peekCachedPayload(`/api/cache/manga/${encodeURIComponent(mangaId)}/chapters`, signal, 'chapter-list', mangaId);
+    const raw = await peekCachedPayload(`/api/cache/manga/${encodeURIComponent(mangaId)}/chapters?priority=interactive`, signal, 'chapter-list', mangaId);
     if (raw.status === 'warming') return { status: 'warming' };
     return { status: 'hit', page: provider.parseChapterListResponse(raw.data) };
 }
 
 export async function fetchChapterListWithCacheInfo(mangaId: string, signal?: AbortSignal): Promise<ChapterListCacheResult> {
     const provider = getProvider();
-    const raw = await fetchCachedPayloadWithMeta(`/api/cache/manga/${encodeURIComponent(mangaId)}/chapters`, signal, 'chapter-list', mangaId);
+    const raw = await fetchCachedPayloadWithMeta(`/api/cache/manga/${encodeURIComponent(mangaId)}/chapters?priority=interactive`, signal, 'chapter-list', mangaId);
     return { page: provider.parseChapterListResponse(raw.data), attempts: raw.attempts };
 }
 
@@ -435,7 +436,7 @@ export async function fetchChapterListPage(mangaId: string, page: number, signal
 
 async function fetchCachedChapterImages(mangaId: string, chapterId: string, chapterNumber: number, chapterUrl?: string): Promise<ChapterPage[]> {
     const provider = getProvider();
-    const params = new URLSearchParams({ number: String(chapterNumber) });
+    const params = new URLSearchParams({ number: String(chapterNumber), priority: 'interactive' });
     if (chapterUrl) params.set('url', chapterUrl);
     const data = await fetchCachedPayload(
         `/api/cache/manga/${encodeURIComponent(mangaId)}/chapters/${encodeURIComponent(chapterId)}/images?${params}`,

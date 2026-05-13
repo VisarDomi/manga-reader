@@ -15,9 +15,9 @@ export type LogEvent =
     | { event: 'restore-shell'; view: string; stack: string; mangaId: string | null; hasReader: boolean; hasComments: boolean }
     | { event: 'restore-foreground'; view: string; stack: string; mangaId: string | null; hasReader: boolean; hasComments: boolean }
     | { event: 'search-result'; query: string; page: number; resultCount: number; hasMore: boolean; includeGenres: number; excludeGenres: number; demographics: number; authors: number; artists: number; types: number; statuses: number; currentPage?: number; lastPage?: number; total?: number }
-    | { event: 'cache-reconcile-request'; mangaId: string; observedLatestChapter: number; source: 'search-result' | 'manga-open'; priority: 'observed' | 'foreground' }
-    | { event: 'cache-reconcile-result'; mangaId: string; observedLatestChapter: number | null; cachedMax: number | null; source: 'search-result' | 'manga-open'; priority: 'observed' | 'foreground'; status: string; action: string; reason: string }
-    | { event: 'cache-reconcile-error'; mangaId: string; observedLatestChapter: number; source: 'search-result' | 'manga-open'; priority: 'observed' | 'foreground'; error: string }
+    | { event: 'cache-reconcile-request'; mangaId: string; observedLatestChapter: number; source: 'search-result' | 'manga-open'; priority: 'observed' | 'foreground' | 'interactive' }
+    | { event: 'cache-reconcile-result'; mangaId: string; observedLatestChapter: number | null; cachedMax: number | null; source: 'search-result' | 'manga-open'; priority: 'observed' | 'foreground' | 'interactive'; status: string; action: string; reason: string }
+    | { event: 'cache-reconcile-error'; mangaId: string; observedLatestChapter: number; source: 'search-result' | 'manga-open'; priority: 'observed' | 'foreground' | 'interactive'; error: string }
     | { event: 'manga-open-start'; mangaId: string }
     | { event: 'manga-detail-start'; mangaId: string }
     | { event: 'manga-detail-result'; mangaId: string; tags: number; genres: number; altTitles: number; recommendations: number; description: boolean }
@@ -26,6 +26,7 @@ export type LogEvent =
     | { event: 'manga-detail-done'; mangaId: string; ms: number }
     | { event: 'manga-scroll-save'; mangaId: string; scrollTop: number; scrollHeight: number; clientHeight: number }
     | { event: 'manga-scroll-restore'; action: 'pending' | 'applied' | 'aborted' | 'waiting' | 'skipped'; mangaId: string; scrollTop: number; currentScrollTop: number; scrollHeight: number; clientHeight: number; reason?: string }
+    | { event: 'manga-history-scroll'; action: 'pending' | 'applied' | 'aborted' | 'skipped'; mangaId: string; chapterId: string; reason?: string }
     | { event: 'manga-comments-start'; mangaId: string }
     | { event: 'manga-comments-result'; mangaId: string; rootPages: number; replyPages: number; treeFills: number; top: number; total: number; maxDepth: number; missingReplies: number; unavailable: number; unavailableRoots: number; count: number }
     | { event: 'manga-comments-error'; mangaId: string; error: string }

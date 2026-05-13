@@ -17,6 +17,16 @@ function coverVariant(value: string | string[] | undefined): MangaCoverVariant |
   return value === 'card' || value === 'detail' ? value : null;
 }
 
+function requestedPriority(value: unknown): CacheJobPriority {
+  return value === 'interactive'
+    ? 'interactive'
+    : value === 'foreground'
+      ? 'foreground'
+      : value === 'observed'
+        ? 'observed'
+        : 'interactive';
+}
+
 export function createCacheRouter(cache: CacheService | null, byteCache: ByteCacheService | null = null): Router {
   const router = Router();
 
@@ -91,7 +101,7 @@ export function createCacheRouter(cache: CacheService | null, byteCache: ByteCac
     }
     const data = cache.getManga(mangaId);
     if (!data) {
-      cache.warmManga(mangaId, 'cache-miss');
+      cache.warmManga(mangaId, 'cache-miss', requestedPriority(req.query.priority));
       res.status(202).json({ status: 'warming', mangaId });
       return;
     }
@@ -110,9 +120,7 @@ export function createCacheRouter(cache: CacheService | null, byteCache: ByteCac
     }
     const data = cache.getChapterList(mangaId);
     if (!data) {
-      if (!cache.isChapterListWarming(mangaId)) {
-        cache.warmManga(mangaId, 'cache-miss');
-      }
+      cache.warmManga(mangaId, 'cache-miss', requestedPriority(req.query.priority));
       res.status(202).json({ status: 'warming', mangaId });
       return;
     }
@@ -135,7 +143,7 @@ export function createCacheRouter(cache: CacheService | null, byteCache: ByteCac
       const rawNumber = typeof req.query.number === 'string' ? Number(req.query.number) : NaN;
       const chapterNumber = Number.isFinite(rawNumber) ? rawNumber : undefined;
       const chapterUrl = typeof req.query.url === 'string' ? req.query.url : undefined;
-      cache.warmChapterImages(mangaId, chapterId, chapterNumber, chapterUrl, 'cache-miss');
+      cache.warmChapterImages(mangaId, chapterId, chapterNumber, chapterUrl, 'cache-miss', requestedPriority(req.query.priority));
       res.status(202).json({ status: 'warming', mangaId, chapterId });
       return;
     }
@@ -171,7 +179,7 @@ export function createCacheRouter(cache: CacheService | null, byteCache: ByteCac
       : typeof req.body?.observedLatestChapter === 'string'
         ? Number(req.body.observedLatestChapter)
         : null;
-    const priority: CacheJobPriority = req.body?.priority === 'foreground' ? 'foreground' : 'observed';
+    const priority: CacheJobPriority = req.body?.priority === 'interactive' ? 'interactive' : req.body?.priority === 'foreground' ? 'foreground' : 'observed';
     const source: CacheReconcileSource =
       req.body?.source === 'manga-open' || req.body?.source === 'manual-refresh'
         ? req.body.source

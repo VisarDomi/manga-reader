@@ -1,6 +1,7 @@
 import { CacheDatabase, type CacheJobEnqueueResult, type CacheJobRecord } from './sqlite.js';
 
 export const CACHE_JOB_PRIORITY = {
+  interactive: 2000,
   foreground: 1000,
   observed: 500,
   daily: 100,
@@ -116,7 +117,7 @@ export class DurableJobScheduler {
 
   private shouldLogLifecycle(kind: string, priority: CacheJobPriorityName, status: CacheJobEnqueueResult): boolean {
     if (status === 'requeued') return true;
-    if (priority === 'foreground' || priority === 'observed' || status === 'promoted') return true;
+    if (priority === 'interactive' || priority === 'foreground' || priority === 'observed' || status === 'promoted') return true;
     if (status === 'existing') return false;
     return !BULK_JOB_KINDS.has(kind);
   }

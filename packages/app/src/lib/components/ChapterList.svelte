@@ -19,12 +19,31 @@
         if (!target) return;
         const container = document.getElementById(`view-manga-entry-${entry.key}`);
         const el = container?.querySelector(`[data-chapter-id="${CSS.escape(target.chapterId)}"]`);
-        if (!container || !el) return;
+        if (!container || !el) {
+            if (target.source === 'history' && entry.chapters.length > 0) {
+                appState.log.emit('manga-history-scroll', {
+                    action: 'skipped',
+                    mangaId,
+                    chapterId: target.chapterId,
+                    reason: 'chapter-not-found',
+                });
+                appState.manga.consumeScrollTarget(entry.key, 'history');
+            }
+            return;
+        }
         const row = el as HTMLElement;
         const desiredScrollTop = target.ratio == null
             ? row.offsetTop + row.offsetHeight / 2 - container.clientHeight / 2
             : row.offsetTop - target.ratio * container.clientHeight;
         container.scrollTop = Math.max(0, desiredScrollTop);
+        if (target.source === 'history') {
+            appState.log.emit('manga-history-scroll', {
+                action: 'applied',
+                mangaId,
+                chapterId: target.chapterId,
+            });
+        }
+        appState.manga.consumeScrollTarget(entry.key, target.source);
     });
 
     let pendingGroup = $state<{ id: string; name: string } | null>(null);

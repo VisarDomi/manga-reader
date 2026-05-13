@@ -94,6 +94,16 @@
             clearRestoreTimer(entry.key);
             return;
         }
+        if (entry.scrollTarget?.source === 'history' && event.isTrusted) {
+            appState.log.emit('manga-history-scroll', {
+                action: 'aborted',
+                mangaId: entry.manga.id,
+                chapterId: entry.scrollTarget.chapterId,
+                reason: 'user-scroll',
+            });
+            appState.manga.consumeScrollTarget(entry.key, 'history');
+            return;
+        }
         if (active) {
             appState.trackMangaDetailScroll(entry.manga.id, index, el.scrollTop, el.scrollHeight, el.clientHeight);
         }

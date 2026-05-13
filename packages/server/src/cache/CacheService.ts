@@ -18,7 +18,7 @@ const FAILED_DATA_RETRY_MS = 6 * 60 * 60 * 1000;
 const COVER_OWNERSHIP_REBUILD_VERSION = '1';
 
 type CacheJobKind = 'seed-newest' | 'crawl-search-page' | 'cache-manga-detail' | 'cache-chapters' | 'reconcile-chapters' | 'cache-chapter-page-map';
-export type CacheJobPriority = 'foreground' | 'observed' | 'daily' | 'background';
+export type CacheJobPriority = 'interactive' | 'foreground' | 'observed' | 'daily' | 'background';
 export type CacheReconcileSource = 'search-result' | 'manga-open' | 'manual-refresh';
 
 export interface CacheReconcileResult {
@@ -390,7 +390,7 @@ export class CacheService {
       seen.add(mangaId);
       const manga = this.getManga(mangaId);
       const chapters = includeChapters ? this.getChapterList(mangaId) : null;
-      if (!manga) this.warmManga(mangaId, 'favorite-card-cache-miss');
+      if (!manga) this.warmManga(mangaId, 'favorite-card-cache-miss', 'observed');
       snapshots.push({
         mangaId,
         manga,
@@ -405,12 +405,12 @@ export class CacheService {
 
   refreshManga(mangaId: string, reason = 'frontend-refresh'): void {
     this.db.invalidateChapterList(mangaId);
-    this.enqueue({ kind: 'cache-manga-detail', priority: 'foreground', mangaId, force: true, reason });
-    this.enqueue({ kind: 'cache-chapters', priority: 'foreground', mangaId, force: true, reason });
+    this.enqueue({ kind: 'cache-manga-detail', priority: 'interactive', mangaId, force: true, reason });
+    this.enqueue({ kind: 'cache-chapters', priority: 'interactive', mangaId, force: true, reason });
   }
 
   reconcileManga(mangaId: string, observedLatestChapter: number | null, priority: CacheJobPriority, source: CacheReconcileSource): CacheReconcileResult {
-    const normalizedPriority = priority === 'foreground' ? 'foreground' : 'observed';
+    const normalizedPriority = priority === 'interactive' ? 'interactive' : priority === 'foreground' ? 'foreground' : 'observed';
     const cached = this.db.getChapterList(mangaId);
     const cachedItems = cached ? resultItems(cached.data) : [];
     const { max: cachedMax } = chapterSummary(cachedItems);
@@ -447,9 +447,9 @@ export class CacheService {
     return { status: status === 'promoted' ? 'promoted' : 'queued', mangaId, cachedMax, observedLatestChapter: observed, action: 'reconcile', reason: 'stale-cache' };
   }
 
-  warmManga(mangaId: string, reason = 'cache-miss'): void {
-    this.enqueue({ kind: 'cache-manga-detail', priority: 'foreground', mangaId, reason });
-    this.enqueue({ kind: 'cache-chapters', priority: 'foreground', mangaId, reason });
+  warmManga(mangaId: string, reason = 'cache-miss', priority: CacheJobPriority = 'interactive'): void {
+    this.enqueue({ kind: 'cache-manga-detail', priority, mangaId, reason });
+    this.enqueue({ kind: 'cache-chapters', priority, mangaId, reason });
   }
 
   observeImageStore(observation: Omit<ImageStoreObservation, 'source'>): void {
@@ -458,11 +458,11 @@ export class CacheService {
   }
 
   refreshChapterImages(mangaId: string, chapterId: string, chapterNumber?: number, chapterUrl?: string, reason = 'frontend-refresh'): void {
-    this.enqueue({ kind: 'cache-chapter-page-map', priority: 'foreground', mangaId, chapterId, chapterNumber, chapterUrl, force: true, reason });
+    this.enqueue({ kind: 'cache-chapter-page-map', priority: 'interactive', mangaId, chapterId, chapterNumber, chapterUrl, force: true, reason });
   }
 
-  warmChapterImages(mangaId: string, chapterId: string, chapterNumber?: number, chapterUrl?: string, reason = 'cache-miss'): void {
-    this.enqueue({ kind: 'cache-chapter-page-map', priority: 'foreground', mangaId, chapterId, chapterNumber, chapterUrl, reason });
+  warmChapterImages(mangaId: string, chapterId: string, chapterNumber?: number, chapterUrl?: string, reason = 'cache-miss', priority: CacheJobPriority = 'interactive'): void {
+    this.enqueue({ kind: 'cache-chapter-page-map', priority, mangaId, chapterId, chapterNumber, chapterUrl, reason });
   }
 
   private enqueue(job: CacheJob): CacheJobEnqueueResult {
@@ -471,7 +471,7 @@ export class CacheService {
       if (job.kind === 'reconcile-chapters') {
         const fullJob = this.scheduler.jobsForResource('cache-chapters', job.mangaId)[0];
         if (fullJob) {
-          const priority = job.priority === 'foreground' ? 'foreground' : job.priority === 'observed' ? 'observed' : 'background';
+          const priority = job.priority === 'interactive' ? 'interactive' : job.priority === 'foreground' ? 'foreground' : job.priority === 'observed' ? 'observed' : 'background';
           this.scheduler.updateIntent(fullJob, {
             kind: 'cache-chapters',
             resourceKey: job.mangaId,
@@ -484,7 +484,7 @@ export class CacheService {
           });
           console.log(`[cache] job-promoted kind=cache-chapters manga=${job.mangaId} from=reconcile-conflict to=${priority} force=true reason=${job.reason}`);
           this.drain();
-          if (fullJob.priority < 1000 && priority === 'foreground') return 'promoted';
+          if (fullJob.priority < CACHE_JOB_PRIORITY[priority]) return 'promoted';
           return 'existing';
         }
       }
@@ -521,7 +521,7 @@ export class CacheService {
       priority: this.schedulerPriority(job.priority),
       payload,
       maxAttempts: job.kind === 'cache-chapter-page-map' ? 5 : 3,
-      retryFailedAfterMs: job.priority === 'foreground' || job.priority === 'observed'
+      retryFailedAfterMs: job.priority === 'interactive' || job.priority === 'foreground' || job.priority === 'observed'
         ? 0
         : FAILED_DATA_RETRY_MS,
     });
@@ -545,11 +545,11 @@ export class CacheService {
   }
 
   private shouldYieldToForeground(job: CacheJob): boolean {
-    return job.priority !== 'foreground' && this.scheduler.runnableCountAbove('observed') > 0;
+    return this.scheduler.runnableCountAbove(job.priority) > 0;
   }
 
   private yieldToForeground(job: CacheJob, label: string): never {
-    throw new CacheJobYield(`${label}: foreground job pending`);
+    throw new CacheJobYield(`${label}: higher priority job pending`);
   }
 
   private drain(): void {
@@ -925,14 +925,14 @@ export class CacheService {
   }
 
   private schedulerPriority(priority: CacheJobPriority): CacheJobPriorityName {
-    return priority === 'foreground' ? 'foreground' : priority === 'observed' ? 'observed' : priority === 'daily' ? 'daily' : 'background';
+    return priority === 'interactive' ? 'interactive' : priority === 'foreground' ? 'foreground' : priority === 'observed' ? 'observed' : priority === 'daily' ? 'daily' : 'background';
   }
 
   private recordToJob(record: { kind: string; payload: unknown }): CacheJob {
     const payload = payloadObject(record.payload);
     return {
       kind: record.kind as CacheJobKind,
-      priority: payload.priority === 'foreground' || payload.priority === 'observed' || payload.priority === 'daily' ? payload.priority : 'background',
+      priority: payload.priority === 'interactive' || payload.priority === 'foreground' || payload.priority === 'observed' || payload.priority === 'daily' ? payload.priority : 'background',
       mangaId: stringOrUndefined(payload.mangaId),
       chapterId: stringOrUndefined(payload.chapterId),
       chapterNumber: numberOrUndefined(payload.chapterNumber),

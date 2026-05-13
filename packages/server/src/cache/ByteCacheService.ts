@@ -48,7 +48,7 @@ export class ByteCacheService {
       priority,
       payload: { sourceUrl, referer, reason, mangaId, variant },
       maxAttempts: 5,
-      retryFailedAfterMs: priority === 'foreground' ? 0 : FAILED_BYTE_RETRY_MS,
+      retryFailedAfterMs: priority === 'interactive' || priority === 'foreground' ? 0 : FAILED_BYTE_RETRY_MS,
     });
     this.drain();
     return status;
