@@ -2,10 +2,14 @@ import type { ViewMode } from '../types.js';
 import type { LogEmit } from '../services/LogService.js';
 import { View } from '../logic.js';
 
+export type RestoreLayer =
+    | { view: ViewMode; entryKey?: undefined }
+    | { view: typeof View.MANGA; entryKey: string };
+
 export class UIState {
     viewMode = $state<ViewMode>(View.LIST);
     viewStack = $state<ViewMode[]>([]);
-    restoreMountedViews = $state<ViewMode[] | null>(null);
+    restoreMountedLayers = $state<RestoreLayer[] | null>(null);
     listViewGeneration = $state(0);
     mangaListScrolls: Record<string, number> = {};
     swipeProgress = $state(0);
@@ -70,23 +74,29 @@ export class UIState {
     }
 
     beginRestoreWork(active: ViewMode) {
-        this.restoreMountedViews = [active];
+        this.restoreMountedLayers = [{ view: active }];
     }
 
-    advanceRestoreWork(views: ViewMode[]) {
-        const unique: ViewMode[] = [];
-        for (const view of views) {
-            if (!unique.includes(view)) unique.push(view);
+    advanceRestoreWork(layers: RestoreLayer[]) {
+        const unique: RestoreLayer[] = [];
+        for (const layer of layers) {
+            if (unique.some(item => item.view === layer.view && item.entryKey === layer.entryKey)) continue;
+            unique.push(layer);
         }
-        this.restoreMountedViews = unique;
+        this.restoreMountedLayers = unique;
     }
 
     finishRestoreWork() {
-        this.restoreMountedViews = null;
+        this.restoreMountedLayers = null;
     }
 
     canMountView(view: ViewMode): boolean {
-        return this.restoreMountedViews == null || this.restoreMountedViews.includes(view);
+        return this.restoreMountedLayers == null || this.restoreMountedLayers.some(layer => layer.view === view);
+    }
+
+    canMountMangaEntry(entryKey: string): boolean {
+        if (this.restoreMountedLayers == null) return true;
+        return this.restoreMountedLayers.some(layer => layer.view === View.MANGA && layer.entryKey === entryKey);
     }
 
     get previousViewMode(): ViewMode {

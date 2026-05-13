@@ -12,6 +12,9 @@ export class FavoritesState {
     isLoading = $state(false);
     private hydrationGeneration = 0;
     private loaded = false;
+    private rows: db.FavoriteIdRow[] = [];
+    private hydrationInFlight = false;
+    private snapshotsHydrated = false;
 
     private toast: ToastState;
     private log: LogService;
@@ -23,9 +26,9 @@ export class FavoritesState {
         this.chapterStats = chapterStats;
     }
 
-    async init() {
+    async init(options?: { hydrate?: boolean }) {
         try {
-            await this.loadFavoriteRows();
+            await this.loadFavoriteRows({ hydrate: options?.hydrate !== false });
             this.loaded = true;
         } catch {
             this.toast.show(Msg.STORAGE_UNAVAILABLE);
@@ -67,10 +70,13 @@ export class FavoritesState {
     }
 
     async activate() {
-        if (this.loaded) return;
+        if (this.loaded) {
+            this.hydrateSnapshots('activate');
+            return;
+        }
         this.isLoading = true;
         try {
-            await this.loadFavoriteRows();
+            await this.loadFavoriteRows({ hydrate: true });
             this.loaded = true;
         } catch {
             this.toast.show('Failed to load favorites');
@@ -88,13 +94,42 @@ export class FavoritesState {
         };
     }
 
-    private async loadFavoriteRows(): Promise<void> {
+    hydrateSnapshots(reason = 'background'): void {
+        if (!this.loaded || this.rows.length === 0) return;
+        if (this.hydrationInFlight || this.snapshotsHydrated) return;
+        this.hydrationGeneration++;
+        const generation = this.hydrationGeneration;
+        this.hydrationInFlight = true;
+        void this.refreshFavoriteSnapshots(this.rows, generation);
+        this.log.emit('foreground-work', {
+            owner: 'favorites',
+            action: 'run',
+            view: 'favorites',
+            reason,
+            count: this.rows.length,
+        });
+    }
+
+    private async loadFavoriteRows(options?: { hydrate?: boolean }): Promise<void> {
         const rows = await db.getAllFavoriteRows();
+        this.rows = rows;
+        this.snapshotsHydrated = false;
         this.hydrationGeneration++;
         const generation = this.hydrationGeneration;
         this.ids = rows.map(row => row.id);
         this.items = rows.map(row => this.items.find(item => item.id === row.id) ?? this.placeholder(row.id, row.snapshot));
-        if (rows.length > 0) void this.refreshFavoriteSnapshots(rows, generation);
+        if (rows.length === 0) return;
+        if (options?.hydrate === false) {
+            this.log.emit('favorites-hydration', {
+                phase: 'deferred',
+                total: rows.length,
+                batchSize: rows.length,
+                dtMs: 0,
+            });
+            return;
+        }
+        this.hydrationInFlight = true;
+        void this.refreshFavoriteSnapshots(rows, generation);
     }
 
     private async refreshFavoriteSnapshots(rows: db.FavoriteIdRow[], generation: number): Promise<void> {
@@ -110,6 +145,7 @@ export class FavoritesState {
         const batchStartedAt = performance.now();
         const count = await this.repairCardSnapshots(fallbacks, generation);
         if (count == null) {
+            if (generation === this.hydrationGeneration) this.hydrationInFlight = false;
             this.log.emit('favorites-hydration', {
                 phase: 'cancelled',
                 total: rows.length,
@@ -135,6 +171,10 @@ export class FavoritesState {
             batchSize: rows.length,
             dtMs: Math.round(performance.now() - startedAt),
         });
+        if (generation === this.hydrationGeneration) {
+            this.hydrationInFlight = false;
+            this.snapshotsHydrated = true;
+        }
     }
 
     private async repairCardSnapshots(fallbacks: Manga[], generation: number): Promise<number | null> {
