@@ -121,9 +121,6 @@ export class ReaderState {
     private windowManager = new ReaderWindowManager();
     private pendingMangaScrollTargetChapterId: string | null = null;
     private scrollActivity: ReaderScrollActivity = 'settled';
-    private uiReadyEpoch = 0;
-    private uiReadyResolve: (() => void) | null = null;
-    private uiReadyPromise: Promise<void> = Promise.resolve();
     readonly pageTracker = new PageTracker();
 
     private ui: UIState;
@@ -143,31 +140,6 @@ export class ReaderState {
     private resetWindowLayoutCache(): void {
         this.heightRevision++;
         this.windowManager.clear();
-    }
-
-    private resetUiReady(): void {
-        this.uiReadyEpoch++;
-        this.uiReadyPromise = new Promise(resolve => {
-            this.uiReadyResolve = resolve;
-        });
-    }
-
-    markUiReady(reason: string): void {
-        const resolve = this.uiReadyResolve;
-        if (!resolve) return;
-        this.uiReadyResolve = null;
-        resolve();
-        this.log.emit('foreground-work', {
-            owner: 'reader-ui',
-            action: 'ready',
-            view: this.ui.viewMode,
-            reason,
-            mangaId: this.activeMangaId,
-        });
-    }
-
-    waitForUiReady(): Promise<void> {
-        return this.uiReadyPromise;
     }
 
     get windowFrameEpoch(): number {
@@ -224,7 +196,6 @@ export class ReaderState {
 
     async openReader(manga: Manga, chapter: ChapterMeta, mangaEntryKey: string | null = this.manga.activeEntryKey) {
         this.loadEpoch++;
-        this.resetUiReady();
         this.windowEpoch++;
         this.windowFetches.clear();
         this.lastViewportWidth = 0;
@@ -302,7 +273,6 @@ export class ReaderState {
         if (!chapter) return false;
 
         this.loadEpoch++;
-        this.resetUiReady();
         this.windowEpoch++;
         this.windowFetches.clear();
         this.lastViewportWidth = 0;

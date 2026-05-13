@@ -862,7 +862,6 @@
                 from: Math.round(from),
                 to: Math.round(root.scrollTop),
             });
-            appState.reader.markUiReady('restore-reset');
             requestAnimationFrame(() => {
                 appState.reader.clearPageRestore();
             });
@@ -887,7 +886,6 @@
                 from: Math.round(from),
                 to: Math.round(root.scrollTop),
             });
-            appState.reader.markUiReady('restore-fallback');
             return;
         }
 
@@ -911,7 +909,6 @@
             from: Math.round(from),
             to: Math.round(root.scrollTop),
         });
-        appState.reader.markUiReady('restore-page');
 
         requestAnimationFrame(() => {
             appState.reader.clearPageRestore();
