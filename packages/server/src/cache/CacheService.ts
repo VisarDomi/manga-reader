@@ -2,7 +2,7 @@ import type { BrowserSession } from '../services/BrowserSession.js';
 import { learnStoreHostFromUrl, listStoreHosts } from '../utils/storeHosts.js';
 import { proxyFetchJson } from '../utils/proxyFetch.js';
 import { DATA_CACHE_BACKGROUND_ENABLED } from '../config.js';
-import { CacheDatabase, type CacheJobEnqueueResult, type ImageStoreObservation } from './sqlite.js';
+import { CacheDatabase, type CacheJobEnqueueResult, type ImageStoreObservation, type ImageStoreObservationRecord } from './sqlite.js';
 import { CACHE_JOB_PRIORITY, DurableJobScheduler, type CacheJobPriorityName } from './DurableJobScheduler.js';
 import type { ByteCacheService } from './ByteCacheService.js';
 import type { ServerMangaProvider } from '../providers/types.js';
@@ -16,6 +16,18 @@ const CACHE_DAY_ROLLOVER_HOUR = 4;
 const CACHE_DAY_ROLLOVER_MINUTE = 45;
 const FAILED_DATA_RETRY_MS = 6 * 60 * 60 * 1000;
 const COVER_OWNERSHIP_REBUILD_VERSION = '1';
+const STORE_OBSERVATION_LIMIT = 50_000;
+const STORE_RANKING_TTL_MS = 30_000;
+const STORE_RECENCY_HALF_LIFE_MS = 24 * 60 * 60 * 1000;
+const STORE_EXPLOIT_RATE = 0.8;
+const STORE_BOOTSTRAP_WINNER_HOST = 'jloo.wowpic1.store';
+const STORE_FALLBACK_FAILURE_PENALTY_MS = 12_000;
+const STORE_TAIL_WEIGHTS = {
+  p90: 0.2,
+  p95: 0.35,
+  p98: 0.3,
+  max: 0.15,
+};
 
 type CacheJobKind = 'seed-newest' | 'crawl-search-page' | 'cache-manga-detail' | 'cache-chapters' | 'reconcile-chapters' | 'cache-chapter-page-map';
 export type CacheJobPriority = 'interactive' | 'foreground' | 'observed' | 'daily' | 'background';
@@ -51,6 +63,28 @@ interface CacheJob {
   source?: CacheReconcileSource;
   force?: boolean;
   reason: string;
+}
+
+interface WeightedLatencySample {
+  value: number;
+  weight: number;
+}
+
+interface StoreScore {
+  host: string;
+  attempts: number;
+  score: number;
+  p90: number;
+  p95: number;
+  p98: number;
+  max: number;
+}
+
+interface StoreRanking {
+  winnerHost: string | null;
+  failurePenaltyMs: number;
+  scores: StoreScore[];
+  expiresAt: number;
 }
 
 class CacheJobYield extends Error {
@@ -254,6 +288,14 @@ function imageStoreCandidates(imageUrl: string): string[] {
   return [...candidates];
 }
 
+function hostFromUrl(value: string): string | null {
+  try {
+    return new URL(value).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
 function shuffled<T>(items: T[]): T[] {
   const result = [...items];
   for (let i = result.length - 1; i > 0; i--) {
@@ -263,7 +305,21 @@ function shuffled<T>(items: T[]): T[] {
   return result;
 }
 
-function withImageStoreCandidates(data: unknown): unknown {
+function weightedPercentile(samples: WeightedLatencySample[], percentile: number): number {
+  if (samples.length === 0) return 0;
+  const sorted = [...samples].sort((a, b) => a.value - b.value);
+  const totalWeight = sorted.reduce((sum, sample) => sum + sample.weight, 0);
+  if (totalWeight <= 0) return sorted[sorted.length - 1]?.value ?? 0;
+  const target = totalWeight * percentile;
+  let seen = 0;
+  for (const sample of sorted) {
+    seen += sample.weight;
+    if (seen >= target) return sample.value;
+  }
+  return sorted[sorted.length - 1]?.value ?? 0;
+}
+
+function withImageStoreCandidates(data: unknown, candidateOrder: (imageUrl: string) => string[]): unknown {
   if (!data || typeof data !== 'object') return data;
   const root = data as Record<string, unknown>;
   const result = root.result;
@@ -280,7 +336,7 @@ function withImageStoreCandidates(data: unknown): unknown {
         if (!imageUrl || !page || typeof page !== 'object') return page;
         return {
           ...(page as Record<string, unknown>),
-          candidates: shuffled(imageStoreCandidates(imageUrl)),
+          candidates: candidateOrder(imageUrl),
         };
       }),
     },
@@ -306,6 +362,7 @@ export class CacheService {
   private started = false;
   private currentJob: CacheJob | null = null;
   private dailyRolloverTimer: ReturnType<typeof setTimeout> | null = null;
+  private storeRanking: StoreRanking | null = null;
 
   constructor(
     private readonly browserSession: BrowserSession,
@@ -378,7 +435,7 @@ export class CacheService {
       console.log(`[cache] chapter-images not-ready manga=${mangaId} chapter=${chapterId} status=${cached.status} pages=${readiness.pages} targetCount=${readiness.targetCount ?? 'unknown'} source=${readiness.source}`);
       return null;
     }
-    return withImageStoreCandidates(cached.data);
+    return withImageStoreCandidates(cached.data, imageUrl => this.orderedImageStoreCandidates(imageUrl));
   }
 
   getMangaCardSnapshots(mangaIds: string[], options: { includeChapters?: boolean } = {}): CacheMangaCardSnapshot[] {
@@ -454,7 +511,8 @@ export class CacheService {
 
   observeImageStore(observation: Omit<ImageStoreObservation, 'source'>): void {
     this.db.observeImageStore({ ...observation, source: 'frontend' });
-    console.log(`[cache] image-store-observed ok=${observation.ok} status=${observation.status} image=${observation.imageUrl} store=${observation.storeUrl}`);
+    this.storeRanking = null;
+    console.log(`[cache] image-store-observed ok=${observation.ok} status=${observation.status} totalMs=${observation.totalMs ?? 'unknown'} image=${observation.imageUrl} store=${observation.storeUrl}`);
   }
 
   refreshChapterImages(mangaId: string, chapterId: string, chapterNumber?: number, chapterUrl?: string, reason = 'frontend-refresh'): void {
@@ -463,6 +521,94 @@ export class CacheService {
 
   warmChapterImages(mangaId: string, chapterId: string, chapterNumber?: number, chapterUrl?: string, reason = 'cache-miss', priority: CacheJobPriority = 'interactive'): void {
     this.enqueue({ kind: 'cache-chapter-page-map', priority, mangaId, chapterId, chapterNumber, chapterUrl, reason });
+  }
+
+  private orderedImageStoreCandidates(imageUrl: string): string[] {
+    const candidates = imageStoreCandidates(imageUrl);
+    if (candidates.length <= 1) return candidates;
+    const byHost = new Map<string, string>();
+    for (const candidate of candidates) {
+      const host = hostFromUrl(candidate);
+      if (host && !byHost.has(host)) byHost.set(host, candidate);
+    }
+    if (byHost.size <= 1) return candidates;
+
+    const ranking = this.currentStoreRanking();
+    const winner = ranking.winnerHost && byHost.has(ranking.winnerHost)
+      ? ranking.winnerHost
+      : byHost.has(STORE_BOOTSTRAP_WINNER_HOST)
+        ? STORE_BOOTSTRAP_WINNER_HOST
+        : null;
+    const exploit = winner != null && Math.random() < STORE_EXPLOIT_RATE;
+    const firstHost = exploit
+      ? winner
+      : shuffled([...byHost.keys()])[0] ?? winner;
+    if (!firstHost) return shuffled(candidates);
+
+    const first = byHost.get(firstHost);
+    if (!first) return shuffled(candidates);
+    const rest = candidates.filter(candidate => hostFromUrl(candidate) !== firstHost);
+    return [first, ...shuffled(rest)];
+  }
+
+  private currentStoreRanking(): StoreRanking {
+    const now = Date.now();
+    if (this.storeRanking && this.storeRanking.expiresAt > now) return this.storeRanking;
+    const observations = this.db.getImageStoreObservations(STORE_OBSERVATION_LIMIT);
+    const ranking = this.computeStoreRanking(observations, now);
+    this.storeRanking = { ...ranking, expiresAt: now + STORE_RANKING_TTL_MS };
+    const winner = ranking.winnerHost ?? STORE_BOOTSTRAP_WINNER_HOST;
+    const best = ranking.scores[0];
+    if (best) {
+      console.log(`[cache] store-ranking winner=${winner} score=${Math.round(best.score)} p90=${Math.round(best.p90)} p95=${Math.round(best.p95)} p98=${Math.round(best.p98)} max=${Math.round(best.max)} attempts=${best.attempts} penalty=${Math.round(ranking.failurePenaltyMs)} observations=${observations.length}`);
+    } else {
+      console.log(`[cache] store-ranking winner=${winner} source=bootstrap observations=0 penalty=${Math.round(ranking.failurePenaltyMs)}`);
+    }
+    return this.storeRanking;
+  }
+
+  private computeStoreRanking(observations: ImageStoreObservationRecord[], now: number): Omit<StoreRanking, 'expiresAt'> {
+    const okMaxByHost = new Map<string, number>();
+    for (const observation of observations) {
+      if (!observation.ok || observation.status !== 200) continue;
+      const current = okMaxByHost.get(observation.host) ?? 0;
+      if (observation.totalMs > current) okMaxByHost.set(observation.host, observation.totalMs);
+    }
+    const okMaxValues = [...okMaxByHost.values()].filter(value => Number.isFinite(value) && value > 0);
+    const failurePenaltyMs = okMaxValues.length > 0
+      ? okMaxValues.reduce((sum, value) => sum + value, 0) / okMaxValues.length
+      : STORE_FALLBACK_FAILURE_PENALTY_MS;
+
+    const samplesByHost = new Map<string, WeightedLatencySample[]>();
+    for (const observation of observations) {
+      const ageMs = Math.max(0, now - observation.observedAt);
+      const weight = Math.pow(0.5, ageMs / STORE_RECENCY_HALF_LIFE_MS);
+      const value = observation.ok && observation.status === 200
+        ? Math.max(0, observation.totalMs)
+        : failurePenaltyMs;
+      const samples = samplesByHost.get(observation.host) ?? [];
+      samples.push({ value, weight });
+      samplesByHost.set(observation.host, samples);
+    }
+
+    const scores: StoreScore[] = [];
+    for (const [host, samples] of samplesByHost) {
+      const p90 = weightedPercentile(samples, 0.90);
+      const p95 = weightedPercentile(samples, 0.95);
+      const p98 = weightedPercentile(samples, 0.98);
+      const max = samples.reduce((largest, sample) => Math.max(largest, sample.value), 0);
+      const score = (p90 * STORE_TAIL_WEIGHTS.p90)
+        + (p95 * STORE_TAIL_WEIGHTS.p95)
+        + (p98 * STORE_TAIL_WEIGHTS.p98)
+        + (max * STORE_TAIL_WEIGHTS.max);
+      scores.push({ host, attempts: samples.length, score, p90, p95, p98, max });
+    }
+    scores.sort((a, b) => a.score - b.score || b.attempts - a.attempts || a.host.localeCompare(b.host));
+    return {
+      winnerHost: scores[0]?.host ?? null,
+      failurePenaltyMs,
+      scores,
+    };
   }
 
   private enqueue(job: CacheJob): CacheJobEnqueueResult {

@@ -67,6 +67,14 @@ interface MangaCoverCacheRow {
 
 type CacheJobStatus = 'queued' | 'running' | 'retry' | 'failed';
 
+function hostFromUrl(value: string): string {
+  try {
+    return new URL(value).hostname.toLowerCase();
+  } catch {
+    return 'invalid';
+  }
+}
+
 export interface CachedManga {
   mangaId: string;
   data: unknown;
@@ -94,6 +102,20 @@ export interface ImageStoreObservation {
   status: number;
   ok: boolean;
   source: 'frontend' | 'backend';
+  totalMs?: number;
+  sessionId?: string;
+}
+
+export interface ImageStoreObservationRecord {
+  imageUrl: string;
+  storeUrl: string;
+  host: string;
+  status: number;
+  ok: boolean;
+  source: 'frontend' | 'backend';
+  totalMs: number;
+  sessionId: string | null;
+  observedAt: number;
 }
 
 export interface CacheJobInput {
@@ -196,6 +218,25 @@ export class CacheDatabase {
         last_checked_at INTEGER NOT NULL,
         PRIMARY KEY (image_url, store_url)
       );
+
+      CREATE TABLE IF NOT EXISTS image_store_observations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        image_url TEXT NOT NULL,
+        store_url TEXT NOT NULL,
+        host TEXT NOT NULL,
+        status INTEGER NOT NULL,
+        ok INTEGER NOT NULL,
+        source TEXT NOT NULL,
+        total_ms INTEGER NOT NULL,
+        session_id TEXT,
+        observed_at INTEGER NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_image_store_observations_host_time
+      ON image_store_observations(host, observed_at);
+
+      CREATE INDEX IF NOT EXISTS idx_image_store_observations_time
+      ON image_store_observations(observed_at);
 
       CREATE TABLE IF NOT EXISTS chapter_image_cache (
         manga_id TEXT NOT NULL,
@@ -342,6 +383,7 @@ export class CacheDatabase {
   }
 
   observeImageStore(observation: ImageStoreObservation): void {
+    const now = Date.now();
     this.db.prepare(`
       INSERT INTO image_store_status (image_url, store_url, status, ok, source, last_checked_at)
       VALUES (?, ?, ?, ?, ?, ?)
@@ -356,9 +398,58 @@ export class CacheDatabase {
       observation.status,
       observation.ok ? 1 : 0,
       observation.source,
-      Date.now(),
+      now,
     );
 
+    const totalMs = typeof observation.totalMs === 'number' && Number.isFinite(observation.totalMs)
+      ? Math.max(0, Math.round(observation.totalMs))
+      : null;
+    if (totalMs == null) return;
+    this.db.prepare(`
+      INSERT INTO image_store_observations (image_url, store_url, host, status, ok, source, total_ms, session_id, observed_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      observation.imageUrl,
+      observation.storeUrl,
+      hostFromUrl(observation.storeUrl),
+      observation.status,
+      observation.ok ? 1 : 0,
+      observation.source,
+      totalMs,
+      observation.sessionId ?? null,
+      now,
+    );
+  }
+
+  getImageStoreObservations(limit = 50_000): ImageStoreObservationRecord[] {
+    const boundedLimit = Math.max(1, Math.min(250_000, Math.floor(limit)));
+    const rows = this.db.prepare(`
+      SELECT image_url, store_url, host, status, ok, source, total_ms, session_id, observed_at
+      FROM image_store_observations
+      ORDER BY observed_at DESC
+      LIMIT ?
+    `).all(boundedLimit) as unknown as Array<{
+      image_url: string;
+      store_url: string;
+      host: string;
+      status: number;
+      ok: number;
+      source: 'frontend' | 'backend';
+      total_ms: number;
+      session_id: string | null;
+      observed_at: number;
+    }>;
+    return rows.map(row => ({
+      imageUrl: row.image_url,
+      storeUrl: row.store_url,
+      host: row.host,
+      status: row.status,
+      ok: row.ok === 1,
+      source: row.source,
+      totalMs: row.total_ms,
+      sessionId: row.session_id,
+      observedAt: row.observed_at,
+    }));
   }
 
   upsertChapterImages(mangaId: string, chapterId: string, data: unknown, status = 'ready'): void {
@@ -783,7 +874,7 @@ export class CacheDatabase {
   }
 
   counts(): Record<string, number> {
-    const tables = ['manga_cache', 'chapter_list_cache', 'chapter_image_cache', 'image_store_status', 'cache_jobs', 'byte_cache', 'manga_cover_cache'] as const;
+    const tables = ['manga_cache', 'chapter_list_cache', 'chapter_image_cache', 'image_store_status', 'image_store_observations', 'cache_jobs', 'byte_cache', 'manga_cover_cache'] as const;
     const result: Record<string, number> = {};
     for (const table of tables) {
       const row = this.db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as { count: number };

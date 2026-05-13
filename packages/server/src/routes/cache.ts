@@ -198,17 +198,23 @@ export function createCacheRouter(cache: CacheService | null, byteCache: ByteCac
       res.status(503).json({ error: 'Cache service unavailable', status: 503 });
       return;
     }
-    const { imageUrl, storeUrl, status, ok } = req.body as {
+    const { imageUrl, storeUrl, status, ok, totalMs, sessionId } = req.body as {
       imageUrl?: string;
       storeUrl?: string;
       status?: number;
       ok?: boolean;
+      totalMs?: number;
+      sessionId?: string;
     };
     if (!imageUrl || !storeUrl || typeof status !== 'number' || !Number.isFinite(status) || typeof ok !== 'boolean') {
       res.status(400).json({ error: 'Missing imageUrl, storeUrl, status, or ok', status: 400 });
       return;
     }
-    cache.observeImageStore({ imageUrl, storeUrl, status, ok });
+    if (totalMs !== undefined && (typeof totalMs !== 'number' || !Number.isFinite(totalMs) || totalMs < 0)) {
+      res.status(400).json({ error: 'Invalid totalMs', status: 400 });
+      return;
+    }
+    cache.observeImageStore({ imageUrl, storeUrl, status, ok, totalMs, sessionId });
     res.status(202).json({ status: 'recorded' });
   }));
 

@@ -478,15 +478,16 @@ Cache ownership:
 - Frontend owns user intent, cache priority requests, and image outcome
   observations. It does not know that BrowserSession exists.
 - Image store candidate generation is a response-time backend projection, not
-  durable cache data. Runtime candidate selection belongs to the reader image
-  loader, and observed candidate outcomes are reported back to the backend.
+  durable cache data. Candidate ordering belongs to the backend cache/provider
+  boundary, and observed frontend outcomes are reported back to the backend.
 
 Serving ownership:
 
 - Reader images use cached canonical page metadata plus generated direct store
-  candidates. The frontend tries those candidates directly and reports
-  outcomes. Reader page bytes are not downloaded into the backend byte cache and
-  no longer pass through `/api/image`.
+  candidates. The backend orders those candidates from observed store latency;
+  the frontend tries them directly and reports outcomes. Reader page bytes are
+  not downloaded into the backend byte cache and no longer pass through
+  `/api/image`.
 - Manga covers are owned resources. Search crawl owns `card` covers from
   `poster.medium`; manga-detail caching owns `detail` covers from
   `poster.large`. `ByteCacheService` stores the bytes, but
@@ -513,6 +514,7 @@ SQLite stores:
 - `chapter_list_cache`
 - `chapter_image_cache`
 - `image_store_status`
+- `image_store_observations`
 
 The cache worker has foreground, observed, daily, and background data jobs.
 Power-off safety comes from durable job rows and atomic cache mutations:
@@ -552,10 +554,28 @@ The provider resolves the current runtime HTTP client by behavior; the cache
 stores only normalized typed payloads.
 
 Store candidates are expanded from real discovered image URLs by replacing only
-known `wowpic*.store` hosts while preserving the image path. The backend
-currently randomizes candidate order so real frontend attempts can collect
-store-quality evidence. The frontend reports image outcomes; the backend
-updates per-image/per-store status in `image_store_status`.
+known `wowpic*.store` hosts while preserving the image path. The backend owns
+candidate order. The frontend reports image status, latency, and session id;
+the backend updates latest per-image/per-store status in `image_store_status`
+and appends durable latency evidence to `image_store_observations`.
+
+Candidate selection is adaptive:
+
+- Compute a store winner from recency-weighted observations with a 24h
+  half-life.
+- Score each store by weighted tail latency: p90 `0.2`, p95 `0.35`, p98 `0.3`,
+  and max `0.15`; lower score wins.
+- Treat non-200 observations as a flow-level failure by assigning them a
+  dynamic penalty near the average observed successful max latency.
+- Serve the winner first 80% of the time, then randomize the remaining stores.
+- Explore 20% of the time by randomizing the first store as well. This keeps
+  learning alive instead of freezing on the first good host.
+- Keep the fallback behavior: the frontend still tries candidates until one
+  succeeds, so a bad first store is evidence for ranking rather than a page
+  failure.
+- Monitor whether the winner stabilizes and improves first-image latency. The
+  80/20 split is a policy knob and should only be tightened after the logs show
+  enough adaptive observations.
 
 ### 41. Large Search Lists Still Need Optimization
 
@@ -961,10 +981,9 @@ Image fetch failures are handled differently based on the error:
 
 Reader image bytes are fetched from direct CDN store candidates. When the
 reader closes, blob URLs are revoked and memory is freed. Reopening the same
-chapter can still benefit from browser HTTP cache if the candidate order is
-stable enough to hit the same URL. Current candidate order is randomized for
-store-quality discovery; the next optimization is to switch to a smart
-deterministic order once observations identify dependable hosts.
+chapter can still benefit from browser HTTP cache when the adaptive winner
+stays stable. Candidate order is now backend-owned: 80% winner-first for cache
+locality and 20% exploration so weaker or newly faster stores can still surface.
 
 ## BN. Details List Syncs with Reader Position
 
@@ -1374,9 +1393,10 @@ The manga-reader systemd service is wrapped in `xvfb-run` because Playwright/Clo
 
 There is no reader image proxy success path. Reader image loading tries direct
 store candidates in the frontend, logs compact `reader-image-candidate` events,
-and reports actual outcomes to `/api/cache/image-store`. Backend persistence is
-limited to observed `(image_url, store_url)` status rows. Generated candidates
-are never stored just because they could exist.
+and reports actual outcomes plus latency to `/api/cache/image-store`. Backend
+persistence keeps latest `(image_url, store_url)` status rows and append-only
+store-latency observations. Generated candidates are never stored just because
+they could exist.
 
 ## D12. LogEvent Is a Discriminated Union
 
@@ -1489,9 +1509,12 @@ The cache has durable data layers:
    `(manga_id, variant)` where variant is `card` or `detail`. Reader page image
    bytes remain direct frontend CDN fetches through generated store candidates.
 
-`image_store_status` records frontend/backend observations for each
-image/store pair: status code, ok/not-ok, source, and last check time. The
-frontend reports observations; it does not own cache invalidation policy.
+`image_store_status` records latest frontend/backend observations for each
+image/store pair: status code, ok/not-ok, source, and last check time.
+`image_store_observations` records the durable latency stream used by adaptive
+store ranking: image URL, store URL, host, status, ok/not-ok, source, total
+milliseconds, optional frontend session id, and observation time. The frontend
+reports observations; it does not own ranking or cache invalidation policy.
 
 Work order is owned by the durable `cache_jobs` scheduler, not by in-memory
 arrays. Jobs are deduped by `(kind, resource_key)`, claimed with leases,

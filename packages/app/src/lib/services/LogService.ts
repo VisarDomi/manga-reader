@@ -101,7 +101,7 @@ export type LogEvent =
     | { event: 'watchdog-freeze'; gapMs: number }
     | { event: 'sentinel-forced-resume'; frozenSeconds: number }
     | { event: 'img-fail'; key: string; totalMs: number; error: string; pending: number }
-    | { event: 'reader-image-candidate'; key: string; index: number; total: number; ok: boolean; status: number; totalMs: number; host: string; error?: string }
+    | { event: 'reader-image-candidate'; key: string; index: number; total: number; ok: boolean; status: number; totalMs: number; host: string; sessionId?: string; error?: string }
     | { event: 'uncaught-error'; message: string; source: string; line: number; col: number; stack: string }
     | { event: 'unhandled-rejection'; message: string; stack: string }
     | { event: 'db-error'; op: string; error: string }

@@ -6,6 +6,8 @@ import {
     VISIBLE_PAGE_RATIO,
 } from '$lib/constants.js';
 
+const IMAGE_STORE_SESSION_ID = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
+
 export class ReaderMemoryManager {
     private blobUrls = new Map<string, string>();
     private loadingKeys = new Set<string>();
@@ -290,11 +292,11 @@ export class ReaderMemoryManager {
         } catch {
             // Keep the log path alive for malformed candidates.
         }
-        this.emit('reader-image-candidate', { key, index, total, ok, status, totalMs, host, error });
+        this.emit('reader-image-candidate', { key, index, total, ok, status, totalMs, host, sessionId: IMAGE_STORE_SESSION_ID, error });
         void fetch('/api/cache/image-store', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ imageUrl: canonicalUrl, storeUrl: candidateUrl, status, ok }),
+            body: JSON.stringify({ imageUrl: canonicalUrl, storeUrl: candidateUrl, status, ok, totalMs, sessionId: IMAGE_STORE_SESSION_ID }),
             keepalive: true,
         }).catch(() => {});
     }
