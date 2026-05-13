@@ -76,6 +76,7 @@ export type LogEvent =
     | { event: 'reader-layout-promotion-frame'; phase: 'queued' | 'fired'; mangaId: string | null; sequence: number; queuedForMs: number; pendingMeasurements: number; scrollTop: number; source?: 'layout' | 'projection'; result?: 'promoted' | 'unchanged' | 'no-root' | 'projection-active' }
     | { event: 'reader-layout-anchor-choice'; mangaId: string | null; currentChapterId: string | null; layoutChapterId: string | null; anchorKey: string | null; selection: 'owner' | 'probe' | 'none'; ownerChapterId: string | null }
     | { event: 'reader-layout-idle-promote'; mangaId: string; changedCount: number; totalDelta: number; anchorKey: string | null }
+    | { event: 'reader-restore-transaction'; phase: 'ready'; mangaId: string | null; reason: string; totalMs: number; scrollTop: number; registeredPages: number; pageElements: number; imgElements: number; imgWithSrc: number; pendingMeasurements: number }
     | { event: 'reader-scroll-activity'; mangaId: string | null; from: string; to: string; source: string }
     | { event: 'reader-window-hydration-applied'; source: 'initial' | 'scroll' | 'visible' | 'retry'; mangaId: string; chapterId: string; chapterNumber: number; reason: 'current' | 'window'; currentChapterId?: string | null; currentVirtualTop?: number | null; layoutViewportHeight?: number }
     | { event: 'reader-window-fetch-stale'; source: 'initial' | 'scroll' | 'visible' | 'retry'; mangaId: string; chapterId: string; reason: 'epoch' | 'slot-missing' }
