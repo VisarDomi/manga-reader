@@ -238,6 +238,13 @@ window reconciliation, restored scroll write, virtual image scheduling, pending
 layout-promotion attempt, and paint-boundary waits have completed. Backing
 manga/root layers may mount only after that reader-owned signal.
 
+Treat the iOS PWA black/white/black cold-start flash as a platform artifact
+unless logs show an app-owned paint or layout regression at the same time. The
+app should not chase that flash with visual hacks. Its owned contract is to
+restore the saved foreground reader first, keep hidden layer work from mounting
+before the reader restore transaction completes, and log frame gaps around the
+handoff so real main-thread regressions stay visible.
+
 For nested manga details, each manga layer owns its own scroll snapshot. A
 single "current manga scroll" is not enough because the stack can contain
 multiple independent manga-detail surfaces. Persist and restore scroll by
