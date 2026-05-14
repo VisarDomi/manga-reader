@@ -987,27 +987,29 @@ virtual-window planner.
 The same planner also warms chapter image metadata for the full physical
 runway. This is not old card/detail prewarm. It is reader-owned cache intent:
 if a chapter can enter the bounded runway without another physical rebase, its
-page map should be ready before slow scrolling reaches it. The frontend sends a
-fire-and-forget `/api/cache/manga/:mangaId/chapter-images/warm` request with
-the concrete chapters; the backend responds by skipping ready page maps,
-promoting missing page-map jobs, and logging discovered/queued/ready counts.
+page map should be in the reader's local `chapterDataById` before slow
+scrolling reaches it. The frontend does not prove readiness by firing a
+backend-only warm request. `ReaderState` owns physical-window metadata
+hydration, starts bounded background `fetchChapterImages` work for the nearest
+physical-window candidates, stores successful page maps in `chapterDataById`,
+and lets render-window promotion consume that local state.
 
-The 2026-05-14 verification showed why this boundary matters. Before the
-reader-owned warm batch, the relevant log window had `loadingImages` spikes up
-to 9, 7 snapshots with `visibleLoadedImages=0`, and 4
-`reader-window-fetch-failed`/timeout events. After the change, excluding the
-initial mount, the steady-state reader snapshots showed only `loadingImages=0`
-or `loadingImages=1`, with no fetch timeouts. In the concrete test, the reader
-warmed 9 chapters for manga `0klvd`; the backend logged `discovered=9
-queued=4 ready=5`, completed the missing page-map jobs, and later chapter
-`8790811` was an immediate cached `chapter-images-result imageCount=12` when
-the scroll planner needed it.
+The 2026-05-14 verification showed why this boundary matters. The first
+attempt warmed backend cache rows for 9 nearby chapters and the backend logged
+`discovered=9 queued=4 ready=5`, but the reader later still emitted
+`reader-window-fetch-failed` timeouts for chapters that had been cached minutes
+earlier. That proved the wrong owner was being verified: backend cache
+readiness was necessary, but not sufficient for a smooth reader. The durable
+success signal is now `reader-window-hydrate-ok` before a chapter becomes
+visible, followed by `reader-window-local-hit` when render-window promotion can
+use local reader state without a new foreground cache read.
 
 This does not mean every image byte in the 200k px runway is already loaded.
 Chapter page-map metadata and reader image bytes have different owners. The
-warm batch prevents missing chapter metadata from blocking slow scrolling into
-the next chapter. `ReaderMemoryManager` still owns image byte/blob scheduling
-inside the image window described in BL, and occasional single-image loading is
+reader metadata hydration prevents missing chapter metadata from blocking slow
+scrolling into the next chapter. `ReaderMemoryManager` still owns image
+byte/blob scheduling inside the image window described in BL, and occasional
+single-image loading is
 ordinary byte catch-up rather than a page-map/cache miss.
 
 Chapter change is detected from the visible page probe at one-third down the

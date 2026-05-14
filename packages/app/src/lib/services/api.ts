@@ -453,22 +453,6 @@ async function fetchCachedChapterImages(mangaId: string, chapterId: string, chap
     return pages;
 }
 
-export function warmChapterImages(mangaId: string, chapters: ChapterMeta[], priority: CachePriority = 'interactive'): void {
-    if (chapters.length === 0) return;
-    fetch(`/api/cache/manga/${encodeURIComponent(mangaId)}/chapter-images/warm`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            priority,
-            chapters: chapters.map(chapter => ({
-                id: chapter.id,
-                number: chapter.number,
-                url: chapter.url,
-            })),
-        }),
-    }).catch(() => {});
-}
-
 export async function fetchChapterImages(mangaId: string, chapterId: string, chapterNumber: number, chapterUrl?: string): Promise<ChapterPage[]> {
     return fetchCachedChapterImages(mangaId, chapterId, chapterNumber, chapterUrl);
 }
