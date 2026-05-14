@@ -93,17 +93,17 @@ export class PageTracker {
             visiblePages.push({ node, data, rect, chapterId, pageIndex, distance });
         }
 
+        const probe = visiblePages
+            .filter(page => page.rect.top <= midY && page.rect.bottom > midY)
+            .sort((a, b) => this.ownerRank(a.chapterId, owners) - this.ownerRank(b.chapterId, owners) || a.distance - b.distance)[0];
+        if (probe) return this.toSnapshot(root, rootRect, midY, probe, 'probe', null);
+
         for (const ownerChapterId of owners) {
             const owned = visiblePages
                 .filter(page => page.chapterId === ownerChapterId)
                 .sort((a, b) => a.distance - b.distance)[0];
             if (owned) return this.toSnapshot(root, rootRect, midY, owned, 'owner', ownerChapterId);
         }
-
-        const probe = visiblePages
-            .filter(page => page.rect.top <= midY && page.rect.bottom > midY)
-            .sort((a, b) => a.distance - b.distance)[0];
-        if (probe) return this.toSnapshot(root, rootRect, midY, probe, 'probe', null);
         return null;
     }
 
@@ -125,18 +125,23 @@ export class PageTracker {
                 return { page, distance };
             });
 
+        const probe = visiblePages
+            .filter(item => item.page.top <= probeY && item.page.bottom > probeY)
+            .sort((a, b) => this.ownerRank(a.page.chapterId, owners) - this.ownerRank(b.page.chapterId, owners) || a.distance - b.distance)[0];
+        if (probe) return this.geometrySnapshot(rootScrollTop, probeY, probe.page, 'probe', null);
+
         for (const ownerChapterId of owners) {
             const owned = visiblePages
                 .filter(item => item.page.chapterId === ownerChapterId)
                 .sort((a, b) => a.distance - b.distance)[0];
             if (owned) return this.geometrySnapshot(rootScrollTop, probeY, owned.page, 'owner', ownerChapterId);
         }
-
-        const probe = visiblePages
-            .filter(item => item.page.top <= probeY && item.page.bottom > probeY)
-            .sort((a, b) => a.distance - b.distance)[0];
-        if (probe) return this.geometrySnapshot(rootScrollTop, probeY, probe.page, 'probe', null);
         return null;
+    }
+
+    private ownerRank(chapterId: string, owners: string[]): number {
+        const index = owners.indexOf(chapterId);
+        return index < 0 ? Number.MAX_SAFE_INTEGER : index;
     }
 
     private geometrySnapshot(

@@ -1215,15 +1215,16 @@ export class ReaderState {
                         });
                         return;
                     }
-                    const readyChapter = this.rememberReadyChapter(this.readyChapterFromResult(result.chapter, candidate.viewportWidth));
+                    const readyChapter = this.readyChapterFromResult(result.chapter, candidate.viewportWidth);
                     const appliedToSlot = this.loadedChapters.some(slot => slot.id === readyChapter.id && slot.slotState !== 'ready');
+                    const cachedReadyChapter = this.rememberReadyChapter(readyChapter, { affectsLayout: appliedToSlot });
                     this.log.emit('reader-window-hydrate-ok', {
                         source,
                         mangaId: manga.id,
                         chapterId,
-                        chapterNumber: readyChapter.number,
-                        pages: readyChapter.pages.length,
-                        estimatedHeight: Math.round(readyChapter.estimatedHeight ?? 0),
+                        chapterNumber: cachedReadyChapter.number,
+                        pages: cachedReadyChapter.pages.length,
+                        estimatedHeight: Math.round(cachedReadyChapter.estimatedHeight ?? 0),
                         appliedToSlot,
                     });
                 });
@@ -1348,16 +1349,18 @@ export class ReaderState {
         };
     }
 
-    private rememberReadyChapter(readyChapter: LoadedChapter): LoadedChapter {
+    private rememberReadyChapter(readyChapter: LoadedChapter, options: { affectsLayout: boolean } = { affectsLayout: true }): LoadedChapter {
         const estimatedHeight = readyChapter.estimatedHeight ?? this.estimateLoadedChapterHeight(readyChapter.pages, this.layoutViewportWidth());
         const cachedReadyChapter = {
             ...readyChapter,
             slotState: 'ready' as const,
             estimatedHeight,
         };
-        this.estimatedChapterHeights.set(cachedReadyChapter.id, estimatedHeight);
         this.chapterDataById.set(cachedReadyChapter.id, cachedReadyChapter);
-        this.resetWindowLayoutCache();
+        if (options.affectsLayout) {
+            this.estimatedChapterHeights.set(cachedReadyChapter.id, estimatedHeight);
+            this.resetWindowLayoutCache();
+        }
         return cachedReadyChapter;
     }
 

@@ -734,20 +734,10 @@
             appState.reader.layoutChapterId,
             appState.reader.currentChapterId,
         ].filter((id): id is string => !!id);
-        for (const ownerChapterId of ownerChapterIds) {
-            const owned = pages
-                .filter(page => page.chapterId === ownerChapterId)
-                .sort((a, b) => a.distance - b.distance)[0];
-            if (owned) {
-                return {
-                    key: owned.key,
-                    top: owned.element.getBoundingClientRect().top - rootRect.top,
-                    selection: 'owner',
-                    ownerChapterId,
-                };
-            }
-        }
-        const best = pages.sort((a, b) => a.distance - b.distance)[0];
+        const best = pages
+            .filter(page => page.distance === 0)
+            .sort((a, b) => ownerRank(a.chapterId, ownerChapterIds) - ownerRank(b.chapterId, ownerChapterIds))[0]
+            ?? pages.sort((a, b) => a.distance - b.distance)[0];
         if (!best) return null;
         return {
             key: best.key,
@@ -755,6 +745,11 @@
             selection: 'probe',
             ownerChapterId: null,
         };
+    }
+
+    function ownerRank(chapterId: string, ownerChapterIds: string[]): number {
+        const index = ownerChapterIds.indexOf(chapterId);
+        return index < 0 ? Number.MAX_SAFE_INTEGER : index;
     }
 
     function chapterIdFromPageKey(key: string): string {

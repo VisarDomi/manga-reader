@@ -1004,6 +1004,15 @@ success signal is now `reader-window-hydrate-ok` before a chapter becomes
 visible, followed by `reader-window-local-hit` when render-window promotion can
 use local reader state without a new foreground cache read.
 
+Offscreen metadata hydration is not allowed to own layout. It can store page
+maps in `chapterDataById`, but it must not invalidate the physical-window
+planner, update layout height authority, or trigger anchor compensation until
+the chapter is actually promoted into the render window. Likewise, visible
+chapter ownership comes from the viewport probe point; previous layout/current
+owners are only fallback/tie-breaker context. A stale owner that is still
+partly visible must not pull `currentChapterId` or progress back across a
+chapter boundary.
+
 This does not mean every image byte in the 200k px runway is already loaded.
 Chapter page-map metadata and reader image bytes have different owners. The
 reader metadata hydration prevents missing chapter metadata from blocking slow
