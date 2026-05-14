@@ -15,6 +15,7 @@ type EstimateChapterHeight = (chapterId: string, viewportWidth: number) => numbe
 
 export type ReaderWindowPlan = {
     candidates: WindowCandidate[];
+    warmCandidates: WindowCandidate[];
     nextSlots: LoadedChapter[];
     wantedIds: Set<string>;
     totalHeight: number;
@@ -89,6 +90,10 @@ export class ReaderWindowManager {
             .filter(layout => this.intersects(layout.top, layout.bottom, loadTop, loadBottom))
             .map(layout => this.toCandidate(layout, probeIndex, viewportTop, viewportBottom, direction, viewportWidth))
             .sort((a, b) => a.priority - b.priority);
+        const warmCandidates = layouts
+            .filter(layout => this.intersects(layout.top, layout.bottom, physicalStart, physicalEnd))
+            .map(layout => this.toCandidate(layout, probeIndex, viewportTop, viewportBottom, direction, viewportWidth))
+            .sort((a, b) => a.priority - b.priority);
         const wantedIds = new Set(candidates.map(candidate => candidate.chapter.id));
         if (probe) wantedIds.add(probe.chapter.id);
 
@@ -109,6 +114,7 @@ export class ReaderWindowManager {
 
         return {
             candidates,
+            warmCandidates,
             nextSlots,
             wantedIds,
             totalHeight,

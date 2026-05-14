@@ -826,12 +826,25 @@ Window policy:
   window.
 - **Image window:** mounted page images are loaded and retained within the
   14-viewport image window described in BL.
+- **Cache warm window:** chapter image metadata is warmed for every chapter
+  whose logical slot intersects the full bounded physical runway. This is
+  larger than the render/load window on purpose: the reader owns what can
+  become visible inside its physical scroll surface, so it may send foreground
+  cache intent for those page maps before the DOM needs to mount them.
 
 Priority is recalculated from the current logical viewport. Distance to the
 viewport is the base priority; the current scroll direction biases work toward
 previous chapters while scrolling up and next chapters while scrolling down.
 Nearby placeholder slots are fetched concurrently up to the current scheduler
 limit.
+
+Do not express reader prewarm as fixed counts such as "two previous chapters"
+or "four next chapters." Chapter heights vary too much for count-based warming
+to match the bounded physical scroller. The durable ownership model is
+geometry-driven: `ReaderWindowManager` computes which chapter slots intersect
+the physical runway, `ReaderState` dedupes already-ready/in-flight/requested
+chapters, and the backend cache scheduler owns durable queueing and promotion
+through a foreground `reader-window` warm batch.
 
 Logical scroll position is the cursor owner. The window planner receives an
 already-owned `logicalScrollTop`; it must not derive logical position from a
@@ -970,6 +983,32 @@ position into the bounded physical runway from AK and fetches nearby
 placeholder chapters according to logical proximity. Fresh opens, restores,
 fast upward scrolls, and fast downward scrolls all use the same
 virtual-window planner.
+
+The same planner also warms chapter image metadata for the full physical
+runway. This is not old card/detail prewarm. It is reader-owned cache intent:
+if a chapter can enter the bounded runway without another physical rebase, its
+page map should be ready before slow scrolling reaches it. The frontend sends a
+fire-and-forget `/api/cache/manga/:mangaId/chapter-images/warm` request with
+the concrete chapters; the backend responds by skipping ready page maps,
+promoting missing page-map jobs, and logging discovered/queued/ready counts.
+
+The 2026-05-14 verification showed why this boundary matters. Before the
+reader-owned warm batch, the relevant log window had `loadingImages` spikes up
+to 9, 7 snapshots with `visibleLoadedImages=0`, and 4
+`reader-window-fetch-failed`/timeout events. After the change, excluding the
+initial mount, the steady-state reader snapshots showed only `loadingImages=0`
+or `loadingImages=1`, with no fetch timeouts. In the concrete test, the reader
+warmed 9 chapters for manga `0klvd`; the backend logged `discovered=9
+queued=4 ready=5`, completed the missing page-map jobs, and later chapter
+`8790811` was an immediate cached `chapter-images-result imageCount=12` when
+the scroll planner needed it.
+
+This does not mean every image byte in the 200k px runway is already loaded.
+Chapter page-map metadata and reader image bytes have different owners. The
+warm batch prevents missing chapter metadata from blocking slow scrolling into
+the next chapter. `ReaderMemoryManager` still owns image byte/blob scheduling
+inside the image window described in BL, and occasional single-image loading is
+ordinary byte catch-up rather than a page-map/cache miss.
 
 Chapter change is detected from the visible page probe at one-third down the
 viewport (see AJ). `currentChapterId` is the live visible/progress owner;

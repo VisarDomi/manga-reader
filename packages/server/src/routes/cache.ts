@@ -150,6 +150,26 @@ export function createCacheRouter(cache: CacheService | null, byteCache: ByteCac
     res.json(data);
   }));
 
+  router.post('/cache/manga/:mangaId/chapter-images/warm', asyncHandler(async (req, res) => {
+    if (!cache) {
+      res.status(503).json({ error: 'Cache service unavailable', status: 503 });
+      return;
+    }
+    const mangaId = singleParam(req.params.mangaId);
+    if (!mangaId) {
+      res.status(400).json({ error: 'Missing mangaId', status: 400 });
+      return;
+    }
+    const chapters = Array.isArray(req.body?.chapters) ? req.body.chapters : [];
+    if (chapters.length === 0) {
+      res.status(400).json({ error: 'Missing chapters', status: 400 });
+      return;
+    }
+    const priority = requestedPriority(req.body?.priority);
+    const result = cache.warmChapterImagesBatch(mangaId, chapters, 'reader-window', priority);
+    res.status(202).json({ status: 'queued', mangaId, ...result });
+  }));
+
   router.post('/cache/manga/:mangaId/refresh', asyncHandler(async (req, res) => {
     if (!cache) {
       res.status(503).json({ error: 'Cache service unavailable', status: 503 });

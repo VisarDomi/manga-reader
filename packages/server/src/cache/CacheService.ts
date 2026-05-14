@@ -522,6 +522,37 @@ export class CacheService {
     this.enqueue({ kind: 'cache-chapter-page-map', priority, mangaId, chapterId, chapterNumber, chapterUrl, reason });
   }
 
+  warmChapterImagesBatch(mangaId: string, chapters: unknown[], reason = 'reader-window', priority: CacheJobPriority = 'interactive'): { discovered: number; queued: number; ready: number } {
+    let discovered = 0;
+    let queued = 0;
+    let ready = 0;
+    for (const chapter of chapters) {
+      const chapterId = chapterIdFromItem(chapter);
+      if (!chapterId) continue;
+      discovered++;
+      if (this.getChapterImages(mangaId, chapterId)) {
+        ready++;
+        continue;
+      }
+      const chapterNumber = chapterNumberFromItem(chapter);
+      const chapterUrl = typeof (chapter as { url?: unknown }).url === 'string'
+        ? (chapter as { url: string }).url
+        : this.provider.rawMangaUrlFromChapterItem(chapter, mangaId, chapterId, chapterNumber);
+      const status = this.enqueue({
+        kind: 'cache-chapter-page-map',
+        priority,
+        mangaId,
+        chapterId,
+        chapterNumber,
+        chapterUrl,
+        reason,
+      });
+      if (status === 'queued' || status === 'promoted' || status === 'requeued') queued++;
+    }
+    console.log(`[cache] chapter-page-map warm-batch manga=${mangaId} priority=${priority} reason=${reason} discovered=${discovered} queued=${queued} ready=${ready}`);
+    return { discovered, queued, ready };
+  }
+
   private orderedImageStoreCandidates(imageUrl: string): string[] {
     const candidates = imageStoreCandidates(imageUrl);
     if (candidates.length <= 1) return candidates;
