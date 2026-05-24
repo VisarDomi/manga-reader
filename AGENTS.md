@@ -2,6 +2,16 @@
 
 Monorepo (npm workspaces). Packages: `provider-types`, `extensions`, `server`, `app` (SvelteKit PWA, Svelte 5).
 
+## Current Direction
+
+- The server-side PWA is paused in favor of the Comix userscript app under
+  `~/Documents/environment/browser/userscripts/comix`.
+- Treat this repo as read-only reference material unless the user explicitly
+  asks to change the server-side PWA.
+- The parts worth preserving as reference are documented in `decisions.md`,
+  especially reader geometry/ownership, chapter filtering, restore/session
+  ownership, Comix runtime data access, and logging discipline.
+
 ## Read on demand
 
 - Frontend app:

@@ -290,12 +290,15 @@ Prefer following proven client paths over probing many speculative URLs. Once
 the source client's data flow is known, implement against that flow and verify
 through the local integration boundary.
 
-For Comix, the backend does not depend on fixed minified export names or
-copied signing code. The provider opens the current Comix runtime in
+For Comix, the protected chapter APIs are browser-runtime owned. Direct backend
+`fetch` can read public endpoints such as search and manga detail, but direct
+fetches to chapter-list and chapter-image endpoints return token/signing
+failures. The provider therefore opens the current Comix runtime in
 BrowserSession, finds the HTTP client by capability, verifies it with a small
-chapter-list probe, and then stores that capability on the runtime page. The
-provider owns the Comix paths and response normalization; BrowserSession owns
-the browser page and calls the provider-resolved runtime HTTP client.
+chapter-list probe, and stores that capability on the runtime page. The provider
+owns the Comix paths and response normalization; BrowserSession owns the browser
+page and calls the provider-resolved runtime HTTP client for protected chapter
+data.
 
 This keeps the fragile site-specific part in the provider boundary. If Comix
 renames a minified export, the capability probe can still find a working
@@ -552,6 +555,12 @@ BrowserSession should not expose signed request details, minified export names,
 or provider-specific runtime mechanics outside the provider/cache boundary.
 The provider resolves the current runtime HTTP client by behavior; the cache
 stores only normalized typed payloads.
+
+For Comix specifically, chapter-list and chapter-image metadata are not normal
+public HTTP resources. They require the current site runtime token/signing
+context. That is why the cache ingests them through BrowserSession instead of
+plain backend `fetch`. The durable cache boundary exists so the frontend never
+has to know about this browser/runtime requirement.
 
 Store candidates are expanded from real discovered image URLs by replacing only
 known `wowpic*.store` hosts while preserving the image path. The backend owns
@@ -873,6 +882,12 @@ authorize a destructive rebase. When the reader element emits native
 `scrollend`, the scroll-session owner starts a 100ms quiet grant. Any new
 scroll, touch/pointer activity, swipe, or projection transaction cancels the
 grant and the session must wait for a new native `scrollend`.
+
+The 100ms quiet grant is an explicit user-chosen UX policy after phone testing,
+not a hidden implementation timeout. The architecture decision is that native
+`scrollend` owns the permission boundary; the 100ms delay is the user's chosen
+small cushion before executing the owned projection. If future testing changes
+that number, document it as a product/UX decision, not as a generic timer hack.
 
 Once authorized, a rebase creates an explicit projection transaction:
 
@@ -1269,11 +1284,12 @@ All errors are categorized into 5 kinds: `upstream` (HTTP error, carries status 
 
 ## BA. Dynamic Fetch Timeout
 
-Frontend JSON requests use a fixed default timeout of 12 seconds through the
-shared `fetchJson` owner. Comment requests use a longer 45-second timeout
-because deep comment trees can require several upstream calls. Retry behavior
-is explicit per caller via the `retry` option; retries are not hidden in
-feature code.
+Frontend JSON requests currently use a fixed default timeout of 12 seconds
+through the shared `fetchJson` owner. Comment requests currently use a longer
+45-second timeout because deep comment trees can require several upstream
+calls. These values are implementation policy, not user-chosen UX decisions
+like the reader `scrollend + 100ms` grant. Retry behavior is explicit per
+caller via the `retry` option; retries are not hidden in feature code.
 
 This is separate from the loading watchdog (rule AX), which catches stuck UI
 state, not slow requests. Backend proxy/runtime requests have their own
@@ -1651,11 +1667,13 @@ The provider/BrowserSession boundary is the runtime normalizer. The provider
 does not rely on a fixed minified export key or copied signing logic; it probes
 the current Comix runtime for an HTTP client that can return a typed chapter
 list. BrowserSession then calls that provider-resolved runtime client for
-manga detail, recommendations, chapter lists, and chapter image metadata.
-Chapter page-map discovery asks the runtime client for
-`/chapters/{chapterId}`, normalizes `pages.baseUrl + pages.items[]` into full
-`ChapterPage` URLs, and includes `source=runtime-http` plus `targetCount` in
-the normalized payload.
+protected cache ingestion. Chapter-list discovery asks the runtime client for
+`/manga/{mangaId}/chapters`; chapter page-map discovery asks the runtime client
+for `/chapters/{chapterId}`, normalizes `pages.baseUrl + pages.items[]` into
+full `ChapterPage` URLs, and includes `source=runtime-http` plus `targetCount`
+in the normalized payload. Public Comix endpoints may use direct backend fetch
+when that is the owning path, but protected chapter data must stay behind the
+provider-resolved browser runtime boundary.
 
 Chapter-image cache readiness is a completeness contract:
 
