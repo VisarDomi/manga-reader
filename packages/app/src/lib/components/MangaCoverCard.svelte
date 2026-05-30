@@ -1,42 +1,26 @@
 <script lang="ts">
     import { onMount } from 'svelte';
     import { appState } from '$lib/state/index.svelte.js';
-    import * as api from '$lib/services/api.js';
+    import MangaCoverImage from './MangaCoverImage.svelte';
     import { recordMangaCardPerf, type MangaListSource } from '$lib/services/PerfDiagnostics.js';
     import type { Manga } from '$lib/types.js';
     import type { ProgressData } from '$lib/state/progress.svelte.js';
 
     let { manga, source = 'search' }: { manga: Manga; source?: MangaListSource } = $props();
 
-    const coverUrl = $derived(api.coverProxyUrl(manga.id, 'card', manga.cover || undefined));
     const latestChapter = $derived(manga.latestChapter ?? 0);
     let progress = $state<ProgressData | null>(null);
     let filteredMaxSnapshot = $state({ filteredMax: null as number | null });
     const readChapter = $derived(progress?.chapterNumber ?? 0);
     const filteredMax = $derived(filteredMaxSnapshot.filteredMax ?? latestChapter);
     const hasProgress = $derived(progress != null);
-    let mountedAt = 0;
 
     function syncStats() {
         filteredMaxSnapshot = appState.chapterStats.snapshot(manga.id, manga.latestChapter ?? null);
     }
 
-    function emitCoverImage(phase: 'mount' | 'load' | 'error', img?: HTMLImageElement) {
-        appState.log.emit('manga-cover-image', {
-            source,
-            phase,
-            mangaId: manga.id,
-            hasCover: !!coverUrl,
-            dtMs: Math.round(performance.now() - mountedAt),
-            naturalWidth: img?.naturalWidth,
-            naturalHeight: img?.naturalHeight,
-        });
-    }
-
     onMount(() => {
-        mountedAt = performance.now();
         recordMangaCardPerf(appState.log.emit, source, 'mounted');
-        emitCoverImage('mount');
         const unsubscribeProgress = appState.progress.subscribe(manga.id, value => {
             recordMangaCardPerf(appState.log.emit, source, 'progressCallbacks');
             progress = value;
@@ -55,16 +39,7 @@
 
 <button class="manga-card" data-manga-id={manga.id} onclick={() => appState.manga.openManga(manga)}>
     <div class="manga-card-cover">
-        {#if coverUrl}
-            <img
-                src={coverUrl}
-                alt={manga.title}
-                loading="lazy"
-                decoding="async"
-                onload={(event) => emitCoverImage('load', event.currentTarget)}
-                onerror={() => emitCoverImage('error')}
-            />
-        {/if}
+        <MangaCoverImage mangaId={manga.id} title={manga.title} sourceUrl={manga.cover || undefined} variant="card" {source} />
     </div>
     <div class="manga-card-info">
         {#if manga.latestChapter != null}
@@ -96,13 +71,6 @@
 .manga-card-cover {
     position: absolute;
     inset: 0;
-}
-
-.manga-card-cover img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    display: block;
 }
 
 .manga-card-info {

@@ -2,11 +2,11 @@
     import { tick } from 'svelte';
     import { appState } from '$lib/state/index.svelte.js';
     import { loadErrorMessage } from '$lib/state/errors.js';
-    import * as api from '$lib/services/api.js';
     import { View } from '$lib/logic.js';
     import { swipeBack } from '$lib/actions/swipeBack.js';
     import ChapterList from '$lib/components/ChapterList.svelte';
     import CommentsSection from '$lib/components/CommentsSection.svelte';
+    import MangaCoverImage from '$lib/components/MangaCoverImage.svelte';
     import MangaList from '$lib/components/MangaList.svelte';
     import type { MangaEntry } from '$lib/state/manga.svelte.js';
 
@@ -21,47 +21,6 @@
 
     function isActive(index: number) {
         return index === entries.length - 1;
-    }
-
-    function coverUrl(entry: MangaEntry): string {
-        return api.coverProxyUrl(entry.manga.id, 'detail', entry.manga.cover || undefined);
-    }
-
-    function observeDetailCover(node: HTMLImageElement, entry: MangaEntry) {
-        const mountedAt = performance.now();
-        const src = node.currentSrc || node.src;
-        let loadLogged = false;
-
-        function emit(phase: 'mount' | 'load' | 'error') {
-            appState.log.emit('manga-cover-image', {
-                source: 'detail',
-                phase,
-                mangaId: entry.manga.id,
-                hasCover: !!src,
-                dtMs: Math.round(performance.now() - mountedAt),
-                naturalWidth: phase === 'load' ? node.naturalWidth : undefined,
-                naturalHeight: phase === 'load' ? node.naturalHeight : undefined,
-            });
-        }
-
-        const onLoad = () => {
-            if (loadLogged) return;
-            loadLogged = true;
-            emit('load');
-        };
-        const onError = () => emit('error');
-
-        emit('mount');
-        node.addEventListener('load', onLoad);
-        node.addEventListener('error', onError);
-        if (node.complete && node.naturalWidth > 0) queueMicrotask(onLoad);
-
-        return {
-            destroy() {
-                node.removeEventListener('load', onLoad);
-                node.removeEventListener('error', onError);
-            },
-        };
     }
 
     function handleClose() {
@@ -208,11 +167,9 @@
                     {appState.favorites.isFavorited(manga.id) ? '❤' : '♡'}
                 </button>
             </div>
-            {#if coverUrl(entry)}
-                <div class="manga-view-cover">
-                    <img src={coverUrl(entry)} alt={manga.title} use:observeDetailCover={entry} />
-                </div>
-            {/if}
+            <div class="manga-view-cover">
+                <MangaCoverImage mangaId={manga.id} title={manga.title} sourceUrl={manga.cover || undefined} variant="detail" source="detail" loading="eager" />
+            </div>
             {#if manga.altTitles?.length}
                 <div class="manga-view-alt-titles">
                     {#each manga.altTitles as title}
@@ -375,12 +332,6 @@
     max-height: 70vh;
     overflow: hidden;
     background: #171717;
-}
-
-.manga-view-cover img {
-    width: 100%;
-    display: block;
-    object-fit: cover;
 }
 
 .manga-view-alt-titles {
