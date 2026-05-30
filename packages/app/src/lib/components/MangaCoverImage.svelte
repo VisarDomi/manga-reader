@@ -64,8 +64,8 @@
         onerror={handleError}
     />
 {:else}
-    <div class="cover-placeholder" class:card={variant === 'card'} class:detail={variant === 'detail'} aria-label="Poster unavailable">
-        <span>Poster unavailable</span>
+    <div class="cover-placeholder" class:card={variant === 'card'} class:detail={variant === 'detail'} aria-label="POSTER NOT AVAILABLE">
+        <span>POSTER NOT AVAILABLE</span>
     </div>
 {/if}
 
