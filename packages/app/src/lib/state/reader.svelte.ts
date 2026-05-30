@@ -502,6 +502,27 @@ export class ReaderState {
         );
     }
 
+    adoptPhysicalScrollTop(scrollTop: number, source: string): void {
+        if (!Number.isFinite(scrollTop)) return;
+        const physicalScrollTop = Math.max(0, scrollTop);
+        this.lastWindowScrollTop = this.physicalWindowStart + physicalScrollTop;
+        if (this.readerWindowFrame) {
+            this.readerWindowFrame = {
+                ...this.readerWindowFrame,
+                logicalScrollTop: this.lastWindowScrollTop,
+                physicalScrollTop,
+            };
+        }
+        this.log.emit('reader-scroll-adopted', {
+            source,
+            mangaId: this.manga.activeManga?.id ?? this.activeMangaId,
+            scrollTop: Math.round(physicalScrollTop),
+            logicalScrollTop: Math.round(this.lastWindowScrollTop),
+            physicalWindowStart: Math.round(this.physicalWindowStart),
+            frameEpoch: this.readerWindowFrameEpoch,
+        });
+    }
+
     primeViewportLayout(viewportWidth: number, clientHeight: number): void {
         const layoutId = this.layoutChapterId ?? this.currentChapterId;
         if (!layoutId || this.loadedChapters.length === 0 || viewportWidth <= 1 || clientHeight <= 0) return;

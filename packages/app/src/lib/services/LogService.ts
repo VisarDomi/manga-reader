@@ -53,6 +53,8 @@ export type LogEvent =
     | { event: 'reader-window-local-hit'; source: 'initial' | 'scroll' | 'visible' | 'retry'; mangaId: string; chapterId: string; chapterNumber: number; reason: 'hydrate' | 'render'; pages: number }
     | { event: 'reader-open'; mangaId: string; chapterId: string; chapterNumber: number; hasRestore: boolean }
     | { event: 'reader-scroll-write'; source: 'initial-fallback' | 'initial-restore-into-view' | 'initial-restore-offset' | 'initial-reset' | 'initial-current-anchor' | 'prepend-adjust' | 'layout-idle-anchor' | 'window-anchor-adjust' | 'physical-rebase'; from: number; to: number; delta: number; frameEpoch?: number; projectionEpoch?: number }
+    | { event: 'reader-scroll-adopted'; source: string; mangaId: string | null; scrollTop: number; logicalScrollTop: number; physicalWindowStart: number; frameEpoch: number }
+    | { event: 'reader-window-anchor-adjust-discarded'; frameEpoch: number; adjustmentChapterId: string; ownerChapterIds: string; delta: number; reason: 'owner-mismatch' }
     | { event: 'reader-restore-scroll'; action: 'restored' | 'reset' | 'cancelled' | 'fallback'; target: 'page' | 'top'; reason?: string; pageIndex?: number; scrollOffset?: number; from?: number; to?: number; delta?: number }
     | { event: 'reader-edge-load-start'; edge: 'next' | 'prev'; mangaId: string; targetChapterId: string; targetChapterNumber: number; currentChapterId: string | null; firstLoadedChapterId: string | null; lastLoadedChapterId: string | null; loadedCount: number }
     | { event: 'reader-edge-retry'; edge: 'next' | 'prev'; mangaId: string; chapterId: string; attempt: number; error: string }

@@ -178,8 +178,23 @@
         if (!root) return;
         const adjustment = appState.reader.takePendingWindowAnchorAdjustment();
         if (!adjustment || Math.abs(adjustment.delta) <= 1) return;
+        const ownerChapterIds = [
+            appState.reader.layoutChapterId,
+            appState.reader.currentChapterId,
+        ].filter((id): id is string => !!id);
+        if (ownerChapterIds.length > 0 && !ownerChapterIds.includes(adjustment.chapterId)) {
+            appState.log.emit('reader-window-anchor-adjust-discarded', {
+                frameEpoch: adjustment.frameEpoch,
+                adjustmentChapterId: adjustment.chapterId,
+                ownerChapterIds: ownerChapterIds.join(','),
+                delta: Math.round(adjustment.delta),
+                reason: 'owner-mismatch',
+            });
+            return;
+        }
         const from = root.scrollTop;
         root.scrollTop = Math.max(0, from + adjustment.delta);
+        appState.reader.adoptPhysicalScrollTop(root.scrollTop, 'window-anchor-adjust');
         lastReconcileScrollTop = root.scrollTop;
         lastReconcileClientHeight = root.clientHeight;
         appState.log.emit('reader-scroll-write', {
@@ -752,16 +767,22 @@
             appState.reader.layoutChapterId,
             appState.reader.currentChapterId,
         ].filter((id): id is string => !!id);
-        const best = pages
+        const owner = ownerChapterIds
+            .map(ownerChapterId => pages
+                .filter(page => page.chapterId === ownerChapterId)
+                .sort((a, b) => a.distance - b.distance)[0])
+            .find((page): page is { element: HTMLElement; key: string; chapterId: string; distance: number } => !!page);
+        const probe = pages
             .filter(page => page.distance === 0)
             .sort((a, b) => ownerRank(a.chapterId, ownerChapterIds) - ownerRank(b.chapterId, ownerChapterIds))[0]
             ?? pages.sort((a, b) => a.distance - b.distance)[0];
+        const best = owner ?? probe;
         if (!best) return null;
         return {
             key: best.key,
             top: best.element.getBoundingClientRect().top - rootRect.top,
-            selection: 'probe',
-            ownerChapterId: null,
+            selection: owner ? 'owner' : 'probe',
+            ownerChapterId: owner ? best.chapterId : null,
         };
     }
 
@@ -786,6 +807,7 @@
             const delta = currentTop - anchor.top;
             if (Math.abs(delta) <= 1) return;
             root.scrollTop = Math.max(0, root.scrollTop + delta);
+            appState.reader.adoptPhysicalScrollTop(root.scrollTop, 'layout-idle-anchor');
             domProjectionEpoch = appState.reader.projectionEpoch;
             if (Math.abs(root.scrollTop - from) > 1) {
                 appState.log.emit('reader-scroll-write', {
@@ -823,6 +845,7 @@
         const from = root.scrollTop;
         const target = appState.reader.chapterScrollTop(currentId, root.clientWidth) ?? 0;
         root.scrollTop = target;
+        appState.reader.adoptPhysicalScrollTop(root.scrollTop, 'initial-current-anchor');
         domProjectionEpoch = appState.reader.projectionEpoch;
         if (Math.abs(root.scrollTop - from) > 1) {
             appState.log.emit('reader-scroll-write', {
@@ -905,6 +928,7 @@
         reconcileReaderWindow('initial', restoreTop.scrollTop, undefined, restoreTop.physicalWindowStart);
         await tick();
         root.scrollTop = restoreTop.scrollTop;
+        appState.reader.adoptPhysicalScrollTop(root.scrollTop, 'initial-restore-into-view');
         domProjectionEpoch = appState.reader.projectionEpoch;
         if (Math.abs(root.scrollTop - from) > 1) {
             appState.log.emit('reader-scroll-write', {
