@@ -833,6 +833,10 @@ export class CacheService {
 
   private async runLoop(): Promise<void> {
     while (true) {
+      if (this.browserSession.hasCriticalScrambledPageWork()) {
+        setTimeout(() => this.drain(), 250);
+        return;
+      }
       const record = this.nextJob();
       if (!record) return;
       const job = this.recordToJob(record);

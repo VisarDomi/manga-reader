@@ -1,4 +1,4 @@
-import type { BrowserContext, Page } from 'playwright';
+import type { BrowserContext, CDPSession, Page } from 'playwright';
 import type { ServerMangaProvider } from '../providers/types.js';
 
 export interface ScrambledPageDecodeRequest {
@@ -45,9 +45,10 @@ export class ScrambledPageDecoder {
   private cache = new Map<string, DecodedPageCacheEntry>();
   private cacheBytes = 0;
   private running = false;
-  private warmup: Promise<void> | null = null;
+  private runningPolicy: ScrambledPageDecodePolicy | null = null;
   private moduleReady = false;
   private nextJobId = 1;
+  private cdpSession: CDPSession | null = null;
 
   constructor(
     private readonly context: BrowserContext,
@@ -102,20 +103,17 @@ export class ScrambledPageDecoder {
   }
 
   warm(mangaId: string): void {
-    if (this.moduleReady && this.page && !this.page.isClosed()) return;
-    if (this.warmup) return;
-    this.warmup = this.ensureWarmPage(mangaId)
-      .catch(error => {
-        console.log(`[decoder] warm-failed manga=${mangaId} error=${(error as Error)?.message ?? error}`);
-      })
-      .finally(() => {
-        this.warmup = null;
-      });
+    console.log(`[decoder] warm-skipped manga=${mangaId} reason=decode-queue-owns-page`);
+  }
+
+  hasCriticalWork(): boolean {
+    return this.runningPolicy === 'critical' || this.jobs.some(job => job.policy === 'critical');
   }
 
   async destroy(): Promise<void> {
     const page = this.page;
     this.page = null;
+    this.cdpSession = null;
     this.moduleReady = false;
     this.jobs.splice(0);
     this.pendingByKey.clear();
@@ -136,6 +134,7 @@ export class ScrambledPageDecoder {
       const job = this.jobs.shift()!;
       this.pendingByKey.delete(job.cacheKey);
       const waitMs = Date.now() - job.queuedAt;
+      this.runningPolicy = job.policy;
       console.log(`[decoder] start policy=${job.policy} manga=${job.request.mangaId} chapter=${job.request.chapterId} page=${job.request.pageIndex + 1} waitMs=${waitMs} queueDepth=${this.jobs.length}`);
       try {
         const cached = this.cache.get(job.cacheKey);
@@ -149,6 +148,8 @@ export class ScrambledPageDecoder {
         job.resolve(result);
       } catch (error) {
         job.reject(error);
+      } finally {
+        this.runningPolicy = null;
       }
     }
     this.running = false;
@@ -220,18 +221,14 @@ export class ScrambledPageDecoder {
   private async ensurePage(): Promise<Page> {
     if (this.page && !this.page.isClosed()) return this.page;
     this.page = await this.context.newPage();
+    this.cdpSession = null;
     return this.page;
   }
 
-  private async ensureWarmPage(mangaId: string): Promise<void> {
-    const start = Date.now();
-    const page = await this.ensurePage();
-    if (!page.url().startsWith(this.provider.baseUrl)) {
-      await page.goto(this.provider.runtimePageUrl(mangaId), { waitUntil: 'domcontentloaded', timeout: 30_000 });
-      await page.waitForLoadState('networkidle', { timeout: 10_000 }).catch(() => {});
-    }
-    await this.ensureSecureDecoderModule(page);
-    console.log(`[decoder] warm-ready manga=${mangaId} ${Date.now() - start}ms`);
+  private async ensureCdpSession(page: Page): Promise<CDPSession> {
+    if (this.cdpSession && !page.isClosed()) return this.cdpSession;
+    this.cdpSession = await page.context().newCDPSession(page);
+    return this.cdpSession;
   }
 
   private async decodeNow(request: ScrambledPageDecodeRequest, waitMs: number): Promise<ScrambledPageDecodeResult> {
@@ -242,20 +239,20 @@ export class ScrambledPageDecoder {
     }
 
     const page = await this.ensurePage();
-    await this.warmup?.catch(() => {});
-    const chapterUrl = this.provider.chapterPageUrl(
-      request.mangaId,
-      request.chapterId,
-      request.chapterNumber ?? 0,
-      request.chapterUrl,
-    );
+    const pageMs = Date.now() - start;
+    const warmupActive = false;
     const currentUrl = page.url();
-    if (!currentUrl.startsWith(chapterUrl)) {
-      await page.goto(chapterUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+    const navigateStart = Date.now();
+    let navigateMs = 0;
+    if (!currentUrl.startsWith(this.provider.baseUrl)) {
+      await page.goto(this.provider.runtimePageUrl(request.mangaId), { waitUntil: 'domcontentloaded', timeout: 30_000 });
       await page.waitForLoadState('networkidle', { timeout: 10_000 }).catch(() => {});
       this.moduleReady = false;
+      navigateMs = Date.now() - navigateStart;
     }
+    const moduleStart = Date.now();
     await this.ensureSecureDecoderModule(page);
+    const moduleMs = Date.now() - moduleStart;
 
     const decodeStart = Date.now();
     const canvasId = `manga-decoder-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -276,10 +273,24 @@ export class ScrambledPageDecoder {
     const canvas = await page.$(`#${canvasId}`);
     if (!canvas) throw new Error('Decoded canvas element unavailable');
     const screenshotStart = Date.now();
-    const buffer = await canvas.screenshot({ type: 'png' });
+    const cdp = await this.ensureCdpSession(page);
+    const screenshot = await cdp.send('Page.captureScreenshot', {
+      format: 'png',
+      fromSurface: true,
+      optimizeForSpeed: true,
+      captureBeyondViewport: true,
+      clip: {
+        x: 0,
+        y: 0,
+        width: target.width,
+        height: target.height,
+        scale: 1,
+      },
+    });
+    const buffer = Buffer.from(screenshot.data, 'base64');
     const screenshotMs = Date.now() - screenshotStart;
     await page.evaluate(id => document.getElementById(id)?.remove(), canvasId).catch(() => {});
-    console.log(`[decoder] page-decoded policy=${request.policy ?? 'preload'} manga=${request.mangaId} chapter=${request.chapterId} page=${request.pageIndex + 1} bytes=${buffer.length} expected=${target.width}x${target.height} canvas=${canvasMeta.width}x${canvasMeta.height} css=${canvasMeta.cssWidth}x${canvasMeta.cssHeight} source=secure-module waitMs=${waitMs} decodeMs=${decodeMs} screenshotMs=${screenshotMs} totalMs=${Date.now() - start}`);
+    console.log(`[decoder] page-decoded policy=${request.policy ?? 'preload'} manga=${request.mangaId} chapter=${request.chapterId} page=${request.pageIndex + 1} bytes=${buffer.length} expected=${target.width}x${target.height} canvas=${canvasMeta.width}x${canvasMeta.height} css=${canvasMeta.cssWidth}x${canvasMeta.cssHeight} source=secure-module waitMs=${waitMs} pageMs=${pageMs} warmupActive=${warmupActive} navigateMs=${navigateMs} moduleMs=${moduleMs} decodeMs=${decodeMs} screenshotMs=${screenshotMs} totalMs=${Date.now() - start}`);
     return { buffer, contentType: 'image/png', durationMs: Date.now() - start };
   }
 
