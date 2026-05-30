@@ -1132,7 +1132,7 @@
                             {@const aspectRatio = page.width && page.height ? `${page.width}/${page.height}` : '2/3'}
                             <div
                                 class="reader-page"
-                                use:registerPageImage={() => ({ memory, chapterId: chapter.id, pageIndex: i, url: page.url, candidates: page.candidates })}
+                                use:registerPageImage={() => ({ memory, chapterId: chapter.id, pageIndex: i, url: page.url, candidates: page.candidates, criticalCandidates: page.criticalCandidates })}
                                 style="aspect-ratio:{aspectRatio}"
                             >
                                 <img alt="Ch.{chapter.number} P.{i + 1}" decoding="async" />

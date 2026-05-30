@@ -211,6 +211,9 @@ const provider: MangaProvider = {
       candidates: Array.isArray((img as { candidates?: unknown }).candidates)
         ? ((img as { candidates: unknown[] }).candidates).filter((url): url is string => typeof url === 'string' && url.length > 0)
         : [String(img.url ?? '')].filter(Boolean),
+      criticalCandidates: Array.isArray((img as { criticalCandidates?: unknown }).criticalCandidates)
+        ? ((img as { criticalCandidates: unknown[] }).criticalCandidates).filter((url): url is string => typeof url === 'string' && url.length > 0)
+        : undefined,
       width: Number(img.width ?? 0),
       height: Number(img.height ?? 0),
     }));

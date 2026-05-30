@@ -583,6 +583,7 @@ var _ = {
 		return (e.result?.pages ?? []).map((e) => ({
 			url: String(e.url ?? ""),
 			candidates: Array.isArray(e.candidates) ? e.candidates.filter((e) => typeof e == "string" && e.length > 0) : [String(e.url ?? "")].filter(Boolean),
+			criticalCandidates: Array.isArray(e.criticalCandidates) ? e.criticalCandidates.filter((e) => typeof e == "string" && e.length > 0) : void 0,
 			width: Number(e.width ?? 0),
 			height: Number(e.height ?? 0)
 		}));

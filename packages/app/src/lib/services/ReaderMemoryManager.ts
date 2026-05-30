@@ -7,10 +7,13 @@ import {
 } from '$lib/constants.js';
 
 const IMAGE_STORE_SESSION_ID = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
+type ImageLoadPolicy = 'critical' | 'preload';
 
 export class ReaderMemoryManager {
     private blobUrls = new Map<string, string>();
     private loadingKeys = new Set<string>();
+    private loadingPolicyByKey = new Map<string, ImageLoadPolicy>();
+    private loadingControllersByKey = new Map<string, AbortController>();
     private retiredAtByKey = new Map<string, number>();
     private abortController: AbortController | undefined;
     private emit: LogEmit;
@@ -57,8 +60,13 @@ export class ReaderMemoryManager {
         return this.pageDataMap.size;
     }
 
-    registerPage(node: HTMLElement, chapterId: string, pageIndex: number, url: string, candidates: string[]): void {
-        const data = { key: this.pageKey(chapterId, pageIndex), url, candidates: candidates.length > 0 ? candidates : [url] };
+    registerPage(node: HTMLElement, chapterId: string, pageIndex: number, url: string, candidates: string[], criticalCandidates?: string[]): void {
+        const data = {
+            key: this.pageKey(chapterId, pageIndex),
+            url,
+            candidates: candidates.length > 0 ? candidates : [url],
+            criticalCandidates: criticalCandidates && criticalCandidates.length > 0 ? criticalCandidates : undefined,
+        };
         this.pageDataMap.set(node, data);
         this.pageElementsByKey.set(data.key, node);
     }
@@ -81,7 +89,7 @@ export class ReaderMemoryManager {
 
         const t0 = performance.now();
         const radiusPx = clientHeight * READER_IMAGE_KEEP_RADIUS_VIEWPORTS;
-        const jobs: Array<{ key: string; url: string; candidates: string[]; priority: number }> = [];
+        const jobs: Array<{ key: string; url: string; candidates: string[]; criticalCandidates?: string[]; priority: number; policy: ImageLoadPolicy }> = [];
         const keepKeys = new Set<string>();
         let pageCount = 0;
         let scanMs = 0;
@@ -98,8 +106,9 @@ export class ReaderMemoryManager {
                 pageCount++;
                 if (page.bottom < rangeStart || page.top > rangeEnd) continue;
                 const center = page.top + page.height / 2;
+                const policy: ImageLoadPolicy = page.bottom >= scrollTop && page.top <= scrollTop + clientHeight ? 'critical' : 'preload';
                 keepKeys.add(page.key);
-                jobs.push({ key: page.key, url: page.url, candidates: page.candidates, priority: Math.abs(center - viewportProbe) });
+                jobs.push({ key: page.key, url: page.url, candidates: page.candidates, criticalCandidates: page.criticalCandidates, priority: Math.abs(center - viewportProbe), policy });
             }
         } else {
             const rangeStart = scrollTop - radiusPx;
@@ -119,8 +128,9 @@ export class ReaderMemoryManager {
                     if (pageBottom >= rangeStart && pageTop <= rangeEnd) {
                         const key = this.pageKey(chapter.id, pageIndex);
                         const center = pageTop + pageHeight / 2;
+                        const policy: ImageLoadPolicy = pageBottom >= scrollTop && pageTop <= scrollTop + clientHeight ? 'critical' : 'preload';
                         keepKeys.add(key);
-                        jobs.push({ key, url: page.url, candidates: page.candidates, priority: Math.abs(center - viewportProbe) });
+                        jobs.push({ key, url: page.url, candidates: page.candidates, criticalCandidates: page.criticalCandidates, priority: Math.abs(center - viewportProbe), policy });
                     }
                     pageTop = pageBottom;
                 }
@@ -146,7 +156,7 @@ export class ReaderMemoryManager {
                 img.src = existingBlobUrl;
                 continue;
             }
-            this.loadImage(job.url, job.candidates, job.key, img);
+            this.loadImage(job.url, job.candidates, job.criticalCandidates, job.key, img, job.policy);
             started++;
         }
         startMs = performance.now() - startStart;
@@ -221,16 +231,28 @@ export class ReaderMemoryManager {
         });
     }
 
-    loadImage(url: string, candidates: string[], key: string, img: HTMLImageElement): void {
+    loadImage(url: string, candidates: string[], criticalCandidates: string[] | undefined, key: string, img: HTMLImageElement, policy: ImageLoadPolicy): void {
         if (!this.abortController) return;
-        if (this.blobUrls.has(key) || this.loadingKeys.has(key)) return;
+        if (this.blobUrls.has(key)) return;
+        if (this.loadingKeys.has(key)) {
+            if (policy !== 'critical' || this.loadingPolicyByKey.get(key) === 'critical') return;
+            this.loadingControllersByKey.get(key)?.abort();
+        }
         this.retiredAtByKey.delete(key);
         this.loadingKeys.add(key);
+        this.loadingPolicyByKey.set(key, policy);
 
-        const signal = this.abortController.signal;
+        const loadController = new AbortController();
+        const abortLoad = () => loadController.abort();
+        this.abortController.signal.addEventListener('abort', abortLoad, { once: true });
+        this.loadingControllersByKey.set(key, loadController);
+        const signal = loadController.signal;
         const t0 = performance.now();
+        const selectedCandidates = policy === 'critical' && criticalCandidates && criticalCandidates.length > 0
+            ? criticalCandidates
+            : candidates;
 
-        this.fetchFirstImageCandidate(url, candidates.length > 0 ? candidates : [url], key, signal)
+        this.fetchFirstImageCandidate(url, selectedCandidates.length > 0 ? selectedCandidates : [url], key, signal, policy)
             .then(blob => {
                 const blobUrl = URL.createObjectURL(blob);
                 this.blobUrls.set(key, blobUrl);
@@ -248,10 +270,17 @@ export class ReaderMemoryManager {
                     this.onLoadFailure?.(key);
                 }
             })
-            .finally(() => this.loadingKeys.delete(key));
+            .finally(() => {
+                this.abortController?.signal.removeEventListener('abort', abortLoad);
+                if (this.loadingControllersByKey.get(key) === loadController) {
+                    this.loadingControllersByKey.delete(key);
+                    this.loadingKeys.delete(key);
+                    this.loadingPolicyByKey.delete(key);
+                }
+            });
     }
 
-    private async fetchFirstImageCandidate(canonicalUrl: string, candidates: string[], key: string, signal: AbortSignal): Promise<Blob> {
+    private async fetchFirstImageCandidate(canonicalUrl: string, candidates: string[], key: string, signal: AbortSignal, policy: ImageLoadPolicy): Promise<Blob> {
         let lastError = 'no candidates';
         for (let index = 0; index < candidates.length; index++) {
             const candidateUrl = candidates[index];
@@ -259,7 +288,7 @@ export class ReaderMemoryManager {
             try {
                 const response = await fetch(candidateUrl, { signal, mode: 'cors', credentials: 'omit' });
                 const totalMs = Math.round(performance.now() - startedAt);
-                this.recordImageCandidate(canonicalUrl, candidateUrl, key, index, candidates.length, response.status, response.ok, totalMs);
+                this.recordImageCandidate(canonicalUrl, candidateUrl, key, index, candidates.length, response.status, response.ok, totalMs, policy);
                 if (!response.ok) {
                     lastError = `HTTP ${response.status}`;
                     continue;
@@ -269,7 +298,7 @@ export class ReaderMemoryManager {
                 if ((err as { name?: string })?.name === 'AbortError') throw err;
                 const totalMs = Math.round(performance.now() - startedAt);
                 lastError = err instanceof Error ? err.message : String(err);
-                this.recordImageCandidate(canonicalUrl, candidateUrl, key, index, candidates.length, 0, false, totalMs, lastError);
+                this.recordImageCandidate(canonicalUrl, candidateUrl, key, index, candidates.length, 0, false, totalMs, policy, lastError);
             }
         }
         throw new Error(lastError);
@@ -284,6 +313,7 @@ export class ReaderMemoryManager {
         status: number,
         ok: boolean,
         totalMs: number,
+        policy: ImageLoadPolicy,
         error?: string,
     ): void {
         let host = 'invalid';
@@ -292,7 +322,7 @@ export class ReaderMemoryManager {
         } catch {
             // Keep the log path alive for malformed candidates.
         }
-        this.emit('reader-image-candidate', { key, index, total, ok, status, totalMs, host, sessionId: IMAGE_STORE_SESSION_ID, error });
+        this.emit('reader-image-candidate', { key, index, total, ok, status, totalMs, host, sessionId: IMAGE_STORE_SESSION_ID, policy, error });
         void fetch('/api/cache/image-store', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -332,9 +362,12 @@ export class ReaderMemoryManager {
     revokeAll(): void {
         this.abortController?.abort();
         this.abortController = undefined;
+        for (const controller of this.loadingControllersByKey.values()) controller.abort();
         for (const url of this.blobUrls.values()) URL.revokeObjectURL(url);
         this.blobUrls.clear();
         this.loadingKeys.clear();
+        this.loadingPolicyByKey.clear();
+        this.loadingControllersByKey.clear();
         this.retiredAtByKey.clear();
         this.pageElementsByKey.clear();
         this.pageDataMap.clear();

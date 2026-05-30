@@ -51,12 +51,14 @@ export interface ReaderPageData {
     key: string;
     url: string;
     candidates: string[];
+    criticalCandidates?: string[];
 }
 
 export interface ReaderPageGeometry {
     key: string;
     url: string;
     candidates: string[];
+    criticalCandidates?: string[];
     chapterId: string;
     pageIndex: number;
     top: number;

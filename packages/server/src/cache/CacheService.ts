@@ -267,6 +267,16 @@ function pageImageUrl(page: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null;
 }
 
+function imageLogKey(imageUrl: string): string {
+  try {
+    const url = new URL(imageUrl);
+    const parts = url.pathname.split('/').filter(Boolean);
+    return `${url.hostname}/${parts.slice(-2).join('/') || parts.at(-1) || 'unknown'}`;
+  } catch {
+    return imageUrl.slice(0, 120);
+  }
+}
+
 function imageStoreCandidates(imageUrl: string): string[] {
   let parsed: URL;
   try {
@@ -318,7 +328,11 @@ function weightedPercentile(samples: WeightedLatencySample[], percentile: number
   return sorted[sorted.length - 1]?.value ?? 0;
 }
 
-function withImageStoreCandidates(data: unknown, candidateOrder: (imageUrl: string) => string[]): unknown {
+function withImageStoreCandidates(
+  data: unknown,
+  candidateOrder: (imageUrl: string) => string[],
+  criticalCandidateOrder: (imageUrl: string) => string[],
+): unknown {
   if (!data || typeof data !== 'object') return data;
   const root = data as Record<string, unknown>;
   const result = root.result;
@@ -336,6 +350,7 @@ function withImageStoreCandidates(data: unknown, candidateOrder: (imageUrl: stri
         return {
           ...(page as Record<string, unknown>),
           candidates: candidateOrder(imageUrl),
+          criticalCandidates: criticalCandidateOrder(imageUrl),
         };
       }),
     },
@@ -434,7 +449,11 @@ export class CacheService {
       console.log(`[cache] chapter-images not-ready manga=${mangaId} chapter=${chapterId} status=${cached.status} pages=${readiness.pages} targetCount=${readiness.targetCount ?? 'unknown'} source=${readiness.source}`);
       return null;
     }
-    return withImageStoreCandidates(cached.data, imageUrl => this.orderedImageStoreCandidates(imageUrl));
+    return withImageStoreCandidates(
+      cached.data,
+      imageUrl => this.orderedImageStoreCandidates(imageUrl, 'preload'),
+      imageUrl => this.orderedImageStoreCandidates(imageUrl, 'critical'),
+    );
   }
 
   getMangaCardSnapshots(mangaIds: string[], options: { includeChapters?: boolean } = {}): CacheMangaCardSnapshot[] {
@@ -522,7 +541,7 @@ export class CacheService {
     this.enqueue({ kind: 'cache-chapter-page-map', priority, mangaId, chapterId, chapterNumber, chapterUrl, reason });
   }
 
-  private orderedImageStoreCandidates(imageUrl: string): string[] {
+  private orderedImageStoreCandidates(imageUrl: string, policy: 'critical' | 'preload'): string[] {
     const candidates = imageStoreCandidates(imageUrl);
     if (candidates.length <= 1) return candidates;
     const byHost = new Map<string, string>();
@@ -536,16 +555,30 @@ export class CacheService {
     const winner = ranking.winnerHost && byHost.has(ranking.winnerHost)
       ? ranking.winnerHost
       : null;
-    const exploit = winner != null && Math.random() < STORE_EXPLOIT_RATE;
+    const exploit = winner != null && (policy === 'critical' || Math.random() < STORE_EXPLOIT_RATE);
+    const mode = policy === 'critical' && winner ? 'critical' : exploit ? 'exploit' : winner ? 'explore' : 'no-winner';
     const firstHost = exploit
       ? winner
       : shuffled([...byHost.keys()])[0] ?? winner;
-    if (!firstHost) return shuffled(candidates);
+    if (!firstHost) {
+      console.log(`[cache] image-store-order policy=${policy} mode=fallback winner=${ranking.winnerHost ?? 'none'} first=none total=${candidates.length} image=${imageLogKey(imageUrl)}`);
+      return shuffled(candidates);
+    }
 
     const first = byHost.get(firstHost);
-    if (!first) return shuffled(candidates);
+    if (!first) {
+      console.log(`[cache] image-store-order policy=${policy} mode=fallback winner=${ranking.winnerHost ?? 'none'} first=${firstHost} total=${candidates.length} image=${imageLogKey(imageUrl)}`);
+      return shuffled(candidates);
+    }
     const rest = candidates.filter(candidate => hostFromUrl(candidate) !== firstHost);
-    return [first, ...shuffled(rest)];
+    const ordered = [first, ...shuffled(rest)];
+    const firstHosts = ordered
+      .slice(0, 5)
+      .map(candidate => hostFromUrl(candidate) ?? 'invalid')
+      .join(',');
+    const winnerScore = winner ? ranking.scores.find(score => score.host === winner) : null;
+    console.log(`[cache] image-store-order policy=${policy} mode=${mode} winner=${winner ?? 'none'} first=${firstHost} firstHosts=${firstHosts} total=${ordered.length} winnerScore=${winnerScore ? Math.round(winnerScore.score) : 'none'} winnerAttempts=${winnerScore?.attempts ?? 0} image=${imageLogKey(imageUrl)}`);
+    return ordered;
   }
 
   private currentStoreRanking(): StoreRanking {

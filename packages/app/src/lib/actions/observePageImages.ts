@@ -7,14 +7,15 @@ interface PageImageParams {
     pageIndex: number;
     url: string;
     candidates: string[];
+    criticalCandidates?: string[];
 }
 
 export function registerPageImage(
     node: HTMLElement,
     getParams: () => PageImageParams,
 ) {
-    const { memory, chapterId, pageIndex, url, candidates } = getParams();
-    memory.registerPage(node, chapterId, pageIndex, url, candidates);
+    const { memory, chapterId, pageIndex, url, candidates, criticalCandidates } = getParams();
+    memory.registerPage(node, chapterId, pageIndex, url, candidates, criticalCandidates);
 
     return {
         destroy() {

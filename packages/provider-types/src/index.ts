@@ -26,6 +26,7 @@ export interface ChapterMeta {
 export interface ChapterPage {
   url: string;
   candidates: string[];
+  criticalCandidates?: string[];
   width: number;
   height: number;
 }

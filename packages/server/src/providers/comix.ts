@@ -104,43 +104,81 @@ export const comixServerProvider: ServerMangaProvider = {
     const resolved = await page.evaluate(async ({ probeMangaId }) => {
       const global = globalThis as any;
       if (global.__providerRuntimeHttp?.get) {
-        return { cached: true, exportKey: global.__providerRuntimeHttpExportKey ?? 'cached' };
+        return {
+          cached: true,
+          mangaExportKey: global.__providerRuntimeMangaExportKey ?? 'cached',
+          httpExportKey: global.__providerRuntimeHttpExportKey ?? 'cached',
+          envUrl: global.__providerRuntimeEnvUrl ?? null,
+        };
       }
 
-      const script = [...document.scripts]
+      const mainScript = [...document.scripts]
         .map(s => s.src)
-        .find(src => src.includes('/assets/build/') && src.includes('/dist/main-') && src.endsWith('.js'));
-      if (!script) throw new Error('Comix main module not found');
+        .find(src => src.includes('/assets/build/') && src.includes('/dist/main-') && src.endsWith('.js'))
+        ?? [...document.scripts]
+          .map(s => s.src)
+          .find(src => src.includes('/dist/main-') && src.endsWith('.js'));
+      if (!mainScript) throw new Error('Comix main module not found');
 
-      const mod = await import(script);
+      const mainText = await fetch(mainScript).then(response => response.text());
+      const imports = [...mainText.matchAll(/from\s*["']([^"']+)["']/g)].map(match => match[1]);
+      const envImport = imports.find(path => /env-.*\.js$/.test(path)) ?? imports.find(path => path.includes('env-'));
+      if (!envImport) throw new Error('Comix env module import not found');
+
+      const envUrl = new URL(envImport, mainScript).href;
+      const mod = await import(envUrl);
       const entries = Object.entries(mod ?? {});
       const attempts: string[] = [];
+      const mangaCandidates = entries.filter(([, value]) =>
+        value
+        && typeof value === 'object'
+        && typeof (value as any).get === 'function'
+        && typeof (value as any).list === 'function'
+        && typeof (value as any).chapters === 'function'
+      );
+      const httpCandidates = entries.filter(([, value]) =>
+        value
+        && typeof value === 'object'
+        && typeof (value as any).get === 'function'
+        && typeof (value as any).post === 'function'
+      );
 
-      for (const [key, value] of entries) {
-        if (!value || typeof value !== 'object' || typeof (value as any).get !== 'function') continue;
-
+      for (const [mangaKey, manga] of mangaCandidates) {
+        for (const [httpKey, http] of httpCandidates) {
         try {
-          const data = await (value as any).get(`/manga/${probeMangaId}/chapters`, {
-            params: {
+            const [detail, list, chapters] = await Promise.all([
+              (manga as any).get(probeMangaId),
+              (manga as any).list({ page: 1, limit: 1, order: { chapter_updated_at: 'desc' } }),
+              (manga as any).chapters(probeMangaId, {
               limit: 1,
               page: 1,
               order: { number: 'desc' },
-            },
-          });
-          if (Array.isArray(data?.items) && data?.meta && typeof data.meta === 'object') {
-            global.__providerRuntimeHttp = value;
-            global.__providerRuntimeHttpExportKey = key;
-            return { cached: false, exportKey: key };
+              }),
+            ]);
+
+            if (detail?.hid === probeMangaId && Array.isArray(list?.items) && Array.isArray(chapters?.items) && chapters?.meta && typeof chapters.meta === 'object') {
+              global.__providerRuntimeManga = manga;
+              global.__providerRuntimeHttp = http;
+              global.__providerRuntimeMangaExportKey = mangaKey;
+              global.__providerRuntimeHttpExportKey = httpKey;
+              global.__providerRuntimeEnvUrl = envUrl;
+              return {
+                cached: false,
+                mangaExportKey: mangaKey,
+                httpExportKey: httpKey,
+                envUrl,
+              };
           }
-          attempts.push(`${key}:shape=${Object.keys(data ?? {}).slice(0, 8).join(',') || 'empty'}`);
+            attempts.push(`${mangaKey}/${httpKey}:shape detail=${Object.keys(detail ?? {}).slice(0, 6).join(',') || 'empty'} list=${Object.keys(list ?? {}).slice(0, 6).join(',') || 'empty'} chapters=${Object.keys(chapters ?? {}).slice(0, 6).join(',') || 'empty'}`);
         } catch (e) {
-          attempts.push(`${key}:error=${String((e as Error)?.message ?? e).slice(0, 80)}`);
+            attempts.push(`${mangaKey}/${httpKey}:error=${String((e as Error)?.message ?? e).slice(0, 120)}`);
+          }
         }
       }
 
-      throw new Error(`Comix runtime HTTP client not found exports=${entries.map(([key]) => key).join(',') || 'none'} attempts=${attempts.join(' ') || 'none'}`);
+      throw new Error(`Comix runtime HTTP client not found env=${envUrl} mangaCandidates=${mangaCandidates.map(([key]) => key).join(',') || 'none'} httpCandidates=${httpCandidates.map(([key]) => key).join(',') || 'none'} exports=${entries.map(([key]) => key).join(',') || 'none'} attempts=${attempts.join(' ') || 'none'}`);
     }, { probeMangaId });
-    console.log(`[provider:${this.id}] runtime-http-resolver ${owner} ${probeMangaId} cached=${resolved.cached ? 'yes' : 'no'} export=${resolved.exportKey} ${Date.now() - start}ms`);
+    console.log(`[provider:${this.id}] runtime-http-resolver ${owner} ${probeMangaId} cached=${resolved.cached ? 'yes' : 'no'} mangaExport=${resolved.mangaExportKey} httpExport=${resolved.httpExportKey} env=${resolved.envUrl ?? 'unknown'} ${Date.now() - start}ms`);
   },
 
   runtimePageUrl(mangaId: string): string {
@@ -179,7 +217,13 @@ export const comixServerProvider: ServerMangaProvider = {
       .map((item: unknown) => {
         const raw = asRecord(item);
         const relativeUrl = typeof raw?.url === 'string' ? raw.url : '';
-        const url = relativeUrl && baseUrl ? new URL(relativeUrl, baseUrl).toString() : '';
+        const url = relativeUrl
+          ? relativeUrl.startsWith('http')
+            ? relativeUrl
+            : baseUrl
+              ? new URL(relativeUrl, baseUrl).toString()
+              : ''
+          : '';
         return {
           url,
           width: Number(raw?.width ?? 0),

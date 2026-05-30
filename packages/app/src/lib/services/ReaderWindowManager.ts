@@ -163,6 +163,7 @@ export class ReaderWindowManager {
                     key: `${chapter.id}-${pageIndex}`,
                     url: page.url,
                     candidates: page.candidates,
+                    criticalCandidates: page.criticalCandidates,
                     chapterId: chapter.id,
                     pageIndex,
                     top,
