@@ -104,7 +104,7 @@ function resultItems(data: unknown): unknown[] {
 function uploadedAtFromRelativeLabel(label: unknown, referenceMs: number): number | null {
   if (typeof label !== 'string') return null;
   const text = label.trim().toLowerCase();
-  const match = /^(\d+)\s*(s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days|w|wk|wks|week|weeks|mo|mos|month|months|y|yr|yrs|year|years)$/.exec(text);
+  const match = /^(\d+)\s*(s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days|w|wk|wks|week|weeks|mo|mos|month|months|y|yr|yrs|year|years)(?:\s*ago)?$/.exec(text);
   if (!match) return null;
   const value = Number(match[1]);
   if (!Number.isFinite(value) || value < 0) return null;
