@@ -378,6 +378,30 @@ export class CacheDatabase {
     }));
   }
 
+  listChapterListsMissingUploadDates(limit = 500): Array<{ mangaId: string; total: number; missing: number }> {
+    const boundedLimit = Math.max(1, Math.min(10_000, Math.floor(limit)));
+    const rows = this.db.prepare('SELECT manga_id, data_json FROM chapter_list_cache ORDER BY updated_at ASC')
+      .all() as unknown as Array<{ manga_id: string; data_json: string }>;
+    const result: Array<{ mangaId: string; total: number; missing: number }> = [];
+    for (const row of rows) {
+      let data: unknown;
+      try {
+        data = JSON.parse(row.data_json);
+      } catch {
+        continue;
+      }
+      const root = data && typeof data === 'object' ? data as Record<string, unknown> : {};
+      const payload = root.result && typeof root.result === 'object' ? root.result as Record<string, unknown> : {};
+      const items = Array.isArray(payload.items) ? payload.items : [];
+      if (items.length === 0) continue;
+      const missing = items.filter(item => item && typeof item === 'object' && (item as Record<string, unknown>).created_at == null).length;
+      if (missing === 0) continue;
+      result.push({ mangaId: row.manga_id, total: items.length, missing });
+      if (result.length >= boundedLimit) break;
+    }
+    return result;
+  }
+
   invalidateChapterList(mangaId: string): void {
     this.db.prepare('DELETE FROM chapter_list_cache WHERE manga_id = ?').run(mangaId);
   }

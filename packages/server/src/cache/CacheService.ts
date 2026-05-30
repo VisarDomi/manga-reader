@@ -428,6 +428,7 @@ export class CacheService {
         console.log(`[coverCache] ownership-rebuild card=${rebuilt.card} detail=${rebuilt.detail} ready=${rebuilt.ready} purgedBytes=${purged.rows}`);
       }
     }
+    this.enqueueChapterUploadDateRepairs();
     if (DATA_CACHE_BACKGROUND_ENABLED) {
       this.startDailyNewestCrawl();
       this.drain();
@@ -568,6 +569,27 @@ export class CacheService {
     this.db.invalidateChapterList(mangaId);
     this.enqueue({ kind: 'cache-manga-detail', priority: 'interactive', mangaId, force: true, reason });
     this.enqueue({ kind: 'cache-chapters', priority: 'interactive', mangaId, force: true, reason });
+  }
+
+  private enqueueChapterUploadDateRepairs(): void {
+    const stale = this.db.listChapterListsMissingUploadDates();
+    let queued = 0;
+    let existing = 0;
+    for (const item of stale) {
+      const status = this.enqueue({
+        kind: 'cache-chapters',
+        priority: 'observed',
+        mangaId: item.mangaId,
+        force: true,
+        reason: 'repair-missing-upload-dates',
+      });
+      if (status === 'queued' || status === 'promoted' || status === 'requeued') queued++;
+      else existing++;
+    }
+    if (stale.length > 0) {
+      const sample = stale.slice(0, 8).map(item => `${item.mangaId}:${item.missing}/${item.total}`).join(',');
+      console.log(`[cache] chapter-upload-date-repair stale=${stale.length} queued=${queued} existing=${existing} sample=${sample}`);
+    }
   }
 
   reconcileManga(mangaId: string, observedLatestChapter: number | null, priority: CacheJobPriority, source: CacheReconcileSource): CacheReconcileResult {
