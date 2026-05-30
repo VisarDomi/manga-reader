@@ -9,6 +9,7 @@ export interface ScrambledPageDecodeRequest {
   pageIndex: number;
   policy?: ScrambledPageDecodePolicy;
   pages: Array<{ url: string; width: number; height: number; scramble: boolean }>;
+  imageUrlCandidates?: string[];
 }
 
 export type ScrambledPageDecodePolicy = 'critical' | 'preload';
@@ -255,19 +256,44 @@ export class ScrambledPageDecoder {
     const moduleMs = Date.now() - moduleStart;
 
     const decodeStart = Date.now();
-    const canvasId = `manga-decoder-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const canvasMeta = await page.evaluate(async ({ imageUrl, width, height, canvasId }) => {
-      const decode = await (globalThis as any).__mangaSecureDecode();
-      const canvas = document.createElement('canvas');
-      canvas.id = canvasId;
-      canvas.width = width;
-      canvas.height = height;
-      canvas.style.cssText = `position:fixed;left:0;top:0;width:${width}px;height:${height}px;z-index:2147483647;background:#000`;
-      document.body.prepend(canvas);
-      await decode(imageUrl, canvas);
-      const rect = canvas.getBoundingClientRect();
-      return { width: canvas.width, height: canvas.height, cssWidth: Math.round(rect.width), cssHeight: Math.round(rect.height) };
-    }, { imageUrl: target.url, width: target.width, height: target.height, canvasId });
+    const sourceUrls = this.sourceCandidates(request, target.url);
+    let canvasId = '';
+    let canvasMeta: { width: number; height: number; cssWidth: number; cssHeight: number };
+    let sourceUrl = target.url;
+    let lastError: unknown = null;
+    for (let index = 0; index < sourceUrls.length; index += 1) {
+      sourceUrl = sourceUrls[index]!;
+      canvasId = `manga-decoder-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const sourceStart = Date.now();
+      try {
+        canvasMeta = await page.evaluate(async ({ imageUrl, width, height, canvasId }) => {
+          const decode = await (globalThis as any).__mangaSecureDecode();
+          const canvas = document.createElement('canvas');
+          canvas.id = canvasId;
+          canvas.width = width;
+          canvas.height = height;
+          canvas.style.cssText = `position:fixed;left:0;top:0;width:${width}px;height:${height}px;z-index:2147483647;background:#000`;
+          document.body.prepend(canvas);
+          try {
+            await decode(imageUrl, canvas);
+            const rect = canvas.getBoundingClientRect();
+            return { width: canvas.width, height: canvas.height, cssWidth: Math.round(rect.width), cssHeight: Math.round(rect.height) };
+          } catch (error) {
+            canvas.remove();
+            throw error;
+          }
+        }, { imageUrl: sourceUrl, width: target.width, height: target.height, canvasId });
+        if (index > 0) {
+          console.log(`[decoder] source-recovered policy=${request.policy ?? 'preload'} manga=${request.mangaId} chapter=${request.chapterId} page=${request.pageIndex + 1} host=${this.hostFromUrl(sourceUrl)} index=${index + 1}/${sourceUrls.length} ms=${Date.now() - sourceStart}`);
+        }
+        lastError = null;
+        break;
+      } catch (error) {
+        lastError = error;
+        console.log(`[decoder] source-failed policy=${request.policy ?? 'preload'} manga=${request.mangaId} chapter=${request.chapterId} page=${request.pageIndex + 1} host=${this.hostFromUrl(sourceUrl)} index=${index + 1}/${sourceUrls.length} ms=${Date.now() - sourceStart} error=${this.errorMessage(error)}`);
+      }
+    }
+    if (lastError) throw lastError;
     const decodeMs = Date.now() - decodeStart;
 
     const canvas = await page.$(`#${canvasId}`);
@@ -290,8 +316,30 @@ export class ScrambledPageDecoder {
     const buffer = Buffer.from(screenshot.data, 'base64');
     const screenshotMs = Date.now() - screenshotStart;
     await page.evaluate(id => document.getElementById(id)?.remove(), canvasId).catch(() => {});
-    console.log(`[decoder] page-decoded policy=${request.policy ?? 'preload'} manga=${request.mangaId} chapter=${request.chapterId} page=${request.pageIndex + 1} bytes=${buffer.length} expected=${target.width}x${target.height} canvas=${canvasMeta.width}x${canvasMeta.height} css=${canvasMeta.cssWidth}x${canvasMeta.cssHeight} source=secure-module waitMs=${waitMs} pageMs=${pageMs} warmupActive=${warmupActive} navigateMs=${navigateMs} moduleMs=${moduleMs} decodeMs=${decodeMs} screenshotMs=${screenshotMs} totalMs=${Date.now() - start}`);
+    console.log(`[decoder] page-decoded policy=${request.policy ?? 'preload'} manga=${request.mangaId} chapter=${request.chapterId} page=${request.pageIndex + 1} bytes=${buffer.length} expected=${target.width}x${target.height} canvas=${canvasMeta!.width}x${canvasMeta!.height} css=${canvasMeta!.cssWidth}x${canvasMeta!.cssHeight} source=secure-module sourceHost=${this.hostFromUrl(sourceUrl)} sourceCandidates=${sourceUrls.length} waitMs=${waitMs} pageMs=${pageMs} warmupActive=${warmupActive} navigateMs=${navigateMs} moduleMs=${moduleMs} decodeMs=${decodeMs} screenshotMs=${screenshotMs} totalMs=${Date.now() - start}`);
     return { buffer, contentType: 'image/png', durationMs: Date.now() - start };
+  }
+
+  private sourceCandidates(request: ScrambledPageDecodeRequest, targetUrl: string): string[] {
+    const candidates = new Set<string>();
+    candidates.add(targetUrl);
+    for (const url of request.imageUrlCandidates ?? []) {
+      if (url) candidates.add(url);
+    }
+    return [...candidates];
+  }
+
+  private hostFromUrl(value: string): string {
+    try {
+      return new URL(value).hostname.toLowerCase();
+    } catch {
+      return 'invalid';
+    }
+  }
+
+  private errorMessage(error: unknown): string {
+    if (error instanceof Error) return `${error.name}:${error.message}`.replace(/\s+/g, ' ').slice(0, 240);
+    return String(error).replace(/\s+/g, ' ').slice(0, 240);
   }
 
   private async ensureSecureDecoderModule(page: Page): Promise<void> {

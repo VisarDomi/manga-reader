@@ -538,6 +538,7 @@ export class CacheService {
       pageIndex,
       policy: options.policy ?? 'preload',
       pages,
+      imageUrlCandidates: this.orderedImageStoreCandidates(target.url, options.policy ?? 'preload'),
     });
   }
 
