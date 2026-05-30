@@ -256,6 +256,14 @@ export class ReaderMemoryManager {
             .then(blob => {
                 const blobUrl = URL.createObjectURL(blob);
                 this.blobUrls.set(key, blobUrl);
+                img.onload = () => {
+                    this.emit('reader-image-loaded', {
+                        key,
+                        totalMs: Math.round(performance.now() - t0),
+                        naturalWidth: img.naturalWidth,
+                        naturalHeight: img.naturalHeight,
+                    });
+                };
                 img.src = blobUrl;
             })
             .catch((err) => {
@@ -316,13 +324,17 @@ export class ReaderMemoryManager {
         policy: ImageLoadPolicy,
         error?: string,
     ): void {
-        let host = 'invalid';
-        try {
-            host = new URL(candidateUrl).hostname;
-        } catch {
-            // Keep the log path alive for malformed candidates.
+        const localDecoded = candidateUrl.startsWith('/api/cache/');
+        let host = localDecoded ? 'local-decoder' : 'invalid';
+        if (!localDecoded) {
+            try {
+                host = new URL(candidateUrl, globalThis.location?.origin).hostname;
+            } catch {
+                // Keep the log path alive for malformed candidates.
+            }
         }
         this.emit('reader-image-candidate', { key, index, total, ok, status, totalMs, host, sessionId: IMAGE_STORE_SESSION_ID, policy, error });
+        if (localDecoded) return;
         void fetch('/api/cache/image-store', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

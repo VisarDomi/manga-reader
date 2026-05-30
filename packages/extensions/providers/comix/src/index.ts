@@ -205,7 +205,7 @@ const provider: MangaProvider = {
   parseChapterImagesResponse(data: unknown): ChapterPage[] {
     const d = data as Record<string, unknown>;
     const result = d.result as Record<string, unknown> | undefined;
-    const parsed = (result?.pages ?? []) as { url: string; width?: number; height?: number }[];
+    const parsed = (result?.pages ?? []) as { url: string; width?: number; height?: number; scramble?: boolean }[];
     return parsed.map(img => ({
       url: String(img.url ?? ''),
       candidates: Array.isArray((img as { candidates?: unknown }).candidates)
@@ -216,6 +216,7 @@ const provider: MangaProvider = {
         : undefined,
       width: Number(img.width ?? 0),
       height: Number(img.height ?? 0),
+      scramble: img.scramble === true,
     }));
   },
 

@@ -138,16 +138,43 @@ export function createCacheRouter(cache: CacheService | null, byteCache: ByteCac
       res.status(400).json({ error: 'Missing mangaId or chapterId', status: 400 });
       return;
     }
-    const data = cache.getChapterImages(mangaId, chapterId);
+    const rawNumber = typeof req.query.number === 'string' ? Number(req.query.number) : NaN;
+    const chapterNumber = Number.isFinite(rawNumber) ? rawNumber : undefined;
+    const chapterUrl = typeof req.query.url === 'string' ? req.query.url : undefined;
+    const data = cache.getChapterImages(mangaId, chapterId, { chapterNumber, chapterUrl });
     if (!data) {
-      const rawNumber = typeof req.query.number === 'string' ? Number(req.query.number) : NaN;
-      const chapterNumber = Number.isFinite(rawNumber) ? rawNumber : undefined;
-      const chapterUrl = typeof req.query.url === 'string' ? req.query.url : undefined;
       cache.warmChapterImages(mangaId, chapterId, chapterNumber, chapterUrl, 'cache-miss', requestedPriority(req.query.priority));
       res.status(202).json({ status: 'warming', mangaId, chapterId });
       return;
     }
     res.json(data);
+  }));
+
+  router.get('/cache/manga/:mangaId/chapters/:chapterId/pages/:pageIndex/decoded', asyncHandler(async (req, res) => {
+    if (!cache) {
+      res.status(503).json({ error: 'Cache service unavailable', status: 503 });
+      return;
+    }
+    const mangaId = singleParam(req.params.mangaId);
+    const chapterId = singleParam(req.params.chapterId);
+    const pageIndex = typeof req.params.pageIndex === 'string' ? Number(req.params.pageIndex) : NaN;
+    if (!mangaId || !chapterId || !Number.isInteger(pageIndex) || pageIndex < 0) {
+      res.status(400).json({ error: 'Missing mangaId, chapterId, or pageIndex', status: 400 });
+      return;
+    }
+    const rawNumber = typeof req.query.number === 'string' ? Number(req.query.number) : NaN;
+    const chapterNumber = Number.isFinite(rawNumber) ? rawNumber : undefined;
+    const chapterUrl = typeof req.query.url === 'string' ? req.query.url : undefined;
+    const policy = req.query.policy === 'critical' ? 'critical' : 'preload';
+    const decoded = await cache.decodeChapterPage(mangaId, chapterId, pageIndex, { chapterNumber, chapterUrl, policy });
+    if (!decoded) {
+      res.status(202).json({ status: 'warming', mangaId, chapterId, pageIndex });
+      return;
+    }
+    res.setHeader('Content-Type', decoded.contentType);
+    res.setHeader('Cache-Control', 'private, max-age=86400');
+    res.setHeader('X-Decode-Duration-Ms', String(decoded.durationMs));
+    res.send(decoded.buffer);
   }));
 
   router.post('/cache/manga/:mangaId/refresh', asyncHandler(async (req, res) => {

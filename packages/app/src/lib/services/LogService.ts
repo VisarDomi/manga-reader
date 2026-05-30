@@ -45,7 +45,7 @@ export type LogEvent =
     | { event: 'chapters-page-error'; mangaId: string; page: number; error: string }
     | { event: 'chapters-stream-error'; mangaId: string; afterFirstPage: boolean; error: string }
     | { event: 'chapters-done'; mangaId: string; pages: number; failed?: number; total: number; uploadedTimes: number }
-    | { event: 'chapter-images-result'; mangaId: string; chapterId: string; chapterNumber: number; imageCount: number }
+    | { event: 'chapter-images-result'; mangaId: string; chapterId: string; chapterNumber: number; imageCount: number; scrambled?: number }
     | { event: 'cache-read'; resource: 'chapter-list' | 'chapter-images' | 'manga-detail'; action: 'hit' | 'warming' | 'miss'; mangaId: string; chapterId?: string; count?: number }
     | { event: 'reader-window-hydrate-start'; source: 'initial' | 'scroll' | 'visible' | 'retry'; mangaId: string; chapterId: string; chapterNumber: number; side: 'prev' | 'next' | 'current'; priority: number; distance: number; hydrateCount: number }
     | { event: 'reader-window-hydrate-ok'; source: 'initial' | 'scroll' | 'visible' | 'retry'; mangaId: string; chapterId: string; chapterNumber: number; pages: number; estimatedHeight: number; appliedToSlot: boolean }
@@ -107,6 +107,7 @@ export type LogEvent =
     | { event: 'sentinel-forced-resume'; frozenSeconds: number }
     | { event: 'img-fail'; key: string; totalMs: number; error: string; pending: number }
     | { event: 'reader-image-candidate'; key: string; index: number; total: number; ok: boolean; status: number; totalMs: number; host: string; sessionId?: string; policy?: 'critical' | 'preload'; error?: string }
+    | { event: 'reader-image-loaded'; key: string; totalMs: number; naturalWidth: number; naturalHeight: number }
     | { event: 'uncaught-error'; message: string; source: string; line: number; col: number; stack: string }
     | { event: 'unhandled-rejection'; message: string; stack: string }
     | { event: 'db-error'; op: string; error: string }

@@ -2,6 +2,7 @@ import { chromium, type BrowserContext, type Page } from 'playwright';
 import path from 'node:path';
 import os from 'node:os';
 import type { ServerMangaProvider } from '../providers/types.js';
+import { ScrambledPageDecoder, type ScrambledPageDecodeRequest } from './ScrambledPageDecoder.js';
 
 const CLOAKBROWSER_PATH = path.join(os.homedir(), '.cloakbrowser/chromium-145.0.7632.159.7/chrome');
 const PROFILE_BASE = path.join(os.homedir(), '.cloakbrowser-profiles');
@@ -30,6 +31,12 @@ const MANGA_DETAIL_CACHE_LIMIT = 128;
 
 export interface BrowserFetchResult {
     data: unknown;
+    durationMs: number;
+}
+
+export interface BrowserDecodeResult {
+    buffer: Buffer;
+    contentType: 'image/png';
     durationMs: number;
 }
 
@@ -66,6 +73,7 @@ export class BrowserSession {
     private readonly chapterPageInflight = new Map<string, Promise<unknown>>();
     private readonly chapterDetailCache = new Map<string, ChapterDetailCacheEntry>();
     private readonly chapterDetailInflight = new Map<string, Promise<unknown>>();
+    private decoder: ScrambledPageDecoder | null = null;
 
     constructor(
         private readonly provider: ServerMangaProvider,
@@ -96,6 +104,7 @@ export class BrowserSession {
                 headless: false,
                 viewport: { width: 1920, height: 1080 },
             });
+            this.decoder = new ScrambledPageDecoder(this.context, this.provider);
 
             console.log(`[browserSession] ready ${this.provider.domain} ${Date.now() - start}ms`);
             this._ready = true;
@@ -107,6 +116,7 @@ export class BrowserSession {
                 this.context = null;
                 this.runtimeHttpPage = null;
                 this.runtimeHttpInit = null;
+                this.decoder = null;
             }
             throw e;
         }
@@ -165,11 +175,11 @@ export class BrowserSession {
         }
     }
 
-    async fetchChapterImages(mangaId: string, chapterId: string): Promise<BrowserFetchResult> {
+    async fetchChapterImages(mangaId: string, chapterId: string, chapterNumber?: number, chapterUrl?: string): Promise<BrowserFetchResult> {
         await this.init();
         const start = Date.now();
         try {
-            const data = await this.fetchChapterDetailCached(mangaId, chapterId);
+            const data = await this.fetchChapterDetailCached(mangaId, chapterId, chapterNumber, chapterUrl);
             return { data, durationMs: Date.now() - start };
         } catch (e) {
             const durationMs = Date.now() - start;
@@ -204,7 +214,7 @@ export class BrowserSession {
         }
     }
 
-    private async fetchChapterDetailCached(mangaId: string, chapterId: string): Promise<unknown> {
+    private async fetchChapterDetailCached(mangaId: string, chapterId: string, chapterNumber?: number, chapterUrl?: string): Promise<unknown> {
         const key = this.chapterDetailKey(mangaId, chapterId);
         const cached = this.getCachedChapterDetail(key);
         if (cached) {
@@ -218,7 +228,7 @@ export class BrowserSession {
             return inflight;
         }
 
-        const promise = this.fetchChapterDetailViaRuntimeHttp(mangaId, chapterId)
+        const promise = this.fetchChapterDetailViaRuntimeHttp(mangaId, chapterId, chapterNumber, chapterUrl)
             .then(data => {
                 this.rememberChapterDetail(key, data);
                 return data;
@@ -255,7 +265,7 @@ export class BrowserSession {
         }
     }
 
-    private async fetchChapterDetailViaRuntimeHttp(mangaId: string, chapterId: string): Promise<unknown> {
+    private async fetchChapterDetailViaRuntimeHttp(mangaId: string, chapterId: string, chapterNumber?: number, chapterUrl?: string): Promise<unknown> {
         const t0 = Date.now();
         const detail = await this.runtimeHttpGet<Record<string, unknown>>(mangaId, this.provider.chapterImagesPath(chapterId));
         const normalized = this.provider.normalizeChapterImages(detail);
@@ -263,7 +273,10 @@ export class BrowserSession {
             status: 'ok',
             result: {
                 source: normalized.source,
+                schemaVersion: normalized.schemaVersion,
                 targetCount: normalized.targetCount,
+                chapterNumber,
+                chapterUrl,
                 pages: normalized.pages,
             },
         };
@@ -271,8 +284,23 @@ export class BrowserSession {
             console.log(`[browserSession] chapter ${mangaId}/${chapterId} page-load reason=user source=${normalized.source}-incomplete pages=${normalized.pages.length} targetCount=${normalized.targetCount} ${Date.now() - t0}ms`);
             throw new Error(`Runtime HTTP returned incomplete chapter images for ${mangaId}/${chapterId}: pages=${normalized.pages.length} targetCount=${normalized.targetCount}`);
         }
-        console.log(`[browserSession] chapter ${mangaId}/${chapterId} page-load reason=user source=${normalized.source} pages=${normalized.pages.length} targetCount=${normalized.targetCount} ${Date.now() - t0}ms`);
+        const scrambled = normalized.pages.filter(page => page.scramble).length;
+        console.log(`[browserSession] chapter ${mangaId}/${chapterId} page-load reason=user source=${normalized.source} schema=${normalized.schemaVersion} pages=${normalized.pages.length} targetCount=${normalized.targetCount} scrambled=${scrambled} ${Date.now() - t0}ms`);
         return data;
+    }
+
+    async decodeScrambledPage(request: ScrambledPageDecodeRequest): Promise<BrowserDecodeResult> {
+        await this.init();
+        if (!this.decoder) {
+            if (!this.context) throw new Error('Browser context unavailable for scrambled page decoder');
+            this.decoder = new ScrambledPageDecoder(this.context, this.provider);
+        }
+        return this.decoder.decode(request);
+    }
+
+    warmScrambledPageDecoder(mangaId: string): void {
+        if (!this.decoder || !this._ready) return;
+        this.decoder.warm(mangaId);
     }
 
     private describeChapterListPayload(data: unknown): string {
@@ -436,6 +464,8 @@ export class BrowserSession {
 
     async destroy(): Promise<void> {
         this._ready = false;
+        await this.decoder?.destroy().catch(() => {});
+        this.decoder = null;
         if (this.context) {
             await this.context.close().catch(() => {});
             this.context = null;

@@ -446,7 +446,13 @@ async function fetchCachedChapterImages(mangaId: string, chapterId: string, chap
         chapterId,
     );
     const pages = provider.parseChapterImagesResponse(data);
-    emit('chapter-images-result', { mangaId, chapterId, chapterNumber, imageCount: pages.length });
+    emit('chapter-images-result', {
+        mangaId,
+        chapterId,
+        chapterNumber,
+        imageCount: pages.length,
+        scrambled: pages.filter(page => page.scramble).length,
+    });
     if (pages.length === 0) {
         throw new Error(`Cache returned no pages for chapter ${mangaId}/${chapterId}`);
     }

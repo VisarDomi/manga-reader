@@ -4,7 +4,8 @@ import type { FilterDefinition } from '@manga-reader/provider-types';
 export interface RuntimeChapterImages {
   source: string;
   targetCount: number;
-  pages: Array<{ url: string; width: number; height: number }>;
+  schemaVersion: number;
+  pages: Array<{ url: string; width: number; height: number; scramble: boolean }>;
 }
 
 export interface ServerMangaProvider {

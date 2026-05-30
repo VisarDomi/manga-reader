@@ -29,6 +29,7 @@ export interface ChapterPage {
   criticalCandidates?: string[];
   width: number;
   height: number;
+  scramble: boolean;
 }
 
 export interface SearchFilters {

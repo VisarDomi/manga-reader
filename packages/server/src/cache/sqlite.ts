@@ -470,6 +470,15 @@ export class CacheDatabase {
     return { mangaId: row.manga_id, chapterId: row.chapter_id, data: JSON.parse(row.data_json), updatedAt: row.updated_at, status: row.status };
   }
 
+  deleteStaleChapterImageSchemaRows(): number {
+    const result = this.db.prepare(`
+      DELETE FROM chapter_image_cache
+      WHERE json_extract(data_json, '$.result.schemaVersion') IS NOT 2
+         OR json_type(data_json, '$.result.pages[0].scramble') IS NULL
+    `).run();
+    return Number(result.changes ?? 0);
+  }
+
   enqueueJob(input: CacheJobInput): CacheJobEnqueueResult {
     const now = Date.now();
     const id = `${input.kind}:${input.resourceKey}`;

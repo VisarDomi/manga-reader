@@ -212,26 +212,30 @@ export const comixServerProvider: ServerMangaProvider = {
   normalizeChapterImages(detail: Record<string, unknown>): RuntimeChapterImages {
     const pagesData = asRecord(detail.pages);
     const baseUrl = typeof pagesData?.baseUrl === 'string' ? pagesData.baseUrl : '';
+    const scrambledBaseUrl = baseUrl.replace(/\/i\/(?=[bh])/, '/si/');
     const items = Array.isArray(pagesData?.items) ? pagesData.items : [];
     const pages = items
       .map((item: unknown) => {
         const raw = asRecord(item);
         const relativeUrl = typeof raw?.url === 'string' ? raw.url : '';
+        const scramble = raw?.s === 1 || raw?.s === '1' || raw?.scramble === true;
+        const pageBaseUrl = scramble ? scrambledBaseUrl : baseUrl;
         const url = relativeUrl
           ? relativeUrl.startsWith('http')
             ? relativeUrl
-            : baseUrl
-              ? new URL(relativeUrl, baseUrl).toString()
+            : pageBaseUrl
+              ? new URL(relativeUrl, pageBaseUrl).toString()
               : ''
           : '';
         return {
           url,
           width: Number(raw?.width ?? 0),
           height: Number(raw?.height ?? 0),
+          scramble,
         };
       })
       .filter(item => item.url);
-    return { source: this.runtimeImageSource, targetCount: items.length, pages };
+    return { source: this.runtimeImageSource, schemaVersion: 2, targetCount: items.length, pages };
   },
 
   newestSearchUrl(page: number, limit: number): string {
