@@ -54,6 +54,14 @@ type ReaderWindowFrame = {
     slots: LoadedChapter[];
 };
 
+type PendingWindowAnchorAdjustment = {
+    delta: number;
+    chapterId: string;
+    source: ReaderWindowSource;
+    reason: 'hydrate-above-owner';
+    frameEpoch: number;
+};
+
 export interface ReaderTitleContext {
     chapterNumber: number;
     groupName: string;
@@ -121,6 +129,7 @@ export class ReaderState {
     private chapterDataById = new Map<string, LoadedChapter>();
     private windowManager = new ReaderWindowManager();
     private pendingMangaScrollTargetChapterId: string | null = null;
+    private pendingWindowAnchorAdjustment: PendingWindowAnchorAdjustment | null = null;
     private scrollActivity: ReaderScrollActivity = 'settled';
     readonly pageTracker = new PageTracker();
 
@@ -149,6 +158,12 @@ export class ReaderState {
 
     get projectionEpoch(): number {
         return this.readerProjectionEpoch;
+    }
+
+    takePendingWindowAnchorAdjustment(): PendingWindowAnchorAdjustment | null {
+        const adjustment = this.pendingWindowAnchorAdjustment;
+        this.pendingWindowAnchorAdjustment = null;
+        return adjustment;
     }
 
     setScrollActivity(activity: ReaderScrollActivity, source: string): void {
@@ -215,6 +230,7 @@ export class ReaderState {
         this.chapterDataById.clear();
         this.windowHydrates.clear();
         this.pendingMangaScrollTargetChapterId = null;
+        this.pendingWindowAnchorAdjustment = null;
         this.scrollActivity = 'settled';
         this.nextRetryWake = null;
         this.activeMangaId = manga.id;
@@ -293,6 +309,7 @@ export class ReaderState {
         this.chapterDataById.clear();
         this.windowHydrates.clear();
         this.pendingMangaScrollTargetChapterId = null;
+        this.pendingWindowAnchorAdjustment = null;
         this.scrollActivity = 'settled';
         this.nextRetryWake = null;
         this.activeMangaId = manga.id;
@@ -687,6 +704,7 @@ export class ReaderState {
         this.readerWindowFrameSignature = '';
         this.readerWindowFrame = null;
         this.chapterDataById.clear();
+        this.pendingWindowAnchorAdjustment = null;
         this.scrollActivity = 'settled';
         this.commentsEpoch++;
         this.commentsAbort?.abort();
@@ -1376,8 +1394,15 @@ export class ReaderState {
         const previousSlot = this.loadedChapters[index];
         const previousHeight = previousSlot.estimatedHeight ?? null;
         const reservedHeight = previousSlot.virtualHeight ?? previousSlot.estimatedHeight ?? readyChapter.estimatedHeight ?? 0;
+        const anchorChapterId = this.currentChapterId ?? this.layoutChapterId ?? readyChapter.id;
+        const anchorSlot = this.loadedChapters.find(slot => slot.id === anchorChapterId) ?? null;
         const cachedReadyChapter = this.rememberReadyChapter(readyChapter);
         const estimatedHeight = cachedReadyChapter.estimatedHeight ?? 0;
+        const heightDelta = estimatedHeight - reservedHeight;
+        const changesHeightAboveAnchor = !!anchorSlot
+            && readyChapter.id !== anchorChapterId
+            && (previousSlot.virtualTop ?? previousSlot.logicalTop ?? 0) < (anchorSlot.virtualTop ?? anchorSlot.logicalTop ?? 0)
+            && Math.abs(heightDelta) > 1;
         const positionedReadyChapter = this.materializeFrameSlot({
             ...previousSlot,
             slotState: 'ready',
@@ -1385,10 +1410,10 @@ export class ReaderState {
             virtualHeight: estimatedHeight,
         });
         const nextSlots = this.loadedChapters.map(slot => slot.id === readyChapter.id ? positionedReadyChapter : slot);
-        this.commitWindowFrame({
+        const frame = this.commitWindowFrame({
             source,
             mangaId: manga.id,
-            currentChapterId: this.currentChapterId ?? this.layoutChapterId ?? readyChapter.id,
+            currentChapterId: anchorChapterId,
             direction: 'idle',
             radiusPx: this.layoutViewportHeight() * READER_WINDOW_RADIUS_VIEWPORTS,
             physicalWindowStart: this.physicalWindowStart,
@@ -1396,6 +1421,25 @@ export class ReaderState {
             physicalHeight: this.virtualTotalHeight,
             slots: nextSlots,
         });
+        if (changesHeightAboveAnchor) {
+            const previousPending = this.pendingWindowAnchorAdjustment;
+            this.pendingWindowAnchorAdjustment = {
+                delta: (previousPending?.delta ?? 0) + heightDelta,
+                chapterId: anchorChapterId,
+                source,
+                reason: 'hydrate-above-owner',
+                frameEpoch: frame.epoch,
+            };
+            this.log.emit('reader-window-anchor-adjust-queued', {
+                source,
+                mangaId: manga.id,
+                chapterId: readyChapter.id,
+                anchorChapterId,
+                delta: Math.round(heightDelta),
+                pendingDelta: Math.round(this.pendingWindowAnchorAdjustment.delta),
+                frameEpoch: frame.epoch,
+            });
+        }
         this.log.emit('reader-window-height-delta', {
             source,
             mangaId: manga.id,
@@ -1403,7 +1447,7 @@ export class ReaderState {
             previousEstimatedHeight: previousHeight == null ? null : Math.round(previousHeight),
             reservedHeight: Math.round(reservedHeight),
             estimatedHeight: Math.round(estimatedHeight),
-            delta: previousHeight == null ? null : Math.round(estimatedHeight - previousHeight),
+            delta: Math.round(estimatedHeight - reservedHeight),
         });
         this.log.emit('reader-window-hydration-applied', {
             source,
