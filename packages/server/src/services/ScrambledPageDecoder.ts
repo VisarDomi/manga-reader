@@ -48,6 +48,7 @@ export class ScrambledPageDecoder {
   private running = false;
   private runningPolicy: ScrambledPageDecodePolicy | null = null;
   private moduleReady = false;
+  private warmPromise: Promise<void> | null = null;
   private nextJobId = 1;
   private cdpSession: CDPSession | null = null;
 
@@ -104,7 +105,25 @@ export class ScrambledPageDecoder {
   }
 
   warm(mangaId: string): void {
-    console.log(`[decoder] warm-skipped manga=${mangaId} reason=decode-queue-owns-page`);
+    if (this.page && !this.page.isClosed() && this.moduleReady) return;
+    if (this.running || this.jobs.length > 0) {
+      console.log(`[decoder] warm-skipped manga=${mangaId} reason=decode-queue-active queueDepth=${this.jobs.length}`);
+      return;
+    }
+    if (this.warmPromise) return;
+
+    const start = Date.now();
+    this.warmPromise = this.warmNow(mangaId)
+      .then(() => {
+        console.log(`[decoder] warm-ready manga=${mangaId} ${Date.now() - start}ms`);
+      })
+      .catch(error => {
+        this.moduleReady = false;
+        console.log(`[decoder] warm-failed manga=${mangaId} ${Date.now() - start}ms error=${this.errorMessage(error)}`);
+      })
+      .finally(() => {
+        this.warmPromise = null;
+      });
   }
 
   hasCriticalWork(): boolean {
@@ -116,6 +135,7 @@ export class ScrambledPageDecoder {
     this.page = null;
     this.cdpSession = null;
     this.moduleReady = false;
+    this.warmPromise = null;
     this.jobs.splice(0);
     this.pendingByKey.clear();
     this.cache.clear();
@@ -239,9 +259,11 @@ export class ScrambledPageDecoder {
       throw new Error(`Page ${request.pageIndex + 1} is not marked scrambled`);
     }
 
+    const activeWarm = this.warmPromise;
+    if (activeWarm) await activeWarm.catch(() => {});
     const page = await this.ensurePage();
     const pageMs = Date.now() - start;
-    const warmupActive = false;
+    const warmupActive = Boolean(activeWarm);
     const currentUrl = page.url();
     const navigateStart = Date.now();
     let navigateMs = 0;
@@ -318,6 +340,17 @@ export class ScrambledPageDecoder {
     await page.evaluate(id => document.getElementById(id)?.remove(), canvasId).catch(() => {});
     console.log(`[decoder] page-decoded policy=${request.policy ?? 'preload'} manga=${request.mangaId} chapter=${request.chapterId} page=${request.pageIndex + 1} bytes=${buffer.length} expected=${target.width}x${target.height} canvas=${canvasMeta!.width}x${canvasMeta!.height} css=${canvasMeta!.cssWidth}x${canvasMeta!.cssHeight} source=secure-module sourceHost=${this.hostFromUrl(sourceUrl)} sourceCandidates=${sourceUrls.length} waitMs=${waitMs} pageMs=${pageMs} warmupActive=${warmupActive} navigateMs=${navigateMs} moduleMs=${moduleMs} decodeMs=${decodeMs} screenshotMs=${screenshotMs} totalMs=${Date.now() - start}`);
     return { buffer, contentType: 'image/png', durationMs: Date.now() - start };
+  }
+
+  private async warmNow(mangaId: string): Promise<void> {
+    const page = await this.ensurePage();
+    const currentUrl = page.url();
+    if (!currentUrl.startsWith(this.provider.baseUrl)) {
+      await page.goto(this.provider.runtimePageUrl(mangaId), { waitUntil: 'domcontentloaded', timeout: 30_000 });
+      await page.waitForLoadState('networkidle', { timeout: 10_000 }).catch(() => {});
+      this.moduleReady = false;
+    }
+    await this.ensureSecureDecoderModule(page);
   }
 
   private sourceCandidates(request: ScrambledPageDecodeRequest, targetUrl: string): string[] {

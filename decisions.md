@@ -1536,6 +1536,20 @@ HTTP client on `globalThis.__providerRuntimeHttp`, and serves manga detail,
 recommendations, chapter lists, and chapter image metadata through
 `page.evaluate()` calls into that client.
 
+Because the browser uses a persistent profile, Chromium can restore old tabs
+after a service restart. Those tabs are not product state; they are browser
+resources that must be re-owned. BrowserSession adopts one startup page as the
+runtime HTTP page and closes the remaining restored pages as orphans before it
+creates the decoder. The invariant is that BrowserSession owns a bounded
+browser surface: one warm runtime HTTP page for provider/cache API work plus
+one warm decoder-owned page for scrambled image work. Cache work may keep
+Chromium active, but it must not create an unbounded tab/process surface.
+BrowserSession also emits lean browser-surface telemetry on startup and once per
+minute: owned page count, Chromium profile process count, renderer count,
+aggregate CPU, and RSS. This is evidence logging, not a CPU budget; the goal is
+to surface tab/process ownership leaks in the service logs instead of relying on
+manual `ps` audits after the machine is already hot.
+
 If the runtime HTTP call fails, BrowserSession closes and recreates the runtime
 page once, then retries the request. This keeps stale runtime state local to
 BrowserSession instead of leaking fallback behavior into CacheService or the
@@ -1563,8 +1577,9 @@ instead of reviving ad hoc page pools.
 After BrowserSession is initialized, Chromium may keep an idle spare renderer
 process. This is not automatically a leak; Chromium's
 `SpareRenderProcessHostManager` can keep one warm renderer so the next page is
-cheap to create. Treat CPU activity, unbounded process growth, or memory growth
-as evidence of a leak, not the mere existence of one idle spare renderer.
+cheap to create. Treat CPU activity, unbounded process growth, memory growth,
+or restored persistent-profile tabs as evidence of a leak, not the mere
+existence of one idle spare renderer.
 
 ## D21. Backend SQLite Cache Is the Durable Ingestion Owner
 

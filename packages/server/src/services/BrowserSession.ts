@@ -1,6 +1,7 @@
 import { chromium, type BrowserContext, type Page } from 'playwright';
 import path from 'node:path';
 import os from 'node:os';
+import { execFile } from 'node:child_process';
 import type { ServerMangaProvider } from '../providers/types.js';
 import { ScrambledPageDecoder, type ScrambledPageDecodeRequest } from './ScrambledPageDecoder.js';
 
@@ -28,6 +29,7 @@ const CHAPTER_LIST_CACHE_LIMIT = 64;
 const CHAPTER_LIST_PAGE_SIZE = 20;
 const MANGA_DETAIL_CACHE_TTL_MS = 10 * 60 * 1000;
 const MANGA_DETAIL_CACHE_LIMIT = 128;
+const BROWSER_SURFACE_LOG_MS = 60_000;
 
 export interface BrowserFetchResult {
     data: unknown;
@@ -64,6 +66,7 @@ interface MangaDetailCacheEntry {
 export class BrowserSession {
     private context: BrowserContext | null = null;
     private runtimeHttpPage: Page | null = null;
+    private runtimeHttpReady = false;
     private runtimeHttpInit: Promise<void> | null = null;
     private _ready = false;
     private initPromise: Promise<void> | null = null;
@@ -74,6 +77,7 @@ export class BrowserSession {
     private readonly chapterDetailCache = new Map<string, ChapterDetailCacheEntry>();
     private readonly chapterDetailInflight = new Map<string, Promise<unknown>>();
     private decoder: ScrambledPageDecoder | null = null;
+    private surfaceLogTimer: NodeJS.Timeout | null = null;
 
     constructor(
         private readonly provider: ServerMangaProvider,
@@ -104,10 +108,12 @@ export class BrowserSession {
                 headless: false,
                 viewport: { width: 1920, height: 1080 },
             });
+            await this.claimStartupPage();
             this.decoder = new ScrambledPageDecoder(this.context, this.provider);
 
             console.log(`[browserSession] ready ${this.provider.domain} ${Date.now() - start}ms`);
             this._ready = true;
+            this.startBrowserSurfaceLog();
         } catch (e) {
             this._ready = false;
             this.initPromise = null;
@@ -115,11 +121,26 @@ export class BrowserSession {
                 await this.context.close().catch(() => {});
                 this.context = null;
                 this.runtimeHttpPage = null;
+                this.runtimeHttpReady = false;
                 this.runtimeHttpInit = null;
                 this.decoder = null;
             }
             throw e;
         }
+    }
+
+    private async claimStartupPage(): Promise<void> {
+        if (!this.context) return;
+        const pages = this.context.pages().filter(page => !page.isClosed());
+        if (pages.length === 0) return;
+
+        const start = Date.now();
+        const [owned, ...orphans] = pages;
+        this.runtimeHttpPage = owned;
+        this.runtimeHttpReady = false;
+        const results = await Promise.allSettled(orphans.map(page => page.close()));
+        const failed = results.filter(result => result.status === 'rejected').length;
+        console.log(`[browserSession] startup-pages-adopted kept=1 closed=${orphans.length} failed=${failed} ${Date.now() - start}ms`);
     }
 
     async fetchMangaDetail(mangaId: string): Promise<BrowserFetchResult> {
@@ -336,14 +357,17 @@ export class BrowserSession {
     }
 
     private async ensureRuntimeHttpPage(mangaId: string): Promise<Page> {
-        if (this.runtimeHttpPage && !this.runtimeHttpPage.isClosed()) return this.runtimeHttpPage;
+        if (this.runtimeHttpPage && !this.runtimeHttpPage.isClosed() && this.runtimeHttpReady) return this.runtimeHttpPage;
         if (!this.runtimeHttpInit) {
             this.runtimeHttpInit = (async () => {
                 const start = Date.now();
-                const page = await this.context!.newPage();
+                const page = this.runtimeHttpPage && !this.runtimeHttpPage.isClosed()
+                    ? this.runtimeHttpPage
+                    : await this.context!.newPage();
                 await page.goto(this.provider.runtimePageUrl(mangaId), { waitUntil: 'domcontentloaded', timeout: 15_000 });
                 await this.provider.resolveRuntimeHttpClient(page, mangaId, 'browserSession');
                 this.runtimeHttpPage = page;
+                this.runtimeHttpReady = true;
                 console.log(`[browserSession] runtime-http ready ${mangaId} ${Date.now() - start}ms`);
             })().finally(() => {
                 this.runtimeHttpInit = null;
@@ -359,6 +383,7 @@ export class BrowserSession {
     private async resetRuntimeHttpPage(reason: string): Promise<void> {
         const page = this.runtimeHttpPage;
         this.runtimeHttpPage = null;
+        this.runtimeHttpReady = false;
         this.runtimeHttpInit = null;
         if (page && !page.isClosed()) {
             await page.close().catch(e => {
@@ -468,6 +493,7 @@ export class BrowserSession {
 
     async destroy(): Promise<void> {
         this._ready = false;
+        this.stopBrowserSurfaceLog();
         await this.decoder?.destroy().catch(() => {});
         this.decoder = null;
         if (this.context) {
@@ -478,5 +504,56 @@ export class BrowserSession {
             this.initPromise = null;
             console.log(`[browserSession] destroyed ${this.provider.domain}`);
         }
+    }
+
+    private startBrowserSurfaceLog(): void {
+        if (this.surfaceLogTimer) return;
+        void this.logBrowserSurface('startup');
+        this.surfaceLogTimer = setInterval(() => {
+            void this.logBrowserSurface('periodic');
+        }, BROWSER_SURFACE_LOG_MS);
+        this.surfaceLogTimer.unref();
+    }
+
+    private stopBrowserSurfaceLog(): void {
+        if (!this.surfaceLogTimer) return;
+        clearInterval(this.surfaceLogTimer);
+        this.surfaceLogTimer = null;
+    }
+
+    private async logBrowserSurface(reason: string): Promise<void> {
+        const pageCount = this.context?.pages().filter(page => !page.isClosed()).length ?? 0;
+        const proc = await this.collectBrowserProcesses().catch(() => null);
+        if (!proc) {
+            console.log(`[browserSession] surface reason=${reason} pages=${pageCount} processStats=unavailable`);
+            return;
+        }
+        console.log(`[browserSession] surface reason=${reason} pages=${pageCount} renderers=${proc.renderers} totalProcesses=${proc.processes} cpu=${proc.cpu.toFixed(1)} rssMb=${Math.round(proc.rssKb / 1024)}`);
+    }
+
+    private collectBrowserProcesses(): Promise<{ processes: number; renderers: number; cpu: number; rssKb: number }> {
+        return new Promise((resolve, reject) => {
+            execFile('ps', ['-eo', 'pcpu,rss,args'], { maxBuffer: 512 * 1024 }, (error, stdout) => {
+                if (error) {
+                    reject(error);
+                    return;
+                }
+                let processes = 0;
+                let renderers = 0;
+                let cpu = 0;
+                let rssKb = 0;
+                const profileNeedle = `--user-data-dir=${this.profileDir}`;
+                for (const line of stdout.split('\n')) {
+                    if (!line.includes(profileNeedle)) continue;
+                    const match = /^\s*([\d.]+)\s+(\d+)\s+(.+)$/.exec(line);
+                    if (!match) continue;
+                    processes += 1;
+                    cpu += Number(match[1]) || 0;
+                    rssKb += Number(match[2]) || 0;
+                    if (match[3]?.includes('--type=renderer')) renderers += 1;
+                }
+                resolve({ processes, renderers, cpu, rssKb });
+            });
+        });
     }
 }
