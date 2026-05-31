@@ -85,6 +85,7 @@ class AppState {
     private deferredSearchContext: SearchContext | undefined;
     private performanceProbe: PerformanceProbe;
     private bootSnapshot: SessionSnapshot | null = null;
+    private providerFiltersPromise: Promise<void> | null = null;
 
     constructor() {
         const emit = this.log.emit;
@@ -323,6 +324,7 @@ class AppState {
         const stack = this.stackForRestoreShell(snapshot);
         if (!stack) return null;
         this.ui.setViewDirect(snapshot.viewMode, stack);
+        this.ui.mountRestoreLayers(snapshot.viewMode, stack, 'foreground');
         return stack;
     }
 
@@ -343,7 +345,10 @@ class AppState {
         const ok = this.manga.restoreMangaShell(snapshot.activeManga, snapshot.mangaScrolls ?? (snapshot.mangaScroll ? [snapshot.mangaScroll] : []));
         if (!ok) {
             this.manga.setNavigationStack([]);
-            this.ui.setViewDirect(viewStack[0] ?? View.LIST, viewStack.slice(0, -1));
+            const fallback = viewStack[viewStack.length - 1] ?? View.LIST;
+            const fallbackStack = viewStack.slice(0, -1);
+            this.ui.setViewDirect(fallback, fallbackStack);
+            this.ui.mountRestoreLayers(fallback, fallbackStack, 'fallback');
             this.persistSession();
             this.log.emit('restore-fallback', { view: 'manga', reason: 'manga-shell-failed' });
             return;
@@ -352,6 +357,7 @@ class AppState {
         if (shouldReplaySearch) {
             this.bgReplaySearch(snapshot.searchContext);
         }
+        this.ui.mountRestoreLayers(snapshot.viewMode, viewStack, 'backing');
         this.persistSession();
     }
 
@@ -369,6 +375,7 @@ class AppState {
             if (!ok) {
                 this.manga.setNavigationStack([]);
                 this.ui.setViewDirect(View.LIST, []);
+                this.ui.mountRestoreLayers(View.LIST, [], 'fallback');
                 this.persistSession();
                 this.log.emit('restore-fallback', { view: 'reader', reason: 'manga-load-failed' });
                 return;
@@ -376,7 +383,9 @@ class AppState {
 
             const readerOk = await this.reader.restoreReader(snapshot.activeManga!);
             if (!readerOk) {
-                this.ui.setViewDirect(View.MANGA, mangaFallbackStack.length > 0 ? mangaFallbackStack : [View.LIST]);
+                const fallbackStack = mangaFallbackStack.length > 0 ? mangaFallbackStack : [View.LIST];
+                this.ui.setViewDirect(View.MANGA, fallbackStack);
+                this.ui.mountRestoreLayers(View.MANGA, fallbackStack, 'fallback');
                 if (targetId && shouldReplaySearch) this.restore.start(targetId);
                 if (shouldReplaySearch) {
                     this.bgReplaySearch(snapshot.searchContext);
@@ -393,8 +402,28 @@ class AppState {
             if (snapshot.viewMode === View.CHAPTER_COMMENTS) {
                 this.reader.openChapterComments();
             }
+            this.ui.mountRestoreLayers(snapshot.viewMode, readerStack, 'backing');
             this.persistSession();
         })();
+    }
+
+    private async loadProviderFiltersInBackground(): Promise<void> {
+        if (this.providerFiltersPromise) return this.providerFiltersPromise;
+        const emit = this.log.emit;
+        this.providerFiltersPromise = (async () => {
+            try {
+                const filters = await refreshProviderFilters('comix', emit);
+                this.searchState.filters.configureDefinitions(filters);
+                const nsfwIds = new Set<string>();
+                for (const g of filters.genres) {
+                    if (NSFW_NAMES.has(g.name)) nsfwIds.add(g.id);
+                }
+                this.searchState.filters.seedDefaults(nsfwIds);
+            } finally {
+                this.providerFiltersPromise = null;
+            }
+        })();
+        return this.providerFiltersPromise;
     }
 
     private async restoreSession(snapshotOverride?: SessionSnapshot | null): Promise<boolean> {
@@ -598,19 +627,11 @@ class AppState {
             setCloudflareCallback(() => this.toast.show(Msg.SOLVING_CLOUDFLARE, 15000));
 
             await initProvider('comix', emit);
-
-            const filters = await refreshProviderFilters('comix', emit);
-            this.searchState.filters.configureDefinitions(filters);
-            const nsfwIds = new Set<string>();
-            for (const g of filters.genres) {
-                if (NSFW_NAMES.has(g.name)) nsfwIds.add(g.id);
-            }
-            this.searchState.filters.seedDefaults(nsfwIds);
-
-            await Promise.all([this.progress.init(), this.favorites.init()]);
+            await this.progress.init();
 
             const restored = await this.restoreSession(this.bootSnapshot);
             if (!restored) {
+                await this.loadProviderFiltersInBackground();
                 await this.searchState.search(this.searchState.inputQuery);
             }
 
@@ -634,6 +655,7 @@ class AppState {
 
             this.status = 'READY';
             emit('boot-ready', { ms: Date.now() - t0, view: this.ui.viewMode });
+            void this.loadProviderFiltersInBackground();
         } catch (e) {
             emit('init-crash', {
                 message: String((e as Error)?.message ?? e),

@@ -872,6 +872,32 @@ cursor input after a rebase; it is logged as
 This closes the cross-event race where Safari can deliver a scroll value from
 the old runway after state has already committed the new runway.
 
+There is one exception to "physical runway start changes advance the epoch":
+anchor-preserving layout projection. When late chapter metadata changes the
+height of a chapter above the current reader owner, hydration must not write
+`scrollTop` to compensate. Instead, `ReaderState` shifts
+`physicalWindowStart` by the same layout delta and repositions slots so the
+browser's existing physical `scrollTop` still points at the same visible
+content. This is a layout projection, not a DOM scroll projection, so it does
+not advance the DOM-applied projection epoch and it must log
+`reader-window-anchor-projection`, not `reader-scroll-write`.
+
+The owning rule is:
+
+- Initial restore and explicit physical rebase may write DOM `scrollTop`.
+- Hydration and measurement may make better height data available.
+- If that height data is above the current anchor, `ReaderState` owns the
+  coordinate remap inside the virtual window.
+- `Reader.svelte` must not apply a delayed `scrollTop += delta` anchor
+  compensation during normal reading.
+
+This exists because a 2026-05-31 bug showed a previous-chapter hydration above
+the current reader owner growing from about `56183` to `67092` px. The old path
+queued `window-anchor-adjust` and wrote DOM `scrollTop` by about `10909` px
+while the user was reading chapter 62, causing an apparent jump. The corrected
+model keeps scroll ownership with the DOM and moves only the reader's logical
+projection.
+
 Destructive physical projection is also transactional and session-owned.
 Timer-derived labels such as "idle" or "settled" are not proof that Safari/iOS
 has finished scroll momentum or accepted a programmatic `scrollTop` write. RAF
@@ -1160,6 +1186,13 @@ visible. Hydration then runs behind that shell. This keeps app launch
 responsive and prevents the root list/favorites surface from staying visible
 until manga, reader, comments, or search replay finishes.
 
+Restore also owns which layers are mounted. On cold start it mounts only the
+saved foreground surface first. After that foreground owner has restored enough
+state to be the visible surface, it mounts the backing stack in reverse visual
+order so swipe-back has real layers behind it. Search and favorites remain
+exclusive roots: a favorites-root restore must not mount or hydrate a stale
+search root, and a search-root restore must not mount favorites.
+
 Restore is silent during normal cold start. If the user takes any action during
 restore (scrolls, taps a manga, changes view, or starts a new search), the
 restore is cancelled silently — user action always wins. Each phase is
@@ -1205,6 +1238,8 @@ and foreground reader work takes priority over background restore work.
 
 Search restore may call the live `/api/search` endpoint. Manga-detail and
 reader restore still use cached detail, chapter-list, and chapter-image paths.
+Provider filter loading is search-owned. It may run before an initial search,
+but it must not block restoring reader, comments, manga detail, or favorites.
 
 ## AR. IDB Progress Is the Source of Truth for Reader Position
 
@@ -1377,12 +1412,15 @@ and uses Comix manga/chapter identifiers as cache keys.
 ## BI. Provider Loading at Boot
 
 On cold start, the app initializes the Comix provider before search, restore,
-filter loading, manga-detail reads, reader image reads, or comments. The
+manga-detail reads, reader image reads, or comments. The
 frontend first tries the built provider manifest from `/providers/index.json`;
 if that dynamic load fails, it falls back to the bundled Comix provider shipped
 with the app. Provider filters are fetched through the backend
 `/api/provider-filters/comix` route and fall back to the provider bundle's
-static filter definitions if the backend route fails.
+static filter definitions if the backend route fails. Provider filters are a
+search capability, not a global boot prerequisite; they should be fetched
+before running a root search and otherwise loaded in the background after the
+saved foreground surface has been restored.
 
 The dynamic provider import is intentionally runtime-resolved from the manifest
 URL. Vite cannot statically analyze `/providers/${bundle}` imports, so the

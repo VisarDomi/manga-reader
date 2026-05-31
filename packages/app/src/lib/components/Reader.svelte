@@ -153,7 +153,6 @@
                     beginProjectionTransaction(source, reconcile.frameEpoch, reconcile.projectionEpoch, root.scrollTop, reconcile.physicalScrollTop);
                 }
             }
-            applyPendingWindowAnchorAdjustment(root);
             const imagePerf = scheduleVirtualImages(root);
             const imagesMs = imagePerf?.totalMs ?? performance.now() - tickStart;
             logReaderSurfaceSnapshot('after-images', root);
@@ -171,38 +170,6 @@
                 scrollTop: Math.round(root.scrollTop),
                 pendingMeasurements: appState.reader.pendingLayoutMeasurementCount,
             });
-        });
-    }
-
-    function applyPendingWindowAnchorAdjustment(root = getReaderRoot()) {
-        if (!root) return;
-        const adjustment = appState.reader.takePendingWindowAnchorAdjustment();
-        if (!adjustment || Math.abs(adjustment.delta) <= 1) return;
-        const ownerChapterIds = [
-            appState.reader.layoutChapterId,
-            appState.reader.currentChapterId,
-        ].filter((id): id is string => !!id);
-        if (ownerChapterIds.length > 0 && !ownerChapterIds.includes(adjustment.chapterId)) {
-            appState.log.emit('reader-window-anchor-adjust-discarded', {
-                frameEpoch: adjustment.frameEpoch,
-                adjustmentChapterId: adjustment.chapterId,
-                ownerChapterIds: ownerChapterIds.join(','),
-                delta: Math.round(adjustment.delta),
-                reason: 'owner-mismatch',
-            });
-            return;
-        }
-        const from = root.scrollTop;
-        root.scrollTop = Math.max(0, from + adjustment.delta);
-        appState.reader.adoptPhysicalScrollTop(root.scrollTop, 'window-anchor-adjust');
-        lastReconcileScrollTop = root.scrollTop;
-        lastReconcileClientHeight = root.clientHeight;
-        appState.log.emit('reader-scroll-write', {
-            source: 'window-anchor-adjust',
-            frameEpoch: adjustment.frameEpoch,
-            from: Math.round(from),
-            to: Math.round(root.scrollTop),
-            delta: Math.round(root.scrollTop - from),
         });
     }
 
@@ -1124,7 +1091,6 @@
         memory.ensureAbortController();
         tick().then(() => {
             const root = getReaderRoot();
-            applyPendingWindowAnchorAdjustment(root);
             scheduleVirtualImages(root);
             queueLayoutPromotion('layout');
         });

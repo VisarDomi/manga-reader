@@ -14,6 +14,7 @@ export class UIState {
     isForwardSwiping = $state(false);
     forwardSwipeAnimating = $state(false);
     filtersExpanded = $state(false);
+    mountedViewsOverride = $state<ViewMode[] | null>(null);
 
     onViewChange: (() => void) | null = null;
     private emit: LogEmit;
@@ -63,6 +64,32 @@ export class UIState {
         this.viewStack = stack;
         this.viewMode = mode;
         if (mode === View.LIST) this.listViewGeneration++;
+    }
+
+    mountRestoreLayers(foreground: ViewMode, stack: ViewMode[], phase: 'foreground' | 'backing' | 'fallback') {
+        if (phase === 'foreground') {
+            this.mountedViewsOverride = [foreground];
+            this.emit('restore-mounted-layers', { phase, foreground, stack: stack.join(','), mounted: foreground });
+            return;
+        }
+
+        const views = new Set<ViewMode>([foreground]);
+        if (foreground === View.CHAPTER_COMMENTS) {
+            views.add(View.READER);
+        }
+        for (let index = stack.length - 1; index >= 0; index--) {
+            views.add(stack[index]);
+        }
+        const mounted = [...views];
+        this.mountedViewsOverride = mounted;
+        this.emit('restore-mounted-layers', { phase, foreground, stack: stack.join(','), mounted: mounted.join(',') });
+    }
+
+    isMounted(mode: ViewMode, backView: ViewMode | null = null): boolean {
+        if (this.mountedViewsOverride) {
+            return this.mountedViewsOverride.includes(mode) || this.viewMode === mode || backView === mode;
+        }
+        return true;
     }
 
     get previousViewMode(): ViewMode {

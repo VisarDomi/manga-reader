@@ -32,6 +32,11 @@
     const inManga = $derived(viewMode === View.MANGA);
     const isNestedMangaSwipe = $derived(inManga && backView === View.MANGA);
     const inFavorites = $derived(viewMode === View.FAVORITES);
+    const mountList = $derived(appState.ui.isMounted(View.LIST, backView));
+    const mountFavorites = $derived(appState.ui.isMounted(View.FAVORITES, backView));
+    const mountManga = $derived(appState.ui.isMounted(View.MANGA, backView));
+    const mountReader = $derived(appState.ui.isMounted(View.READER, backView));
+    const mountChapterComments = $derived(appState.ui.isMounted(View.CHAPTER_COMMENTS, backView));
 </script>
 
 <div
@@ -41,7 +46,9 @@
     class:swipe-back={backView === View.LIST}
     class:swipe-animating={backView === View.LIST && swipeAnimating}
 >
-    <ListView />
+    {#if mountList}
+        <ListView />
+    {/if}
 </div>
 
 <div
@@ -53,7 +60,9 @@
     class:swipe-active={inFavorites && isSwiping}
     style="{inFavorites && isSwiping ? 'transform:translateX(var(--swipe-progress, 0%))' : ''}"
 >
-    <FavoritesView />
+    {#if mountFavorites}
+        <FavoritesView />
+    {/if}
 </div>
 
 <div
@@ -65,7 +74,9 @@
     class:swipe-active={inManga && isSwiping && !isNestedMangaSwipe}
     style="{inManga && isSwiping && !isNestedMangaSwipe ? 'transform:translateX(var(--swipe-progress, 0%))' : ''}"
 >
-    <MangaView />
+    {#if mountManga}
+        <MangaView />
+    {/if}
 </div>
 
 <div
@@ -78,7 +89,9 @@
     class:swipe-animating={(inReader || backView === View.READER) && swipeAnimating}
     style="{inReader && isSwiping ? 'transform:translateX(var(--swipe-progress, 0%))' : ''}"
 >
-    <ReaderView />
+    {#if mountReader}
+        <ReaderView />
+    {/if}
 </div>
 
 <div
@@ -89,7 +102,9 @@
     class:swipe-animating={inChapterComments && swipeAnimating || forwardSwipeAnimating}
     style="{isForwardSwiping || forwardSwipeAnimating ? 'transform:translateX(var(--forward-swipe-progress, 100%))' : inChapterComments && isSwiping ? 'transform:translateX(var(--swipe-progress, 0%))' : ''}"
 >
-    <ChapterCommentsView />
+    {#if mountChapterComments}
+        <ChapterCommentsView />
+    {/if}
 </div>
 
 <Toast />
