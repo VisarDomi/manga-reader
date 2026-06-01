@@ -222,6 +222,9 @@
         {:else if entry.chapters.length === 0}
             <div class="empty">No chapters found</div>
         {:else}
+            {#if entry.isUpdatingChapters}
+                <div class="empty updating">Loading more chapters...</div>
+            {/if}
             <ChapterList {entry} />
         {/if}
 

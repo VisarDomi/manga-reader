@@ -51,7 +51,8 @@ export type LogEvent =
     | { event: 'chapters-stream-error'; mangaId: string; afterFirstPage: boolean; error: string }
     | { event: 'chapters-done'; mangaId: string; pages: number; failed?: number; total: number; uploadedTimes: number }
     | { event: 'chapter-images-result'; mangaId: string; chapterId: string; chapterNumber: number; imageCount: number; scrambled?: number }
-    | { event: 'cache-read'; resource: 'chapter-list' | 'chapter-images' | 'manga-detail'; action: 'hit' | 'warming' | 'miss'; mangaId: string; chapterId?: string; count?: number }
+    | { event: 'cache-read'; resource: 'chapter-list' | 'chapter-images' | 'manga-detail'; action: 'hit' | 'warming' | 'miss'; mangaId: string; chapterId?: string; count?: number; updating?: boolean }
+    | { event: 'chapter-list-refresh'; mangaId: string; phase: 'queued' | 'applied' | 'fresh' | 'error'; previousCount: number; nextCount?: number; error?: string }
     | { event: 'reader-window-hydrate-start'; source: 'initial' | 'scroll' | 'visible' | 'retry'; mangaId: string; chapterId: string; chapterNumber: number; side: 'prev' | 'next' | 'current'; priority: number; distance: number; hydrateCount: number }
     | { event: 'reader-window-hydrate-ok'; source: 'initial' | 'scroll' | 'visible' | 'retry'; mangaId: string; chapterId: string; chapterNumber: number; pages: number; estimatedHeight: number; appliedToSlot: boolean }
     | { event: 'reader-window-hydrate-failed'; source: 'initial' | 'scroll' | 'visible' | 'retry'; mangaId: string; chapterId: string; error: string }

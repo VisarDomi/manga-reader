@@ -27,6 +27,14 @@ function requestedPriority(value: unknown): CacheJobPriority {
         : 'interactive';
 }
 
+function attachCacheState(data: unknown, state: Record<string, unknown>): unknown {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return data;
+  return {
+    ...(data as Record<string, unknown>),
+    cache: state,
+  };
+}
+
 export function createCacheRouter(cache: CacheService | null, byteCache: ByteCacheService | null = null): Router {
   const router = Router();
 
@@ -125,10 +133,16 @@ export function createCacheRouter(cache: CacheService | null, byteCache: ByteCac
     const data = cache.getChapterList(mangaId);
     if (!data) {
       cache.warmManga(mangaId, 'cache-miss', requestedPriority(req.query.priority));
+      console.log(`[cacheRoute] chapters manga=${mangaId} status=warming reason=miss`);
       res.status(202).json({ status: 'warming', mangaId });
       return;
     }
-    res.json(data);
+    const updating = cache.isChapterListWarming(mangaId);
+    const result = data && typeof data === 'object' ? (data as Record<string, unknown>).result : null;
+    const resultRecord = result && typeof result === 'object' ? result as Record<string, unknown> : {};
+    const items = Array.isArray(resultRecord.items) ? resultRecord.items.length : 0;
+    console.log(`[cacheRoute] chapters manga=${mangaId} status=hit updating=${updating} items=${items}`);
+    res.json(attachCacheState(data, { updating }));
   }));
 
   router.get('/cache/manga/:mangaId/chapters/:chapterId/images', asyncHandler(async (req, res) => {

@@ -24,6 +24,7 @@ export interface MangaEntry {
     comments: MangaComment[];
     commentsCount: number;
     isCommentsLoading: boolean;
+    isUpdatingChapters: boolean;
     commentsError: string | null;
     isLoading: boolean;
     error: LoadError | null;
@@ -44,6 +45,7 @@ function createEntry(manga: Manga): MangaEntry {
         comments: [],
         commentsCount: 0,
         isCommentsLoading: false,
+        isUpdatingChapters: false,
         commentsError: null,
         isLoading: true,
         error: null,
@@ -57,6 +59,10 @@ function createEntry(manga: Manga): MangaEntry {
 
 function hideRecommendations(manga: Manga): Manga {
     return { ...manga, recommendations: [] };
+}
+
+function delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 export class MangaState {
@@ -424,6 +430,7 @@ export class MangaState {
         manga?: Manga;
         chapters?: ChapterMeta[];
         isLoading?: boolean;
+        isUpdatingChapters?: boolean;
         error?: LoadError | null;
     }): MangaEntry | null {
         const current = this.entryFor(entryKey);
@@ -434,6 +441,7 @@ export class MangaState {
             this.applyGroupSelection(current);
         }
         if (update.isLoading != null) current.isLoading = update.isLoading;
+        if (update.isUpdatingChapters != null) current.isUpdatingChapters = update.isUpdatingChapters;
         if (update.error !== undefined) current.error = update.error;
         this.replaceEntry(current);
         if (update.chapters) this.refreshChapterStats(current.key);
@@ -455,6 +463,7 @@ export class MangaState {
                     manga: detailPeek.manga,
                     chapters: chapterPeek.page.items,
                     isLoading: false,
+                    isUpdatingChapters: chapterPeek.updating === true,
                     error: null,
                 });
                 if (!committed) return false;
@@ -478,6 +487,7 @@ export class MangaState {
                     manga: detailWithoutRecommendations,
                     chapters: chapterPage.items,
                     isLoading: false,
+                    isUpdatingChapters: chapterPeek.updating === true,
                     error: null,
                 });
                 if (!committed) return false;
@@ -496,6 +506,7 @@ export class MangaState {
                 const chapterCommitted = this.commitMangaContent(entry.key, {
                     chapters: chapterPage.items,
                     isLoading: false,
+                    isUpdatingChapters: chapterResult.updating,
                     error: null,
                 });
                 if (!chapterCommitted) return false;
@@ -621,10 +632,53 @@ export class MangaState {
         }
     }
 
-    private async reconcileBeforeForegroundRead(manga: Manga): Promise<void> {
+    private async reconcileAfterForegroundRead(entryKey: string, manga: Manga): Promise<void> {
         const latest = manga.latestChapter;
         if (typeof latest !== 'number' || !Number.isFinite(latest) || latest <= 0) return;
-        await api.reconcileMangaCache(manga.id, latest, 'manga-open', 'interactive');
+        const result = await api.reconcileMangaCache(manga.id, latest, 'manga-open', 'interactive');
+        if (!result || result.action === 'none') {
+            const current = this.commitMangaContent(entryKey, { isUpdatingChapters: false });
+            if (current) this.emit('chapter-list-refresh', { mangaId: manga.id, phase: 'fresh', previousCount: current.chapters.length });
+            return;
+        }
+        const queued = this.commitMangaContent(entryKey, { isUpdatingChapters: true });
+        this.emit('chapter-list-refresh', { mangaId: manga.id, phase: 'queued', previousCount: queued?.chapters.length ?? 0 });
+        try {
+            let refreshed = await api.fetchChapterListWithCacheInfo(manga.id);
+            for (let attempt = 0; refreshed.updating && attempt < 120; attempt++) {
+                if (!this.entryFor(entryKey)) return;
+                await delay(500);
+                refreshed = await api.fetchChapterListWithCacheInfo(manga.id);
+            }
+            const current = this.entryFor(entryKey);
+            if (!current) return;
+            if (refreshed.updating) throw new Error('chapter list refresh did not finish');
+            const previousCount = current.chapters.length;
+            const committed = this.commitMangaContent(entryKey, {
+                chapters: refreshed.page.items,
+                isLoading: false,
+                isUpdatingChapters: false,
+                error: null,
+            });
+            if (committed) {
+                this.emitChapterListResult(manga.id, refreshed.page);
+                this.emitEntryState(committed, 'chapters-done');
+                this.emit('chapter-list-refresh', {
+                    mangaId: manga.id,
+                    phase: 'applied',
+                    previousCount,
+                    nextCount: refreshed.page.items.length,
+                });
+            }
+        } catch (e) {
+            const current = this.commitMangaContent(entryKey, { isUpdatingChapters: false });
+            this.emit('chapter-list-refresh', {
+                mangaId: manga.id,
+                phase: 'error',
+                previousCount: current?.chapters.length ?? 0,
+                error: String((e as Error)?.message ?? e),
+            });
+        }
     }
 
     async openManga(manga: Manga) {
@@ -643,8 +697,8 @@ export class MangaState {
         this.ui.pushView(View.MANGA);
 
         try {
-            await this.reconcileBeforeForegroundRead(manga);
-            await this.loadMangaContent(entry, start);
+            const loaded = await this.loadMangaContent(entry, start);
+            if (loaded) void this.reconcileAfterForegroundRead(entry.key, manga);
         } catch (e) {
             const current = this.entryFor(entry.key);
             if (current) {
@@ -794,8 +848,9 @@ export class MangaState {
 
         try {
             void options;
-            await this.reconcileBeforeForegroundRead(entry.manga);
-            return await this.loadMangaContent(entry, start);
+            const loaded = await this.loadMangaContent(entry, start);
+            if (loaded) void this.reconcileAfterForegroundRead(entry.key, entry.manga);
+            return loaded;
         } catch (e) {
             const current = this.entryFor(entry.key);
             if (current) {

@@ -462,10 +462,6 @@ export class CacheService {
   }
 
   getChapterList(mangaId: string): unknown | null {
-    if (this.isChapterListWarming(mangaId)) {
-      console.log(`[cache] chapters warming manga=${mangaId} reason=repair-active`);
-      return null;
-    }
     return this.db.getChapterList(mangaId)?.data ?? null;
   }
 
