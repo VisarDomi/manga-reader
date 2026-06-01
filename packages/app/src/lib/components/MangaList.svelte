@@ -9,10 +9,12 @@
         manga,
         trackVisible = false,
         source = 'search',
+        onSelect,
     }: {
         manga: Manga[];
         trackVisible?: boolean;
         source?: MangaListSource;
+        onSelect?: (manga: Manga) => void;
     } = $props();
 
     let gridEl: HTMLElement | null = null;
@@ -106,7 +108,7 @@
 
 <div class="manga-grid" bind:this={gridEl}>
     {#each manga as m (m.id)}
-        <MangaCoverCard manga={m} source={source} />
+        <MangaCoverCard manga={m} source={source} {onSelect} />
     {/each}
 </div>
 

@@ -118,6 +118,7 @@ export class ReaderState {
     private readerProjectionEpoch = 0;
     private readerWindowFrameSignature = '';
     private readerWindowFrame: ReaderWindowFrame | null = null;
+    private terminalTailHeight = 0;
     private chapterDataById = new Map<string, LoadedChapter>();
     private windowManager = new ReaderWindowManager();
     private pendingMangaScrollTargetChapterId: string | null = null;
@@ -175,6 +176,20 @@ export class ReaderState {
         return this.loadedChapters.map(slot => this.materializeFrameSlot(slot));
     }
 
+    setTerminalTailHeight(height: number, source: string): boolean {
+        const nextHeight = Math.max(0, Math.round(Number.isFinite(height) ? height : 0));
+        if (nextHeight === this.terminalTailHeight) return false;
+        const previousHeight = this.terminalTailHeight;
+        this.terminalTailHeight = nextHeight;
+        this.log.emit('reader-terminal-tail', {
+            mangaId: this.manga.activeManga?.id ?? this.activeMangaId,
+            source,
+            from: previousHeight,
+            to: nextHeight,
+        });
+        return true;
+    }
+
     private materializeFrameSlots(slots: LoadedChapter[]): LoadedChapter[] {
         return slots.map(slot => this.materializeFrameSlot(slot));
     }
@@ -212,6 +227,7 @@ export class ReaderState {
         this.readerProjectionEpoch = 0;
         this.readerWindowFrameSignature = '';
         this.readerWindowFrame = null;
+        this.terminalTailHeight = 0;
         this.chapterDataById.clear();
         this.windowHydrates.clear();
         this.pendingMangaScrollTargetChapterId = null;
@@ -290,6 +306,7 @@ export class ReaderState {
         this.readerProjectionEpoch = 0;
         this.readerWindowFrameSignature = '';
         this.readerWindowFrame = null;
+        this.terminalTailHeight = 0;
         this.chapterDataById.clear();
         this.windowHydrates.clear();
         this.pendingMangaScrollTargetChapterId = null;
@@ -576,6 +593,11 @@ export class ReaderState {
         return this.chapterList.find(ch => ch.id === chapterId) ?? null;
     }
 
+    get isAtForwardEnd(): boolean {
+        const lastLoaded = this.loadedChapters[this.loadedChapters.length - 1];
+        return !!lastLoaded && !this.getAdjacent(lastLoaded.id, 'next');
+    }
+
     private startChapterComments(pushView: boolean): boolean {
         const manga = this.manga.activeManga;
         const chapter = this.currentChapterMeta;
@@ -707,6 +729,7 @@ export class ReaderState {
         this.readerProjectionEpoch = 0;
         this.readerWindowFrameSignature = '';
         this.readerWindowFrame = null;
+        this.terminalTailHeight = 0;
         this.chapterDataById.clear();
         this.scrollActivity = 'settled';
         this.commentsEpoch++;
@@ -800,6 +823,7 @@ export class ReaderState {
             physicalWindowStart: nextPhysicalWindowStart,
             physicalBeforePx: READER_PHYSICAL_BEFORE_PX,
             physicalAfterPx: READER_PHYSICAL_AFTER_PX,
+            terminalHeight: this.terminalTailHeight,
             radiusPx,
             keepPx,
             viewportWidth: viewport.clientWidth,
@@ -845,6 +869,7 @@ export class ReaderState {
             physicalWindowStart: Math.round(plan.physicalWindowStart),
             projectionEpoch: frame.projectionEpoch,
             physicalHeight: Math.round(plan.physicalHeight),
+            terminalTailHeight: this.terminalTailHeight,
             clientHeight: Math.round(viewport.clientHeight),
             wantedCount: plan.wantedIds.size,
             fetchingCount: this.windowFetches.size,
@@ -993,6 +1018,7 @@ export class ReaderState {
             physicalStartDelta: Math.round(physicalWindowStart - previousPhysicalWindowStart),
             physicalHeight: Math.round(physicalHeight),
             physicalHeightDelta: Math.round(physicalHeight - previousPhysicalHeight),
+            terminalTailHeight: this.terminalTailHeight,
             slotsChanged,
             loadedChapterIds: renderSlots.map(slot => slot.id).join(','),
             slotRanges: this.windowSlotRanges(renderSlots),
@@ -1041,6 +1067,7 @@ export class ReaderState {
         physicalWindowStart: number;
         projectionEpoch: number;
         physicalHeight: number;
+        terminalTailHeight: number;
         clientHeight: number;
         wantedCount: number;
         fetchingCount: number;
@@ -1072,6 +1099,7 @@ export class ReaderState {
             physicalWindowStart: data.physicalWindowStart,
             projectionEpoch: data.projectionEpoch,
             physicalHeight: data.physicalHeight,
+            terminalTailHeight: data.terminalTailHeight,
             clientHeight: data.clientHeight,
             wantedCount: data.wantedCount,
             fetchingCount: data.fetchingCount,
@@ -1424,6 +1452,7 @@ export class ReaderState {
                 physicalWindowStart: nextPhysicalWindowStart,
                 physicalBeforePx: READER_PHYSICAL_BEFORE_PX,
                 physicalAfterPx: READER_PHYSICAL_AFTER_PX,
+                terminalHeight: this.terminalTailHeight,
                 radiusPx: this.layoutViewportHeight() * READER_WINDOW_RADIUS_VIEWPORTS,
                 keepPx: this.layoutViewportHeight() * READER_DOM_KEEP_RADIUS_VIEWPORTS,
                 viewportWidth: this.layoutViewportWidth(readyChapter.pages[0]?.width ?? 0),
@@ -1554,6 +1583,7 @@ export class ReaderState {
             physicalWindowStart,
             physicalBeforePx: READER_PHYSICAL_BEFORE_PX,
             physicalAfterPx: READER_PHYSICAL_AFTER_PX,
+            terminalHeight: this.terminalTailHeight,
             radiusPx: Math.max(clientHeight, 1) * READER_WINDOW_RADIUS_VIEWPORTS,
             keepPx: Math.max(clientHeight, 1) * READER_DOM_KEEP_RADIUS_VIEWPORTS,
             viewportWidth,

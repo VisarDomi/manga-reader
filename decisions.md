@@ -683,6 +683,15 @@ The durable fix is the bounded physical scroller: keep full logical knowledge,
 load/fetch chapters by logical proximity, but cap the browser scroll surface and
 rebase the physical runway around the visible logical position.
 
+Terminal non-chapter content must also be owned by this same projection. The
+reader recommendations tail at the end of the latest chapter is modeled as
+terminal runway height in `ReaderState`/`ReaderWindowManager`, not as an
+independent DOM extension in `Reader.svelte`. If a component visually appends
+content beyond the planner-owned `physicalHeight`, the next scroll reconcile
+will correctly treat that scrollTop as outside the owned projection and pull the
+viewport back. The fix is to make terminal content part of the reader runway,
+while keeping chapter slots and image scheduling chapter-owned.
+
 ## Product Decisions
 
 These are app-level behavior decisions that drive UX, persistence, navigation,
@@ -840,6 +849,12 @@ Window policy:
   larger than the render/load window on purpose: the reader owns what can
   become visible inside its physical scroll surface, so it may send foreground
   cache intent for those page maps before the DOM needs to mount them.
+- **Terminal tail:** non-chapter terminal content, currently reader-end
+  recommendations, contributes terminal height to the physical runway. It does
+  not become a fake chapter and it does not participate in page tracking,
+  chapter fetch priority, or image scheduling. It only extends the owned reader
+  scroll surface so Safari and the reader reconciler agree about where the user
+  may scroll.
 
 Priority is recalculated from the current logical viewport. Distance to the
 viewport is the base priority; the current scroll direction biases work toward

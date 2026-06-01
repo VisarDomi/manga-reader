@@ -45,6 +45,7 @@ export class ReaderWindowManager {
         physicalWindowStart,
         physicalBeforePx,
         physicalAfterPx,
+        terminalHeight = 0,
         radiusPx,
         keepPx,
         viewportWidth,
@@ -60,6 +61,7 @@ export class ReaderWindowManager {
         physicalWindowStart: number;
         physicalBeforePx: number;
         physicalAfterPx: number;
+        terminalHeight?: number;
         radiusPx: number;
         keepPx: number;
         viewportWidth: number;
@@ -70,7 +72,8 @@ export class ReaderWindowManager {
         preserveLoadedSlots?: boolean;
     }): ReaderWindowPlan {
         const layouts = this.getLayout(chapterList, loadedChapters, viewportWidth, heightRevision, estimateChapterHeight);
-        const totalHeight = layouts.at(-1)?.bottom ?? Math.max(clientHeight, 1);
+        const chapterHeight = layouts.at(-1)?.bottom ?? 0;
+        const totalHeight = Math.max(clientHeight, chapterHeight + Math.max(0, terminalHeight));
         const ownedLogicalScrollTop = Math.max(0, Math.min(logicalScrollTop, Math.max(0, totalHeight - clientHeight)));
         const physicalStart = Math.max(0, Math.min(physicalWindowStart, Math.max(0, totalHeight - clientHeight)));
         const physicalEnd = Math.min(totalHeight, physicalStart + physicalBeforePx + clientHeight + physicalAfterPx);

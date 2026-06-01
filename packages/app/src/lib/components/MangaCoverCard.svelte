@@ -6,7 +6,7 @@
     import type { Manga } from '$lib/types.js';
     import type { ProgressData } from '$lib/state/progress.svelte.js';
 
-    let { manga, source = 'search' }: { manga: Manga; source?: MangaListSource } = $props();
+    let { manga, source = 'search', onSelect }: { manga: Manga; source?: MangaListSource; onSelect?: (manga: Manga) => void } = $props();
 
     const latestChapter = $derived(manga.latestChapter ?? 0);
     let progress = $state<ProgressData | null>(null);
@@ -37,7 +37,7 @@
     });
 </script>
 
-<button class="manga-card" data-manga-id={manga.id} onclick={() => appState.manga.openManga(manga)}>
+<button class="manga-card" data-manga-id={manga.id} onclick={() => onSelect ? onSelect(manga) : appState.manga.openManga(manga)}>
     <div class="manga-card-cover">
         <MangaCoverImage mangaId={manga.id} title={manga.title} sourceUrl={manga.cover || undefined} variant="card" {source} />
     </div>

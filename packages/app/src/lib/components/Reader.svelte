@@ -7,11 +7,13 @@
     import { ReaderMemoryManager } from '$lib/services/ReaderMemoryManager.js';
     import { registerPageImage } from '$lib/actions/observePageImages.js';
     import { ReaderScrollCoordinator } from '$lib/services/ReaderScrollCoordinator.js';
+    import { appDimensions } from '$lib/state/appDimensions.js';
+    import MangaList from './MangaList.svelte';
     import {
         READER_CHAPTER_SEPARATOR_HEIGHT,
         READER_FALLBACK_PAGE_ASPECT_RATIO,
     } from '$lib/constants.js';
-    import type { LoadedChapter } from '$lib/types.js';
+    import type { LoadedChapter, Manga } from '$lib/types.js';
 
     const getReaderRoot = getContext<() => HTMLElement | null>('readerRoot');
 
@@ -27,7 +29,21 @@
     const scrollCoordinator = new ReaderScrollCoordinator();
     const { pageTracker } = appState.reader;
     const mangaTitle = $derived(appState.manga.activeManga?.title ?? 'Unknown Manga');
-    const virtualHeight = $derived(Math.max(appState.reader.virtualTotalHeight, chapters.reduce((sum, chapter) => sum + (chapter.virtualHeight ?? chapter.estimatedHeight ?? 0), 0)));
+    const recommendations = $derived(appState.manga.activeManga?.recommendations ?? []);
+    const showRecommendationsTail = $derived(appState.reader.isAtForwardEnd && recommendations.length > 0);
+    const recommendationColumns = $derived(appDimensions.width >= 768 ? 5 : appDimensions.width >= 480 ? 4 : 3);
+    const recommendationRowHeight = $derived((appDimensions.width / recommendationColumns) * 1.5);
+    const recommendationTailHeight = $derived(showRecommendationsTail ? 58 + Math.ceil(recommendations.length / recommendationColumns) * recommendationRowHeight : 0);
+    const lastChapterBottom = $derived(chapters.reduce((max, chapter) => {
+        const top = chapter.virtualTop ?? 0;
+        const height = Math.max(240, chapter.virtualHeight ?? chapter.estimatedHeight ?? 0);
+        return Math.max(max, top + height);
+    }, 0));
+    const virtualHeight = $derived(Math.max(
+        appState.reader.virtualTotalHeight,
+        chapters.reduce((sum, chapter) => sum + (chapter.virtualHeight ?? chapter.estimatedHeight ?? 0), 0),
+        showRecommendationsTail ? lastChapterBottom + recommendationTailHeight : 0,
+    ));
 
     let failureTimestamps: number[] = [];
     let slowToastShown = false;
@@ -1003,6 +1019,10 @@
 
     $effect(() => {
         const count = chapters.length;
+        const tailChanged = appState.reader.setTerminalTailHeight(
+            count > 0 ? recommendationTailHeight : 0,
+            'reader-component',
+        );
         if (count === 0) {
             if (initialized) {
                 memory.revokeAll();
@@ -1088,6 +1108,9 @@
 
             restoreScrollPosition();
         }
+        if (tailChanged && initialized) {
+            queueWindowReconcile('visible');
+        }
         memory.ensureAbortController();
         tick().then(() => {
             const root = getReaderRoot();
@@ -1103,6 +1126,11 @@
         }
         appState.reader.retryNextChapterNow();
         queueWindowReconcile('retry');
+    }
+
+    function openRecommendation(manga: Manga) {
+        appState.reader.closeReader();
+        void appState.manga.openManga(manga);
     }
 </script>
 
@@ -1155,6 +1183,15 @@
                     {/if}
                 </section>
             {/each}
+            {#if showRecommendationsTail}
+                <section
+                    class="reader-recommendations"
+                    style="transform:translateY({lastChapterBottom}px); min-height:{recommendationTailHeight}px"
+                >
+                    <h2>Recommendations</h2>
+                    <MangaList manga={recommendations} source="recommendations" onSelect={openRecommendation} />
+                </section>
+            {/if}
         </div>
 
         {#if appState.reader.nextChapterRetryAvailable}
@@ -1205,6 +1242,26 @@
     width: 100%;
     overflow: visible;
     contain: layout style;
+}
+
+.reader-recommendations {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    padding-bottom: 24px;
+    background: #000;
+}
+
+.reader-recommendations h2 {
+    margin: 0;
+    padding: 18px 12px 12px;
+    font-size: 14px;
+    line-height: 1.2;
+    color: #ddd;
+    background: #111;
+    border-top: 1px solid #333;
+    border-bottom: 1px solid #222;
 }
 
 .reader-page {
