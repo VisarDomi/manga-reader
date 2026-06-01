@@ -36,10 +36,20 @@ export interface BrowserFetchResult {
     durationMs: number;
 }
 
+export interface BrowserFetchContext {
+    owner?: string;
+    priority?: string;
+    reason?: string;
+}
+
 export interface BrowserDecodeResult {
     buffer: Buffer;
     contentType: 'image/png';
     durationMs: number;
+}
+
+function browserFetchContextLog(context: BrowserFetchContext): string {
+    return `owner=${context.owner ?? 'direct'} priority=${context.priority ?? 'unknown'} reason=${context.reason ?? 'unspecified'}`;
 }
 
 function valueKind(value: unknown): string {
@@ -196,16 +206,16 @@ export class BrowserSession {
         }
     }
 
-    async fetchChapterImages(mangaId: string, chapterId: string, chapterNumber?: number, chapterUrl?: string): Promise<BrowserFetchResult> {
+    async fetchChapterImages(mangaId: string, chapterId: string, chapterNumber?: number, chapterUrl?: string, context: BrowserFetchContext = {}): Promise<BrowserFetchResult> {
         await this.init();
         const start = Date.now();
         try {
-            const data = await this.fetchChapterDetailCached(mangaId, chapterId, chapterNumber, chapterUrl);
+            const data = await this.fetchChapterDetailCached(mangaId, chapterId, chapterNumber, chapterUrl, context);
             return { data, durationMs: Date.now() - start };
         } catch (e) {
             const durationMs = Date.now() - start;
             const msg = (e as Error)?.message ?? String(e);
-            console.log(`[browserSession] fetch-error ${mangaId} chapter=${chapterId} ${durationMs}ms ${msg}`);
+            console.log(`[browserSession] fetch-error ${mangaId} chapter=${chapterId} ${browserFetchContextLog(context)} ${durationMs}ms ${msg}`);
             throw e;
         }
     }
@@ -235,21 +245,21 @@ export class BrowserSession {
         }
     }
 
-    private async fetchChapterDetailCached(mangaId: string, chapterId: string, chapterNumber?: number, chapterUrl?: string): Promise<unknown> {
+    private async fetchChapterDetailCached(mangaId: string, chapterId: string, chapterNumber?: number, chapterUrl?: string, context: BrowserFetchContext = {}): Promise<unknown> {
         const key = this.chapterDetailKey(mangaId, chapterId);
         const cached = this.getCachedChapterDetail(key);
         if (cached) {
-            console.log(`[browserSession] chapter-cache hit ${key} reason=user`);
+            console.log(`[browserSession] chapter-cache hit ${key} ${browserFetchContextLog(context)}`);
             return cached;
         }
 
         const inflight = this.chapterDetailInflight.get(key);
         if (inflight) {
-            console.log(`[browserSession] chapter-cache join ${key} reason=user`);
+            console.log(`[browserSession] chapter-cache join ${key} ${browserFetchContextLog(context)}`);
             return inflight;
         }
 
-        const promise = this.fetchChapterDetailViaRuntimeHttp(mangaId, chapterId, chapterNumber, chapterUrl)
+        const promise = this.fetchChapterDetailViaRuntimeHttp(mangaId, chapterId, chapterNumber, chapterUrl, context)
             .then(data => {
                 this.rememberChapterDetail(key, data);
                 return data;
@@ -286,7 +296,7 @@ export class BrowserSession {
         }
     }
 
-    private async fetchChapterDetailViaRuntimeHttp(mangaId: string, chapterId: string, chapterNumber?: number, chapterUrl?: string): Promise<unknown> {
+    private async fetchChapterDetailViaRuntimeHttp(mangaId: string, chapterId: string, chapterNumber?: number, chapterUrl?: string, context: BrowserFetchContext = {}): Promise<unknown> {
         const t0 = Date.now();
         const detail = await this.runtimeHttpGet<Record<string, unknown>>(mangaId, this.provider.chapterImagesPath(chapterId));
         const normalized = this.provider.normalizeChapterImages(detail);
@@ -302,11 +312,11 @@ export class BrowserSession {
             },
         };
         if (normalized.pages.length === 0 || normalized.pages.length !== normalized.targetCount) {
-            console.log(`[browserSession] chapter ${mangaId}/${chapterId} page-load reason=user source=${normalized.source}-incomplete pages=${normalized.pages.length} targetCount=${normalized.targetCount} ${Date.now() - t0}ms`);
+            console.log(`[browserSession] chapter ${mangaId}/${chapterId} page-load ${browserFetchContextLog(context)} source=${normalized.source}-incomplete pages=${normalized.pages.length} targetCount=${normalized.targetCount} ${Date.now() - t0}ms`);
             throw new Error(`Runtime HTTP returned incomplete chapter images for ${mangaId}/${chapterId}: pages=${normalized.pages.length} targetCount=${normalized.targetCount}`);
         }
         const scrambled = normalized.pages.filter(page => page.scramble).length;
-        console.log(`[browserSession] chapter ${mangaId}/${chapterId} page-load reason=user source=${normalized.source} schema=${normalized.schemaVersion} pages=${normalized.pages.length} targetCount=${normalized.targetCount} scrambled=${scrambled} ${Date.now() - t0}ms`);
+        console.log(`[browserSession] chapter ${mangaId}/${chapterId} page-load ${browserFetchContextLog(context)} source=${normalized.source} schema=${normalized.schemaVersion} pages=${normalized.pages.length} targetCount=${normalized.targetCount} scrambled=${scrambled} ${Date.now() - t0}ms`);
         return data;
     }
 

@@ -115,6 +115,7 @@ export type LogEvent =
     | { event: 'sentinel-forced-resume'; frozenSeconds: number }
     | { event: 'img-fail'; key: string; totalMs: number; error: string; pending: number }
     | { event: 'reader-image-candidate'; key: string; index: number; total: number; ok: boolean; status: number; totalMs: number; host: string; sessionId?: string; policy?: 'critical' | 'preload'; error?: string }
+    | { event: 'reader-image-decode-failed'; key: string; index: number; total: number; totalMs: number; host: string; bytes: number; type: string; policy?: 'critical' | 'preload'; naturalWidth: number; naturalHeight: number }
     | { event: 'reader-image-store-report-failed'; key: string; host: string; error: string }
     | { event: 'reader-image-loaded'; key: string; totalMs: number; naturalWidth: number; naturalHeight: number }
     | { event: 'uncaught-error'; message: string; source: string; line: number; col: number; stack: string }

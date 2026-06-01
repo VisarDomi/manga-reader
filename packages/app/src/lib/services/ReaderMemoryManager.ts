@@ -10,7 +10,7 @@ const IMAGE_STORE_SESSION_ID = globalThis.crypto?.randomUUID?.() ?? `${Date.now(
 type ImageLoadPolicy = 'critical' | 'preload';
 
 export class ReaderMemoryManager {
-    private blobUrls = new Map<string, string>();
+    private imageSources = new Map<string, string>();
     private loadingKeys = new Set<string>();
     private loadingPolicyByKey = new Map<string, ImageLoadPolicy>();
     private loadingControllersByKey = new Map<string, AbortController>();
@@ -49,7 +49,7 @@ export class ReaderMemoryManager {
     }
 
     get blobUrlCount(): number {
-        return this.blobUrls.size;
+        return this.imageSources.size;
     }
 
     get loadingCount(): number {
@@ -151,9 +151,9 @@ export class ReaderMemoryManager {
             this.retiredAtByKey.delete(job.key);
             const img = wrapper.querySelector('img');
             if (!img || img.src) continue;
-            const existingBlobUrl = this.blobUrls.get(job.key);
-            if (existingBlobUrl) {
-                img.src = existingBlobUrl;
+            const existingSource = this.imageSources.get(job.key);
+            if (existingSource) {
+                img.src = existingSource;
                 continue;
             }
             this.loadImage(job.url, job.candidates, job.criticalCandidates, job.key, img, job.policy);
@@ -233,7 +233,7 @@ export class ReaderMemoryManager {
 
     loadImage(url: string, candidates: string[], criticalCandidates: string[] | undefined, key: string, img: HTMLImageElement, policy: ImageLoadPolicy): void {
         if (!this.abortController) return;
-        if (this.blobUrls.has(key)) return;
+        if (this.imageSources.has(key)) return;
         if (this.loadingKeys.has(key)) {
             if (policy !== 'critical' || this.loadingPolicyByKey.get(key) === 'critical') return;
             this.loadingControllersByKey.get(key)?.abort();
@@ -251,65 +251,85 @@ export class ReaderMemoryManager {
         const selectedCandidates = policy === 'critical' && criticalCandidates && criticalCandidates.length > 0
             ? criticalCandidates
             : candidates;
+        const candidateList = selectedCandidates.length > 0 ? selectedCandidates : [url];
+        let index = 0;
 
-        this.fetchFirstImageCandidate(url, selectedCandidates.length > 0 ? selectedCandidates : [url], key, signal, policy)
-            .then(blob => {
-                const blobUrl = URL.createObjectURL(blob);
-                this.blobUrls.set(key, blobUrl);
-                img.onload = () => {
-                    this.emit('reader-image-loaded', {
-                        key,
-                        totalMs: Math.round(performance.now() - t0),
-                        naturalWidth: img.naturalWidth,
-                        naturalHeight: img.naturalHeight,
-                    });
-                };
-                img.src = blobUrl;
-            })
-            .catch((err) => {
-                if (err?.name !== 'AbortError') {
-                    const tFail = performance.now();
-                    this.emit('img-fail', {
-                        key,
-                        totalMs: Math.round(tFail - t0),
-                        error: err?.message ?? String(err),
-                        pending: this.loadingKeys.size,
-                    });
-                    this.onLoadFailure?.(key);
-                }
-            })
-            .finally(() => {
-                this.abortController?.signal.removeEventListener('abort', abortLoad);
-                if (this.loadingControllersByKey.get(key) === loadController) {
-                    this.loadingControllersByKey.delete(key);
-                    this.loadingKeys.delete(key);
-                    this.loadingPolicyByKey.delete(key);
-                }
-            });
-    }
-
-    private async fetchFirstImageCandidate(canonicalUrl: string, candidates: string[], key: string, signal: AbortSignal, policy: ImageLoadPolicy): Promise<Blob> {
-        let lastError = 'no candidates';
-        for (let index = 0; index < candidates.length; index++) {
-            const candidateUrl = candidates[index];
-            const startedAt = performance.now();
-            try {
-                const response = await fetch(candidateUrl, { signal, mode: 'cors', credentials: 'omit' });
-                const totalMs = Math.round(performance.now() - startedAt);
-                this.recordImageCandidate(canonicalUrl, candidateUrl, key, index, candidates.length, response.status, response.ok, totalMs, policy);
-                if (!response.ok) {
-                    lastError = `HTTP ${response.status}`;
-                    continue;
-                }
-                return await response.blob();
-            } catch (err) {
-                if ((err as { name?: string })?.name === 'AbortError') throw err;
-                const totalMs = Math.round(performance.now() - startedAt);
-                lastError = err instanceof Error ? err.message : String(err);
-                this.recordImageCandidate(canonicalUrl, candidateUrl, key, index, candidates.length, 0, false, totalMs, policy, lastError);
+        const finish = () => {
+            this.abortController?.signal.removeEventListener('abort', abortLoad);
+            if (this.loadingControllersByKey.get(key) === loadController) {
+                this.loadingControllersByKey.delete(key);
+                this.loadingKeys.delete(key);
+                this.loadingPolicyByKey.delete(key);
             }
-        }
-        throw new Error(lastError);
+        };
+        const clearHandlers = () => {
+            img.onload = null;
+            img.onerror = null;
+        };
+        const tryNext = () => {
+            if (signal.aborted) return;
+            if (index >= candidateList.length) {
+                const tFail = performance.now();
+                clearHandlers();
+                img.removeAttribute('src');
+                finish();
+                this.emit('img-fail', {
+                    key,
+                    totalMs: Math.round(tFail - t0),
+                    error: 'all image candidates failed',
+                    pending: this.loadingKeys.size,
+                });
+                this.onLoadFailure?.(key);
+                return;
+            }
+
+            const candidateIndex = index;
+            const candidateUrl = candidateList[candidateIndex];
+            const startedAt = performance.now();
+            const host = this.hostFromCandidate(candidateUrl);
+            img.onload = () => {
+                if (signal.aborted) return;
+                const totalMs = Math.round(performance.now() - startedAt);
+                this.imageSources.set(key, candidateUrl);
+                this.recordImageCandidate(url, candidateUrl, key, candidateIndex, candidateList.length, 200, true, totalMs, policy);
+                this.emit('reader-image-loaded', {
+                    key,
+                    totalMs: Math.round(performance.now() - t0),
+                    naturalWidth: img.naturalWidth,
+                    naturalHeight: img.naturalHeight,
+                });
+                clearHandlers();
+                finish();
+            };
+            img.onerror = () => {
+                if (signal.aborted) return;
+                const totalMs = Math.round(performance.now() - startedAt);
+                this.emit('reader-image-decode-failed', {
+                    key,
+                    index: candidateIndex,
+                    total: candidateList.length,
+                    totalMs,
+                    host,
+                    bytes: 0,
+                    type: 'native-image',
+                    policy,
+                    naturalWidth: img.naturalWidth,
+                    naturalHeight: img.naturalHeight,
+                });
+                this.recordImageCandidate(url, candidateUrl, key, candidateIndex, candidateList.length, 0, false, totalMs, policy, 'Image failed');
+                index++;
+                tryNext();
+            };
+            img.src = candidateUrl;
+        };
+        loadController.signal.addEventListener('abort', () => {
+            clearHandlers();
+            if (this.loadingControllersByKey.get(key) === loadController) {
+                img.removeAttribute('src');
+                finish();
+            }
+        }, { once: true });
+        tryNext();
     }
 
     private recordImageCandidate(
@@ -325,14 +345,7 @@ export class ReaderMemoryManager {
         error?: string,
     ): void {
         const localDecoded = candidateUrl.startsWith('/api/cache/');
-        let host = localDecoded ? 'local-decoder' : 'invalid';
-        if (!localDecoded) {
-            try {
-                host = new URL(candidateUrl, globalThis.location?.origin).hostname;
-            } catch {
-                // Keep the log path alive for malformed candidates.
-            }
-        }
+        const host = this.hostFromCandidate(candidateUrl);
         this.emit('reader-image-candidate', { key, index, total, ok, status, totalMs, host, sessionId: IMAGE_STORE_SESSION_ID, policy, error });
         if (localDecoded) return;
         void fetch('/api/cache/image-store', {
@@ -349,10 +362,19 @@ export class ReaderMemoryManager {
         });
     }
 
+    private hostFromCandidate(candidateUrl: string): string {
+        if (candidateUrl.startsWith('/api/cache/')) return 'local-decoder';
+        try {
+            return new URL(candidateUrl, globalThis.location?.origin).hostname;
+        } catch {
+            return 'invalid';
+        }
+    }
+
     private cleanupOutsideVirtualWindow(keepKeys: Set<string>): number {
         const now = performance.now();
         let revoked = 0;
-        for (const [key, blobUrl] of this.blobUrls) {
+        for (const [key, source] of this.imageSources) {
             if (keepKeys.has(key)) {
                 this.retiredAtByKey.delete(key);
                 continue;
@@ -363,14 +385,14 @@ export class ReaderMemoryManager {
                 continue;
             }
             if (now - retiredAt < ReaderMemoryManager.RETIRE_GRACE_MS) continue;
-            URL.revokeObjectURL(blobUrl);
-            this.blobUrls.delete(key);
+            if (source.startsWith('blob:')) URL.revokeObjectURL(source);
+            this.imageSources.delete(key);
             this.retiredAtByKey.delete(key);
             revoked++;
 
             const wrapper = this.pageElementsByKey.get(key);
             const img = wrapper?.querySelector('img');
-            if (img?.src === blobUrl) {
+            if (img?.src === source) {
                 img.removeAttribute('src');
             }
         }
@@ -381,8 +403,10 @@ export class ReaderMemoryManager {
         this.abortController?.abort();
         this.abortController = undefined;
         for (const controller of this.loadingControllersByKey.values()) controller.abort();
-        for (const url of this.blobUrls.values()) URL.revokeObjectURL(url);
-        this.blobUrls.clear();
+        for (const url of this.imageSources.values()) {
+            if (url.startsWith('blob:')) URL.revokeObjectURL(url);
+        }
+        this.imageSources.clear();
         this.loadingKeys.clear();
         this.loadingPolicyByKey.clear();
         this.loadingControllersByKey.clear();

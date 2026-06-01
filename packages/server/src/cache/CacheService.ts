@@ -52,6 +52,7 @@ export interface CacheMangaCardSnapshot {
 interface CacheJob {
   kind: CacheJobKind;
   priority: CacheJobPriority;
+  requestedAt?: number;
   mangaId?: string;
   chapterId?: string;
   chapterNumber?: number;
@@ -656,32 +657,52 @@ export class CacheService {
     if (byHost.size <= 1) return candidates;
 
     const ranking = this.currentStoreRanking();
+    const canonicalHost = hostFromUrl(imageUrl);
     const winner = ranking.winnerHost && byHost.has(ranking.winnerHost)
       ? ranking.winnerHost
       : null;
-    const exploit = winner != null && (policy === 'critical' || Math.random() < STORE_EXPLOIT_RATE);
-    const mode = policy === 'critical' && winner ? 'critical' : exploit ? 'exploit' : winner ? 'explore' : 'no-winner';
-    const firstHost = exploit
-      ? winner
-      : shuffled([...byHost.keys()])[0] ?? winner;
+    const canonical = canonicalHost ? byHost.get(canonicalHost) : null;
+    const exploit = winner != null && Math.random() < STORE_EXPLOIT_RATE;
+    const mode = canonical
+      ? policy === 'critical' ? 'canonical-critical' : exploit ? 'canonical-exploit' : winner ? 'canonical-explore' : 'canonical'
+      : policy === 'critical' && winner ? 'critical' : exploit ? 'exploit' : winner ? 'explore' : 'no-winner';
+    const firstHost = canonicalHost && canonical
+      ? canonicalHost
+      : exploit
+        ? winner
+        : shuffled([...byHost.keys()])[0] ?? winner;
     if (!firstHost) {
-      console.log(`[cache] image-store-order policy=${policy} mode=fallback winner=${ranking.winnerHost ?? 'none'} first=none total=${candidates.length} image=${imageLogKey(imageUrl)}`);
+      console.log(`[cache] image-store-order policy=${policy} mode=fallback canonical=${canonicalHost ?? 'none'} winner=${ranking.winnerHost ?? 'none'} first=none total=${candidates.length} image=${imageLogKey(imageUrl)}`);
       return shuffled(candidates);
     }
 
     const first = byHost.get(firstHost);
     if (!first) {
-      console.log(`[cache] image-store-order policy=${policy} mode=fallback winner=${ranking.winnerHost ?? 'none'} first=${firstHost} total=${candidates.length} image=${imageLogKey(imageUrl)}`);
+      console.log(`[cache] image-store-order policy=${policy} mode=fallback canonical=${canonicalHost ?? 'none'} winner=${ranking.winnerHost ?? 'none'} first=${firstHost} total=${candidates.length} image=${imageLogKey(imageUrl)}`);
       return shuffled(candidates);
     }
-    const rest = candidates.filter(candidate => hostFromUrl(candidate) !== firstHost);
-    const ordered = [first, ...shuffled(rest)];
+    const pinnedHosts = new Set<string>([firstHost]);
+    const pinned = [first];
+    if (canonical && canonicalHost && canonicalHost !== firstHost) {
+      pinned.push(canonical);
+      pinnedHosts.add(canonicalHost);
+    }
+    const winnerCandidate = winner && !pinnedHosts.has(winner) ? byHost.get(winner) : null;
+    if (winnerCandidate && winner) {
+      pinned.push(winnerCandidate);
+      pinnedHosts.add(winner);
+    }
+    const rest = candidates.filter(candidate => {
+      const host = hostFromUrl(candidate);
+      return !host || !pinnedHosts.has(host);
+    });
+    const ordered = [...pinned, ...shuffled(rest)];
     const firstHosts = ordered
       .slice(0, 5)
       .map(candidate => hostFromUrl(candidate) ?? 'invalid')
       .join(',');
     const winnerScore = winner ? ranking.scores.find(score => score.host === winner) : null;
-    console.log(`[cache] image-store-order policy=${policy} mode=${mode} winner=${winner ?? 'none'} first=${firstHost} firstHosts=${firstHosts} total=${ordered.length} winnerScore=${winnerScore ? Math.round(winnerScore.score) : 'none'} winnerAttempts=${winnerScore?.attempts ?? 0} image=${imageLogKey(imageUrl)}`);
+    console.log(`[cache] image-store-order policy=${policy} mode=${mode} canonical=${canonicalHost ?? 'none'} winner=${winner ?? 'none'} first=${firstHost} firstHosts=${firstHosts} total=${ordered.length} winnerScore=${winnerScore ? Math.round(winnerScore.score) : 'none'} winnerAttempts=${winnerScore?.attempts ?? 0} image=${imageLogKey(imageUrl)}`);
     return ordered;
   }
 
@@ -793,6 +814,7 @@ export class CacheService {
     if (!resourceKey) return 'existing';
     const payload = {
       priority: job.priority,
+      requestedAt: Date.now(),
       mangaId: job.mangaId,
       chapterId: job.chapterId,
       chapterNumber: job.chapterNumber,
@@ -861,6 +883,9 @@ export class CacheService {
       const job = this.recordToJob(record);
       this.currentJob = job;
       const start = Date.now();
+      const queueAgeMs = Math.max(0, start - record.createdAt);
+      const requestWaitMs = job.requestedAt ? Math.max(0, start - job.requestedAt) : 'unknown';
+      console.log(`[cache] job-start id=${record.id} kind=${job.kind} manga=${job.mangaId ?? 'none'} priority=${job.priority} reason=${job.reason} queueAgeMs=${queueAgeMs} requestWaitMs=${requestWaitMs} attempt=${record.attempts}/${record.maxAttempts}`);
       try {
         if (job.kind === 'seed-newest') await this.seedNewest(job);
         else if (job.kind === 'crawl-search-page') await this.crawlSearchPage(job);
@@ -869,16 +894,16 @@ export class CacheService {
         else if (job.kind === 'reconcile-chapters' && job.mangaId) await this.reconcileChapters(job.mangaId, job);
         else if (job.kind === 'cache-chapter-page-map' && job.mangaId && job.chapterId) await this.cacheChapterPageMap(job.mangaId, job.chapterId, job);
         this.scheduler.complete(record);
-        console.log(`[cache] job-done kind=${job.kind} manga=${job.mangaId ?? 'none'} reason=${job.reason} ${Date.now() - start}ms`);
+        console.log(`[cache] job-done id=${record.id} kind=${job.kind} manga=${job.mangaId ?? 'none'} priority=${job.priority} reason=${job.reason} queueAgeMs=${queueAgeMs} requestWaitMs=${requestWaitMs} runMs=${Date.now() - start}`);
       } catch (e) {
         if (e instanceof CacheJobYield) {
           this.scheduler.yield(record, e.message);
-          console.log(`[cache] job-yield kind=${job.kind} manga=${job.mangaId ?? 'none'} reason=${job.reason} ${Date.now() - start}ms ${e.message}`);
+          console.log(`[cache] job-yield id=${record.id} kind=${job.kind} manga=${job.mangaId ?? 'none'} priority=${job.priority} reason=${job.reason} queueAgeMs=${queueAgeMs} requestWaitMs=${requestWaitMs} runMs=${Date.now() - start} ${e.message}`);
           continue;
         }
         const msg = conciseError((e as Error)?.message ?? String(e));
         this.scheduler.retry(record, msg, this.retryDelayMs(record.attempts));
-        console.log(`[cache] job-failed kind=${job.kind} manga=${job.mangaId ?? 'none'} reason=${job.reason} ${Date.now() - start}ms ${msg}`);
+        console.log(`[cache] job-failed id=${record.id} kind=${job.kind} manga=${job.mangaId ?? 'none'} priority=${job.priority} reason=${job.reason} queueAgeMs=${queueAgeMs} requestWaitMs=${requestWaitMs} runMs=${Date.now() - start} ${msg}`);
       }
     }
   }
@@ -1192,12 +1217,16 @@ export class CacheService {
 
   private async cacheChapterPageMap(mangaId: string, chapterId: string, job: CacheJob): Promise<void> {
     if (!job.force && this.getChapterImages(mangaId, chapterId)) {
-      console.log(`[cache] chapter-page-map skip manga=${mangaId} chapter=${chapterId} reason=cached`);
+      console.log(`[cache] chapter-page-map skip manga=${mangaId} chapter=${chapterId} priority=${job.priority} reason=${job.reason} status=cached`);
       return;
     }
 
     const start = Date.now();
-    const result = await this.browserSession.fetchChapterImages(mangaId, chapterId, job.chapterNumber, job.chapterUrl);
+    const result = await this.browserSession.fetchChapterImages(mangaId, chapterId, job.chapterNumber, job.chapterUrl, {
+      owner: 'cache-chapter-page-map',
+      priority: job.priority,
+      reason: job.reason,
+    });
     const pages = resultPages(result.data);
     const readiness = chapterImageReadiness(result.data);
     const scrambled = pages.filter(page => page && typeof page === 'object' && (page as Record<string, unknown>).scramble === true).length;
@@ -1207,7 +1236,7 @@ export class CacheService {
       if (imageUrl) learnStoreHostFromUrl(imageUrl);
     }
     this.db.upsertChapterImages(mangaId, chapterId, result.data, readiness.ready ? 'ready' : 'empty');
-    console.log(`[cache] chapter-page-map cached manga=${mangaId} chapter=${chapterId} status=${readiness.ready ? 'ready' : 'empty'} pages=${pages.length} targetCount=${readiness.targetCount ?? 'unknown'} source=${readiness.source} schema=${readiness.schemaVersion ?? 'unknown'} scrambleKnown=${readiness.scrambleKnown} scrambled=${scrambled} fetchMs=${result.durationMs} totalMs=${Date.now() - start}`);
+    console.log(`[cache] chapter-page-map cached manga=${mangaId} chapter=${chapterId} priority=${job.priority} reason=${job.reason} status=${readiness.ready ? 'ready' : 'empty'} pages=${pages.length} targetCount=${readiness.targetCount ?? 'unknown'} source=${readiness.source} schema=${readiness.schemaVersion ?? 'unknown'} scrambleKnown=${readiness.scrambleKnown} scrambled=${scrambled} fetchMs=${result.durationMs} totalMs=${Date.now() - start}`);
   }
 
   private resourceKey(job: CacheJob): string | null {
@@ -1228,6 +1257,7 @@ export class CacheService {
     return {
       kind: record.kind as CacheJobKind,
       priority: payload.priority === 'interactive' || payload.priority === 'foreground' || payload.priority === 'observed' || payload.priority === 'daily' ? payload.priority : 'background',
+      requestedAt: numberOrUndefined(payload.requestedAt),
       mangaId: stringOrUndefined(payload.mangaId),
       chapterId: stringOrUndefined(payload.chapterId),
       chapterNumber: numberOrUndefined(payload.chapterNumber),
