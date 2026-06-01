@@ -57,10 +57,19 @@
             appState.log.emit('manga-history-scroll', {
                 action: 'aborted',
                 mangaId: entry.manga.id,
-                chapterId: entry.scrollTarget.chapterId,
+                chapterId: entry.scrollTarget.kind === 'chapter' ? entry.scrollTarget.chapterId : '',
                 reason: 'user-scroll',
             });
             appState.manga.consumeScrollTarget(entry.key, 'history');
+            return;
+        }
+        if (entry.scrollTarget?.source === 'reader-recommendation' && event.isTrusted) {
+            appState.log.emit('manga-recommendation-scroll', {
+                action: 'aborted',
+                mangaId: entry.manga.id,
+                reason: 'user-scroll',
+            });
+            appState.manga.consumeScrollTarget(entry.key, 'reader-recommendation');
             return;
         }
         if (active) {
@@ -142,6 +151,25 @@
         };
         restoreTimers.set(entry.key, setTimeout(attempt, 0));
     }
+
+    $effect(() => {
+        for (const entry of entries) {
+            const target = entry.scrollTarget;
+            if (!target || target.kind !== 'section' || target.section !== 'recommendations') continue;
+            const container = document.getElementById(`view-manga-entry-${entry.key}`);
+            const section = container?.querySelector<HTMLElement>('[data-manga-section="recommendations"]');
+            if (!container || !section) continue;
+            const from = container.scrollTop;
+            container.scrollTop = Math.max(0, section.offsetTop - 12);
+            appState.log.emit('manga-recommendation-scroll', {
+                action: 'applied',
+                mangaId: entry.manga.id,
+                from: Math.round(from),
+                to: Math.round(container.scrollTop),
+            });
+            appState.manga.consumeScrollTarget(entry.key, 'reader-recommendation');
+        }
+    });
 </script>
 
 <div class="manga-stack">
@@ -229,7 +257,7 @@
         {/if}
 
         {#if (manga.recommendations ?? []).length > 0}
-            <section class="manga-recommendations">
+            <section class="manga-recommendations" data-manga-section="recommendations">
                 <h2>Recommendations</h2>
                 <MangaList manga={manga.recommendations ?? []} source="recommendations" />
             </section>

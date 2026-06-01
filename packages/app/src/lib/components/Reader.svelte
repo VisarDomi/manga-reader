@@ -1130,6 +1130,7 @@
 
     function openRecommendation(manga: Manga) {
         appState.reader.closeReader();
+        appState.manga.updateRecommendationScrollTarget();
         void appState.manga.openManga(manga);
     }
 </script>

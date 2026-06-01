@@ -32,6 +32,7 @@ export type LogEvent =
     | { event: 'manga-scroll-save'; mangaId: string; scrollTop: number; scrollHeight: number; clientHeight: number }
     | { event: 'manga-scroll-restore'; action: 'pending' | 'applied' | 'aborted' | 'waiting' | 'skipped'; mangaId: string; scrollTop: number; currentScrollTop: number; scrollHeight: number; clientHeight: number; reason?: string }
     | { event: 'manga-history-scroll'; action: 'pending' | 'applied' | 'aborted' | 'skipped'; mangaId: string; chapterId: string; reason?: string }
+    | { event: 'manga-recommendation-scroll'; action: 'pending' | 'applied' | 'aborted'; mangaId: string; from?: number; to?: number; reason?: string }
     | { event: 'manga-comments-start'; mangaId: string }
     | { event: 'manga-comments-result'; mangaId: string; rootPages: number; replyPages: number; treeFills: number; top: number; total: number; maxDepth: number; missingReplies: number; unavailable: number; unavailableRoots: number; count: number }
     | { event: 'manga-comments-error'; mangaId: string; error: string }

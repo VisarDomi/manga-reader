@@ -16,7 +16,7 @@
 
     $effect(() => {
         const target = entry.scrollTarget;
-        if (!target) return;
+        if (!target || target.kind !== 'chapter') return;
         const container = document.getElementById(`view-manga-entry-${entry.key}`);
         const el = container?.querySelector(`[data-chapter-id="${CSS.escape(target.chapterId)}"]`);
         if (!container || !el) {

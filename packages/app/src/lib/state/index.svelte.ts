@@ -345,6 +345,8 @@ class AppState {
         if (targetId && shouldReplaySearch) this.restore.start(targetId);
         if (shouldReplaySearch) {
             this.bgReplaySearch(snapshot.searchContext);
+        } else if (viewStack.includes(View.FAVORITES)) {
+            void this.favorites.activate();
         }
         this.ui.mountRestoreLayers(snapshot.viewMode, viewStack, 'backing');
         this.persistSession();
@@ -378,6 +380,8 @@ class AppState {
                 if (targetId && shouldReplaySearch) this.restore.start(targetId);
                 if (shouldReplaySearch) {
                     this.bgReplaySearch(snapshot.searchContext);
+                } else if (fallbackStack.includes(View.FAVORITES)) {
+                    void this.favorites.activate();
                 }
                 this.persistSession();
                 this.log.emit('restore-fallback', { view: 'reader', reason: 'reader-load-failed', fallback: 'manga', error: this.reader.error?.message });
@@ -387,6 +391,8 @@ class AppState {
             if (targetId && shouldReplaySearch) this.restore.start(targetId);
             if (shouldReplaySearch) {
                 this.bgReplaySearch(snapshot.searchContext);
+            } else if (readerStack.includes(View.FAVORITES)) {
+                void this.favorites.activate();
             }
             if (snapshot.viewMode === View.CHAPTER_COMMENTS) {
                 this.reader.openChapterComments();

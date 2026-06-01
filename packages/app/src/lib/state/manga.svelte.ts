@@ -12,9 +12,14 @@ import type { ProgressState } from './progress.svelte.js';
 import { type LoadError, toLoadError } from './errors.js';
 
 type MangaScrollTarget = {
+    kind: 'chapter';
     chapterId: string;
     ratio: number | null;
     source: 'reader-back' | 'history';
+} | {
+    kind: 'section';
+    section: 'recommendations';
+    source: 'reader-recommendation';
 };
 
 export interface MangaEntry {
@@ -258,7 +263,18 @@ export class MangaState {
     updateScrollTarget(chapterId: string, entryKey?: string) {
         const entry = this.entryFor(entryKey);
         if (!entry) return;
-        entry.scrollTarget = { chapterId, ratio: entry.scrollAnchorRatio, source: 'reader-back' };
+        entry.scrollTarget = { kind: 'chapter', chapterId, ratio: entry.scrollAnchorRatio, source: 'reader-back' };
+        this.replaceEntry(entry);
+    }
+
+    updateRecommendationScrollTarget(entryKey?: string) {
+        const entry = this.entryFor(entryKey);
+        if (!entry) return;
+        entry.scrollTarget = { kind: 'section', section: 'recommendations', source: 'reader-recommendation' };
+        this.emit('manga-recommendation-scroll', {
+            action: 'pending',
+            mangaId: entry.manga.id,
+        });
         this.replaceEntry(entry);
     }
 
@@ -273,7 +289,7 @@ export class MangaState {
     private applyHistoryScrollIntent(entry: MangaEntry): void {
         const saved = this.progress.get(entry.manga.id);
         if (!saved?.chapterId) return;
-        entry.scrollTarget = { chapterId: saved.chapterId, ratio: null, source: 'history' };
+        entry.scrollTarget = { kind: 'chapter', chapterId: saved.chapterId, ratio: null, source: 'history' };
         this.emit('manga-history-scroll', {
             action: 'pending',
             mangaId: entry.manga.id,
