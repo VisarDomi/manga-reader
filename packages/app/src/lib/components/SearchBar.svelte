@@ -18,12 +18,11 @@
     }
 
     function activateFavs() {
-        appState.favorites.activate();
-        appState.ui.resetTo(View.FAVORITES);
+        void appState.activateFavoritesRoot();
     }
 
     function deactivateFavs() {
-        appState.ui.resetTo(View.LIST);
+        void appState.activateSearchRoot();
     }
 
     const gf = appState.groupFilter;

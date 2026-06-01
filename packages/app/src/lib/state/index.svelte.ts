@@ -196,6 +196,25 @@ class AppState {
         return viewMode === View.LIST || viewStack.includes(View.LIST);
     }
 
+    async activateSearchRoot(): Promise<void> {
+        this.restore.cancel();
+        this.manga.setNavigationStack([]);
+        this.ui.resetTo(View.LIST);
+        if (this.searchState.context) {
+            this.searchState.filters.restoreFromContext(this.searchState.context.filters);
+            await this.searchState.replayFromContext(this.searchState.context);
+            return;
+        }
+        await this.searchState.search(this.searchState.inputQuery);
+    }
+
+    async activateFavoritesRoot(): Promise<void> {
+        this.restore.cancel();
+        this.manga.setNavigationStack([]);
+        this.ui.resetTo(View.FAVORITES);
+        await this.favorites.activate();
+    }
+
     private persistSession() {
         const snapshot: SessionSnapshot = {
             viewMode: this.ui.viewMode,

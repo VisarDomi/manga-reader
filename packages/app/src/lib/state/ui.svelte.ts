@@ -55,6 +55,7 @@ export class UIState {
     resetTo(mode: ViewMode) {
         this.viewStack = [];
         this.viewMode = mode;
+        this.mountedViewsOverride = null;
         if (mode === View.LIST) this.listViewGeneration++;
         this.emit('view-reset', { to: mode });
         this.onViewChange?.();
