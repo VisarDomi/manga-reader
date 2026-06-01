@@ -340,7 +340,13 @@ export class ReaderMemoryManager {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ imageUrl: canonicalUrl, storeUrl: candidateUrl, status, ok, totalMs, sessionId: IMAGE_STORE_SESSION_ID }),
             keepalive: true,
-        }).catch(() => {});
+        }).catch(error => {
+            this.emit('reader-image-store-report-failed', {
+                key,
+                host,
+                error: String((error as Error)?.message ?? error),
+            });
+        });
     }
 
     private cleanupOutsideVirtualWindow(keepKeys: Set<string>): number {

@@ -260,7 +260,9 @@ export class ScrambledPageDecoder {
     }
 
     const activeWarm = this.warmPromise;
-    if (activeWarm) await activeWarm.catch(() => {});
+    if (activeWarm) await activeWarm.catch(error => {
+      console.log(`[decoder] active-warm-failed-before-decode manga=${request.mangaId} chapter=${request.chapterId} page=${request.pageIndex + 1} error=${this.errorMessage(error)}`);
+    });
     const page = await this.ensurePage();
     const pageMs = Date.now() - start;
     const warmupActive = Boolean(activeWarm);
@@ -269,7 +271,9 @@ export class ScrambledPageDecoder {
     let navigateMs = 0;
     if (!currentUrl.startsWith(this.provider.baseUrl)) {
       await page.goto(this.provider.runtimePageUrl(request.mangaId), { waitUntil: 'domcontentloaded', timeout: 30_000 });
-      await page.waitForLoadState('networkidle', { timeout: 10_000 }).catch(() => {});
+      await page.waitForLoadState('networkidle', { timeout: 10_000 }).catch(error => {
+        console.log(`[decoder] networkidle-timeout phase=decode manga=${request.mangaId} error=${this.errorMessage(error)}`);
+      });
       this.moduleReady = false;
       navigateMs = Date.now() - navigateStart;
     }
@@ -337,7 +341,9 @@ export class ScrambledPageDecoder {
     });
     const buffer = Buffer.from(screenshot.data, 'base64');
     const screenshotMs = Date.now() - screenshotStart;
-    await page.evaluate(id => document.getElementById(id)?.remove(), canvasId).catch(() => {});
+    await page.evaluate(id => document.getElementById(id)?.remove(), canvasId).catch(error => {
+      console.log(`[decoder] canvas-cleanup-failed manga=${request.mangaId} chapter=${request.chapterId} page=${request.pageIndex + 1} error=${this.errorMessage(error)}`);
+    });
     console.log(`[decoder] page-decoded policy=${request.policy ?? 'preload'} manga=${request.mangaId} chapter=${request.chapterId} page=${request.pageIndex + 1} bytes=${buffer.length} expected=${target.width}x${target.height} canvas=${canvasMeta!.width}x${canvasMeta!.height} css=${canvasMeta!.cssWidth}x${canvasMeta!.cssHeight} source=secure-module sourceHost=${this.hostFromUrl(sourceUrl)} sourceCandidates=${sourceUrls.length} waitMs=${waitMs} pageMs=${pageMs} warmupActive=${warmupActive} navigateMs=${navigateMs} moduleMs=${moduleMs} decodeMs=${decodeMs} screenshotMs=${screenshotMs} totalMs=${Date.now() - start}`);
     return { buffer, contentType: 'image/png', durationMs: Date.now() - start };
   }
@@ -347,7 +353,9 @@ export class ScrambledPageDecoder {
     const currentUrl = page.url();
     if (!currentUrl.startsWith(this.provider.baseUrl)) {
       await page.goto(this.provider.runtimePageUrl(mangaId), { waitUntil: 'domcontentloaded', timeout: 30_000 });
-      await page.waitForLoadState('networkidle', { timeout: 10_000 }).catch(() => {});
+      await page.waitForLoadState('networkidle', { timeout: 10_000 }).catch(error => {
+        console.log(`[decoder] networkidle-timeout phase=warm manga=${mangaId} error=${this.errorMessage(error)}`);
+      });
       this.moduleReady = false;
     }
     await this.ensureSecureDecoderModule(page);

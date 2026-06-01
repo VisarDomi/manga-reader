@@ -27,7 +27,14 @@ export class FavoritesState {
         try {
             await this.loadFavoriteRows();
             this.loaded = true;
-        } catch {
+        } catch (e) {
+            this.log.emit('favorites-activation', {
+                phase: 'failed',
+                loaded: this.loaded,
+                items: this.items.length,
+                dtMs: 0,
+                error: String((e as Error)?.message ?? e),
+            });
             this.toast.show(Msg.STORAGE_UNAVAILABLE);
         }
     }
@@ -68,11 +75,21 @@ export class FavoritesState {
 
     async activate() {
         if (this.loaded) return;
+        const startedAt = performance.now();
+        this.log.emit('favorites-activation', { phase: 'start', loaded: this.loaded, items: this.items.length, dtMs: 0 });
         this.isLoading = true;
         try {
             await this.loadFavoriteRows();
             this.loaded = true;
-        } catch {
+            this.log.emit('favorites-activation', { phase: 'done', loaded: this.loaded, items: this.items.length, dtMs: Math.round(performance.now() - startedAt) });
+        } catch (e) {
+            this.log.emit('favorites-activation', {
+                phase: 'failed',
+                loaded: this.loaded,
+                items: this.items.length,
+                dtMs: Math.round(performance.now() - startedAt),
+                error: String((e as Error)?.message ?? e),
+            });
             this.toast.show('Failed to load favorites');
         } finally {
             this.isLoading = false;
@@ -89,11 +106,18 @@ export class FavoritesState {
     }
 
     private async loadFavoriteRows(): Promise<void> {
+        const startedAt = performance.now();
         const rows = await db.getAllFavoriteRows();
         this.hydrationGeneration++;
         const generation = this.hydrationGeneration;
         this.ids = rows.map(row => row.id);
         this.items = rows.map(row => this.items.find(item => item.id === row.id) ?? this.placeholder(row.id, row.snapshot));
+        this.log.emit('favorites-rows-loaded', {
+            rows: rows.length,
+            snapshots: rows.filter(row => row.snapshot != null).length,
+            items: this.items.length,
+            dtMs: Math.round(performance.now() - startedAt),
+        });
         if (rows.length > 0) void this.refreshFavoriteSnapshots(rows, generation);
     }
 
@@ -138,7 +162,18 @@ export class FavoritesState {
     }
 
     private async repairCardSnapshots(fallbacks: Manga[], generation: number): Promise<number | null> {
-        const snapshots = await api.fetchMangaCardSnapshots(fallbacks, undefined, true).catch(() => []);
+        const startedAt = performance.now();
+        let snapshots: api.MangaCardSnapshot[] = [];
+        try {
+            snapshots = await api.fetchMangaCardSnapshots(fallbacks, undefined, true);
+        } catch (e) {
+            this.log.emit('favorites-hydration-failed', {
+                total: fallbacks.length,
+                dtMs: Math.round(performance.now() - startedAt),
+                error: String((e as Error)?.message ?? e),
+            });
+            return 0;
+        }
         if (generation !== this.hydrationGeneration) return null;
 
         const activeIds = new Set(this.ids);
@@ -157,6 +192,7 @@ export class FavoritesState {
 
     refreshChapterStats(): void {
         const generation = this.hydrationGeneration;
+        const startedAt = performance.now();
         void api.fetchMangaCardSnapshots(this.items, undefined, true)
             .then(snapshots => {
                 if (generation !== this.hydrationGeneration) return;
@@ -165,7 +201,13 @@ export class FavoritesState {
                     this.chapterStats.update(result.manga.id, result.manga.latestChapter ?? null, result.chapters);
                 }
             })
-            .catch(() => {});
+            .catch(e => {
+                this.log.emit('favorites-hydration-failed', {
+                    total: this.items.length,
+                    dtMs: Math.round(performance.now() - startedAt),
+                    error: String((e as Error)?.message ?? e),
+                });
+            });
     }
 
 }

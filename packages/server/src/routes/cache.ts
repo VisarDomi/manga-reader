@@ -70,6 +70,7 @@ export function createCacheRouter(cache: CacheService | null, byteCache: ByteCac
   }));
 
   router.post('/cache/manga/cards', asyncHandler(async (req, res) => {
+    const startedAt = Date.now();
     if (!cache) {
       res.status(503).json({ error: 'Cache service unavailable', status: 503 });
       return;
@@ -81,10 +82,13 @@ export function createCacheRouter(cache: CacheService | null, byteCache: ByteCac
       res.status(400).json({ error: 'Missing ids', status: 400 });
       return;
     }
+    const includeChapters = req.body?.includeChapters === true;
+    const result = cache.getMangaCardSnapshots(ids, { includeChapters });
+    console.log(`[cacheRoute] manga-card-snapshots ids=${ids.length} unique=${new Set(ids).size} includeChapters=${includeChapters} mangaReady=${result.filter(item => item.mangaReady).length} chaptersReady=${result.filter(item => item.chaptersReady).length} totalMs=${Date.now() - startedAt}`);
     res.json({
       status: 'ok',
       result: {
-        items: cache.getMangaCardSnapshots(ids, { includeChapters: req.body?.includeChapters === true }),
+        items: result,
       },
     });
   }));

@@ -158,15 +158,29 @@ export async function searchManga(query: string, page = 1, filters?: SearchFilte
 
 export async function fetchMangaCardSnapshots(fallbacks: Manga[], signal?: AbortSignal, includeChapters = false): Promise<MangaCardSnapshot[]> {
     if (fallbacks.length === 0) return [];
+    const startedAt = performance.now();
+    emit('manga-card-snapshots-request', { count: fallbacks.length, includeChapters });
     const provider = getProvider();
     const fallbackById = new Map(fallbacks.map(manga => [manga.id, manga]));
-    const data = await fetchJson<unknown>('/api/cache/manga/cards', {
-        signal,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids: fallbacks.map(manga => manga.id), includeChapters }),
-    });
-    return rawCardSnapshots(data).map(snapshot => {
+    let data: unknown;
+    try {
+        data = await fetchJson<unknown>('/api/cache/manga/cards', {
+            signal,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ids: fallbacks.map(manga => manga.id), includeChapters }),
+        });
+    } catch (e) {
+        emit('manga-card-snapshots-error', {
+            count: fallbacks.length,
+            includeChapters,
+            dtMs: Math.round(performance.now() - startedAt),
+            error: String((e as Error)?.message ?? e),
+        });
+        throw e;
+    }
+    const raw = rawCardSnapshots(data);
+    const snapshots = raw.map(snapshot => {
         const fallback = fallbackById.get(snapshot.mangaId) ?? {
             id: snapshot.mangaId,
             title: snapshot.mangaId,
@@ -194,6 +208,15 @@ export async function fetchMangaCardSnapshots(fallbacks: Manga[], signal?: Abort
             chaptersReady: snapshot.chaptersReady,
         };
     });
+    emit('manga-card-snapshots-result', {
+        count: fallbacks.length,
+        includeChapters,
+        resultCount: snapshots.length,
+        mangaReady: raw.filter(item => item.mangaReady).length,
+        chaptersReady: raw.filter(item => item.chaptersReady).length,
+        dtMs: Math.round(performance.now() - startedAt),
+    });
+    return snapshots;
 }
 
 export async function reconcileMangaCache(

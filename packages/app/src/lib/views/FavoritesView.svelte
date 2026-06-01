@@ -11,7 +11,6 @@
 
     onMount(() => {
         mountedAt = performance.now();
-        void appState.favorites.activate();
         appState.log.emit('favorites-view-lifecycle', {
             phase: 'mount',
             items: favsItems.length,

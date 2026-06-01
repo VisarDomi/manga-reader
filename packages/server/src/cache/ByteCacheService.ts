@@ -65,11 +65,13 @@ export class ByteCacheService {
     const localKey = this.localKey(usableSourceUrl);
     const finalPath = this.localPath(localKey);
     if (owned?.status === 'ready' && owned.localKey && fs.existsSync(this.localPath(owned.localKey))) {
+      const start = Date.now();
       const contentType = owned.contentType || 'application/octet-stream';
       res.set('Content-Type', contentType);
       res.set('Cache-Control', `public, max-age=${CACHE_MAX_AGE}`);
       if (owned.bytes != null) res.set('Content-Length', String(owned.bytes));
       await pipeline(fs.createReadStream(this.localPath(owned.localKey)), res);
+      console.log(`[coverCache] hit manga=${mangaId} variant=${variant} bytes=${owned.bytes ?? 0} totalMs=${Date.now() - start}`);
       return;
     }
 

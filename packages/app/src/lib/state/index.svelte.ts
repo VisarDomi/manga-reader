@@ -463,6 +463,7 @@ class AppState {
         if (snapshot.viewMode === View.FAVORITES) {
             this.manga.setNavigationStack([]);
             this.ui.setViewDirect(View.FAVORITES, []);
+            await this.favorites.activate();
             this.persistSession();
             emit('restore-ok', { view: 'favorites' });
             return true;

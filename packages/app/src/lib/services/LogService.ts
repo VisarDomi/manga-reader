@@ -3,6 +3,7 @@ export type LogEvent =
     | { event: 'boot-ready'; ms: number; view: string }
     | { event: 'init-crash'; message: string; stack: string; ms: number }
     | { event: 'provider-loaded'; name: string; version?: string; mode: string }
+    | { event: 'provider-dynamic-load-failed'; providerId: string; error: string }
     | { event: 'provider-filters-loaded'; source: string; ageMs: number; genres: number; demographics: number; types: number; statuses: number }
     | { event: 'provider-filters-fallback'; error: string; genres: number; demographics: number; types: number; statuses: number }
     | { event: 'restore-none' }
@@ -19,6 +20,9 @@ export type LogEvent =
     | { event: 'cache-reconcile-request'; mangaId: string; observedLatestChapter: number; source: 'search-result' | 'manga-open'; priority: 'observed' | 'foreground' | 'interactive' }
     | { event: 'cache-reconcile-result'; mangaId: string; observedLatestChapter: number | null; cachedMax: number | null; source: 'search-result' | 'manga-open'; priority: 'observed' | 'foreground' | 'interactive'; status: string; action: string; reason: string }
     | { event: 'cache-reconcile-error'; mangaId: string; observedLatestChapter: number; source: 'search-result' | 'manga-open'; priority: 'observed' | 'foreground' | 'interactive'; error: string }
+    | { event: 'manga-card-snapshots-request'; count: number; includeChapters: boolean }
+    | { event: 'manga-card-snapshots-result'; count: number; includeChapters: boolean; resultCount: number; mangaReady: number; chaptersReady: number; dtMs: number }
+    | { event: 'manga-card-snapshots-error'; count: number; includeChapters: boolean; dtMs: number; error: string }
     | { event: 'manga-open-start'; mangaId: string }
     | { event: 'manga-detail-start'; mangaId: string }
     | { event: 'manga-detail-result'; mangaId: string; tags: number; genres: number; altTitles: number; recommendations: number; description: boolean }
@@ -109,14 +113,18 @@ export type LogEvent =
     | { event: 'sentinel-forced-resume'; frozenSeconds: number }
     | { event: 'img-fail'; key: string; totalMs: number; error: string; pending: number }
     | { event: 'reader-image-candidate'; key: string; index: number; total: number; ok: boolean; status: number; totalMs: number; host: string; sessionId?: string; policy?: 'critical' | 'preload'; error?: string }
+    | { event: 'reader-image-store-report-failed'; key: string; host: string; error: string }
     | { event: 'reader-image-loaded'; key: string; totalMs: number; naturalWidth: number; naturalHeight: number }
     | { event: 'uncaught-error'; message: string; source: string; line: number; col: number; stack: string }
     | { event: 'unhandled-rejection'; message: string; stack: string }
     | { event: 'db-error'; op: string; error: string }
     | { event: 'favorites-toggle-failed'; message: string }
+    | { event: 'favorites-activation'; phase: 'start' | 'done' | 'failed'; loaded: boolean; items: number; dtMs: number; error?: string }
+    | { event: 'favorites-rows-loaded'; rows: number; snapshots: number; items: number; dtMs: number }
     | { event: 'manga-list-lifecycle'; source: 'search' | 'favorites'; phase: 'mount' | 'update' | 'unmount'; total: number; trackVisible: boolean; updateCount: number; dtMs: number }
     | { event: 'manga-cover-image'; source: 'search' | 'favorites' | 'detail'; phase: 'mount' | 'load' | 'error' | 'missing'; mangaId: string; hasCover: boolean; dtMs: number; naturalWidth?: number; naturalHeight?: number }
     | { event: 'favorites-hydration'; phase: 'start' | 'batch' | 'done' | 'cancelled'; total: number; batchSize: number; batchIndex?: number; count?: number; dtMs: number }
+    | { event: 'favorites-hydration-failed'; total: number; dtMs: number; error: string }
     | { event: 'manga-card-subscription-summary'; searchCards: number; favoriteCards: number; mountedSearch: number; mountedFavorites: number; unmountedSearch: number; unmountedFavorites: number; progressSearch: number; progressFavorites: number; statsSearch: number; statsFavorites: number }
     | { event: 'favorites-view-lifecycle'; phase: 'mount' | 'update' | 'unmount'; items: number; isLoading: boolean; updateCount: number; dtMs: number }
     | { event: 'perf-observer-status'; performanceObserver: boolean; supportedEntryTypes: string; longtaskSupported: boolean }

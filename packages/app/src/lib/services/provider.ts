@@ -25,7 +25,11 @@ export async function initProvider(providerId = 'comix', emit?: LogEmit): Promis
                 return;
             }
         }
-    } catch {
+    } catch (e) {
+        emit?.('provider-dynamic-load-failed', {
+            providerId,
+            error: String((e as Error)?.message ?? e),
+        });
     }
 
     const mod = await import('./bundled/comix.js');
