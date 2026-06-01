@@ -190,17 +190,6 @@ class AppState {
     private resumeBackgroundWork(): void {
         if (!this.canRunBackgroundWork()) return;
         this.manga.resumeBackgroundWork();
-
-        const searchContext = this.deferredSearchContext;
-        this.deferredSearchContext = undefined;
-        if (this.ownsSearchContext() && (searchContext || this.searchState.results.length === 0)) {
-            this.log.emit('foreground-work', {
-                owner: 'search',
-                action: 'resume',
-                view: this.ui.viewMode,
-            });
-            void this.bgReplaySearch(searchContext);
-        }
     }
 
     private ownsSearchContext(viewMode = this.ui.viewMode, viewStack = this.ui.viewStack): boolean {

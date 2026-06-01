@@ -231,7 +231,7 @@
         {#if (manga.recommendations ?? []).length > 0}
             <section class="manga-recommendations">
                 <h2>Recommendations</h2>
-                <MangaList manga={manga.recommendations ?? []} />
+                <MangaList manga={manga.recommendations ?? []} source="recommendations" />
             </section>
         {/if}
 

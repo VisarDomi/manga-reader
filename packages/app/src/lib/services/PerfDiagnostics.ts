@@ -1,7 +1,7 @@
 import type { LogEmit } from './LogService.js';
 import type { ViewMode } from '$lib/types.js';
 
-export type MangaListSource = 'search' | 'favorites';
+export type MangaListSource = 'search' | 'favorites' | 'recommendations';
 
 type PerfContext = {
     view: ViewMode;
@@ -20,13 +20,14 @@ type PerfContext = {
 const cardActive = {
     search: 0,
     favorites: 0,
+    recommendations: 0,
 };
 
 const cardEvents = {
-    mounted: { search: 0, favorites: 0 },
-    unmounted: { search: 0, favorites: 0 },
-    progressCallbacks: { search: 0, favorites: 0 },
-    statsCallbacks: { search: 0, favorites: 0 },
+    mounted: { search: 0, favorites: 0, recommendations: 0 },
+    unmounted: { search: 0, favorites: 0, recommendations: 0 },
+    progressCallbacks: { search: 0, favorites: 0, recommendations: 0 },
+    statsCallbacks: { search: 0, favorites: 0, recommendations: 0 },
 };
 
 let cardFlushTimer: ReturnType<typeof setTimeout> | null = null;
@@ -35,6 +36,7 @@ export function cardPerfSnapshot() {
     return {
         searchCards: cardActive.search,
         favoriteCards: cardActive.favorites,
+        recommendationCards: cardActive.recommendations,
     };
 }
 
@@ -49,34 +51,47 @@ export function recordMangaCardPerf(emit: LogEmit, source: MangaListSource, kind
         const deltaCount =
             cardEvents.mounted.search
             + cardEvents.mounted.favorites
+            + cardEvents.mounted.recommendations
             + cardEvents.unmounted.search
             + cardEvents.unmounted.favorites
+            + cardEvents.unmounted.recommendations
             + cardEvents.progressCallbacks.search
             + cardEvents.progressCallbacks.favorites
+            + cardEvents.progressCallbacks.recommendations
             + cardEvents.statsCallbacks.search
-            + cardEvents.statsCallbacks.favorites;
+            + cardEvents.statsCallbacks.favorites
+            + cardEvents.statsCallbacks.recommendations;
         if (deltaCount === 0) return;
 
         const payload = {
             searchCards: cardActive.search,
             favoriteCards: cardActive.favorites,
+            recommendationCards: cardActive.recommendations,
             mountedSearch: cardEvents.mounted.search,
             mountedFavorites: cardEvents.mounted.favorites,
+            mountedRecommendations: cardEvents.mounted.recommendations,
             unmountedSearch: cardEvents.unmounted.search,
             unmountedFavorites: cardEvents.unmounted.favorites,
+            unmountedRecommendations: cardEvents.unmounted.recommendations,
             progressSearch: cardEvents.progressCallbacks.search,
             progressFavorites: cardEvents.progressCallbacks.favorites,
+            progressRecommendations: cardEvents.progressCallbacks.recommendations,
             statsSearch: cardEvents.statsCallbacks.search,
             statsFavorites: cardEvents.statsCallbacks.favorites,
+            statsRecommendations: cardEvents.statsCallbacks.recommendations,
         };
         cardEvents.mounted.search = 0;
         cardEvents.mounted.favorites = 0;
+        cardEvents.mounted.recommendations = 0;
         cardEvents.unmounted.search = 0;
         cardEvents.unmounted.favorites = 0;
+        cardEvents.unmounted.recommendations = 0;
         cardEvents.progressCallbacks.search = 0;
         cardEvents.progressCallbacks.favorites = 0;
+        cardEvents.progressCallbacks.recommendations = 0;
         cardEvents.statsCallbacks.search = 0;
         cardEvents.statsCallbacks.favorites = 0;
+        cardEvents.statsCallbacks.recommendations = 0;
         emit('manga-card-subscription-summary', payload);
     }, 250);
 }
