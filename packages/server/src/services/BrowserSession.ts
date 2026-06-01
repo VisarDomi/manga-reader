@@ -359,17 +359,7 @@ export class BrowserSession {
     private async ensureRuntimeHttpPage(mangaId: string): Promise<Page> {
         if (this.runtimeHttpPage && !this.runtimeHttpPage.isClosed() && this.runtimeHttpReady) return this.runtimeHttpPage;
         if (!this.runtimeHttpInit) {
-            this.runtimeHttpInit = (async () => {
-                const start = Date.now();
-                const page = this.runtimeHttpPage && !this.runtimeHttpPage.isClosed()
-                    ? this.runtimeHttpPage
-                    : await this.context!.newPage();
-                await page.goto(this.provider.runtimePageUrl(mangaId), { waitUntil: 'domcontentloaded', timeout: 15_000 });
-                await this.provider.resolveRuntimeHttpClient(page, mangaId, 'browserSession');
-                this.runtimeHttpPage = page;
-                this.runtimeHttpReady = true;
-                console.log(`[browserSession] runtime-http ready ${mangaId} ${Date.now() - start}ms`);
-            })().finally(() => {
+            this.runtimeHttpInit = this.createRuntimeHttpPage(mangaId).finally(() => {
                 this.runtimeHttpInit = null;
             });
         }
@@ -378,6 +368,37 @@ export class BrowserSession {
             throw new Error(`${this.provider.name} runtime HTTP page unavailable`);
         }
         return this.runtimeHttpPage;
+    }
+
+    private async createRuntimeHttpPage(mangaId: string): Promise<void> {
+        const start = Date.now();
+        let page: Page | null = this.runtimeHttpPage && !this.runtimeHttpPage.isClosed()
+            ? this.runtimeHttpPage
+            : null;
+
+        if (!page) {
+            page = await this.context!.newPage();
+        }
+
+        try {
+            this.runtimeHttpReady = false;
+            await page.goto(this.provider.runtimePageUrl(mangaId), { waitUntil: 'domcontentloaded', timeout: 15_000 });
+            await this.provider.resolveRuntimeHttpClient(page, mangaId, 'browserSession');
+            this.runtimeHttpPage = page;
+            this.runtimeHttpReady = true;
+            console.log(`[browserSession] runtime-http ready ${mangaId} ${Date.now() - start}ms`);
+        } catch (error) {
+            if (this.runtimeHttpPage === page) {
+                this.runtimeHttpPage = null;
+            }
+            this.runtimeHttpReady = false;
+            const msg = (error as Error)?.message ?? String(error);
+            await page.close().catch(closeError => {
+                console.log(`[browserSession] runtime-http init-page-close failed manga=${mangaId}: ${(closeError as Error)?.message ?? closeError}`);
+            });
+            console.log(`[browserSession] runtime-http init-failed manga=${mangaId} ${Date.now() - start}ms ${msg}`);
+            throw error;
+        }
     }
 
     private async resetRuntimeHttpPage(reason: string): Promise<void> {
@@ -533,7 +554,7 @@ export class BrowserSession {
 
     private collectBrowserProcesses(): Promise<{ processes: number; renderers: number; cpu: number; rssKb: number }> {
         return new Promise((resolve, reject) => {
-            execFile('ps', ['-eo', 'pcpu,rss,args'], { maxBuffer: 512 * 1024 }, (error, stdout) => {
+            execFile('ps', ['-eo', 'pcpu,rss,args'], { maxBuffer: 16 * 1024 * 1024 }, (error, stdout) => {
                 if (error) {
                     reject(error);
                     return;
