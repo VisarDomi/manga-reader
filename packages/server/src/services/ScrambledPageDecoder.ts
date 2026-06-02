@@ -37,6 +37,26 @@ interface DecodedPageCacheEntry {
   lastUsedAt: number;
 }
 
+class DecodePreempted extends Error {
+  constructor() {
+    super('preload decode preempted by critical work');
+    this.name = 'DecodePreempted';
+  }
+}
+
+export class ScrambledPageDecodeSourceExhausted extends Error {
+  constructor(
+    readonly mangaId: string,
+    readonly chapterId: string,
+    readonly pageIndex: number,
+    readonly sourceCount: number,
+    readonly lastError: unknown,
+  ) {
+    super(`All scrambled page sources failed for ${mangaId}/${chapterId} page=${pageIndex + 1} sources=${sourceCount}`);
+    this.name = 'ScrambledPageDecodeSourceExhausted';
+  }
+}
+
 export class ScrambledPageDecoder {
   private static readonly MAX_MEMORY_CACHE_BYTES = 96 * 1024 * 1024;
 
@@ -51,6 +71,7 @@ export class ScrambledPageDecoder {
   private warmPromise: Promise<void> | null = null;
   private nextJobId = 1;
   private cdpSession: CDPSession | null = null;
+  private preemptRunningPreload = false;
 
   constructor(
     private readonly context: BrowserContext,
@@ -77,6 +98,7 @@ export class ScrambledPageDecoder {
       if (policy === 'critical' && existing.policy !== 'critical') {
         existing.policy = 'critical';
         existing.request.policy = 'critical';
+        if (this.runningPolicy === 'preload') this.preemptRunningPreload = true;
         this.sortJobs();
       }
       console.log(`[decoder] request cache=pending policy=${policy} ownerPolicy=${existing.policy} manga=${request.mangaId} chapter=${request.chapterId} page=${request.pageIndex + 1} queueDepth=${this.jobs.length}`);
@@ -98,6 +120,7 @@ export class ScrambledPageDecoder {
       };
       this.jobs.push(job);
       this.pendingByKey.set(cacheKey, job);
+      if (policy === 'critical' && this.runningPolicy === 'preload') this.preemptRunningPreload = true;
       this.sortJobs();
       console.log(`[decoder] request cache=miss policy=${policy} manga=${request.mangaId} chapter=${request.chapterId} page=${request.pageIndex + 1} queueDepth=${this.jobs.length}`);
       this.pump();
@@ -168,7 +191,16 @@ export class ScrambledPageDecoder {
         this.putCache(job.cacheKey, result);
         job.resolve(result);
       } catch (error) {
-        job.reject(error);
+        if (error instanceof DecodePreempted) {
+          this.preemptRunningPreload = false;
+          job.queuedAt = Date.now();
+          this.jobs.push(job);
+          this.pendingByKey.set(job.cacheKey, job);
+          this.sortJobs();
+          console.log(`[decoder] preempted policy=${job.policy} manga=${job.request.mangaId} chapter=${job.request.chapterId} page=${job.request.pageIndex + 1} queuedCritical=${this.jobs.some(item => item.policy === 'critical')} queueDepth=${this.jobs.length}`);
+        } else {
+          job.reject(error);
+        }
       } finally {
         this.runningPolicy = null;
       }
@@ -288,6 +320,9 @@ export class ScrambledPageDecoder {
     let sourceUrl = target.url;
     let lastError: unknown = null;
     for (let index = 0; index < sourceUrls.length; index += 1) {
+      if ((request.policy ?? 'preload') !== 'critical' && (this.preemptRunningPreload || this.jobs.some(job => job.policy === 'critical'))) {
+        throw new DecodePreempted();
+      }
       sourceUrl = sourceUrls[index]!;
       canvasId = `manga-decoder-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       const sourceStart = Date.now();
@@ -319,7 +354,15 @@ export class ScrambledPageDecoder {
         console.log(`[decoder] source-failed policy=${request.policy ?? 'preload'} manga=${request.mangaId} chapter=${request.chapterId} page=${request.pageIndex + 1} host=${this.hostFromUrl(sourceUrl)} index=${index + 1}/${sourceUrls.length} ms=${Date.now() - sourceStart} error=${this.errorMessage(error)}`);
       }
     }
-    if (lastError) throw lastError;
+    if (lastError) {
+      throw new ScrambledPageDecodeSourceExhausted(
+        request.mangaId,
+        request.chapterId,
+        request.pageIndex,
+        sourceUrls.length,
+        lastError,
+      );
+    }
     const decodeMs = Date.now() - decodeStart;
 
     const canvas = await page.$(`#${canvasId}`);
