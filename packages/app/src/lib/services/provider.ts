@@ -1,7 +1,9 @@
 import type { FilterDefinition, MangaProvider } from '@manga-reader/provider-types';
 import type { LogEmit } from './LogService.js';
+import * as storage from './storage.js';
 
 let activeProvider: MangaProvider | null = null;
+let activeProviderId = storage.getString('active-provider-id', 'comix');
 
 interface ProviderMeta {
     id: string;
@@ -12,7 +14,18 @@ interface ProviderMeta {
     bundle: string;
 }
 
-export async function initProvider(providerId = 'comix', emit?: LogEmit): Promise<void> {
+async function bundledProvider(providerId: string): Promise<MangaProvider> {
+    if (providerId === 'mangadotnet') {
+        const mod = await import('./bundled/mangadotnet.js');
+        return mod.default as MangaProvider;
+    }
+    const mod = await import('./bundled/comix.js');
+    return mod.default as MangaProvider;
+}
+
+export async function initProvider(providerId = activeProviderId, emit?: LogEmit): Promise<void> {
+    activeProviderId = providerId;
+    storage.setString('active-provider-id', providerId);
     try {
         const res = await fetch('/providers/index.json');
         if (res.ok) {
@@ -21,6 +34,8 @@ export async function initProvider(providerId = 'comix', emit?: LogEmit): Promis
             if (meta) {
                 const mod = await import(/* @vite-ignore */ `/providers/${meta.bundle}`);
                 activeProvider = mod.default as MangaProvider;
+                activeProviderId = activeProvider.id;
+                storage.setString('active-provider-id', activeProvider.id);
                 emit?.('provider-loaded', { name: meta.name, version: meta.version, mode: 'dynamic' });
                 return;
             }
@@ -32,14 +47,25 @@ export async function initProvider(providerId = 'comix', emit?: LogEmit): Promis
         });
     }
 
-    const mod = await import('./bundled/comix.js');
-    activeProvider = mod.default as MangaProvider;
-    emit?.('provider-loaded', { name: 'comix', mode: 'bundled-fallback' });
+    activeProvider = await bundledProvider(providerId);
+    activeProviderId = activeProvider.id;
+    storage.setString('active-provider-id', activeProvider.id);
+    emit?.('provider-loaded', { name: activeProvider.name, mode: 'bundled-fallback' });
 }
 
 export function getProvider(): MangaProvider {
     if (!activeProvider) throw new Error('Provider not initialized — call initProvider() first');
     return activeProvider;
+}
+
+export function getProviderId(): string {
+    return activeProvider?.id ?? activeProviderId;
+}
+
+export async function switchProvider(providerId: string, emit?: LogEmit): Promise<MangaProvider> {
+    if (providerId === getProviderId() && activeProvider) return activeProvider;
+    await initProvider(providerId, emit);
+    return getProvider();
 }
 
 export async function refreshProviderFilters(providerId = 'comix', emit?: LogEmit): Promise<FilterDefinition> {
@@ -77,7 +103,7 @@ export interface ProviderFilterSearchOption {
 }
 
 export async function searchProviderFilters(type: 'tag' | 'author' | 'artist', keyword: string, signal?: AbortSignal): Promise<ProviderFilterSearchOption[]> {
-    const res = await fetch(`/api/provider-filter-search/comix/${type}?keyword=${encodeURIComponent(keyword)}`, { signal });
+    const res = await fetch(`/api/provider-filter-search/${encodeURIComponent(getProviderId())}/${type}?keyword=${encodeURIComponent(keyword)}`, { signal });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json() as { result?: { id?: number | string; label?: string; name?: string }[] };
     return (data.result ?? [])

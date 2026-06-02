@@ -3,22 +3,15 @@ import https from 'node:https';
 import os from 'node:os';
 import { PORT, CERT_KEY_PATH, CERT_PEM_PATH, FRONTEND_BUILD_DIR, validateConfig } from './config.js';
 import { createApp } from './app.js';
-import { BrowserSession } from './services/BrowserSession.js';
-import { CacheService } from './cache/CacheService.js';
-import { ByteCacheService } from './cache/ByteCacheService.js';
-import { CommentsService } from './services/CommentsService.js';
 import { listStoreHosts } from './utils/storeHosts.js';
-import { comixServerProvider } from './providers/comix.js';
+import { ProviderCoordinator } from './services/ProviderCoordinator.js';
 
 validateConfig();
 
 const SHUTDOWN_TIMEOUT = 10_000;
 
-const browserSession = new BrowserSession(comixServerProvider);
-const byteCacheService = new ByteCacheService();
-const cacheService = new CacheService(browserSession, comixServerProvider, byteCacheService);
-const commentsService = new CommentsService(cacheService, comixServerProvider);
-const app = createApp(browserSession, cacheService, byteCacheService, commentsService);
+const coordinator = new ProviderCoordinator();
+const app = createApp(coordinator);
 
 const sslOptions = {
     key: fs.readFileSync(CERT_KEY_PATH),
@@ -28,18 +21,11 @@ const sslOptions = {
 const server = https.createServer(sslOptions, app);
 
 server.listen(PORT, '0.0.0.0', () => {
-    console.log(`${comixServerProvider.id}-backend running on https://localhost:${PORT}`);
+    console.log(`manga-reader backend running on https://localhost:${PORT}`);
     console.log(`Serving frontend: ${FRONTEND_BUILD_DIR}`);
     console.log(`[storeHosts] loaded ${listStoreHosts().length} hosts`);
 
-    browserSession.init()
-        .then(() => {
-            cacheService.start();
-            byteCacheService.start();
-        })
-        .catch(err => {
-            console.error(`[browserSession] init failed: ${err.message}`);
-        });
+    void coordinator.start();
 
     const networkInterfaces = os.networkInterfaces();
     for (const [, addrs] of Object.entries(networkInterfaces)) {
@@ -54,9 +40,7 @@ server.listen(PORT, '0.0.0.0', () => {
 function shutdown(signal: string) {
     console.log(`${signal} received — shutting down gracefully...`);
 
-    browserSession.destroy().catch(() => {});
-    cacheService.stop();
-    byteCacheService.close();
+    coordinator.destroy().catch(() => {});
 
     server.close(() => {
         console.log('All connections closed. Exiting.');

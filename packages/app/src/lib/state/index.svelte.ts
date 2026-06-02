@@ -1,6 +1,6 @@
 import { ConnectionMonitor } from '../services/ConnectionMonitor.svelte.js';
 import { watchdog } from '../services/WatchdogService.js';
-import { initProvider, getProvider, refreshProviderFilters } from '../services/provider.js';
+import { initProvider, getProvider, getProviderId, switchProvider, refreshProviderFilters } from '../services/provider.js';
 import { LogService } from '../services/LogService.js';
 import { PerformanceProbe } from '../services/PerfDiagnostics.js';
 import { setDbLogger } from '../services/db.js';
@@ -70,6 +70,7 @@ class AppState {
     favorites: FavoritesState;
     groupFilter = new GroupFilterState();
     chapterStats = new ChapterStatsState(this.groupFilter);
+    activeProviderId = $state('comix');
 
     status = $state<AppStatus>('BOOTING');
     private monitor!: ConnectionMonitor;
@@ -105,6 +106,7 @@ class AppState {
 
         this.ui = new UIState(emit);
         this.bootSnapshot = loadSession();
+        this.activeProviderId = this.bootSnapshot?.providerId ?? getProviderId();
         this.applyRestoreShell(this.bootSnapshot);
         this.searchState = new SearchState(
             this.toast,
@@ -217,6 +219,7 @@ class AppState {
 
     private persistSession() {
         const snapshot: SessionSnapshot = {
+            providerId: this.activeProviderId,
             viewMode: this.ui.viewMode,
             viewStack: [...this.ui.viewStack],
         };
@@ -313,7 +316,7 @@ class AppState {
     }
 
     private stackForRestoreShell(snapshot: SessionSnapshot): ViewMode[] | null {
-        if (snapshot.viewMode === View.LIST || snapshot.viewMode === View.FAVORITES) {
+        if (snapshot.viewMode === View.LIST || snapshot.viewMode === View.FAVORITES || snapshot.viewMode === View.PROVIDERS) {
             return [];
         }
         if (snapshot.viewMode === View.MANGA) {
@@ -426,7 +429,7 @@ class AppState {
         const emit = this.log.emit;
         this.providerFiltersPromise = (async () => {
             try {
-                const filters = await refreshProviderFilters('comix', emit);
+                const filters = await refreshProviderFilters(this.activeProviderId, emit);
                 this.searchState.filters.configureDefinitions(filters);
                 const nsfwIds = new Set<string>();
                 for (const g of filters.genres) {
@@ -480,6 +483,14 @@ class AppState {
             await this.favorites.activate();
             this.persistSession();
             emit('restore-ok', { view: 'favorites' });
+            return true;
+        }
+
+        if (snapshot.viewMode === View.PROVIDERS) {
+            this.manga.setNavigationStack([]);
+            this.ui.setViewDirect(View.PROVIDERS, []);
+            this.persistSession();
+            emit('restore-ok', { view: 'providers' });
             return true;
         }
 
@@ -641,7 +652,9 @@ class AppState {
             setApiLogger(emit);
             setCloudflareCallback(() => this.toast.show(Msg.SOLVING_CLOUDFLARE, 15000));
 
-            await initProvider('comix', emit);
+            const snapshotProviderId = this.bootSnapshot?.providerId;
+            await initProvider(snapshotProviderId ?? this.activeProviderId, emit);
+            this.activeProviderId = getProviderId();
             await this.progress.init();
 
             const restored = await this.restoreSession(this.bootSnapshot);
@@ -692,6 +705,31 @@ class AppState {
             if (targetId) this.showScrollToast(targetId);
             this.restore.done();
         }
+    }
+
+    async activateProvidersRoot(): Promise<void> {
+        this.restore.cancel();
+        this.manga.setNavigationStack([]);
+        this.ui.resetTo(View.PROVIDERS);
+        this.persistSession();
+    }
+
+    async selectProvider(providerId: string): Promise<void> {
+        if (providerId === this.activeProviderId) {
+            this.ui.resetTo(View.LIST);
+            return;
+        }
+        await switchProvider(providerId, this.log.emit);
+        this.activeProviderId = getProviderId();
+        this.providerFiltersPromise = null;
+        this.restore.cancel();
+        this.searchState.resetForProvider();
+        this.favorites.resetForProvider();
+        this.manga.setNavigationStack([]);
+        this.ui.resetTo(View.LIST);
+        await this.loadProviderFiltersInBackground();
+        await this.searchState.search(this.searchState.inputQuery);
+        this.persistSession();
     }
     private handleConnectivityChange(online: boolean) {
         if (online) {

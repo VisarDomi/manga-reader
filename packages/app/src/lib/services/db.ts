@@ -1,5 +1,5 @@
 const DB_NAME = 'comix-reader';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 interface ProgressEntry {
     mangaSlug: string;
@@ -98,6 +98,8 @@ interface FavoriteSnapshot {
 
 interface FavoriteEntry {
     id: string;
+    providerId?: string;
+    mangaId?: string;
     title?: string;
     cover?: string;
     latestChapter?: number | null;
@@ -110,8 +112,19 @@ export interface FavoriteIdRow {
 
 function favoriteId(entry: unknown): string {
     if (!entry || typeof entry !== 'object') return '';
-    const id = (entry as Record<string, unknown>).id;
-    return typeof id === 'string' ? id : '';
+    const record = entry as Record<string, unknown>;
+    const mangaId = record.mangaId ?? record.id;
+    return typeof mangaId === 'string' ? mangaId : '';
+}
+
+function favoriteProviderId(entry: unknown): string {
+    if (!entry || typeof entry !== 'object') return 'comix';
+    const providerId = (entry as Record<string, unknown>).providerId;
+    return typeof providerId === 'string' && providerId.length > 0 ? providerId : 'comix';
+}
+
+function favoriteKey(providerId: string, mangaId: string): string {
+    return `${providerId}:${mangaId}`;
 }
 
 function favoriteSnapshot(entry: unknown): FavoriteIdRow['snapshot'] | undefined {
@@ -126,7 +139,7 @@ function favoriteSnapshot(entry: unknown): FavoriteIdRow['snapshot'] | undefined
     };
 }
 
-export async function getAllFavoriteRows(): Promise<FavoriteIdRow[]> {
+export async function getAllFavoriteRows(providerId = 'comix'): Promise<FavoriteIdRow[]> {
     const db = await openDB();
     return new Promise((resolve) => {
         const tx = db.transaction('favorites', 'readonly');
@@ -136,6 +149,7 @@ export async function getAllFavoriteRows(): Promise<FavoriteIdRow[]> {
             const seen = new Set<string>();
             const rows: FavoriteIdRow[] = [];
             for (const entry of req.result as FavoriteEntry[]) {
+                if (favoriteProviderId(entry) !== providerId) continue;
                 const id = favoriteId(entry);
                 if (!id || seen.has(id)) continue;
                 seen.add(id);
@@ -147,12 +161,14 @@ export async function getAllFavoriteRows(): Promise<FavoriteIdRow[]> {
     });
 }
 
-export async function addFavorite(manga: { id: string; title: string; cover: string; latestChapter: number | null }): Promise<void> {
+export async function addFavorite(manga: { id: string; title: string; cover: string; latestChapter: number | null }, providerId = 'comix'): Promise<void> {
     const db = await openDB();
     return new Promise((resolve) => {
         const tx = db.transaction('favorites', 'readwrite');
         tx.objectStore('favorites').put({
-            id: manga.id,
+            id: favoriteKey(providerId, manga.id),
+            providerId,
+            mangaId: manga.id,
             title: manga.title,
             cover: manga.cover,
             latestChapter: manga.latestChapter,
@@ -162,12 +178,14 @@ export async function addFavorite(manga: { id: string; title: string; cover: str
     });
 }
 
-export async function updateFavoriteSnapshot(manga: { id: string; title: string; cover: string; latestChapter: number | null }): Promise<void> {
+export async function updateFavoriteSnapshot(manga: { id: string; title: string; cover: string; latestChapter: number | null }, providerId = 'comix'): Promise<void> {
     const db = await openDB();
     return new Promise((resolve) => {
         const tx = db.transaction('favorites', 'readwrite');
         tx.objectStore('favorites').put({
-            id: manga.id,
+            id: favoriteKey(providerId, manga.id),
+            providerId,
+            mangaId: manga.id,
             title: manga.title,
             cover: manga.cover,
             latestChapter: manga.latestChapter,
@@ -177,11 +195,13 @@ export async function updateFavoriteSnapshot(manga: { id: string; title: string;
     });
 }
 
-export async function removeFavorite(id: string): Promise<void> {
+export async function removeFavorite(id: string, providerId = 'comix'): Promise<void> {
     const db = await openDB();
     return new Promise((resolve) => {
         const tx = db.transaction('favorites', 'readwrite');
-        tx.objectStore('favorites').delete(id);
+        const store = tx.objectStore('favorites');
+        store.delete(favoriteKey(providerId, id));
+        if (providerId === 'comix') store.delete(id);
         tx.oncomplete = () => resolve();
         tx.onerror = () => { logger('removeFavorite', String(tx.error)); resolve(); };
     });

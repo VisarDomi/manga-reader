@@ -1,5 +1,5 @@
 import { fetchJson, ApiError, ApiErrKind } from './fetchJson.js';
-import { getProvider } from './provider.js';
+import { getProvider, getProviderId } from './provider.js';
 import type { Manga, ChapterMeta, ChapterPage, MangaComment, MangaCommentStats } from '../types.js';
 import type { SearchFilters, ChapterListPage } from '@manga-reader/provider-types';
 import type { LogEmit } from './LogService.js';
@@ -18,6 +18,10 @@ export function setCloudflareCallback(cb: () => void): void {
 const CACHE_WARM_POLL_MS = 500;
 const CACHE_WARM_ATTEMPTS = 240;
 const COMMENTS_FETCH_TIMEOUT_MS = 45_000;
+
+function providerQueryParam(): string {
+    return `providerId=${encodeURIComponent(getProviderId())}`;
+}
 
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -91,11 +95,12 @@ async function peekCachedPayload(url: string, signal: AbortSignal | undefined, r
 }
 
 export function coverProxyUrl(mangaId: string, variant: 'card' | 'detail', sourceUrl?: string): string {
-    let result = `/api/cache/manga/${encodeURIComponent(mangaId)}/cover/${variant}`;
+    let result = `/api/cache/manga/${encodeURIComponent(mangaId)}/cover/${variant}?${providerQueryParam()}`;
     if (sourceUrl) {
         const provider = getProvider();
         const params = new URLSearchParams({ source: sourceUrl, referer: provider.baseUrl });
-        result += `?${params}`;
+        params.set('providerId', getProviderId());
+        result = `/api/cache/manga/${encodeURIComponent(mangaId)}/cover/${variant}?${params}`;
     }
     return result;
 }
@@ -142,7 +147,7 @@ export async function searchManga(query: string, page = 1, filters?: SearchFilte
         retry,
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query, page, filters }),
+        body: JSON.stringify({ providerId: getProviderId(), query, page, filters }),
     });
     const result = provider.parseSearchResponse(data);
     emit('search-result', {
@@ -178,7 +183,7 @@ export async function fetchMangaCardSnapshots(fallbacks: Manga[], signal?: Abort
             signal,
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ids: fallbacks.map(manga => manga.id), includeChapters }),
+            body: JSON.stringify({ providerId: getProviderId(), ids: fallbacks.map(manga => manga.id), includeChapters }),
         });
     } catch (e) {
         emit('manga-card-snapshots-error', {
@@ -254,7 +259,7 @@ export async function reconcileMangaCache(
             signal,
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ observedLatestChapter, source, priority }),
+            body: JSON.stringify({ providerId: getProviderId(), observedLatestChapter, source, priority }),
         });
         emit('cache-reconcile-result', {
             mangaId,
@@ -327,7 +332,7 @@ export interface ChapterListCachePeek {
 }
 
 export async function peekMangaDetailCache(manga: Manga, signal?: AbortSignal): Promise<MangaDetailCachePeek> {
-    const raw = await peekCachedPayload(`/api/cache/manga/${encodeURIComponent(manga.id)}?priority=interactive`, signal, 'manga-detail', manga.id);
+    const raw = await peekCachedPayload(`/api/cache/manga/${encodeURIComponent(manga.id)}?priority=interactive&${providerQueryParam()}`, signal, 'manga-detail', manga.id);
     if (raw.status === 'warming') return { status: 'warming' };
     const merged = mergeMangaDetail(manga, raw.data);
     emitMangaDetailResult(merged);
@@ -336,7 +341,7 @@ export async function peekMangaDetailCache(manga: Manga, signal?: AbortSignal): 
 
 export async function fetchMangaDetailWithCacheInfo(manga: Manga, signal?: AbortSignal): Promise<MangaDetailCacheResult> {
     try {
-        const raw = await fetchCachedPayloadWithMeta(`/api/cache/manga/${encodeURIComponent(manga.id)}?priority=interactive`, signal, 'manga-detail', manga.id);
+        const raw = await fetchCachedPayloadWithMeta(`/api/cache/manga/${encodeURIComponent(manga.id)}?priority=interactive&${providerQueryParam()}`, signal, 'manga-detail', manga.id);
         const merged = mergeMangaDetail(manga, raw.data);
         emit('cache-read', { resource: 'manga-detail', action: 'hit', mangaId: manga.id });
         emitMangaDetailResult(merged);
@@ -395,7 +400,7 @@ function parseCommentsResult(data: unknown): MangaCommentsResult {
 }
 
 export async function fetchMangaComments(mangaId: string, signal?: AbortSignal): Promise<MangaCommentsResult> {
-    const params = new URLSearchParams({ _: String(Date.now()) });
+    const params = new URLSearchParams({ _: String(Date.now()), providerId: getProviderId() });
     const data = await fetchJson<unknown>(`/api/manga-comments/${encodeURIComponent(mangaId)}?${params}`, {
         signal,
         cache: 'no-store',
@@ -420,7 +425,7 @@ export async function fetchMangaComments(mangaId: string, signal?: AbortSignal):
 }
 
 export async function fetchChapterComments(mangaId: string, chapter: ChapterMeta, signal?: AbortSignal): Promise<MangaCommentsResult> {
-    const params = new URLSearchParams({ number: String(chapter.number) });
+    const params = new URLSearchParams({ number: String(chapter.number), providerId: getProviderId() });
     if (chapter.url) params.set('url', chapter.url);
     params.set('_', String(Date.now()));
     const data = await fetchJson<unknown>(`/api/chapter-comments/${encodeURIComponent(mangaId)}/${encodeURIComponent(chapter.id)}?${params}`, {
@@ -454,14 +459,14 @@ async function fetchCachedChapterListPage(mangaId: string, signal?: AbortSignal)
 
 export async function peekChapterListCache(mangaId: string, signal?: AbortSignal): Promise<ChapterListCachePeek> {
     const provider = getProvider();
-    const raw = await peekCachedPayload(`/api/cache/manga/${encodeURIComponent(mangaId)}/chapters?priority=interactive`, signal, 'chapter-list', mangaId);
+    const raw = await peekCachedPayload(`/api/cache/manga/${encodeURIComponent(mangaId)}/chapters?priority=interactive&${providerQueryParam()}`, signal, 'chapter-list', mangaId);
     if (raw.status === 'warming') return { status: 'warming' };
     return { status: 'hit', page: provider.parseChapterListResponse(raw.data), updating: raw.updating === true };
 }
 
 export async function fetchChapterListWithCacheInfo(mangaId: string, signal?: AbortSignal): Promise<ChapterListCacheResult> {
     const provider = getProvider();
-    const raw = await fetchCachedPayloadWithMeta(`/api/cache/manga/${encodeURIComponent(mangaId)}/chapters?priority=interactive`, signal, 'chapter-list', mangaId);
+    const raw = await fetchCachedPayloadWithMeta(`/api/cache/manga/${encodeURIComponent(mangaId)}/chapters?priority=interactive&${providerQueryParam()}`, signal, 'chapter-list', mangaId);
     return { page: provider.parseChapterListResponse(raw.data), attempts: raw.attempts, updating: raw.updating };
 }
 
@@ -479,7 +484,7 @@ export async function fetchChapterListPage(mangaId: string, page: number, signal
 
 async function fetchCachedChapterImages(mangaId: string, chapterId: string, chapterNumber: number, chapterUrl?: string): Promise<ChapterPage[]> {
     const provider = getProvider();
-    const params = new URLSearchParams({ number: String(chapterNumber), priority: 'interactive' });
+    const params = new URLSearchParams({ number: String(chapterNumber), priority: 'interactive', providerId: getProviderId() });
     if (chapterUrl) params.set('url', chapterUrl);
     const data = await fetchCachedPayload(
         `/api/cache/manga/${encodeURIComponent(mangaId)}/chapters/${encodeURIComponent(chapterId)}/images?${params}`,

@@ -5,6 +5,7 @@ import { Msg } from '../messages.js';
 import type { Manga } from '../types.js';
 import type { ChapterStatsState } from './chapterStats.svelte.js';
 import type { ToastState } from './toast.svelte.js';
+import { getProviderId } from '../services/provider.js';
 
 export class FavoritesState {
     items = $state<Manga[]>([]);
@@ -12,6 +13,7 @@ export class FavoritesState {
     isLoading = $state(false);
     private hydrationGeneration = 0;
     private loaded = false;
+    private loadedProviderId: string | null = null;
 
     private toast: ToastState;
     private log: LogService;
@@ -43,6 +45,15 @@ export class FavoritesState {
         return this.ids.includes(id);
     }
 
+    resetForProvider(): void {
+        this.hydrationGeneration++;
+        this.loaded = false;
+        this.loadedProviderId = null;
+        this.ids = [];
+        this.items = [];
+        this.isLoading = false;
+    }
+
     async toggle(manga: Manga) {
         const was = this.isFavorited(manga.id);
         if (was) {
@@ -54,10 +65,10 @@ export class FavoritesState {
         }
         try {
             if (was) {
-                await db.removeFavorite(manga.id);
+                await db.removeFavorite(manga.id, getProviderId());
                 this.toast.show('Removed from favorites');
             } else {
-                await db.addFavorite(manga);
+                await db.addFavorite(manga, getProviderId());
                 this.toast.show('Added to favorites');
             }
         } catch (e) {
@@ -74,13 +85,15 @@ export class FavoritesState {
     }
 
     async activate() {
-        if (this.loaded) return;
+        const providerId = getProviderId();
+        if (this.loaded && this.loadedProviderId === providerId) return;
         const startedAt = performance.now();
         this.log.emit('favorites-activation', { phase: 'start', loaded: this.loaded, items: this.items.length, dtMs: 0 });
         this.isLoading = true;
         try {
             await this.loadFavoriteRows();
             this.loaded = true;
+            this.loadedProviderId = providerId;
             this.log.emit('favorites-activation', { phase: 'done', loaded: this.loaded, items: this.items.length, dtMs: Math.round(performance.now() - startedAt) });
         } catch (e) {
             this.log.emit('favorites-activation', {
@@ -107,7 +120,8 @@ export class FavoritesState {
 
     private async loadFavoriteRows(): Promise<void> {
         const startedAt = performance.now();
-        const rows = await db.getAllFavoriteRows();
+        const providerId = getProviderId();
+        const rows = await db.getAllFavoriteRows(providerId);
         this.hydrationGeneration++;
         const generation = this.hydrationGeneration;
         this.ids = rows.map(row => row.id);
@@ -183,7 +197,7 @@ export class FavoritesState {
         const byId = new Map(hydrated.map(result => [result.manga.id, result.manga]));
         this.items = this.items.map(item => byId.get(item.id) ?? item);
         for (const result of hydrated) {
-            void db.updateFavoriteSnapshot(result.manga);
+            void db.updateFavoriteSnapshot(result.manga, getProviderId());
             if (!result.chapters) continue;
             this.chapterStats.update(result.manga.id, result.manga.latestChapter ?? null, result.chapters);
         }

@@ -458,24 +458,81 @@ Production data ownership is explicit:
 
 The search endpoint is intentionally narrow. It is not a generic proxy. The
 backend route owns transport, Cloudflare cookie/header handling, request
-validation, and logging. The provider owns Comix search semantics: URL
-construction via `searchRequest` and response shape via `parseSearchResponse`.
+validation, and logging. The provider owns provider-specific search semantics:
+URL construction via `searchRequest` and response shape via
+`parseSearchResponse`.
 This prevents duplicating provider query parameters in the server while also
 preventing the frontend from regaining a "fetch anything live" escape hatch.
 
-### 39. Backend Cache Is the Manga Data Owner
+### 39. Provider Boundaries Are Owned, Not Conditional
+
+Multiple providers make the ownership boundary concrete. Provider id is an
+address to a provider owner, not a license to scatter provider-specific
+conditionals across the app.
+
+The server has a provider registry/coordinator. Routes ask the coordinator for
+the active provider owner. That owner contains the provider definition,
+provider-scoped browser session, provider-scoped data cache, provider-scoped
+cover/byte cache, and provider-scoped comments service.
+
+Current provider ownership:
+
+- `comix` uses the original cache database and byte directory. It owns Comix
+  runtime HTTP discovery, store-host candidate generation, smart store
+  ordering, and scrambled-page decoding.
+- `mangadotnet` uses its own SQLite cache and byte directory. It owns the
+  manually cleared Cloudflare browser profile, Xvfb runtime access, direct
+  `/api/search`, `/api/manga/*`, `/api/uploads/*` parsing, and direct image
+  semantics.
+
+Frontend state is provider-scoped:
+
+- Active provider is persisted.
+- Search, favorites, session state, and favorite IndexedDB rows are scoped by
+  provider.
+- Switching providers is a root switch. `mangadotnet` favorites start empty
+  even if another provider has a manga with the same id.
+
+Reader code consumes normalized chapter/page data. It should not know whether
+the active provider uses Comix store candidates, Comix scrambling, Mangadot
+direct image URLs, or browser-backed provider APIs.
+
+### 40. Provider Runtime Owns Session Health and Request Coalescing
+
+Browser-backed provider APIs are fragile shared resources. The browser session
+owner must distinguish provider session failure from upstream request failure.
+
+For `mangadotnet`, direct backend fetches hit Cloudflare. A manually verified
+profile can be reused under Xvfb, but after restart the session can briefly
+return `403 Just a moment...` or intermittent upstream `504` HTML. These are
+different states:
+
+- `403 Just a moment...` means the provider runtime is not ready and background
+  work should pause until the session is ready or human clearance is restored.
+- Upstream API `504` is a failed request/job, not proof that the browser
+  context is corrupt. It should fail the job and retry through durable cache
+  policy, not reset the browser context and kill unrelated byte/cache work.
+
+The runtime HTTP owner also coalesces identical API calls. Concurrent identical
+Mangadot searches previously raced through the same browser runtime and could
+produce mixed `200` and `504` results. The owning session now joins identical
+in-flight runtime API requests so callers share one provider request instead
+of competing with each other.
+
+### 41. Backend Cache Is the Manga Data Owner
 
 The backend cache is the source of truth for manga details, chapter lists, and
-chapter image metadata. Comix remains an ingestion source, not a frontend data
-source for those domains.
+chapter image metadata. Providers remain ingestion sources, not frontend data
+sources for those domains.
 
 Cache ownership:
 
 - Backend owns SQLite persistence, invalidation, priority, and store-health
   policy.
-- BrowserSession owns Comix runtime browser access for cache ingestion only.
-- The provider owns Comix-specific paths, runtime HTTP capability discovery,
-  and response normalization.
+- BrowserSession owns provider runtime browser access for cache ingestion and
+  provider-backed live routes.
+- The provider owns provider-specific paths, runtime HTTP capability discovery,
+  image delivery semantics, and response normalization.
 - `CommentsService` owns comment identifier lookup from cached manga metadata
   and fresh comment HTTP calls.
 - Frontend owns user intent, cache priority requests, and image outcome
@@ -486,11 +543,14 @@ Cache ownership:
 
 Serving ownership:
 
-- Reader images use cached canonical page metadata plus generated direct store
-  candidates. The backend orders those candidates from observed store latency;
-  the frontend tries them directly and reports outcomes. Reader page bytes are
-  not downloaded into the backend byte cache and no longer pass through
-  `/api/image`.
+- Comix reader images use cached canonical page metadata plus generated direct
+  store candidates. The backend orders those candidates from observed store
+  latency; the frontend tries them directly and reports outcomes. Reader page
+  bytes are not downloaded into the backend byte cache and no longer pass
+  through `/api/image`.
+- Mangadot reader images use direct image URLs from its upload metadata API.
+  The Comix store-candidate and image-store-observation policy must not run for
+  direct-image providers.
 - Manga covers are owned resources. Search crawl owns `card` covers from
   `poster.medium`; manga-detail caching owns `detail` covers from
   `poster.large`. `ByteCacheService` stores the bytes, but
@@ -533,7 +593,7 @@ Power-off safety comes from durable job rows and atomic cache mutations:
 - Cooperative yield is allowed only at safe boundaries between upstream page
   requests, before the final cache write.
 
-### 40. Cache Readiness Is a Contract
+### 42. Cache Readiness Is a Contract
 
 A row existing in SQLite is not enough to serve it as ready. Cache consumers
 need typed readiness contracts.
@@ -597,7 +657,7 @@ Candidate selection is adaptive:
   tag image observation sessions by reader activity mode such as restore,
   slow-scroll, fast-scroll, momentum, and idle-preload.
 
-### 41. Large Search Lists Still Need Optimization
+### 43. Large Search Lists Still Need Optimization
 
 A restored or deeply paginated search list can leave 1000+ manga cards mounted
 behind manga details and reader. That state is valid and should not be hidden
@@ -639,7 +699,7 @@ and investigating DOM/style/layout cost from 1000+ mounted cards. Do not change
 the navigation behavior, hibernate top-level views, or remove card information
 without explicit approval.
 
-### 42. Separate Logical Position from Physical Scroll Surface
+### 44. Separate Logical Position from Physical Scroll Surface
 
 The reader can know about thousands of chapters without making the browser
 scroll a document that is tens of millions of pixels tall. Logical manga

@@ -2,7 +2,7 @@ import { chromium, type BrowserContext, type Page } from 'playwright';
 import path from 'node:path';
 import os from 'node:os';
 import { execFile } from 'node:child_process';
-import type { ServerMangaProvider } from '../providers/types.js';
+import type { RuntimeByteResult, ServerMangaProvider } from '../providers/types.js';
 import { ScrambledPageDecoder, type ScrambledPageDecodeRequest } from './ScrambledPageDecoder.js';
 
 const CLOAKBROWSER_PATH = path.join(os.homedir(), '.cloakbrowser/chromium-145.0.7632.159.7/chrome');
@@ -77,6 +77,7 @@ export class BrowserSession {
     private context: BrowserContext | null = null;
     private runtimeHttpPage: Page | null = null;
     private runtimeHttpReady = false;
+    private runtimeHttpHealthy = true;
     private runtimeHttpInit: Promise<void> | null = null;
     private _ready = false;
     private initPromise: Promise<void> | null = null;
@@ -86,21 +87,33 @@ export class BrowserSession {
     private readonly chapterPageInflight = new Map<string, Promise<unknown>>();
     private readonly chapterDetailCache = new Map<string, ChapterDetailCacheEntry>();
     private readonly chapterDetailInflight = new Map<string, Promise<unknown>>();
+    private readonly runtimeApiInflight = new Map<string, Promise<unknown>>();
     private decoder: ScrambledPageDecoder | null = null;
     private surfaceLogTimer: NodeJS.Timeout | null = null;
 
     constructor(
         private readonly provider: ServerMangaProvider,
     ) {
-        this.profileDir = path.join(PROFILE_BASE, `${provider.domain}-session`);
+        this.profileDir = provider.browserProfileDir ?? path.join(PROFILE_BASE, `${provider.domain}-session`);
     }
 
     get ready(): boolean {
         return this._ready;
     }
 
+    canRunBackgroundRuntimeWork(): boolean {
+        return this.runtimeHttpHealthy;
+    }
+
     async init(): Promise<void> {
-        if (this._ready) return;
+        if (this._ready && this.context) return;
+        if (this._ready && !this.context) {
+            this._ready = false;
+            this.runtimeHttpPage = null;
+            this.runtimeHttpReady = false;
+            this.runtimeHttpInit = null;
+            this.decoder = null;
+        }
         if (this.initPromise) return this.initPromise;
         this.initPromise = this.doInit();
         return this.initPromise;
@@ -112,7 +125,7 @@ export class BrowserSession {
 
         try {
             this.context = await chromium.launchPersistentContext(this.profileDir, {
-                executablePath: CLOAKBROWSER_PATH,
+                executablePath: this.provider.browserExecutablePath ?? CLOAKBROWSER_PATH,
                 args: STEALTH_ARGS,
                 ignoreDefaultArgs: IGNORE_DEFAULT_ARGS,
                 headless: false,
@@ -162,7 +175,16 @@ export class BrowserSession {
             return { data: cached, durationMs: Date.now() - start };
         }
 
-        const data = await this.fetchMangaDetailViaRuntimeHttp(mangaId);
+        let data: unknown;
+        try {
+            data = await this.fetchMangaDetailViaRuntimeHttp(mangaId);
+        } catch (e) {
+            if (!this.isClosedContextError(e)) throw e;
+            console.log(`[browserSession] context-recover provider=${this.provider.id} owner=manga-detail reason=${this.errorMessage(e)}`);
+            await this.resetBrowserContext('manga-detail-closed-context');
+            await this.init();
+            data = await this.fetchMangaDetailViaRuntimeHttp(mangaId);
+        }
         this.rememberMangaDetail(mangaId, data);
         return { data, durationMs: Date.now() - start };
     }
@@ -199,6 +221,13 @@ export class BrowserSession {
             const data = await this.fetchChapterPageViaRuntimeHttp(mangaId, page, pageSize);
             return { data, durationMs: Date.now() - start };
         } catch (e) {
+            if (this.isClosedContextError(e)) {
+                console.log(`[browserSession] context-recover provider=${this.provider.id} owner=chapter-list reason=${this.errorMessage(e)}`);
+                await this.resetBrowserContext('chapter-list-closed-context');
+                await this.init();
+                const data = await this.fetchChapterPageViaRuntimeHttp(mangaId, page, pageSize);
+                return { data, durationMs: Date.now() - start };
+            }
             const durationMs = Date.now() - start;
             const msg = (e as Error)?.message ?? String(e);
             console.log(`[browserSession] fetch-error ${mangaId} page=${page} ${durationMs}ms ${msg}`);
@@ -213,11 +242,59 @@ export class BrowserSession {
             const data = await this.fetchChapterDetailCached(mangaId, chapterId, chapterNumber, chapterUrl, context);
             return { data, durationMs: Date.now() - start };
         } catch (e) {
+            if (this.isClosedContextError(e)) {
+                console.log(`[browserSession] context-recover provider=${this.provider.id} owner=${context.owner ?? 'direct'} reason=${this.errorMessage(e)}`);
+                await this.resetBrowserContext('closed-context');
+                await this.init();
+                const data = await this.fetchChapterDetailCached(mangaId, chapterId, chapterNumber, chapterUrl, context);
+                return { data, durationMs: Date.now() - start };
+            }
             const durationMs = Date.now() - start;
-            const msg = (e as Error)?.message ?? String(e);
+            const msg = this.errorMessage(e);
             console.log(`[browserSession] fetch-error ${mangaId} chapter=${chapterId} ${browserFetchContextLog(context)} ${durationMs}ms ${msg}`);
             throw e;
         }
+    }
+
+    async fetchRuntimeApi(apiUrlOrPath: string, context: BrowserFetchContext = {}): Promise<BrowserFetchResult> {
+        await this.init();
+        const start = Date.now();
+        const probeMangaId = this.provider.runtimeProbeMangaId ?? '';
+        const apiPath = this.pathForRuntimeFetch(apiUrlOrPath);
+        const data = await this.runtimeHttpGet<unknown>(probeMangaId, apiPath);
+        console.log(`[browserSession] runtime-api provider=${this.provider.id} path=${apiPath} ${browserFetchContextLog(context)} ${Date.now() - start}ms`);
+        return { data, durationMs: Date.now() - start };
+    }
+
+    async fetchRuntimeByte(url: string, context: BrowserFetchContext = {}): Promise<RuntimeByteResult> {
+        await this.init();
+        const start = Date.now();
+        const probeMangaId = this.provider.runtimeProbeMangaId ?? '';
+        const page = await this.ensureRuntimeHttpPage(probeMangaId);
+        const result = await page.evaluate(async ({ url }) => {
+            const response = await fetch(url, { credentials: 'include' });
+            const buffer = await response.arrayBuffer();
+            return {
+                status: response.status,
+                contentType: response.headers.get('content-type') ?? 'application/octet-stream',
+                bytes: Array.from(new Uint8Array(buffer)),
+            };
+        }, { url: this.provider.absoluteUrl(url) });
+        if (result.status < 200 || result.status >= 300) {
+            throw new Error(`${this.provider.name} runtime byte fetch http=${result.status} url=${url}`);
+        }
+        console.log(`[browserSession] runtime-byte provider=${this.provider.id} url=${url} ${browserFetchContextLog(context)} bytes=${result.bytes.length} ${Date.now() - start}ms`);
+        return {
+            status: result.status,
+            contentType: result.contentType,
+            buffer: Buffer.from(result.bytes),
+        };
+    }
+
+    private pathForRuntimeFetch(apiUrlOrPath: string): string {
+        if (!apiUrlOrPath.startsWith('http')) return apiUrlOrPath;
+        const url = new URL(apiUrlOrPath);
+        return `${url.pathname}${url.search}`;
     }
 
     private chapterDetailKey(mangaId: string, chapterId: string): string {
@@ -392,10 +469,11 @@ export class BrowserSession {
 
         try {
             this.runtimeHttpReady = false;
-            await page.goto(this.provider.runtimePageUrl(mangaId), { waitUntil: 'domcontentloaded', timeout: 15_000 });
+            await page.goto(this.provider.runtimePageUrl(mangaId), { waitUntil: 'domcontentloaded', timeout: this.provider.runtimePageTimeoutMs ?? 15_000 });
             await this.provider.resolveRuntimeHttpClient(page, mangaId, 'browserSession');
             this.runtimeHttpPage = page;
             this.runtimeHttpReady = true;
+            this.runtimeHttpHealthy = true;
             console.log(`[browserSession] runtime-http ready ${mangaId} ${Date.now() - start}ms`);
         } catch (error) {
             if (this.runtimeHttpPage === page) {
@@ -403,9 +481,15 @@ export class BrowserSession {
             }
             this.runtimeHttpReady = false;
             const msg = (error as Error)?.message ?? String(error);
-            await page.close().catch(closeError => {
-                console.log(`[browserSession] runtime-http init-page-close failed manga=${mangaId}: ${(closeError as Error)?.message ?? closeError}`);
-            });
+            const openPages = this.context?.pages().filter(candidate => !candidate.isClosed()).length ?? 0;
+            if (openPages > 1) {
+                await page.close().catch(closeError => {
+                    console.log(`[browserSession] runtime-http init-page-close failed manga=${mangaId}: ${(closeError as Error)?.message ?? closeError}`);
+                });
+            } else {
+                console.log(`[browserSession] runtime-http init-page-kept provider=${this.provider.id} manga=${mangaId} reason=last-context-page`);
+            }
+            this.runtimeHttpHealthy = false;
             console.log(`[browserSession] runtime-http init-failed manga=${mangaId} ${Date.now() - start}ms ${msg}`);
             throw error;
         }
@@ -423,7 +507,54 @@ export class BrowserSession {
         }
     }
 
+    private async resetBrowserContext(reason: string): Promise<void> {
+        this._ready = false;
+        this.initPromise = null;
+        this.runtimeHttpPage = null;
+        this.runtimeHttpReady = false;
+        this.runtimeHttpInit = null;
+        await this.decoder?.destroy().catch(() => {});
+        this.decoder = null;
+        const context = this.context;
+        this.context = null;
+        if (context) {
+            await context.close().catch(e => {
+                console.log(`[browserSession] context-close failed provider=${this.provider.id} reason=${reason}: ${this.errorMessage(e)}`);
+            });
+        }
+        console.log(`[browserSession] context-reset provider=${this.provider.id} reason=${reason}`);
+    }
+
+    private isClosedContextError(error: unknown): boolean {
+        const msg = this.errorMessage(error);
+        return msg.includes('Target page, context or browser has been closed')
+            || msg.includes('browserContext.newPage')
+            || msg.includes('Context closed')
+            || msg.includes('Failed to open a new tab');
+    }
+
+    private errorMessage(error: unknown): string {
+        return (error as Error)?.message ?? String(error);
+    }
+
     private async runtimeHttpGet<T>(mangaId: string, apiPath: string, params?: Record<string, unknown>, attempt = 1): Promise<T> {
+        const key = this.runtimeApiKey(mangaId, apiPath, params);
+        const inflight = this.runtimeApiInflight.get(key);
+        if (inflight) {
+            console.log(`[browserSession] runtime-http join provider=${this.provider.id} manga=${mangaId} path=${apiPath}`);
+            return inflight as Promise<T>;
+        }
+        const promise = this.runtimeHttpGetOwned<T>(mangaId, apiPath, params, attempt)
+            .finally(() => this.runtimeApiInflight.delete(key));
+        this.runtimeApiInflight.set(key, promise);
+        return promise;
+    }
+
+    private runtimeApiKey(mangaId: string, apiPath: string, params?: Record<string, unknown>): string {
+        return `${mangaId}:${apiPath}:${JSON.stringify(params ?? {})}`;
+    }
+
+    private async runtimeHttpGetOwned<T>(mangaId: string, apiPath: string, params?: Record<string, unknown>, attempt = 1): Promise<T> {
         const page = await this.ensureRuntimeHttpPage(mangaId);
         try {
             return await page.evaluate(
@@ -435,25 +566,45 @@ export class BrowserSession {
                 { apiPath, params },
             ) as T;
         } catch (e) {
+            const msg = this.errorMessage(e);
+            if (!this.shouldResetRuntimeHttp(e)) {
+                console.log(`[browserSession] runtime-http request-failed provider=${this.provider.id} manga=${mangaId} path=${apiPath} reason=${msg}`);
+                throw e;
+            }
             if (attempt >= 2) throw e;
-            const msg = (e as Error)?.message ?? String(e);
             console.log(`[browserSession] runtime-http reset ${mangaId} path=${apiPath} reason=${msg}`);
-            await this.resetRuntimeHttpPage('runtime-http-error');
-            return this.runtimeHttpGet<T>(mangaId, apiPath, params, attempt + 1);
+            if (this.isClosedContextError(e)) {
+                await this.resetBrowserContext('runtime-http-closed-context');
+                await this.init();
+            } else {
+                await this.resetRuntimeHttpPage('runtime-http-error');
+            }
+            return this.runtimeHttpGetOwned<T>(mangaId, apiPath, params, attempt + 1);
         }
+    }
+
+    private shouldResetRuntimeHttp(error: unknown): boolean {
+        const msg = this.errorMessage(error);
+        return this.isClosedContextError(error)
+            || msg.includes('Provider runtime HTTP client unavailable')
+            || msg.includes('Comix main module not found')
+            || msg.includes('session unavailable')
+            || msg.includes('Just a moment');
     }
 
     private async fetchMangaDetailViaRuntimeHttp(mangaId: string): Promise<unknown> {
         const start = Date.now();
         const detail = await this.runtimeHttpGet<Record<string, unknown>>(mangaId, this.provider.mangaDetailPath(mangaId));
         const recommendations = await this.fetchMangaRecommendationsViaRuntimeHttp(mangaId);
-        const data = {
-            status: 'ok',
-            result: {
-                ...detail,
-                recommendations,
-            },
-        };
+        const data = this.provider.normalizeMangaDetail
+            ? this.provider.normalizeMangaDetail(detail, recommendations)
+            : {
+                status: 'ok',
+                result: {
+                    ...detail,
+                    recommendations,
+                },
+            };
         const tags = Array.isArray(detail?.tags) ? detail.tags.length : 0;
         const genres = Array.isArray(detail?.genres) ? detail.genres.length : 0;
         console.log(`[browserSession] manga-detail runtime-http ${mangaId} recommendations=${recommendations.length} genres=${genres} tags=${tags} ${Date.now() - start}ms`);
@@ -501,18 +652,31 @@ export class BrowserSession {
 
         const start = Date.now();
         const promise = (async () => {
-            const data = await this.runtimeHttpGet<Record<string, unknown>>(mangaId, this.provider.chapterListPath(mangaId), this.provider.chapterListParams(pageNum, pageSize));
+            const data = await this.runtimeHttpGet<Record<string, unknown> | unknown[]>(mangaId, this.provider.chapterListPath(mangaId), this.provider.chapterListParams(pageNum, pageSize));
             const fetchMs = Date.now() - start;
+            const dataRecord = !Array.isArray(data) && data && typeof data === 'object'
+                ? data as Record<string, unknown>
+                : {};
+            const itemsRaw = Array.isArray(data) ? data : dataRecord.items;
+            const paginationRaw = Array.isArray(data)
+                ? {
+                    current_page: 1,
+                    page: 1,
+                    last_page: 1,
+                    lastPage: 1,
+                    total: data.length,
+                }
+                : dataRecord.meta ?? dataRecord.pagination;
 
             const envelope = this.assertChapterListPayload(mangaId, pageNum, {
                 status: 'ok',
                 result: {
-                    items: data?.items ?? [],
-                    pagination: data?.meta ?? data?.pagination,
+                    items: itemsRaw ?? [],
+                    pagination: paginationRaw,
                 },
             });
-            const items = Array.isArray(data?.items) ? data.items.length : 0;
-            const pagination = this.asRecord(data?.meta) ?? this.asRecord(data?.pagination);
+            const items = Array.isArray(itemsRaw) ? itemsRaw.length : 0;
+            const pagination = this.asRecord(paginationRaw);
             const total = Number(pagination?.total ?? items);
             console.log(`[browserSession] runtime-http chapters ${mangaId} page=${pageNum} limit=${pageSize} items=${items} total=${Number.isFinite(total) ? total : items} ${fetchMs}ms`);
             this.rememberChapterPage(mangaId, pageNum, envelope, pageSize);

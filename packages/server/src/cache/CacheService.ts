@@ -6,14 +6,15 @@ import { CacheDatabase, type CacheJobEnqueueResult, type ImageStoreObservation, 
 import { CACHE_JOB_PRIORITY, DurableJobScheduler, type CacheJobPriorityName } from './DurableJobScheduler.js';
 import type { ByteCacheService } from './ByteCacheService.js';
 import type { ServerMangaProvider } from '../providers/types.js';
+import { getServerProvider } from '../services/providerRuntime.js';
 
 const NEWEST_LIMIT = 100;
 const CHAPTER_PAGE_SIZE = 100;
 const RECONCILE_PAGE_BUDGET = 5;
-const CACHE_WORKER_ID = 'cache-service';
 const DATA_CACHE_JOB_KINDS = ['seed-newest', 'crawl-search-page', 'cache-manga-detail', 'cache-chapters', 'reconcile-chapters', 'cache-chapter-page-map'];
 const CACHE_DAY_ROLLOVER_HOUR = 4;
 const CACHE_DAY_ROLLOVER_MINUTE = 45;
+const CRAWL_SEARCH_CONTRACT_VERSION = 'v2';
 const FAILED_DATA_RETRY_MS = 6 * 60 * 60 * 1000;
 const COVER_OWNERSHIP_REBUILD_VERSION = '1';
 const STORE_OBSERVATION_LIMIT = 50_000;
@@ -256,7 +257,7 @@ function chapterImageReadiness(data: unknown): { ready: boolean; pages: number; 
   const source = typeof record.source === 'string' ? record.source : 'unknown';
   const populated = pages.filter(page => pageImageUrl(page)).length;
   const scrambleKnown = pages.filter(page => page && typeof page === 'object' && typeof (page as Record<string, unknown>).scramble === 'boolean').length;
-  const ready = source === 'runtime-http'
+  const ready = (source === 'runtime-http' || source.endsWith('-api'))
     && schemaVersion === 2
     && targetCount !== null
     && targetCount > 0
@@ -388,6 +389,10 @@ function withImageStoreCandidates(
 function coverUrlFromItem(data: unknown, variant: 'card' | 'detail'): string | null {
   if (!data || typeof data !== 'object') return null;
   const raw = data as Record<string, unknown>;
+  const directCover = raw.cover;
+  if (typeof directCover === 'string' && directCover.length > 0) return directCover;
+  const photo = raw.photo;
+  if (typeof photo === 'string' && photo.length > 0) return photo;
   const poster = raw.poster && typeof raw.poster === 'object'
     ? raw.poster as Record<string, unknown>
     : {};
@@ -398,27 +403,34 @@ function coverUrlFromItem(data: unknown, variant: 'card' | 'detail'): string | n
 }
 
 export class CacheService {
-  private readonly db = new CacheDatabase();
-  private readonly scheduler = new DurableJobScheduler(this.db);
+  private readonly db: CacheDatabase;
+  private readonly scheduler: DurableJobScheduler;
+  private readonly workerId: string;
   private active = false;
   private started = false;
   private currentJob: CacheJob | null = null;
   private dailyRolloverTimer: ReturnType<typeof setTimeout> | null = null;
   private storeRanking: StoreRanking | null = null;
+  private backgroundRuntimePaused = false;
 
   constructor(
     private readonly browserSession: BrowserSession,
     private readonly provider: ServerMangaProvider,
     private readonly byteCache: ByteCacheService | null = null,
-  ) {}
+    db?: CacheDatabase,
+  ) {
+    this.db = db ?? new CacheDatabase();
+    this.scheduler = new DurableJobScheduler(this.db);
+    this.workerId = `cache-service:${provider.id}`;
+  }
 
   start(): void {
     if (this.started) return;
     this.started = true;
-    this.scheduler.recoverWorker(CACHE_WORKER_ID);
+    this.scheduler.recoverWorker(this.workerId);
     const staleChapterImages = this.db.deleteStaleChapterImageSchemaRows();
     if (staleChapterImages > 0) {
-      console.log(`[cache] chapter-image-schema-invalidated rows=${staleChapterImages} requiredSchema=2 reason=scramble-metadata`);
+      console.log(`[cache] chapter-image-schema-invalidated provider=${this.provider.id} rows=${staleChapterImages} requiredSchema=2 reason=scramble-metadata`);
     }
     if (this.byteCache) {
       const version = this.db.getMeta('cover-ownership-rebuild-version');
@@ -426,7 +438,7 @@ export class CacheService {
         const rebuilt = this.db.rebuildMangaCoverOwnershipFromCachedPayloads();
         const purged = this.db.purgeUnownedByteCache();
         this.db.setMeta('cover-ownership-rebuild-version', COVER_OWNERSHIP_REBUILD_VERSION);
-        console.log(`[coverCache] ownership-rebuild card=${rebuilt.card} detail=${rebuilt.detail} ready=${rebuilt.ready} purgedBytes=${purged.rows}`);
+        console.log(`[coverCache] ownership-rebuild provider=${this.provider.id} card=${rebuilt.card} detail=${rebuilt.detail} ready=${rebuilt.ready} purgedBytes=${purged.rows}`);
       }
     }
     this.enqueueChapterUploadDateRepairs();
@@ -435,7 +447,7 @@ export class CacheService {
       this.drain();
       this.scheduleDailyRollover();
     } else {
-      console.log('[cache] background-data-cache disabled; foreground requests only');
+      console.log(`[cache] background-data-cache disabled provider=${this.provider.id}; foreground requests only`);
     }
   }
 
@@ -450,6 +462,7 @@ export class CacheService {
   status(): Record<string, unknown> {
     return {
       started: this.started,
+      providerId: this.provider.id,
       active: this.active,
       currentJob: this.currentJob,
       durableJobs: this.scheduler.counts(),
@@ -475,7 +488,7 @@ export class CacheService {
     if (!cached) return null;
     const readiness = chapterImageReadiness(cached.data);
     if (cached.status !== 'ready' || !readiness.ready) {
-      console.log(`[cache] chapter-images not-ready manga=${mangaId} chapter=${chapterId} status=${cached.status} pages=${readiness.pages} targetCount=${readiness.targetCount ?? 'unknown'} source=${readiness.source} schema=${readiness.schemaVersion ?? 'unknown'} scrambleKnown=${readiness.scrambleKnown}`);
+      console.log(`[cache] chapter-images not-ready provider=${this.provider.id} manga=${mangaId} chapter=${chapterId} status=${cached.status} pages=${readiness.pages} targetCount=${readiness.targetCount ?? 'unknown'} source=${readiness.source} schema=${readiness.schemaVersion ?? 'unknown'} scrambleKnown=${readiness.scrambleKnown}`);
       return null;
     }
     return withImageStoreCandidates(
@@ -483,8 +496,8 @@ export class CacheService {
       mangaId,
       chapterId,
       context,
-      imageUrl => this.orderedImageStoreCandidates(imageUrl, 'preload'),
-      imageUrl => this.orderedImageStoreCandidates(imageUrl, 'critical'),
+      imageUrl => this.provider.imageDelivery === 'store-candidates' ? this.orderedImageStoreCandidates(imageUrl, 'preload') : [imageUrl],
+      imageUrl => this.provider.imageDelivery === 'store-candidates' ? this.orderedImageStoreCandidates(imageUrl, 'critical') : [imageUrl],
     );
   }
 
@@ -558,7 +571,7 @@ export class CacheService {
         chaptersReady: includeChapters ? chapters != null : false,
       });
     }
-    console.log(`[cache] manga-card-snapshots requested=${mangaIds.length} unique=${seen.size} includeChapters=${includeChapters} mangaReady=${snapshots.filter(item => item.mangaReady).length} chaptersReady=${snapshots.filter(item => item.chaptersReady).length}`);
+    console.log(`[cache] manga-card-snapshots provider=${this.provider.id} requested=${mangaIds.length} unique=${seen.size} includeChapters=${includeChapters} mangaReady=${snapshots.filter(item => item.mangaReady).length} chaptersReady=${snapshots.filter(item => item.chaptersReady).length}`);
     return snapshots;
   }
 
@@ -601,17 +614,17 @@ export class CacheService {
     if (!cached) {
       this.enqueue({ kind: 'cache-manga-detail', priority: normalizedPriority, mangaId, reason: `reconcile-missing-cache:${source}` });
       this.enqueue({ kind: 'cache-chapters', priority: normalizedPriority, mangaId, reason: `reconcile-missing-cache:${source}` });
-      console.log(`[cache] reconcile decision manga=${mangaId} source=${source} priority=${normalizedPriority} cachedMax=none observed=${observed ?? 'unknown'} action=full-refresh status=queued reason=missing-cache`);
+      console.log(`[cache] reconcile provider=${this.provider.id} decision manga=${mangaId} source=${source} priority=${normalizedPriority} cachedMax=none observed=${observed ?? 'unknown'} action=full-refresh status=queued reason=missing-cache`);
       return { status: 'queued', mangaId, cachedMax: null, observedLatestChapter: observed, action: 'full-refresh', reason: 'missing-cache' };
     }
 
     if (observed == null) {
-      console.log(`[cache] reconcile decision manga=${mangaId} source=${source} priority=${normalizedPriority} cachedMax=${cachedMax ?? 'unknown'} observed=invalid action=none status=ignored reason=invalid-observed`);
+      console.log(`[cache] reconcile provider=${this.provider.id} decision manga=${mangaId} source=${source} priority=${normalizedPriority} cachedMax=${cachedMax ?? 'unknown'} observed=invalid action=none status=ignored reason=invalid-observed`);
       return { status: 'ignored', mangaId, cachedMax, observedLatestChapter: null, action: 'none', reason: 'invalid-observed' };
     }
 
     if (cachedMax != null && cachedMax >= observed) {
-      console.log(`[cache] reconcile decision manga=${mangaId} source=${source} priority=${normalizedPriority} cachedMax=${cachedMax} observed=${observed} action=none status=fresh reason=cached-up-to-date`);
+      console.log(`[cache] reconcile provider=${this.provider.id} decision manga=${mangaId} source=${source} priority=${normalizedPriority} cachedMax=${cachedMax} observed=${observed} action=none status=fresh reason=cached-up-to-date`);
       return { status: 'fresh', mangaId, cachedMax, observedLatestChapter: observed, action: 'none', reason: 'cached-up-to-date' };
     }
 
@@ -623,7 +636,7 @@ export class CacheService {
       source,
       reason: `stale-cache:${source}`,
     });
-    console.log(`[cache] reconcile decision manga=${mangaId} source=${source} priority=${normalizedPriority} cachedMax=${cachedMax ?? 'unknown'} observed=${observed} action=reconcile status=${status} reason=stale-cache`);
+    console.log(`[cache] reconcile provider=${this.provider.id} decision manga=${mangaId} source=${source} priority=${normalizedPriority} cachedMax=${cachedMax ?? 'unknown'} observed=${observed} action=reconcile status=${status} reason=stale-cache`);
     return { status: status === 'promoted' ? 'promoted' : 'queued', mangaId, cachedMax, observedLatestChapter: observed, action: 'reconcile', reason: 'stale-cache' };
   }
 
@@ -635,7 +648,11 @@ export class CacheService {
   observeImageStore(observation: Omit<ImageStoreObservation, 'source'>): void {
     this.db.observeImageStore({ ...observation, source: 'frontend' });
     this.storeRanking = null;
-    console.log(`[cache] image-store-observed ok=${observation.ok} status=${observation.status} totalMs=${observation.totalMs ?? 'unknown'} image=${observation.imageUrl} store=${observation.storeUrl}`);
+    if (this.provider.imageDelivery !== 'store-candidates') {
+      console.log(`[cache] image-store-observed ignored provider=${this.provider.id} reason=direct-images image=${observation.imageUrl} store=${observation.storeUrl}`);
+      return;
+    }
+    console.log(`[cache] image-store-observed provider=${this.provider.id} ok=${observation.ok} status=${observation.status} totalMs=${observation.totalMs ?? 'unknown'} image=${observation.imageUrl} store=${observation.storeUrl}`);
   }
 
   refreshChapterImages(mangaId: string, chapterId: string, chapterNumber?: number, chapterUrl?: string, reason = 'frontend-refresh'): void {
@@ -839,8 +856,16 @@ export class CacheService {
   }
 
   private nextJob() {
-    const minPriority = DATA_CACHE_BACKGROUND_ENABLED ? undefined : CACHE_JOB_PRIORITY.foreground;
-    return this.scheduler.claimNext(CACHE_WORKER_ID, 30 * 60 * 1000, DATA_CACHE_JOB_KINDS, minPriority);
+    const runtimeAvailable = this.browserSession.canRunBackgroundRuntimeWork();
+    if (!runtimeAvailable && !this.backgroundRuntimePaused) {
+      this.backgroundRuntimePaused = true;
+      console.log(`[cache] runtime-background-paused provider=${this.provider.id} reason=provider-runtime-unhealthy`);
+    } else if (runtimeAvailable && this.backgroundRuntimePaused) {
+      this.backgroundRuntimePaused = false;
+      console.log(`[cache] runtime-background-resumed provider=${this.provider.id}`);
+    }
+    const minPriority = DATA_CACHE_BACKGROUND_ENABLED && runtimeAvailable ? undefined : CACHE_JOB_PRIORITY.foreground;
+    return this.scheduler.claimNext(this.workerId, 30 * 60 * 1000, DATA_CACHE_JOB_KINDS, minPriority);
   }
 
   private hasChapterRepairWork(mangaId: string): boolean {
@@ -885,7 +910,7 @@ export class CacheService {
       const start = Date.now();
       const queueAgeMs = Math.max(0, start - record.createdAt);
       const requestWaitMs = job.requestedAt ? Math.max(0, start - job.requestedAt) : 'unknown';
-      console.log(`[cache] job-start id=${record.id} kind=${job.kind} manga=${job.mangaId ?? 'none'} priority=${job.priority} reason=${job.reason} queueAgeMs=${queueAgeMs} requestWaitMs=${requestWaitMs} attempt=${record.attempts}/${record.maxAttempts}`);
+      console.log(`[cache] job-start provider=${this.provider.id} id=${record.id} kind=${job.kind} manga=${job.mangaId ?? 'none'} priority=${job.priority} reason=${job.reason} queueAgeMs=${queueAgeMs} requestWaitMs=${requestWaitMs} attempt=${record.attempts}/${record.maxAttempts}`);
       try {
         if (job.kind === 'seed-newest') await this.seedNewest(job);
         else if (job.kind === 'crawl-search-page') await this.crawlSearchPage(job);
@@ -894,16 +919,16 @@ export class CacheService {
         else if (job.kind === 'reconcile-chapters' && job.mangaId) await this.reconcileChapters(job.mangaId, job);
         else if (job.kind === 'cache-chapter-page-map' && job.mangaId && job.chapterId) await this.cacheChapterPageMap(job.mangaId, job.chapterId, job);
         this.scheduler.complete(record);
-        console.log(`[cache] job-done id=${record.id} kind=${job.kind} manga=${job.mangaId ?? 'none'} priority=${job.priority} reason=${job.reason} queueAgeMs=${queueAgeMs} requestWaitMs=${requestWaitMs} runMs=${Date.now() - start}`);
+        console.log(`[cache] job-done provider=${this.provider.id} id=${record.id} kind=${job.kind} manga=${job.mangaId ?? 'none'} priority=${job.priority} reason=${job.reason} queueAgeMs=${queueAgeMs} requestWaitMs=${requestWaitMs} runMs=${Date.now() - start}`);
       } catch (e) {
         if (e instanceof CacheJobYield) {
           this.scheduler.yield(record, e.message);
-          console.log(`[cache] job-yield id=${record.id} kind=${job.kind} manga=${job.mangaId ?? 'none'} priority=${job.priority} reason=${job.reason} queueAgeMs=${queueAgeMs} requestWaitMs=${requestWaitMs} runMs=${Date.now() - start} ${e.message}`);
+          console.log(`[cache] job-yield provider=${this.provider.id} id=${record.id} kind=${job.kind} manga=${job.mangaId ?? 'none'} priority=${job.priority} reason=${job.reason} queueAgeMs=${queueAgeMs} requestWaitMs=${requestWaitMs} runMs=${Date.now() - start} ${e.message}`);
           continue;
         }
         const msg = conciseError((e as Error)?.message ?? String(e));
         this.scheduler.retry(record, msg, this.retryDelayMs(record.attempts));
-        console.log(`[cache] job-failed id=${record.id} kind=${job.kind} manga=${job.mangaId ?? 'none'} priority=${job.priority} reason=${job.reason} queueAgeMs=${queueAgeMs} requestWaitMs=${requestWaitMs} runMs=${Date.now() - start} ${msg}`);
+        console.log(`[cache] job-failed provider=${this.provider.id} id=${record.id} kind=${job.kind} manga=${job.mangaId ?? 'none'} priority=${job.priority} reason=${job.reason} queueAgeMs=${queueAgeMs} requestWaitMs=${requestWaitMs} runMs=${Date.now() - start} ${msg}`);
       }
     }
   }
@@ -914,23 +939,23 @@ export class CacheService {
 
   private startDailyNewestCrawl(): void {
     const crawlDate = todayKey();
-    if (this.db.getMeta(`crawl-search-newest:${crawlDate}:complete`) === '1') {
-      console.log(`[cache] start daily-crawl date=${crawlDate} action=already-complete`);
+    if (this.db.getMeta(this.crawlSearchMetaKey(crawlDate, 'complete')) === '1') {
+      console.log(`[cache] start daily-crawl provider=${this.provider.id} date=${crawlDate} action=already-complete`);
       return;
     }
 
     const existing = this.crawlSearchJobsForDate(crawlDate);
     if (existing.length > 0) {
-      console.log(`[cache] start daily-crawl date=${crawlDate} action=resume-existing jobs=${existing.length}`);
+      console.log(`[cache] start daily-crawl provider=${this.provider.id} date=${crawlDate} action=resume-existing jobs=${existing.length}`);
       this.drain();
       return;
     }
 
     const demoted = this.demoteOlderSearchCrawls(crawlDate);
-    const lastPage = Number(this.db.getMeta(`crawl-search-newest:${crawlDate}:last-page`) ?? 0);
+    const lastPage = Number(this.db.getMeta(this.crawlSearchMetaKey(crawlDate, 'last-page')) ?? 0);
     const page = Number.isFinite(lastPage) && lastPage > 0 ? lastPage + 1 : 1;
     this.enqueue({ kind: 'crawl-search-page', priority: 'daily', page, crawlDate, reason: 'startup' });
-    console.log(`[cache] start daily-crawl date=${crawlDate} action=enqueue page=${page} demotedOldCrawls=${demoted}`);
+    console.log(`[cache] start daily-crawl provider=${this.provider.id} date=${crawlDate} action=enqueue page=${page} demotedOldCrawls=${demoted}`);
   }
 
   private scheduleDailyRollover(): void {
@@ -953,12 +978,13 @@ export class CacheService {
     const reason = job.reason;
     const url = this.provider.newestSearchUrl(page, NEWEST_LIMIT);
     const start = Date.now();
-    const { data, meta } = await proxyFetchJson(url, { cloudflareProtected: true });
-    const items = resultItems(data);
-    const pagination = resultPagination(data);
-    const lastPage = Number(pagination.last_page ?? pagination.lastPage ?? page);
+    const { data, status } = await this.fetchSearchCrawlData(url, job);
+    const parsed = await this.parseSearchCrawlData(data);
+    const items = parsed.items;
+    const pagination = parsed.pagination ?? {};
+    const lastPage = Number(pagination.last_page ?? pagination.lastPage ?? pagination.lastPage ?? page);
     this.db.setMeta(`newest-page-${page}`, JSON.stringify(data));
-    this.db.setMeta(`crawl-search-newest:${crawlDate}:last-page`, String(page));
+    this.db.setMeta(this.crawlSearchMetaKey(crawlDate, 'last-page'), String(page));
 
     let queued = 0;
     let coverDiscovered = 0;
@@ -986,19 +1012,54 @@ export class CacheService {
         reason: `crawl-next:${crawlDate}`,
       });
     } else if (!hasNext) {
-      this.db.setMeta(`crawl-search-newest:${crawlDate}:complete`, '1');
+      this.db.setMeta(this.crawlSearchMetaKey(crawlDate, 'complete'), '1');
     }
 
     const next = hasNext
       ? otherFrontierExists ? 'existing-frontier' : page + 1
       : 'none';
-    console.log(`[cache] search-crawl page=${page}/${lastPage} date=${crawlDate} fetched=${items.length} queuedManga=${queued} covers=${coverDiscovered} queuedCovers=${coverQueued} next=${next} http=${meta.status} fetchMs=${Date.now() - start}`);
+    console.log(`[cache] search-crawl provider=${this.provider.id} page=${page}/${lastPage} date=${crawlDate} fetched=${items.length} queuedManga=${queued} covers=${coverDiscovered} queuedCovers=${coverQueued} next=${next} http=${status} fetchMs=${Date.now() - start}`);
+  }
+
+  private async fetchSearchCrawlData(url: string, job: CacheJob): Promise<{ data: unknown; status: number }> {
+    if (this.provider.id === 'mangadotnet') {
+      const result = await this.browserSession.fetchRuntimeApi(url, {
+        owner: 'cache-search-crawl',
+        priority: job.priority,
+        reason: job.reason,
+      });
+      return { data: result.data, status: 200 };
+    }
+    const { data, meta } = await proxyFetchJson(url, { cloudflareProtected: true });
+    return { data, status: meta.status };
+  }
+
+  private async parseSearchCrawlData(data: unknown): Promise<{ items: unknown[]; pagination: Record<string, unknown> }> {
+    if (this.provider.id === 'comix') {
+      return { items: resultItems(data), pagination: resultPagination(data) };
+    }
+    const provider = await getServerProvider(this.provider.id);
+    const parsed = provider.parseSearchResponse(data);
+    return {
+      items: parsed.items,
+      pagination: {
+        current_page: parsed.pagination?.currentPage ?? 1,
+        page: parsed.pagination?.currentPage ?? 1,
+        last_page: parsed.pagination?.lastPage ?? 1,
+        lastPage: parsed.pagination?.lastPage ?? 1,
+        total: parsed.pagination?.total ?? parsed.items.length,
+      },
+    };
+  }
+
+  private crawlSearchMetaKey(crawlDate: string, suffix: string): string {
+    return `crawl-search-newest:${CRAWL_SEARCH_CONTRACT_VERSION}:${crawlDate}:${suffix}`;
   }
 
   private async cacheMangaDetail(mangaId: string, job: CacheJob): Promise<void> {
     const existing = this.db.getManga(mangaId)?.data ?? null;
     if (!job.force && isMangaDetailPayload(existing)) {
-      console.log(`[cache] manga-detail skip manga=${mangaId} reason=cached`);
+      console.log(`[cache] manga-detail provider=${this.provider.id} skip manga=${mangaId} reason=cached`);
       return;
     }
 
@@ -1013,7 +1074,7 @@ export class CacheService {
     const genres = Array.isArray(r.genres) ? r.genres.length : 0;
     const description = Boolean(r.synopsis || r.description);
     const coverJobs = this.enqueueMangaCoverJob(mangaId, r, 'detail', 'manga-detail', job.priority);
-    console.log(`[cache] manga-detail cached manga=${mangaId} recommendations=${recommendations} genres=${genres} tags=${tags} description=${description} cover=${coverJobs.queued}/${coverJobs.discovered} fetchMs=${result.durationMs}`);
+    console.log(`[cache] manga-detail provider=${this.provider.id} cached manga=${mangaId} recommendations=${recommendations} genres=${genres} tags=${tags} description=${description} cover=${coverJobs.queued}/${coverJobs.discovered} fetchMs=${result.durationMs}`);
   }
 
   private crawlSearchJobsForDate(crawlDate: string): CacheJob[] {
@@ -1040,7 +1101,7 @@ export class CacheService {
 
   private async cacheChapters(mangaId: string, job: CacheJob): Promise<void> {
     if (!job.force && this.db.getChapterList(mangaId)) {
-      console.log(`[cache] chapters skip manga=${mangaId} reason=cached`);
+      console.log(`[cache] chapters provider=${this.provider.id} skip manga=${mangaId} reason=cached`);
       return;
     }
 
@@ -1056,7 +1117,7 @@ export class CacheService {
       }
       if (this.scheduler.runnableCountAbove('background') > 0 && job.priority === 'background') {
         this.enqueue({ kind: 'cache-chapters', priority: 'background', mangaId, reason: 'resume-after-foreground' });
-        console.log(`[cache] chapters yield manga=${mangaId} higherPriorityJobs=${this.scheduler.runnableCountAbove('background')}`);
+        console.log(`[cache] chapters provider=${this.provider.id} yield manga=${mangaId} higherPriorityJobs=${this.scheduler.runnableCountAbove('background')}`);
         return;
       }
       try {
@@ -1065,7 +1126,7 @@ export class CacheService {
       } catch (e) {
         failed++;
         const msg = (e as Error)?.message ?? String(e);
-        console.log(`[cache] chapters page-failed manga=${mangaId} page=${page}/${lastPage} ${msg}`);
+        console.log(`[cache] chapters provider=${this.provider.id} page-failed manga=${mangaId} page=${page}/${lastPage} ${msg}`);
       }
     }
 
@@ -1085,13 +1146,13 @@ export class CacheService {
     };
     this.db.upsertChapterList(mangaId, staticChapterListPayload(cached), failed > 0 ? 'partial' : 'ready');
     const pageMapJobs = this.enqueueChapterPageMapJobs(mangaId, allItems, 'chapter-list-cached');
-    console.log(`[cache] chapters cached manga=${mangaId} pages=${lastPage} items=${allItems.length} failed=${failed} pageMapJobs=${pageMapJobs.queued}/${pageMapJobs.discovered}`);
+    console.log(`[cache] chapters provider=${this.provider.id} cached manga=${mangaId} pages=${lastPage} items=${allItems.length} failed=${failed} pageMapJobs=${pageMapJobs.queued}/${pageMapJobs.discovered}`);
   }
 
   private async reconcileChapters(mangaId: string, job: CacheJob): Promise<void> {
     const cached = this.db.getChapterList(mangaId);
     if (!cached) {
-      console.log(`[cache] reconcile missing-cache manga=${mangaId} priority=${job.priority} source=${job.source ?? 'unknown'} action=full-refresh`);
+      console.log(`[cache] reconcile provider=${this.provider.id} missing-cache manga=${mangaId} priority=${job.priority} source=${job.source ?? 'unknown'} action=full-refresh`);
       this.enqueue({ kind: 'cache-chapters', priority: job.priority, mangaId, force: true, reason: 'reconcile-missing-cache' });
       return;
     }
@@ -1101,7 +1162,7 @@ export class CacheService {
     const { max: previousMax } = chapterSummary(cachedItems);
     const observed = job.observedLatestChapter;
     if (observed != null && previousMax != null && previousMax >= observed) {
-      console.log(`[cache] reconcile fresh-at-run manga=${mangaId} cachedMax=${previousMax} observed=${observed} priority=${job.priority}`);
+      console.log(`[cache] reconcile provider=${this.provider.id} fresh-at-run manga=${mangaId} cachedMax=${previousMax} observed=${observed} priority=${job.priority}`);
       return;
     }
 
@@ -1135,18 +1196,18 @@ export class CacheService {
         newItems.push(item);
         pageNew++;
       }
-      console.log(`[cache] reconcile page manga=${mangaId} page=${page} items=${items.length} new=${pageNew} reachedExisting=${reachedExisting} cachedMax=${previousMax ?? 'unknown'} observed=${observed ?? 'unknown'}`);
+      console.log(`[cache] reconcile provider=${this.provider.id} page manga=${mangaId} page=${page} items=${items.length} new=${pageNew} reachedExisting=${reachedExisting} cachedMax=${previousMax ?? 'unknown'} observed=${observed ?? 'unknown'}`);
       if (reachedExisting) break;
     }
 
     if (!reachedExisting && fetchedPages >= RECONCILE_PAGE_BUDGET) {
       this.enqueue({ kind: 'cache-chapters', priority: job.priority, mangaId, force: true, reason: 'reconcile-budget-exceeded' });
-      console.log(`[cache] reconcile fallback manga=${mangaId} pages=${fetchedPages} new=${newItems.length} action=full-refresh reason=budget-exceeded`);
+      console.log(`[cache] reconcile provider=${this.provider.id} fallback manga=${mangaId} pages=${fetchedPages} new=${newItems.length} action=full-refresh reason=budget-exceeded`);
       return;
     }
 
     if (newItems.length === 0) {
-      console.log(`[cache] reconcile no-new-items manga=${mangaId} cachedMax=${previousMax ?? 'unknown'} observed=${observed ?? 'unknown'} pages=${fetchedPages}`);
+      console.log(`[cache] reconcile provider=${this.provider.id} no-new-items manga=${mangaId} cachedMax=${previousMax ?? 'unknown'} observed=${observed ?? 'unknown'} pages=${fetchedPages}`);
       return;
     }
 
@@ -1176,7 +1237,7 @@ export class CacheService {
 
     this.db.upsertChapterList(mangaId, staticChapterListPayload(merged), cached.status === 'partial' ? 'partial' : 'ready');
     const pageMapJobs = this.enqueueChapterPageMapJobs(mangaId, newItems, 'chapter-reconcile-new');
-    console.log(`[cache] reconcile merged manga=${mangaId} previousCount=${cachedItems.length} nextCount=${mergedItems.length} previousMax=${previousMax ?? 'unknown'} nextMax=${nextMax ?? 'unknown'} new=${newItems.length} pages=${fetchedPages} pageMapJobs=${pageMapJobs.queued}/${pageMapJobs.discovered}`);
+    console.log(`[cache] reconcile provider=${this.provider.id} merged manga=${mangaId} previousCount=${cachedItems.length} nextCount=${mergedItems.length} previousMax=${previousMax ?? 'unknown'} nextMax=${nextMax ?? 'unknown'} new=${newItems.length} pages=${fetchedPages} pageMapJobs=${pageMapJobs.queued}/${pageMapJobs.discovered}`);
   }
 
   private async fetchChapterPage(mangaId: string, page: number): Promise<unknown> {
@@ -1217,7 +1278,7 @@ export class CacheService {
 
   private async cacheChapterPageMap(mangaId: string, chapterId: string, job: CacheJob): Promise<void> {
     if (!job.force && this.getChapterImages(mangaId, chapterId)) {
-      console.log(`[cache] chapter-page-map skip manga=${mangaId} chapter=${chapterId} priority=${job.priority} reason=${job.reason} status=cached`);
+      console.log(`[cache] chapter-page-map provider=${this.provider.id} skip manga=${mangaId} chapter=${chapterId} priority=${job.priority} reason=${job.reason} status=cached`);
       return;
     }
 
@@ -1236,7 +1297,7 @@ export class CacheService {
       if (imageUrl) learnStoreHostFromUrl(imageUrl);
     }
     this.db.upsertChapterImages(mangaId, chapterId, result.data, readiness.ready ? 'ready' : 'empty');
-    console.log(`[cache] chapter-page-map cached manga=${mangaId} chapter=${chapterId} priority=${job.priority} reason=${job.reason} status=${readiness.ready ? 'ready' : 'empty'} pages=${pages.length} targetCount=${readiness.targetCount ?? 'unknown'} source=${readiness.source} schema=${readiness.schemaVersion ?? 'unknown'} scrambleKnown=${readiness.scrambleKnown} scrambled=${scrambled} fetchMs=${result.durationMs} totalMs=${Date.now() - start}`);
+    console.log(`[cache] chapter-page-map provider=${this.provider.id} cached manga=${mangaId} chapter=${chapterId} priority=${job.priority} reason=${job.reason} status=${readiness.ready ? 'ready' : 'empty'} pages=${pages.length} targetCount=${readiness.targetCount ?? 'unknown'} source=${readiness.source} schema=${readiness.schemaVersion ?? 'unknown'} scrambleKnown=${readiness.scrambleKnown} scrambled=${scrambled} fetchMs=${result.durationMs} totalMs=${Date.now() - start}`);
   }
 
   private resourceKey(job: CacheJob): string | null {

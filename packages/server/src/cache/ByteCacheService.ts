@@ -7,14 +7,16 @@ import { BYTE_CACHE_DIR, CACHE_MAX_AGE } from '../config.js';
 import { proxyFetch } from '../utils/proxyFetch.js';
 import { CacheDatabase, type CacheJobEnqueueResult, type MangaCoverVariant } from './sqlite.js';
 import { DurableJobScheduler, type CacheJobPriorityName } from './DurableJobScheduler.js';
+import type { RuntimeByteResult } from '../providers/types.js';
 
 const BYTE_CACHE_WORKER_ID = 'byte-cache-service';
 const BYTE_CACHE_JOB_KIND = 'cache-byte';
 const FAILED_BYTE_RETRY_MS = 60 * 60 * 1000;
 
 export class ByteCacheService {
-  private readonly db = new CacheDatabase();
-  private readonly scheduler = new DurableJobScheduler(this.db);
+  private readonly db: CacheDatabase;
+  private readonly scheduler: DurableJobScheduler;
+  private readonly ownsDb: boolean;
   private active = false;
   private started = false;
   private currentJob: { sourceUrl: string; reason: string } | null = null;
@@ -24,12 +26,20 @@ export class ByteCacheService {
   private summaryBytes = 0;
   private summarySkipped = 0;
 
-  constructor(private readonly rootDir = BYTE_CACHE_DIR) {
+  constructor(
+    private readonly rootDir = BYTE_CACHE_DIR,
+    db?: CacheDatabase,
+    private readonly ownerId = 'comix',
+    private readonly runtimeByteFetcher?: (url: string, context: { owner?: string; priority?: string; reason?: string }) => Promise<RuntimeByteResult>,
+  ) {
+    this.db = db ?? new CacheDatabase();
+    this.ownsDb = !db;
+    this.scheduler = new DurableJobScheduler(this.db);
     fs.mkdirSync(this.rootDir, { recursive: true });
   }
 
   close(): void {
-    this.db.close();
+    if (this.ownsDb) this.db.close();
   }
 
   start(): void {
@@ -37,7 +47,7 @@ export class ByteCacheService {
     this.started = true;
     this.scheduler.recoverWorker(BYTE_CACHE_WORKER_ID);
     this.drain();
-    console.log('[byteCache] start');
+    console.log(`[byteCache] start provider=${this.ownerId}`);
   }
 
   warmCover(mangaId: string, variant: MangaCoverVariant, sourceUrl: string, referer: string | undefined, priority: CacheJobPriorityName, reason: string): CacheJobEnqueueResult {
@@ -71,7 +81,7 @@ export class ByteCacheService {
       res.set('Cache-Control', `public, max-age=${CACHE_MAX_AGE}`);
       if (owned.bytes != null) res.set('Content-Length', String(owned.bytes));
       await pipeline(fs.createReadStream(this.localPath(owned.localKey)), res);
-      console.log(`[coverCache] hit manga=${mangaId} variant=${variant} bytes=${owned.bytes ?? 0} totalMs=${Date.now() - start}`);
+      console.log(`[coverCache] hit provider=${this.ownerId} manga=${mangaId} variant=${variant} bytes=${owned.bytes ?? 0} totalMs=${Date.now() - start}`);
       return;
     }
 
@@ -84,13 +94,9 @@ export class ByteCacheService {
     if (referer) headers.Referer = referer;
 
     try {
-      const { response, meta } = await proxyFetch(sourceUrl, {
-        headers,
-        cloudflareProtected: true,
-      });
-
-      const contentType = response.headers.get('content-type') || 'application/octet-stream';
-      const buffer = Buffer.from(await response.arrayBuffer());
+      const fetched = await this.fetchBytes(sourceUrl, headers, { owner: 'cover-cache', priority: 'foreground', reason: `stream-cover:${variant}` });
+      const contentType = fetched.contentType;
+      const buffer = fetched.buffer;
       this.writeAtomically(finalPath, buffer);
       this.db.upsertByteCacheReady(sourceUrl, localKey, contentType, buffer.byteLength);
       this.db.upsertMangaCoverReady(mangaId, variant, sourceUrl, localKey, contentType, buffer.byteLength);
@@ -100,12 +106,12 @@ export class ByteCacheService {
       res.set('Content-Length', String(buffer.byteLength));
       res.send(buffer);
 
-      console.log(`[coverCache] miss-store ok manga=${mangaId} variant=${variant} domain=${meta.domain} bytes=${buffer.byteLength} ttfbMs=${meta.durationMs} totalMs=${Date.now() - start}`);
+      console.log(`[coverCache] miss-store ok provider=${this.ownerId} manga=${mangaId} variant=${variant} bytes=${buffer.byteLength} totalMs=${Date.now() - start}`);
     } catch (e) {
       const message = conciseError((e as Error)?.message ?? String(e));
       this.db.upsertByteCacheFailed(sourceUrl, localKey, message);
       this.db.upsertMangaCoverFailed(mangaId, variant, sourceUrl, localKey, message);
-      console.log(`[coverCache] miss-store failed manga=${mangaId} variant=${variant} url=${sourceUrl} totalMs=${Date.now() - start} error=${message}`);
+      console.log(`[coverCache] miss-store failed provider=${this.ownerId} manga=${mangaId} variant=${variant} url=${sourceUrl} totalMs=${Date.now() - start} error=${message}`);
       if (!res.headersSent) res.status(502).json({ error: message, status: 502 });
       else res.destroy();
     }
@@ -125,12 +131,9 @@ export class ByteCacheService {
     if (referer) headers.Referer = referer;
 
     try {
-      const { response } = await proxyFetch(sourceUrl, {
-        headers,
-        cloudflareProtected: true,
-      });
-      const contentType = response.headers.get('content-type') || 'application/octet-stream';
-      const buffer = Buffer.from(await response.arrayBuffer());
+      const fetched = await this.fetchBytes(sourceUrl, headers, { owner: 'byte-cache', priority: 'background', reason: owner ? `cover:${owner.variant}` : 'cache-byte' });
+      const contentType = fetched.contentType;
+      const buffer = fetched.buffer;
       this.writeAtomically(finalPath, buffer);
       this.db.upsertByteCacheReady(sourceUrl, localKey, contentType, buffer.byteLength);
       if (owner) this.db.upsertMangaCoverReady(owner.mangaId, owner.variant, sourceUrl, localKey, contentType, buffer.byteLength);
@@ -139,7 +142,7 @@ export class ByteCacheService {
       const message = conciseError((e as Error)?.message ?? String(e));
       this.db.upsertByteCacheFailed(sourceUrl, localKey, message);
       if (owner) this.db.upsertMangaCoverFailed(owner.mangaId, owner.variant, sourceUrl, localKey, message);
-      console.log(`[byteCache] job-store failed url=${sourceUrl} totalMs=${Date.now() - start} error=${message}`);
+      console.log(`[byteCache] job-store failed provider=${this.ownerId} url=${sourceUrl} totalMs=${Date.now() - start} error=${message}`);
       throw e;
     }
   }
@@ -151,6 +154,21 @@ export class ByteCacheService {
       this.active = false;
       this.currentJob = null;
     });
+  }
+
+  private async fetchBytes(sourceUrl: string, headers: Record<string, string>, context: { owner?: string; priority?: string; reason?: string }): Promise<RuntimeByteResult> {
+    if (this.runtimeByteFetcher) {
+      return this.runtimeByteFetcher(sourceUrl, context);
+    }
+    const { response } = await proxyFetch(sourceUrl, {
+      headers,
+      cloudflareProtected: true,
+    });
+    return {
+      status: response.status,
+      contentType: response.headers.get('content-type') || 'application/octet-stream',
+      buffer: Buffer.from(await response.arrayBuffer()),
+    };
   }
 
   private async runLoop(): Promise<void> {
@@ -181,7 +199,7 @@ export class ByteCacheService {
     if (result.skipped) this.summarySkipped++;
     const now = Date.now();
     if (this.summaryJobs < 100 && now - this.summaryLastLogAt < 30_000) return;
-    console.log(`[byteCache] jobs-summary jobs=${this.summaryJobs} skipped=${this.summarySkipped} bytes=${this.summaryBytes} windowMs=${now - this.summaryStartedAt}`);
+    console.log(`[byteCache] jobs-summary provider=${this.ownerId} jobs=${this.summaryJobs} skipped=${this.summarySkipped} bytes=${this.summaryBytes} windowMs=${now - this.summaryStartedAt}`);
     this.summaryJobs = 0;
     this.summaryBytes = 0;
     this.summarySkipped = 0;

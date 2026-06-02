@@ -98,6 +98,7 @@ export const comixServerProvider: ServerMangaProvider = {
   domain: DOMAIN,
   baseUrl: BASE_URL,
   runtimeImageSource: 'runtime-http',
+  imageDelivery: 'store-candidates',
 
   async resolveRuntimeHttpClient(page: Page, probeMangaId: string, owner: string): Promise<void> {
     const start = Date.now();

@@ -45,7 +45,7 @@ export interface LoadedChapter {
     unloaded?: boolean;
 }
 
-export type ViewMode = 'list' | 'favorites' | 'manga' | 'reader' | 'chapter-comments';
+export type ViewMode = 'list' | 'favorites' | 'providers' | 'manga' | 'reader' | 'chapter-comments';
 
 export interface ReaderPageData {
     key: string;

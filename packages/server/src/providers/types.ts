@@ -8,17 +8,29 @@ export interface RuntimeChapterImages {
   pages: Array<{ url: string; width: number; height: number; scramble: boolean }>;
 }
 
+export interface RuntimeByteResult {
+  buffer: Buffer;
+  contentType: string;
+  status: number;
+}
+
 export interface ServerMangaProvider {
   readonly id: string;
   readonly name: string;
   readonly domain: string;
   readonly baseUrl: string;
   readonly runtimeImageSource: string;
+  readonly imageDelivery: 'store-candidates' | 'direct';
+  readonly browserProfileDir?: string;
+  readonly browserExecutablePath?: string;
+  readonly runtimeProbeMangaId?: string;
+  readonly runtimePageTimeoutMs?: number;
 
   resolveRuntimeHttpClient(page: Page, probeMangaId: string, owner: string): Promise<void>;
   runtimePageUrl(mangaId: string): string;
   mangaDetailPath(mangaId: string): string;
   mangaRecommendationsPath(mangaId: string): string;
+  normalizeMangaDetail?(detail: Record<string, unknown>, recommendations: unknown[]): unknown;
   chapterListPath(mangaId: string): string;
   chapterListParams(page: number, pageSize: number): Record<string, unknown>;
   chapterImagesPath(chapterId: string): string;

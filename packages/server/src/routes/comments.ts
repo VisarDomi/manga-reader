@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { asyncHandler } from '../middleware/errorHandler.js';
-import { CacheDataUnavailableError, type CommentsService } from '../services/CommentsService.js';
+import { CacheDataUnavailableError } from '../services/CommentsService.js';
+import type { ProviderCoordinator } from '../services/ProviderCoordinator.js';
 
 function jsonApiStatus(data: unknown): string {
     if (!data || typeof data !== 'object') return 'none';
@@ -29,7 +30,13 @@ function commentsSummary(data: unknown): string {
     return `thread=${thread == null ? 'none' : thread} rootPages=${Number.isFinite(rootPages) ? rootPages : 1} replyPages=${Number.isFinite(replyPages) ? replyPages : 0} treeFills=${Number.isFinite(treeFills) ? treeFills : 0} top=${comments} total=${Number.isFinite(total) ? total : comments} maxDepth=${Number.isFinite(maxDepth) ? maxDepth : 0} missingReplies=${Number.isFinite(missingReplies) ? missingReplies : 0} unavailable=${Number.isFinite(unavailable) ? unavailable : 0} unavailableRoots=${Number.isFinite(unavailableRoots) ? unavailableRoots : 0} count=${Number.isFinite(count) ? count : comments} upstreamCount=${Number.isFinite(upstreamCount) ? upstreamCount : comments}`;
 }
 
-export function createCommentsRouter(commentsService: CommentsService | null): Router {
+function providerIdFromRequest(req: { query?: Record<string, unknown>; headers?: Record<string, unknown> }): string {
+    const queryId = typeof req.query?.providerId === 'string' ? req.query.providerId : null;
+    const headerId = typeof req.headers?.['x-provider-id'] === 'string' ? req.headers['x-provider-id'] : null;
+    return queryId || headerId || 'comix';
+}
+
+export function createCommentsRouter(coordinator: ProviderCoordinator | null): Router {
     const router = Router();
 
     router.get('/manga-comments/:mangaId', asyncHandler(async (req, res) => {
@@ -40,7 +47,8 @@ export function createCommentsRouter(commentsService: CommentsService | null): R
             return;
         }
 
-        if (!commentsService) {
+        const owner = coordinator?.get(providerIdFromRequest(req));
+        if (!owner) {
             res.status(503).json({ error: 'Comments service unavailable' });
             return;
         }
@@ -48,7 +56,7 @@ export function createCommentsRouter(commentsService: CommentsService | null): R
         res.set('Cache-Control', 'no-store');
         let result;
         try {
-            result = await commentsService.fetchMangaComments(mangaId);
+            result = await owner.comments.fetchMangaComments(mangaId);
         } catch (error) {
             if (error instanceof CacheDataUnavailableError) {
                 res.status(503).json({ error: error.message });
@@ -56,7 +64,7 @@ export function createCommentsRouter(commentsService: CommentsService | null): R
             }
             throw error;
         }
-        console.log(`[comments] manga ${mangaId} api=${jsonApiStatus(result.data)} ${commentsSummary(result.data)} ${result.durationMs}ms`);
+        console.log(`[comments] manga provider=${owner.provider.id} ${mangaId} api=${jsonApiStatus(result.data)} ${commentsSummary(result.data)} ${result.durationMs}ms`);
         res.json(result.data);
     }));
 
@@ -72,7 +80,8 @@ export function createCommentsRouter(commentsService: CommentsService | null): R
             return;
         }
 
-        if (!commentsService) {
+        const owner = coordinator?.get(providerIdFromRequest(req));
+        if (!owner) {
             res.status(503).json({ error: 'Comments service unavailable' });
             return;
         }
@@ -80,7 +89,7 @@ export function createCommentsRouter(commentsService: CommentsService | null): R
         res.set('Cache-Control', 'no-store');
         let result;
         try {
-            result = await commentsService.fetchChapterComments(mangaId, chapterId, chapterNumber, chapterUrl);
+            result = await owner.comments.fetchChapterComments(mangaId, chapterId, chapterNumber, chapterUrl);
         } catch (error) {
             if (error instanceof CacheDataUnavailableError) {
                 res.status(503).json({ error: error.message });
@@ -88,7 +97,7 @@ export function createCommentsRouter(commentsService: CommentsService | null): R
             }
             throw error;
         }
-        console.log(`[comments] chapter ${mangaId}/${chapterId} number=${chapterNumber} api=${jsonApiStatus(result.data)} ${commentsSummary(result.data)} ${result.durationMs}ms`);
+        console.log(`[comments] chapter provider=${owner.provider.id} ${mangaId}/${chapterId} number=${chapterNumber} api=${jsonApiStatus(result.data)} ${commentsSummary(result.data)} ${result.durationMs}ms`);
         res.json(result.data);
     }));
 

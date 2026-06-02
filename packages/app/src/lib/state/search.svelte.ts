@@ -92,6 +92,19 @@ export class SearchState {
         return true;
     }
 
+    resetForProvider(): void {
+        this.machine.abort();
+        this.clearWatchdog();
+        this.results = [];
+        this.error = null;
+        this.currentQuery = '';
+        this.currentPage = 1;
+        this.hasMore = false;
+        this.context = null;
+        this.reconcileReported.clear();
+        this.resultsVersion++;
+    }
+
     async search(query: string) {
         this.onNewSearch?.();
         this.filters.cancelDebounce();

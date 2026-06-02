@@ -30,11 +30,57 @@ The end state should let the app choose an active provider from a new `Providers
 ## Ownership Rules
 
 - Provider code owns provider-specific URLs, parsing, browser/runtime access, image semantics, comments identifiers, and search/filter shapes.
-- Cache code owns durable provider-scoped data and background jobs.
-- Frontend owns active provider selection and user intent.
-- Favorites/session/search state must be provider-scoped.
+- Server provider registry/coordinator owns provider selection on the backend.
+  Routes ask the coordinator for a provider runtime/cache by provider id; routes
+  do not import `comix` or `mangadotnet` directly.
+- Cache code owns durable provider-scoped data and background jobs. A cache row,
+  durable job, byte/cover object, image-store observation, and background worker
+  lease must have exactly one provider owner. Do not let Comix and Mangadot share
+  ID-only keys.
+- Frontend owns active provider selection and user intent. It may send the
+  active provider id with requests, but it must not know provider browser
+  profiles, Cloudflare clearance, Comix store-host rules, or Mangadot API
+  route details.
+- Favorites/session/search state must be provider-scoped. Switching provider is
+  a root switch, not a filter on the same root state. `mangadotnet` favorites
+  start empty even if the same manga id exists in another provider.
 - Reader consumes normalized manga/chapter/page data and should not know whether a provider uses stores, scrambling, direct images, or browser extraction.
 - Logs must include `providerId` for provider/cache/search/reader/comment events so behavior can be verified from service logs.
+
+## Ownership Boundary Polish Required
+
+Adding Mangadot is not only a new provider implementation. It is the point where
+the single-provider assumptions in the current app must be replaced with clear
+owners:
+
+- `ProviderRegistry`: lists providers and exposes provider capabilities.
+- `ProviderRuntimeOwner`: owns browser/profile/session acquisition for a single
+  provider. For Comix this means runtime HTTP from the site module; for
+  Mangadot this means human-bootstrapped Cloudflare clearance reused by Xvfb.
+- `ProviderCacheOwner`: owns one provider's data cache, byte/cover cache,
+  durable jobs, and background worker lifecycle.
+- `ProviderRouteCoordinator`: maps request provider id to the right provider,
+  runtime owner, cache owner, byte cache owner, and comments owner.
+- `FrontendProviderState`: owns active provider selection, persists it, and
+  invalidates provider-local roots when switching.
+
+Avoid implementing this as scattered `?providerId=` conditionals that leave the
+old Comix singleton in charge. Passing `providerId` through requests is allowed
+only as an address to the coordinator; it is not the ownership model.
+
+Comix-specific behavior that must stay out of generic code:
+
+- store-host candidate generation and smart store ranking
+- frontend image-store observations
+- scrambled page decoding
+- Comix runtime module discovery
+
+Mangadot-specific behavior that must stay out of generic code:
+
+- Cloudflare human-clearance/session status
+- Xvfb profile reuse
+- direct `/api/manga/*`, `/api/uploads/*`, and React Router stream parsing
+- direct image URL semantics without store fanout or descrambling
 
 ## Investigation Checklist
 
@@ -70,14 +116,22 @@ For `mangadot.net`, verify with browser-backed tests before implementing each ar
 ## Implementation Plan
 
 1. Add provider registry/coordinator rather than hard-coding a single server provider.
-2. Make cache data and durable jobs provider-scoped.
-3. Make frontend active-provider state explicit and persisted.
-4. Make search/favorites/session roots provider-scoped.
-5. Implement `mangadotnet` provider in the backend provider layer.
-6. Add provider switcher UI.
-7. Wire search, manga details, chapter list, recommendations, reader images, and comments through normalized provider/cache APIs.
-8. Add logs and verification flows before claiming behavior works.
-9. Update `decisions.md` when provider architecture is implemented or when investigation proves constraints.
+2. Split runtime ownership per provider. Browser sessions must be keyed by
+   provider and must expose session health, especially Mangadot
+   `needsHumanClearance`.
+3. Split cache ownership per provider. Prefer provider-owned cache services or
+   provider-scoped databases over shared ID-only tables. If a shared database is
+   used later, every key must include provider id.
+4. Keep provider-specific image policies behind provider/cache owners. Comix
+   store/decoder logic must not run for Mangadot direct images.
+5. Make frontend active-provider state explicit and persisted.
+6. Make search/favorites/session roots provider-scoped.
+7. Implement `mangadotnet` provider in the backend provider layer.
+8. Add provider switcher UI.
+9. Wire search, manga details, chapter list, recommendations, reader images,
+   and comments through normalized provider/cache APIs.
+10. Add logs and verification flows before claiming behavior works.
+11. Update `decisions.md` when provider architecture is implemented or when investigation proves constraints.
 
 ## Validation
 

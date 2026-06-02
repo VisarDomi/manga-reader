@@ -1,8 +1,9 @@
 import { Router } from 'express';
+import type { Request, Response } from 'express';
 import { asyncHandler } from '../middleware/errorHandler.js';
-import type { CacheJobPriority, CacheReconcileSource, CacheService } from '../cache/CacheService.js';
-import type { ByteCacheService } from '../cache/ByteCacheService.js';
+import type { CacheJobPriority, CacheReconcileSource } from '../cache/CacheService.js';
 import type { MangaCoverVariant } from '../cache/sqlite.js';
+import type { ProviderCoordinator, ProviderRuntimeOwner } from '../services/ProviderCoordinator.js';
 
 function isAllowedImageDomain(_hostname: string): boolean {
   return true;
@@ -35,22 +36,47 @@ function attachCacheState(data: unknown, state: Record<string, unknown>): unknow
   };
 }
 
-export function createCacheRouter(cache: CacheService | null, byteCache: ByteCacheService | null = null): Router {
+function providerIdFromRequest(req: Request): string {
+  const queryId = typeof req.query?.providerId === 'string' ? req.query.providerId : null;
+  const body = req.body && typeof req.body === 'object' ? req.body as Record<string, unknown> : {};
+  const bodyId = typeof body.providerId === 'string' ? body.providerId : null;
+  const headerId = typeof req.headers?.['x-provider-id'] === 'string' ? req.headers['x-provider-id'] : null;
+  return queryId || bodyId || headerId || 'comix';
+}
+
+function requireOwner(coordinator: ProviderCoordinator | null, req: Request, res: Response): ProviderRuntimeOwner | null {
+  if (!coordinator) {
+    res.status(503).json({ error: 'Provider coordinator unavailable', status: 503 });
+    return null;
+  }
+  const providerId = providerIdFromRequest(req);
+  const owner = coordinator.get(providerId);
+  if (!owner) {
+    res.status(404).json({ error: `Unknown provider: ${providerId}`, status: 404 });
+    return null;
+  }
+  return owner;
+}
+
+export function createCacheRouter(coordinator: ProviderCoordinator | null): Router {
   const router = Router();
 
-  router.get('/cache/status', asyncHandler(async (_req, res) => {
-    if (!cache) {
-      res.status(503).json({ error: 'Cache service unavailable', status: 503 });
+  router.get('/cache/status', asyncHandler(async (req, res) => {
+    if (!coordinator) {
+      res.status(503).json({ error: 'Provider coordinator unavailable', status: 503 });
       return;
     }
-    res.json(cache.status());
+    const requested = coordinator.get(providerIdFromRequest(req));
+    if (requested) {
+      res.json(requested.cache.status());
+      return;
+    }
+    res.json({ providers: coordinator.list() });
   }));
 
   router.get('/cache/manga/:mangaId/cover/:variant', asyncHandler(async (req, res) => {
-    if (!byteCache) {
-      res.status(503).json({ error: 'Cover cache unavailable', status: 503 });
-      return;
-    }
+    const owner = requireOwner(coordinator, req, res);
+    if (!owner) return;
     const mangaId = singleParam(req.params.mangaId);
     const variant = coverVariant(req.params.variant);
     if (!mangaId || !variant) {
@@ -74,15 +100,13 @@ export function createCacheRouter(cache: CacheService | null, byteCache: ByteCac
       }
     }
     const callerUA = req.headers['user-agent'] || '';
-    await byteCache.streamCover(mangaId, variant, sourceUrl, res, String(callerUA), req.query.referer as string | undefined);
+    await owner.byteCache.streamCover(mangaId, variant, sourceUrl, res, String(callerUA), req.query.referer as string | undefined);
   }));
 
   router.post('/cache/manga/cards', asyncHandler(async (req, res) => {
     const startedAt = Date.now();
-    if (!cache) {
-      res.status(503).json({ error: 'Cache service unavailable', status: 503 });
-      return;
-    }
+    const owner = requireOwner(coordinator, req, res);
+    if (!owner) return;
     const ids = Array.isArray(req.body?.ids)
       ? req.body.ids.filter((id: unknown): id is string => typeof id === 'string' && id.length > 0)
       : [];
@@ -91,7 +115,7 @@ export function createCacheRouter(cache: CacheService | null, byteCache: ByteCac
       return;
     }
     const includeChapters = req.body?.includeChapters === true;
-    const result = cache.getMangaCardSnapshots(ids, { includeChapters });
+    const result = owner.cache.getMangaCardSnapshots(ids, { includeChapters });
     console.log(`[cacheRoute] manga-card-snapshots ids=${ids.length} unique=${new Set(ids).size} includeChapters=${includeChapters} mangaReady=${result.filter(item => item.mangaReady).length} chaptersReady=${result.filter(item => item.chaptersReady).length} totalMs=${Date.now() - startedAt}`);
     res.json({
       status: 'ok',
@@ -102,18 +126,16 @@ export function createCacheRouter(cache: CacheService | null, byteCache: ByteCac
   }));
 
   router.get('/cache/manga/:mangaId', asyncHandler(async (req, res) => {
-    if (!cache) {
-      res.status(503).json({ error: 'Cache service unavailable', status: 503 });
-      return;
-    }
+    const owner = requireOwner(coordinator, req, res);
+    if (!owner) return;
     const mangaId = singleParam(req.params.mangaId);
     if (!mangaId) {
       res.status(400).json({ error: 'Missing mangaId', status: 400 });
       return;
     }
-    const data = cache.getManga(mangaId);
+    const data = owner.cache.getManga(mangaId);
     if (!data) {
-      cache.warmManga(mangaId, 'cache-miss', requestedPriority(req.query.priority));
+      owner.cache.warmManga(mangaId, 'cache-miss', requestedPriority(req.query.priority));
       res.status(202).json({ status: 'warming', mangaId });
       return;
     }
@@ -121,23 +143,21 @@ export function createCacheRouter(cache: CacheService | null, byteCache: ByteCac
   }));
 
   router.get('/cache/manga/:mangaId/chapters', asyncHandler(async (req, res) => {
-    if (!cache) {
-      res.status(503).json({ error: 'Cache service unavailable', status: 503 });
-      return;
-    }
+    const owner = requireOwner(coordinator, req, res);
+    if (!owner) return;
     const mangaId = singleParam(req.params.mangaId);
     if (!mangaId) {
       res.status(400).json({ error: 'Missing mangaId', status: 400 });
       return;
     }
-    const data = cache.getChapterList(mangaId);
+    const data = owner.cache.getChapterList(mangaId);
     if (!data) {
-      cache.warmManga(mangaId, 'cache-miss', requestedPriority(req.query.priority));
+      owner.cache.warmManga(mangaId, 'cache-miss', requestedPriority(req.query.priority));
       console.log(`[cacheRoute] chapters manga=${mangaId} status=warming reason=miss`);
       res.status(202).json({ status: 'warming', mangaId });
       return;
     }
-    const updating = cache.isChapterListWarming(mangaId);
+    const updating = owner.cache.isChapterListWarming(mangaId);
     const result = data && typeof data === 'object' ? (data as Record<string, unknown>).result : null;
     const resultRecord = result && typeof result === 'object' ? result as Record<string, unknown> : {};
     const items = Array.isArray(resultRecord.items) ? resultRecord.items.length : 0;
@@ -146,10 +166,8 @@ export function createCacheRouter(cache: CacheService | null, byteCache: ByteCac
   }));
 
   router.get('/cache/manga/:mangaId/chapters/:chapterId/images', asyncHandler(async (req, res) => {
-    if (!cache) {
-      res.status(503).json({ error: 'Cache service unavailable', status: 503 });
-      return;
-    }
+    const owner = requireOwner(coordinator, req, res);
+    if (!owner) return;
     const mangaId = singleParam(req.params.mangaId);
     const chapterId = singleParam(req.params.chapterId);
     if (!mangaId || !chapterId) {
@@ -159,9 +177,9 @@ export function createCacheRouter(cache: CacheService | null, byteCache: ByteCac
     const rawNumber = typeof req.query.number === 'string' ? Number(req.query.number) : NaN;
     const chapterNumber = Number.isFinite(rawNumber) ? rawNumber : undefined;
     const chapterUrl = typeof req.query.url === 'string' ? req.query.url : undefined;
-    const data = cache.getChapterImages(mangaId, chapterId, { chapterNumber, chapterUrl });
+    const data = owner.cache.getChapterImages(mangaId, chapterId, { chapterNumber, chapterUrl });
     if (!data) {
-      cache.warmChapterImages(mangaId, chapterId, chapterNumber, chapterUrl, 'cache-miss', requestedPriority(req.query.priority));
+      owner.cache.warmChapterImages(mangaId, chapterId, chapterNumber, chapterUrl, 'cache-miss', requestedPriority(req.query.priority));
       res.status(202).json({ status: 'warming', mangaId, chapterId });
       return;
     }
@@ -169,10 +187,8 @@ export function createCacheRouter(cache: CacheService | null, byteCache: ByteCac
   }));
 
   router.get('/cache/manga/:mangaId/chapters/:chapterId/pages/:pageIndex/decoded', asyncHandler(async (req, res) => {
-    if (!cache) {
-      res.status(503).json({ error: 'Cache service unavailable', status: 503 });
-      return;
-    }
+    const owner = requireOwner(coordinator, req, res);
+    if (!owner) return;
     const mangaId = singleParam(req.params.mangaId);
     const chapterId = singleParam(req.params.chapterId);
     const pageIndex = typeof req.params.pageIndex === 'string' ? Number(req.params.pageIndex) : NaN;
@@ -184,7 +200,7 @@ export function createCacheRouter(cache: CacheService | null, byteCache: ByteCac
     const chapterNumber = Number.isFinite(rawNumber) ? rawNumber : undefined;
     const chapterUrl = typeof req.query.url === 'string' ? req.query.url : undefined;
     const policy = req.query.policy === 'critical' ? 'critical' : 'preload';
-    const decoded = await cache.decodeChapterPage(mangaId, chapterId, pageIndex, { chapterNumber, chapterUrl, policy });
+    const decoded = await owner.cache.decodeChapterPage(mangaId, chapterId, pageIndex, { chapterNumber, chapterUrl, policy });
     if (!decoded) {
       res.status(202).json({ status: 'warming', mangaId, chapterId, pageIndex });
       return;
@@ -196,24 +212,20 @@ export function createCacheRouter(cache: CacheService | null, byteCache: ByteCac
   }));
 
   router.post('/cache/manga/:mangaId/refresh', asyncHandler(async (req, res) => {
-    if (!cache) {
-      res.status(503).json({ error: 'Cache service unavailable', status: 503 });
-      return;
-    }
+    const owner = requireOwner(coordinator, req, res);
+    if (!owner) return;
     const mangaId = singleParam(req.params.mangaId);
     if (!mangaId) {
       res.status(400).json({ error: 'Missing mangaId', status: 400 });
       return;
     }
-    cache.refreshManga(mangaId, 'frontend-refresh');
+    owner.cache.refreshManga(mangaId, 'frontend-refresh');
     res.status(202).json({ status: 'queued', mangaId });
   }));
 
   router.post('/cache/manga/:mangaId/reconcile', asyncHandler(async (req, res) => {
-    if (!cache) {
-      res.status(503).json({ error: 'Cache service unavailable', status: 503 });
-      return;
-    }
+    const owner = requireOwner(coordinator, req, res);
+    if (!owner) return;
     const mangaId = singleParam(req.params.mangaId);
     if (!mangaId) {
       res.status(400).json({ error: 'Missing mangaId', status: 400 });
@@ -229,7 +241,7 @@ export function createCacheRouter(cache: CacheService | null, byteCache: ByteCac
       req.body?.source === 'manga-open' || req.body?.source === 'manual-refresh'
         ? req.body.source
         : 'search-result';
-    const result = cache.reconcileManga(
+    const result = owner.cache.reconcileManga(
       mangaId,
       Number.isFinite(observedLatestChapter) ? observedLatestChapter : null,
       priority,
@@ -239,10 +251,8 @@ export function createCacheRouter(cache: CacheService | null, byteCache: ByteCac
   }));
 
   router.post('/cache/image-store', asyncHandler(async (req, res) => {
-    if (!cache) {
-      res.status(503).json({ error: 'Cache service unavailable', status: 503 });
-      return;
-    }
+    const owner = requireOwner(coordinator, req, res);
+    if (!owner) return;
     const { imageUrl, storeUrl, status, ok, totalMs, sessionId } = req.body as {
       imageUrl?: string;
       storeUrl?: string;
@@ -259,7 +269,7 @@ export function createCacheRouter(cache: CacheService | null, byteCache: ByteCac
       res.status(400).json({ error: 'Invalid totalMs', status: 400 });
       return;
     }
-    cache.observeImageStore({ imageUrl, storeUrl, status, ok, totalMs, sessionId });
+    owner.cache.observeImageStore({ imageUrl, storeUrl, status, ok, totalMs, sessionId });
     res.status(202).json({ status: 'recorded' });
   }));
 

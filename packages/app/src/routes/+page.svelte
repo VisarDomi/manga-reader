@@ -5,6 +5,7 @@
     import { initAppDimensions } from '$lib/state/appDimensions.js';
     import ListView from '$lib/views/ListView.svelte';
     import FavoritesView from '$lib/views/FavoritesView.svelte';
+    import ProvidersView from '$lib/views/ProvidersView.svelte';
     import MangaView from '$lib/views/MangaView.svelte';
     import ReaderView from '$lib/views/ReaderView.svelte';
     import ChapterCommentsView from '$lib/views/ChapterCommentsView.svelte';
@@ -32,8 +33,10 @@
     const inManga = $derived(viewMode === View.MANGA);
     const isNestedMangaSwipe = $derived(inManga && backView === View.MANGA);
     const inFavorites = $derived(viewMode === View.FAVORITES);
+    const inProviders = $derived(viewMode === View.PROVIDERS);
     const mountList = $derived(appState.ui.isMounted(View.LIST, backView));
     const mountFavorites = $derived(appState.ui.isMounted(View.FAVORITES, backView));
+    const mountProviders = $derived(appState.ui.isMounted(View.PROVIDERS, backView));
     const mountManga = $derived(appState.ui.isMounted(View.MANGA, backView));
     const mountReader = $derived(appState.ui.isMounted(View.READER, backView));
     const mountChapterComments = $derived(appState.ui.isMounted(View.CHAPTER_COMMENTS, backView));
@@ -62,6 +65,20 @@
 >
     {#if mountFavorites}
         <FavoritesView />
+    {/if}
+</div>
+
+<div
+    id="view-providers"
+    class="view-layer"
+    class:view-hidden={viewMode !== View.PROVIDERS && backView !== View.PROVIDERS}
+    class:swipe-back={backView === View.PROVIDERS}
+    class:swipe-animating={backView === View.PROVIDERS && swipeAnimating}
+    class:swipe-active={inProviders && isSwiping}
+    style="{inProviders && isSwiping ? 'transform:translateX(var(--swipe-progress, 0%))' : ''}"
+>
+    {#if mountProviders}
+        <ProvidersView />
     {/if}
 </div>
 

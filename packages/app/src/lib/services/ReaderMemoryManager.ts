@@ -5,6 +5,7 @@ import {
     READER_IMAGE_KEEP_RADIUS_VIEWPORTS,
     VISIBLE_PAGE_RATIO,
 } from '$lib/constants.js';
+import { getProviderId } from '$lib/services/provider.js';
 
 const IMAGE_STORE_SESSION_ID = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
 type ImageLoadPolicy = 'critical' | 'preload';
@@ -351,7 +352,7 @@ export class ReaderMemoryManager {
         void fetch('/api/cache/image-store', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ imageUrl: canonicalUrl, storeUrl: candidateUrl, status, ok, totalMs, sessionId: IMAGE_STORE_SESSION_ID }),
+            body: JSON.stringify({ providerId: getProviderId(), imageUrl: canonicalUrl, storeUrl: candidateUrl, status, ok, totalMs, sessionId: IMAGE_STORE_SESSION_ID }),
             keepalive: true,
         }).catch(error => {
             this.emit('reader-image-store-report-failed', {

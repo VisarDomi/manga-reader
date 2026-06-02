@@ -5,9 +5,10 @@
 
     interface Props {
         favoritesMode?: boolean;
+        providersMode?: boolean;
     }
 
-    let { favoritesMode = false }: Props = $props();
+    let { favoritesMode = false, providersMode = false }: Props = $props();
 
     let showGroupFilter = $state(false);
 
@@ -25,6 +26,10 @@
         void appState.activateSearchRoot();
     }
 
+    function activateProviders() {
+        void appState.activateProvidersRoot();
+    }
+
     const gf = appState.groupFilter;
 </script>
 
@@ -32,14 +37,19 @@
     <div class="action-row">
         <button
             class="action-btn"
-            class:active={!favoritesMode}
-            onclick={() => { if (favoritesMode) deactivateFavs(); }}
+            class:active={!favoritesMode && !providersMode}
+            onclick={() => { if (favoritesMode || providersMode) deactivateFavs(); }}
         >Search</button>
         <button
             class="action-btn"
             class:fav-active={favoritesMode}
             onclick={() => { if (!favoritesMode) activateFavs(); }}
         >Favs</button>
+        <button
+            class="action-btn"
+            class:active={providersMode}
+            onclick={() => { if (!providersMode) activateProviders(); }}
+        >Providers</button>
         {#if gf.count > 0}
             <button
                 class="action-btn"
@@ -66,7 +76,7 @@
         </div>
     {/if}
 
-    {#if !favoritesMode}
+    {#if !favoritesMode && !providersMode}
         <form class="input-container" onsubmit={handleSubmit}>
             <input
                 type="text"

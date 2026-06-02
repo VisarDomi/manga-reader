@@ -2,6 +2,7 @@ import { Router } from 'express';
 import type { SearchFilters } from '@manga-reader/provider-types';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import { proxyFetchJson } from '../utils/proxyFetch.js';
+import type { ProviderCoordinator } from '../services/ProviderCoordinator.js';
 import { getServerProvider } from '../services/providerRuntime.js';
 
 function stringParam(value: unknown, fallback = ''): string {
@@ -30,24 +31,45 @@ function filtersFrom(value: unknown): SearchFilters {
   };
 }
 
-export default function createSearchRouter(): Router {
+function providerIdFromBody(value: unknown): string {
+  const body = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+  return typeof body.providerId === 'string' && body.providerId.length > 0 ? body.providerId : 'comix';
+}
+
+export default function createSearchRouter(coordinator: ProviderCoordinator | null): Router {
   const router = Router();
 
   router.post('/search', asyncHandler(async (req, res) => {
+    if (!coordinator) {
+      res.status(503).json({ error: 'Provider coordinator unavailable', status: 503 });
+      return;
+    }
     const query = stringParam(req.body?.query).trim();
     const page = numberParam(req.body?.page, 1);
     const filters = filtersFrom(req.body?.filters);
+    const providerId = providerIdFromBody(req.body);
     const started = Date.now();
-    const provider = await getServerProvider();
+    const owner = coordinator.require(providerId);
+    const provider = await getServerProvider(providerId);
     const upstream = provider.searchRequest(query, page, filters);
-    const { data, meta } = await proxyFetchJson(upstream.url, {
-      method: upstream.method,
-      headers: upstream.headers,
-      body: upstream.body,
-      cloudflareProtected: upstream.cloudflareProtected,
-    });
+    const fetched = owner.provider.id === 'mangadotnet'
+      ? {
+          data: (await owner.browserSession.fetchRuntimeApi(upstream.url, {
+            owner: 'search-route',
+            priority: 'foreground',
+            reason: query || 'browse',
+          })).data,
+          meta: { status: 200 },
+        }
+      : await proxyFetchJson(upstream.url, {
+          method: upstream.method,
+          headers: upstream.headers,
+          body: upstream.body,
+          cloudflareProtected: upstream.cloudflareProtected,
+        });
+    const { data, meta } = fetched;
     const parsed = provider.parseSearchResponse(data);
-    console.log(`[search] query="${query || '(browse)'}" page=${page} http=${meta.status} count=${parsed.items.length} current=${parsed.pagination?.currentPage ?? page} last=${parsed.pagination?.lastPage ?? 'unknown'} total=${parsed.pagination?.total ?? parsed.items.length} ${Date.now() - started}ms`);
+    console.log(`[search] provider=${provider.id} query="${query || '(browse)'}" page=${page} http=${meta.status} count=${parsed.items.length} current=${parsed.pagination?.currentPage ?? page} last=${parsed.pagination?.lastPage ?? 'unknown'} total=${parsed.pagination?.total ?? parsed.items.length} ${Date.now() - started}ms`);
     res.json(data);
   }));
 

@@ -16,6 +16,7 @@ export interface MangaScrollSnapshot {
 }
 
 export interface SessionSnapshot {
+    providerId?: string;
     viewMode: ViewMode;
     viewStack: ViewMode[];
     activeManga?: Manga;

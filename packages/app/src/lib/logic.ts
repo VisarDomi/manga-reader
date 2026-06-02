@@ -2,6 +2,7 @@ export const View = {
   LIST: 'list',
   REPOS: 'repos',
   FAVORITES: 'favorites',
+  PROVIDERS: 'providers',
   MANGA: 'manga',
   READER: 'reader',
   CHAPTER_COMMENTS: 'chapter-comments',
