@@ -75,6 +75,38 @@ function parseStreamPayload(data: unknown): unknown {
   return decodeIndex(0);
 }
 
+function streamPayloadsFromHtml(data: string): string[] {
+  const payloads: string[] = [];
+  const pattern = /streamController\.enqueue\(("(?:\\.|[^"\\])*")\)/g;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(data)) !== null) {
+    try {
+      const payload = JSON.parse(match[1]) as unknown;
+      if (typeof payload === 'string' && payload.trim().startsWith('[')) payloads.push(payload);
+    } catch {
+      // Ignore non-data stream chunks.
+    }
+  }
+  return payloads;
+}
+
+function parseSearchRoots(data: unknown): unknown[] {
+  if (typeof data !== 'string') return [parseStreamPayload(data)];
+  const trimmed = data.trim();
+  if (trimmed.startsWith('<')) {
+    return streamPayloadsFromHtml(trimmed)
+      .map(payload => {
+        try {
+          return parseStreamPayload(payload);
+        } catch {
+          return null;
+        }
+      })
+      .filter(root => root != null);
+  }
+  return [parseStreamPayload(data)];
+}
+
 function findObjectWithArray(root: unknown, key: string): Record<string, unknown> | null {
   const seen = new Set<unknown>();
   const stack = [root];
@@ -220,7 +252,6 @@ const provider: MangaProvider = {
       params.set('sortBy', 'latest');
     }
     params.set('page', String(page));
-    params.set('limit', String(SEARCH_MAX_PAGE_SIZE));
     for (const id of filters?.includeGenres ?? []) params.append('genre', id);
     for (const id of filters?.excludeGenres ?? []) params.append('genre', `-${id}`);
     for (const origin of filters?.types ?? []) params.append('origin', origin);
@@ -230,23 +261,35 @@ const provider: MangaProvider = {
     if (author) params.set('author', author);
     const artist = filters?.artists?.[0];
     if (artist) params.set('artist', artist);
+    const hasFilters = (filters?.includeGenres?.length ?? 0) > 0
+      || (filters?.excludeGenres?.length ?? 0) > 0
+      || (filters?.types?.length ?? 0) > 0
+      || (filters?.statuses?.length ?? 0) > 0
+      || (filters?.authors?.length ?? 0) > 0
+      || (filters?.artists?.length ?? 0) > 0;
+    if (hasFilters) return { url: `${BASE_URL}/search?${params}`, cloudflareProtected: true };
+    params.set('limit', String(SEARCH_MAX_PAGE_SIZE));
     return { url: `${BASE_URL}/api/search?${params}`, cloudflareProtected: true };
   },
 
   parseSearchResponse(data: unknown): PagedResult<Manga> {
-    const decoded = parseStreamPayload(data);
-    const apiRoot = asRecord(decoded);
-    const apiItems = Array.isArray(apiRoot?.manga_list)
-      ? apiRoot.manga_list.filter((item): item is Record<string, unknown> => item != null && typeof item === 'object' && !Array.isArray(item))
-      : null;
-    const holder = apiItems ? null : findObjectWithArray(decoded, 'results');
-    const rawItems = apiItems ?? (Array.isArray(holder?.results)
-      ? holder.results.filter((item): item is Record<string, unknown> => item != null && typeof item === 'object' && !Array.isArray(item))
-      : findMangaCards(decoded));
-    const items = rawItems
-      .map(parseMangaItem);
-    const meta = parsePagination(apiRoot?.pagination ?? holder?.pagination ?? holder?.meta, numeric(apiRoot?.page ?? holder?.page ?? holder?.currentPage) ?? 1, items.length);
-    return { items, pagination: meta, hasMore: meta.currentPage < meta.lastPage };
+    for (const decoded of parseSearchRoots(data)) {
+      const apiRoot = asRecord(decoded);
+      const apiItems = Array.isArray(apiRoot?.manga_list)
+        ? apiRoot.manga_list.filter((item): item is Record<string, unknown> => item != null && typeof item === 'object' && !Array.isArray(item))
+        : null;
+      const holder = apiItems ? null : findObjectWithArray(decoded, 'results');
+      const rawItems = apiItems ?? (Array.isArray(holder?.results)
+        ? holder.results.filter((item): item is Record<string, unknown> => item != null && typeof item === 'object' && !Array.isArray(item))
+        : findMangaCards(decoded));
+      const items = rawItems
+        .map(parseMangaItem);
+      if (items.length === 0) continue;
+      const meta = parsePagination(apiRoot?.pagination ?? holder?.pagination ?? holder?.meta, numeric(apiRoot?.page ?? holder?.page ?? holder?.currentPage) ?? 1, items.length);
+      return { items, pagination: meta, hasMore: meta.currentPage < meta.lastPage };
+    }
+    const meta = pagination(1, 0);
+    return { items: [], pagination: meta, hasMore: false };
   },
 
   parseMangaDetailResponse(data: unknown): Partial<Manga> {

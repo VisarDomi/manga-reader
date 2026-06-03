@@ -52,7 +52,17 @@ export default function createSearchRouter(coordinator: ProviderCoordinator | nu
     const owner = coordinator.require(providerId);
     const provider = await getServerProvider(providerId);
     const upstream = provider.searchRequest(query, page, filters);
-    const fetched = owner.provider.id === 'mangadotnet'
+    const mangadotPath = owner.provider.id === 'mangadotnet' ? new URL(upstream.url).pathname : '';
+    const fetched = owner.provider.id === 'mangadotnet' && mangadotPath === '/search'
+      ? {
+          data: (await owner.browserSession.fetchRuntimeDocument(upstream.url, {
+            owner: 'search-route',
+            priority: 'foreground',
+            reason: query || 'browse-filtered',
+          })).html,
+          meta: { status: 200 },
+        }
+      : owner.provider.id === 'mangadotnet'
       ? {
           data: (await owner.browserSession.fetchRuntimeApi(upstream.url, {
             owner: 'search-route',
@@ -69,7 +79,7 @@ export default function createSearchRouter(coordinator: ProviderCoordinator | nu
         });
     const { data, meta } = fetched;
     const parsed = provider.parseSearchResponse(data);
-    console.log(`[search] provider=${provider.id} query="${query || '(browse)'}" page=${page} http=${meta.status} count=${parsed.items.length} current=${parsed.pagination?.currentPage ?? page} last=${parsed.pagination?.lastPage ?? 'unknown'} total=${parsed.pagination?.total ?? parsed.items.length} ${Date.now() - started}ms`);
+    console.log(`[search] provider=${provider.id} mode=${mangadotPath === '/search' ? 'document' : 'api'} query="${query || '(browse)'}" page=${page} http=${meta.status} count=${parsed.items.length} current=${parsed.pagination?.currentPage ?? page} last=${parsed.pagination?.lastPage ?? 'unknown'} total=${parsed.pagination?.total ?? parsed.items.length} ${Date.now() - started}ms`);
     res.json(data);
   }));
 

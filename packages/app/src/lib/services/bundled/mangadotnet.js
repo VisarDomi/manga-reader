@@ -51,7 +51,26 @@ function s(e) {
 	};
 	return r(0);
 }
-function c(e, t) {
+function c(e) {
+	let t = [], n = /streamController\.enqueue\(("(?:\\.|[^"\\])*")\)/g, r;
+	for (; (r = n.exec(e)) !== null;) try {
+		let e = JSON.parse(r[1]);
+		typeof e == "string" && e.trim().startsWith("[") && t.push(e);
+	} catch {}
+	return t;
+}
+function l(e) {
+	if (typeof e != "string") return [s(e)];
+	let t = e.trim();
+	return t.startsWith("<") ? c(t).map((e) => {
+		try {
+			return s(e);
+		} catch {
+			return null;
+		}
+	}).filter((e) => e != null) : [s(e)];
+}
+function u(e, t) {
 	let n = /* @__PURE__ */ new Set(), r = [e];
 	for (; r.length > 0;) {
 		let e = r.pop();
@@ -64,11 +83,11 @@ function c(e, t) {
 	}
 	return null;
 }
-function l(e) {
+function d(e) {
 	let t = n(e);
 	return t ? t.id != null && typeof t.title == "string" && (t.photo != null || t.cover != null || t.chapter_count != null) : !1;
 }
-function u(e) {
+function f(e) {
 	let t = /* @__PURE__ */ new Set(), n = /* @__PURE__ */ new Map(), i = [e];
 	for (; i.length > 0;) {
 		let e = i.pop();
@@ -78,7 +97,7 @@ function u(e) {
 			continue;
 		}
 		let a = e;
-		if (l(a)) {
+		if (d(a)) {
 			let e = r(a.id);
 			e && !n.has(e) && n.set(e, a);
 		}
@@ -86,7 +105,7 @@ function u(e) {
 	}
 	return [...n.values()];
 }
-function d(e) {
+function p(e) {
 	let t = r(e.id), n = a(e.chapter_count ?? e.latestChapter ?? e.latest_chapter), s = o(e.authors), c = o(e.artists), l = [...s, ...c.filter((e) => !s.includes(e))], u = Array.isArray(e.genres) ? e.genres.filter((e) => typeof e == "string") : [];
 	return {
 		id: t,
@@ -102,16 +121,16 @@ function d(e) {
 		authors: l.length > 0 ? l : void 0
 	};
 }
-function f(e, n, r = t) {
+function m(e, n, r = t) {
 	return {
 		currentPage: e,
 		lastPage: Math.max(1, Math.ceil(n / r)),
 		total: n
 	};
 }
-function p(e, r, i) {
+function h(e, r, i) {
 	let o = n(e) ?? {}, s = a(o.current_page ?? o.currentPage ?? o.page) ?? r, c = a(o.per_page ?? o.perPage ?? o.page_size ?? o.limit) ?? t, l = a(o.total ?? o.total_results ?? o.totalResults ?? o.total_items ?? o.totalItems ?? o.count), u = a(o.last_page ?? o.lastPage ?? o.total_pages ?? o.totalPages);
-	return l == null ? u == null ? f(s, i, c) : {
+	return l == null ? u == null ? m(s, i, c) : {
 		currentPage: s,
 		lastPage: Math.max(1, Math.floor(u)),
 		total: Math.max(i, Math.floor(u) * c)
@@ -121,7 +140,7 @@ function p(e, r, i) {
 		total: l
 	};
 }
-var m = {
+var g = {
 	genres: [],
 	types: [
 		{
@@ -155,7 +174,7 @@ var m = {
 			name: "Hiatus"
 		}
 	]
-}, h = {
+}, _ = {
 	id: "mangadotnet",
 	name: "Mangadotnet",
 	baseUrl: e,
@@ -164,14 +183,14 @@ var m = {
 	nsfw: !0,
 	chapterImagesResponseType: "json",
 	getFilters() {
-		return m;
+		return g;
 	},
 	setFilters(e) {
-		m = e;
+		g = e;
 	},
 	searchRequest(n, r, i) {
 		let a = new URLSearchParams(), o = n.trim();
-		a.set("search", o), o ? a.set("sortBy", "relevance") : a.set("sortBy", "latest"), a.set("page", String(r)), a.set("limit", String(t));
+		a.set("search", o), o ? a.set("sortBy", "relevance") : a.set("sortBy", "latest"), a.set("page", String(r));
 		for (let e of i?.includeGenres ?? []) a.append("genre", e);
 		for (let e of i?.excludeGenres ?? []) a.append("genre", `-${e}`);
 		for (let e of i?.types ?? []) a.append("origin", e);
@@ -180,23 +199,35 @@ var m = {
 		let c = i?.authors?.[0];
 		c && a.set("author", c);
 		let l = i?.artists?.[0];
-		return l && a.set("artist", l), {
+		return l && a.set("artist", l), (i?.includeGenres?.length ?? 0) > 0 || (i?.excludeGenres?.length ?? 0) > 0 || (i?.types?.length ?? 0) > 0 || (i?.statuses?.length ?? 0) > 0 || (i?.authors?.length ?? 0) > 0 || (i?.artists?.length ?? 0) > 0 ? {
+			url: `${e}/search?${a}`,
+			cloudflareProtected: !0
+		} : (a.set("limit", String(t)), {
 			url: `${e}/api/search?${a}`,
 			cloudflareProtected: !0
-		};
+		});
 	},
 	parseSearchResponse(e) {
-		let t = s(e), r = n(t), i = Array.isArray(r?.manga_list) ? r.manga_list.filter((e) => typeof e == "object" && !!e && !Array.isArray(e)) : null, o = i ? null : c(t, "results"), l = (i ?? (Array.isArray(o?.results) ? o.results.filter((e) => typeof e == "object" && !!e && !Array.isArray(e)) : u(t))).map(d), f = p(r?.pagination ?? o?.pagination ?? o?.meta, a(r?.page ?? o?.page ?? o?.currentPage) ?? 1, l.length);
+		for (let t of l(e)) {
+			let e = n(t), r = Array.isArray(e?.manga_list) ? e.manga_list.filter((e) => typeof e == "object" && !!e && !Array.isArray(e)) : null, i = r ? null : u(t, "results"), o = (r ?? (Array.isArray(i?.results) ? i.results.filter((e) => typeof e == "object" && !!e && !Array.isArray(e)) : f(t))).map(p);
+			if (o.length === 0) continue;
+			let s = h(e?.pagination ?? i?.pagination ?? i?.meta, a(e?.page ?? i?.page ?? i?.currentPage) ?? 1, o.length);
+			return {
+				items: o,
+				pagination: s,
+				hasMore: s.currentPage < s.lastPage
+			};
+		}
 		return {
-			items: l,
-			pagination: f,
-			hasMore: f.currentPage < f.lastPage
+			items: [],
+			pagination: m(1, 0),
+			hasMore: !1
 		};
 	},
 	parseMangaDetailResponse(e) {
-		let t = n(e) ?? {}, r = n(t.result) ?? t, i = n(r.manga) ?? r, a = Array.isArray(r.recommendations) ? r.recommendations.filter((e) => typeof e == "object" && !!e && !Array.isArray(e)).map(d) : void 0;
+		let t = n(e) ?? {}, r = n(t.result) ?? t, i = n(r.manga) ?? r, a = Array.isArray(r.recommendations) ? r.recommendations.filter((e) => typeof e == "object" && !!e && !Array.isArray(e)).map(p) : void 0;
 		return {
-			...d(i),
+			...p(i),
 			recommendations: a
 		};
 	},
@@ -252,4 +283,4 @@ var m = {
 	}
 };
 //#endregion
-export { h as default };
+export { _ as default };

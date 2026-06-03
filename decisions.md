@@ -517,6 +517,17 @@ Tags are surfaced as normal three-state chips: empty -> include -> exclude ->
 empty. Authors and artists keep the existing search-box UI, but the search box
 is cache-backed rather than upstream-backed.
 
+Filter option IDs must be provider-semantic, not normalized display strings.
+For Comix, cached genre/tag ids are numeric provider ids such as `23` for
+Romance, and the Comix API expects those ids in `genres_in[]`/`genres_ex[]`.
+For Mangadot, cached genre/tag ids are display names such as `Romance`.
+Mangadot's JSON `/api/search` endpoint ignores `genre=...`; filtered searches
+must go through the provider document route (`/search?...&genre=Romance` or
+`genre=-Romance`) and parse the React Router stream. Unfiltered Mangadot
+search/browse stays on `/api/search` because it supports 100-item pages. The
+document route is only used when filters are present; it has provider-fixed
+28-item pages but correct include/exclude semantics.
+
 ### 40. Provider Runtime Owns Session Health and Request Coalescing
 
 Browser-backed provider APIs are fragile shared resources. The browser session
