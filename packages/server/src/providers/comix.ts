@@ -6,7 +6,6 @@ const BASE_URL = 'https://comix.to';
 const DOMAIN = 'comix.to';
 const SEARCH_PAGE_SIZE = 100;
 const FILTER_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-const FILTER_SEARCH_TYPES = new Set(['tag', 'author', 'artist']);
 const NSFW_NAMES = new Set(['Adult', 'Ecchi', 'Hentai', 'Mature', 'Smut']);
 
 let filterCache: { filters: FilterDefinition; fetchedAt: number } | null = null;
@@ -326,12 +325,4 @@ export const comixServerProvider: ServerMangaProvider = {
     }
   },
 
-  filterSearchUrl(type: string, keyword: string): string | null {
-    if (!FILTER_SEARCH_TYPES.has(type) || keyword.length < 2) return null;
-    const url = new URL(`${BASE_URL}/api/v1/tags/search`);
-    url.searchParams.set('type', type);
-    url.searchParams.set('q', keyword);
-    url.searchParams.set('limit', '20');
-    return url.toString();
-  },
 };

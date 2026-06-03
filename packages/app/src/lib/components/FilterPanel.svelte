@@ -93,16 +93,6 @@
         </div>
     {/if}
 
-    <FilterSearchBox
-        label="Tags"
-        type="tag"
-        selected={new Set([...appState.searchState.filters.termStates.keys()].filter(id => !filterDef.genres.some(g => g.id === id)))}
-        labels={appState.searchState.filters.termLabels}
-        onadd={(id, name) => appState.searchState.filters.addTag(id, name)}
-        onremove={(id) => appState.searchState.filters.removeTerm(id)}
-    />
-
-
     {#each [...genresByGroup] as [groupKey, genres] (groupKey)}
         <div class="filter-section">
             <span class="filter-label">{GROUP_LABELS[groupKey] ?? groupKey}</span>

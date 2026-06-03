@@ -63,6 +63,122 @@ function parseJsonList(value: unknown): string[] {
   }
 }
 
+function decodeStreamPool(data: unknown): unknown {
+  if (typeof data !== 'string') return data;
+  const pool = JSON.parse(data) as unknown[];
+  const memo = new Map<number, unknown>();
+  const decodeIndex = (index: number): unknown => {
+    if (memo.has(index)) return memo.get(index);
+    const value = pool[index];
+    if (Array.isArray(value)) {
+      const array: unknown[] = [];
+      memo.set(index, array);
+      for (const item of value) array.push(typeof item === 'number' ? decodeIndex(item) : item);
+      return array;
+    }
+    if (value && typeof value === 'object') {
+      const object: Record<string, unknown> = {};
+      memo.set(index, object);
+      for (const [rawKey, rawValue] of Object.entries(value as Record<string, unknown>)) {
+        const keyIndex = /^_(\d+)$/.exec(rawKey)?.[1];
+        const key = keyIndex ? String(decodeIndex(Number(keyIndex))) : rawKey;
+        object[key] = typeof rawValue === 'number' ? decodeIndex(rawValue) : rawValue;
+      }
+      return object;
+    }
+    return value;
+  };
+  return decodeIndex(0);
+}
+
+function findStringArray(root: unknown, key: string): string[] {
+  const seen = new Set<unknown>();
+  const stack = [root];
+  while (stack.length > 0) {
+    const item = stack.pop();
+    if (!item || typeof item !== 'object' || seen.has(item)) continue;
+    seen.add(item);
+    if (Array.isArray(item)) {
+      for (const value of item) stack.push(value);
+      continue;
+    }
+    const record = item as Record<string, unknown>;
+    const value = record[key];
+    if (Array.isArray(value) && value.every(entry => typeof entry === 'string')) return value as string[];
+    for (const child of Object.values(record)) stack.push(child);
+  }
+  return [];
+}
+
+function extractReactRouterStreamPayloads(html: string): string[] {
+  const payloads: string[] = [];
+  const pattern = /streamController\.enqueue\(("(?:\\.|[^"\\])*")\)/g;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(html)) !== null) {
+    try {
+      const payload = JSON.parse(match[1]) as unknown;
+      if (typeof payload === 'string' && payload.trim().startsWith('[')) payloads.push(payload);
+    } catch {
+      // Ignore unrelated stream chunks.
+    }
+  }
+  return payloads;
+}
+
+function mangadotGenreGroup(name: string): string {
+  const value = name.toLowerCase();
+  if (['shounen', 'shoujo', 'seinen', 'josei', 'seinin'].includes(value)) return 'demographic';
+  if (['manga', 'manhwa', 'manhua', 'one shot', 'webtoon', 'comic', 'dojinshi'].includes(value)) return 'format';
+  if ([
+    'action', 'adventure', 'comedy', 'drama', 'fantasy', 'horror', 'mystery', 'romance',
+    'sci-fi', 'slice of life', 'sports', 'supernatural', 'thriller',
+  ].includes(value)) return 'genre';
+  return 'theme';
+}
+
+async function fetchMangadotFilterCatalog(): Promise<FilterDefinition> {
+  const started = Date.now();
+  const response = await fetch(`${BASE_URL}/search`, {
+    headers: {
+      Accept: 'text/html',
+      'User-Agent': 'Mozilla/5.0 manga-reader mangadot-filter-catalog',
+    },
+  });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const html = await response.text();
+  const genres = new Map<string, { id: string; name: string; group: string }>();
+  for (const payload of extractReactRouterStreamPayloads(html)) {
+    try {
+      const root = decodeStreamPool(payload);
+      for (const name of findStringArray(root, 'allGenres')) {
+        const clean = name.trim();
+        if (!clean || genres.has(clean.toLowerCase())) continue;
+        genres.set(clean.toLowerCase(), { id: clean, name: clean, group: mangadotGenreGroup(clean) });
+      }
+    } catch {
+      // Keep scanning other stream chunks.
+    }
+  }
+  if (genres.size === 0) throw new Error('Mangadot filter catalog missing allGenres');
+  const filters = {
+    genres: [...genres.values()],
+    demographics: [],
+    types: [
+      { id: 'JP', name: 'Manga' },
+      { id: 'KR', name: 'Manhwa' },
+      { id: 'CN', name: 'Manhua' },
+      { id: 'ONESHOT', name: 'One Shot' },
+    ],
+    statuses: [
+      { id: 'Ongoing', name: 'Ongoing' },
+      { id: 'Completed', name: 'Completed' },
+      { id: 'Hiatus', name: 'Hiatus' },
+    ],
+  };
+  console.log(`[provider:mangadotnet] filters refresh ok genres=${filters.genres.length} types=${filters.types.length} statuses=${filters.statuses.length} ${Date.now() - started}ms`);
+  return filters;
+}
+
 function normalizeMangaDetail(raw: Record<string, unknown>): Record<string, unknown> {
   const manga = asRecord(raw.manga) ?? raw;
   const recommendations = Array.isArray(raw.suggestions)
@@ -294,31 +410,7 @@ export const mangadotnetServerProvider: ServerMangaProvider = {
   },
 
   async getFilterCatalog(): Promise<{ filters: FilterDefinition; source: 'cache' | 'upstream'; ageMs: number }> {
-    return {
-      source: 'cache',
-      ageMs: 0,
-      filters: {
-        genres: [],
-        types: [
-          { id: 'all', name: 'All' },
-          { id: 'manga', name: 'Manga' },
-          { id: 'manhwa', name: 'Manhwa' },
-          { id: 'manhua', name: 'Manhua' },
-          { id: 'one-shot', name: 'One Shot' },
-        ],
-        statuses: [
-          { id: 'any', name: 'Any' },
-          { id: 'ongoing', name: 'Ongoing' },
-          { id: 'completed', name: 'Completed' },
-          { id: 'hiatus', name: 'Hiatus' },
-        ],
-      },
-    };
-  },
-
-  filterSearchUrl(_type: string, keyword: string): string | null {
-    const params = new URLSearchParams({ search: keyword, page: '1', sortBy: 'relevance', limit: String(SEARCH_PAGE_SIZE) });
-    return `${BASE_URL}/api/search?${params}`;
+    return { filters: await fetchMangadotFilterCatalog(), source: 'upstream', ageMs: 0 };
   },
 };
 

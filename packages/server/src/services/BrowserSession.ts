@@ -703,6 +703,7 @@ export class BrowserSession {
         }
         const promise = this.runtimeHttpGetOwned<T>(mangaId, apiPath, params, context, attempt)
             .finally(() => this.runtimeApiInflight.delete(key));
+        promise.catch(() => undefined);
         this.runtimeApiInflight.set(key, promise);
         return promise;
     }
@@ -788,6 +789,7 @@ export class BrowserSession {
         const stored = next.finally(() => {
             if (this.runtimeLaneLocks.get(lane) === stored) this.runtimeLaneLocks.delete(lane);
         });
+        stored.catch(() => undefined);
         this.runtimeLaneLocks.set(lane, stored);
         return next;
     }

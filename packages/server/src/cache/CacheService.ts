@@ -1,8 +1,9 @@
 import type { BrowserSession } from '../services/BrowserSession.js';
+import type { FilterDefinition } from '@manga-reader/provider-types';
 import { learnStoreHostFromUrl, listStoreHosts } from '../utils/storeHosts.js';
 import { proxyFetchJson } from '../utils/proxyFetch.js';
 import { DATA_CACHE_BACKGROUND_ENABLED } from '../config.js';
-import { CacheDatabase, type CacheJobEnqueueResult, type ImageStoreObservation, type ImageStoreObservationRecord } from './sqlite.js';
+import { CacheDatabase, type CachedFilterOption, type CacheJobEnqueueResult, type ImageStoreObservation, type ImageStoreObservationRecord } from './sqlite.js';
 import { CACHE_JOB_PRIORITY, DurableJobScheduler, type CacheJobPriorityName } from './DurableJobScheduler.js';
 import type { ByteCacheService } from './ByteCacheService.js';
 import type { ServerMangaProvider } from '../providers/types.js';
@@ -31,6 +32,7 @@ const STORE_TAIL_WEIGHTS = {
 const VERBOSE_JOB_PRIORITY = CACHE_JOB_PRIORITY.observed;
 const SLOW_BACKGROUND_JOB_MS = 5_000;
 const BACKGROUND_FAILURE_SUMMARY_MS = 30_000;
+const FILTER_CATALOG_TTL_MS = 24 * 60 * 60 * 1000;
 
 type CacheJobKind = 'seed-newest' | 'crawl-search-page' | 'cache-manga-detail' | 'cache-chapters' | 'reconcile-chapters' | 'cache-chapter-page-map';
 export type CacheJobPriority = 'interactive' | 'foreground' | 'observed' | 'daily' | 'background';
@@ -201,6 +203,40 @@ function resultPagination(data: unknown): Record<string, unknown> {
   const r = result as Record<string, unknown>;
   const pagination = r.pagination ?? r.meta;
   return pagination && typeof pagination === 'object' ? pagination as Record<string, unknown> : {};
+}
+
+function stringList(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value
+      .map(item => typeof item === 'string' ? item : typeof item === 'number' ? String(item) : '')
+      .map(item => item.trim())
+      .filter(Boolean);
+  }
+  if (typeof value !== 'string') return [];
+  const trimmed = value.trim();
+  if (!trimmed) return [];
+  if (trimmed.startsWith('[')) {
+    try {
+      return stringList(JSON.parse(trimmed) as unknown);
+    } catch {
+      return [];
+    }
+  }
+  return trimmed.split(',').map(item => item.trim()).filter(Boolean);
+}
+
+function uniqueTextOptions(type: CachedFilterOption['type'], values: string[], source: string): CachedFilterOption[] {
+  const seen = new Set<string>();
+  const result: CachedFilterOption[] = [];
+  for (const value of values) {
+    const name = value.trim();
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push({ type, id: name, name, source });
+  }
+  return result;
 }
 
 function chapterSummary(chapters: unknown[]): { max: number | null; topId: string | null } {
@@ -487,6 +523,37 @@ export class CacheService {
       durableJobs: this.scheduler.counts(),
       counts: this.db.counts(),
     };
+  }
+
+  async getFilterCatalog(): Promise<{ filters: FilterDefinition; source: 'cache' | 'upstream'; ageMs: number }> {
+    const age = this.db.filterCatalogAge();
+    const cached = this.db.filterCatalogFromCache();
+    const hasCachedCatalog = cached.genres.length > 0 || (cached.demographics?.length ?? 0) > 0 || (cached.types?.length ?? 0) > 0 || (cached.statuses?.length ?? 0) > 0;
+    if (hasCachedCatalog && age != null && age < FILTER_CATALOG_TTL_MS) {
+      return { filters: cached, source: 'cache', ageMs: age };
+    }
+
+    const started = Date.now();
+    try {
+      const upstream = await this.provider.getFilterCatalog();
+      const counts = this.db.replaceProviderFilterCatalog(upstream.filters);
+      const next = this.db.filterCatalogFromCache();
+      console.log(`[cache] filter-catalog-refresh provider=${this.provider.id} source=${upstream.source} tags=${counts.tags} demographics=${counts.demographics} types=${counts.types} statuses=${counts.statuses} ${Date.now() - started}ms`);
+      return { filters: next, source: 'upstream', ageMs: 0 };
+    } catch (error) {
+      if (hasCachedCatalog && age != null) {
+        console.log(`[cache] filter-catalog-refresh-failed provider=${this.provider.id} action=serve-stale ageMs=${age} error=${String((error as Error)?.message ?? error)}`);
+        return { filters: cached, source: 'cache', ageMs: age };
+      }
+      throw error;
+    }
+  }
+
+  searchFilterOptions(type: 'tag' | 'author' | 'artist', keyword: string): Array<{ id: string; name: string }> {
+    const options = this.db.searchFilterOptions(type, keyword, 50)
+      .map(option => ({ id: option.id, name: option.name }));
+    console.log(`[cache] filter-option-search provider=${this.provider.id} type=${type} keyword="${keyword}" count=${options.length}`);
+    return options;
   }
 
   getManga(mangaId: string): unknown | null {
@@ -919,10 +986,17 @@ export class CacheService {
   private drain(): void {
     if (this.active) return;
     this.active = true;
-    void this.runLoop().finally(() => {
-      this.active = false;
-      this.currentJob = null;
-    });
+    let loopFailed = false;
+    void this.runLoop()
+      .catch(error => {
+        loopFailed = true;
+        console.error(`[cache] worker-loop-error provider=${this.provider.id} job=${this.currentJob?.kind ?? 'none'} manga=${this.currentJob?.mangaId ?? 'none'} ${conciseError((error as Error)?.message ?? String(error))}`);
+      })
+      .finally(() => {
+        this.active = false;
+        this.currentJob = null;
+        if (loopFailed) setTimeout(() => this.drain(), 1000);
+      });
   }
 
   private async runLoop(): Promise<void> {
@@ -1087,6 +1161,7 @@ export class CacheService {
       const mangaId = mangaIdFromItem(item);
       if (!mangaId) continue;
       this.db.upsertManga(mangaId, item);
+      this.harvestFilterOptions(item, 'search-crawl');
       const coverJobs = this.enqueueMangaCoverJob(mangaId, item, 'card', 'search-newest', crawlPriority);
       coverDiscovered += coverJobs.discovered;
       coverQueued += coverJobs.queued;
@@ -1169,6 +1244,7 @@ export class CacheService {
       ? (result.data as Record<string, unknown>).result
       : undefined;
     const r = detail && typeof detail === 'object' ? detail as Record<string, unknown> : {};
+    this.harvestFilterOptions(r, 'manga-detail');
     const recommendations = Array.isArray(r.recommendations) ? r.recommendations.length : 0;
     const tags = Array.isArray(r.tags) ? r.tags.length : 0;
     const genres = Array.isArray(r.genres) ? r.genres.length : 0;
@@ -1177,6 +1253,23 @@ export class CacheService {
     if (this.shouldLogJobLifecycle(job)) {
       console.log(`[cache] manga-detail provider=${this.provider.id} cached manga=${mangaId} recommendations=${recommendations} genres=${genres} tags=${tags} description=${description} cover=${coverJobs.queued}/${coverJobs.discovered} fetchMs=${result.durationMs}`);
     }
+  }
+
+  private harvestFilterOptions(payload: unknown, source: string): void {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return;
+    const r = payload as Record<string, unknown>;
+    const options = [
+      ...uniqueTextOptions('tag', [
+        ...stringList(r.tags),
+        ...stringList(r.genres),
+      ], source),
+      ...uniqueTextOptions('author', [
+        ...stringList(r.author),
+        ...stringList(r.authors),
+      ], source),
+      ...uniqueTextOptions('artist', stringList(r.artists), source),
+    ];
+    this.db.upsertFilterOptions(options);
   }
 
   private crawlSearchJobsForDate(crawlDate: string): CacheJob[] {

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import type { FilterDefinition, FilterOption } from '@manga-reader/provider-types';
 import { CACHE_DB_PATH } from '../config.js';
 
 interface MangaCacheRow {
@@ -65,6 +66,27 @@ interface MangaCoverCacheRow {
   error: string | null;
 }
 
+type FilterOptionType = 'tag' | 'author' | 'artist' | 'demographic' | 'type' | 'status';
+
+interface FilterOptionCacheRow {
+  option_type: FilterOptionType;
+  option_id: string;
+  name: string;
+  group_name: string | null;
+  nsfw: number;
+  source: string;
+  updated_at: number;
+}
+
+export interface CachedFilterOption {
+  type: FilterOptionType;
+  id: string;
+  name: string;
+  group?: string | null;
+  nsfw?: boolean;
+  source?: string;
+}
+
 type CacheJobStatus = 'queued' | 'running' | 'retry' | 'failed';
 
 function hostFromUrl(value: string): string {
@@ -73,6 +95,31 @@ function hostFromUrl(value: string): string {
   } catch {
     return 'invalid';
   }
+}
+
+function uniqueFilterOptions(options: FilterOption[]): FilterOption[] {
+  const byId = new Map<string, FilterOption>();
+  for (const option of options) {
+    const id = String(option.id || '').trim();
+    const name = String(option.name || '').trim();
+    if (!id || !name || byId.has(id)) continue;
+    byId.set(id, {
+      id,
+      name,
+      group: option.group,
+      nsfw: option.nsfw === true,
+    });
+  }
+  return [...byId.values()].sort((a, b) => (a.group ?? '').localeCompare(b.group ?? '') || a.name.localeCompare(b.name));
+}
+
+function cachedToFilterOption(option: CachedFilterOption): FilterOption {
+  return {
+    id: option.id,
+    name: option.name,
+    group: option.group ?? undefined,
+    nsfw: option.nsfw,
+  };
 }
 
 export interface CachedManga {
@@ -304,6 +351,20 @@ export class CacheDatabase {
 
       CREATE INDEX IF NOT EXISTS idx_manga_cover_source
       ON manga_cover_cache(source_url);
+
+      CREATE TABLE IF NOT EXISTS filter_option_cache (
+        option_type TEXT NOT NULL,
+        option_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        group_name TEXT,
+        nsfw INTEGER NOT NULL DEFAULT 0,
+        source TEXT NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (option_type, option_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_filter_option_cache_search
+      ON filter_option_cache(option_type, name);
     `);
     this.db.exec('DROP TABLE IF EXISTS image_store_candidates');
   }
@@ -340,6 +401,79 @@ export class CacheDatabase {
       VALUES (?, ?, ?)
       ON CONFLICT(manga_id) DO UPDATE SET data_json = excluded.data_json, updated_at = excluded.updated_at
     `).run(mangaId, JSON.stringify(data), Date.now());
+  }
+
+  replaceProviderFilterCatalog(filters: FilterDefinition, source = 'provider-catalog'): { tags: number; demographics: number; types: number; statuses: number } {
+    const tags = uniqueFilterOptions(filters.genres ?? []);
+    const demographics = uniqueFilterOptions(filters.demographics ?? []);
+    const types = uniqueFilterOptions(filters.types ?? []);
+    const statuses = uniqueFilterOptions(filters.statuses ?? []);
+    this.transaction(() => {
+      this.deleteFilterOptionsBySource(['tag', 'demographic', 'type', 'status'], source);
+      this.upsertFilterOptions([
+        ...tags.map(option => ({ type: 'tag' as const, source, ...option })),
+        ...demographics.map(option => ({ type: 'demographic' as const, source, ...option })),
+        ...types.map(option => ({ type: 'type' as const, source, ...option })),
+        ...statuses.map(option => ({ type: 'status' as const, source, ...option })),
+      ]);
+    });
+    return { tags: tags.length, demographics: demographics.length, types: types.length, statuses: statuses.length };
+  }
+
+  upsertFilterOptions(options: CachedFilterOption[]): number {
+    if (options.length === 0) return 0;
+    const now = Date.now();
+    const stmt = this.db.prepare(`
+      INSERT INTO filter_option_cache (option_type, option_id, name, group_name, nsfw, source, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(option_type, option_id) DO UPDATE SET
+        name = excluded.name,
+        group_name = COALESCE(excluded.group_name, filter_option_cache.group_name),
+        nsfw = excluded.nsfw,
+        source = excluded.source,
+        updated_at = excluded.updated_at
+    `);
+    let changed = 0;
+    for (const option of options) {
+      const id = String(option.id || '').trim();
+      const name = String(option.name || '').trim();
+      if (!id || !name) continue;
+      stmt.run(option.type, id, name, option.group ?? null, option.nsfw === true ? 1 : 0, option.source ?? 'cache-harvest', now);
+      changed++;
+    }
+    return changed;
+  }
+
+  filterCatalogFromCache(): FilterDefinition {
+    return {
+      genres: this.listFilterOptions('tag').map(cachedToFilterOption),
+      demographics: this.listFilterOptions('demographic').map(cachedToFilterOption),
+      types: this.listFilterOptions('type').map(cachedToFilterOption),
+      statuses: this.listFilterOptions('status').map(cachedToFilterOption),
+    };
+  }
+
+  filterCatalogAge(source = 'provider-catalog'): number | null {
+    const row = this.db.prepare(`
+      SELECT MIN(updated_at) AS updated_at
+      FROM filter_option_cache
+      WHERE source = ? AND option_type IN ('tag', 'demographic', 'type', 'status')
+    `).get(source) as { updated_at: number | null } | undefined;
+    return typeof row?.updated_at === 'number' ? Date.now() - row.updated_at : null;
+  }
+
+  searchFilterOptions(type: FilterOptionType, keyword: string, limit = 50): CachedFilterOption[] {
+    const pattern = `%${keyword.replace(/[%_]/g, '\\$&')}%`;
+    const rows = this.db.prepare(`
+      SELECT option_type, option_id, name, group_name, nsfw, source, updated_at
+      FROM filter_option_cache
+      WHERE option_type = ? AND name LIKE ? ESCAPE '\\'
+      ORDER BY
+        CASE WHEN lower(name) = lower(?) THEN 0 WHEN lower(name) LIKE lower(?) THEN 1 ELSE 2 END,
+        name COLLATE NOCASE
+      LIMIT ?
+    `).all(type, pattern, keyword, `${keyword}%`, limit) as unknown as FilterOptionCacheRow[];
+    return rows.map(this.mapFilterOptionRow);
   }
 
   getManga(mangaId: string): CachedManga | null {
@@ -907,13 +1041,39 @@ export class CacheDatabase {
   }
 
   counts(): Record<string, number> {
-    const tables = ['manga_cache', 'chapter_list_cache', 'chapter_image_cache', 'image_store_status', 'image_store_observations', 'cache_jobs', 'byte_cache', 'manga_cover_cache'] as const;
+    const tables = ['manga_cache', 'chapter_list_cache', 'chapter_image_cache', 'image_store_status', 'image_store_observations', 'cache_jobs', 'byte_cache', 'manga_cover_cache', 'filter_option_cache'] as const;
     const result: Record<string, number> = {};
     for (const table of tables) {
       const row = this.db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as { count: number };
       result[table] = row.count;
     }
     return result;
+  }
+
+  private deleteFilterOptionsBySource(types: FilterOptionType[], source: string): void {
+    const stmt = this.db.prepare('DELETE FROM filter_option_cache WHERE option_type = ? AND source = ?');
+    for (const type of types) stmt.run(type, source);
+  }
+
+  private listFilterOptions(type: FilterOptionType): CachedFilterOption[] {
+    const rows = this.db.prepare(`
+      SELECT option_type, option_id, name, group_name, nsfw, source, updated_at
+      FROM filter_option_cache
+      WHERE option_type = ?
+      ORDER BY group_name COLLATE NOCASE, name COLLATE NOCASE
+    `).all(type) as unknown as FilterOptionCacheRow[];
+    return rows.map(this.mapFilterOptionRow);
+  }
+
+  private mapFilterOptionRow(row: FilterOptionCacheRow): CachedFilterOption {
+    return {
+      type: row.option_type,
+      id: row.option_id,
+      name: row.name,
+      group: row.group_name,
+      nsfw: row.nsfw === 1,
+      source: row.source,
+    };
   }
 
   private mapJobRow(row: CacheJobRow): CacheJobRecord {

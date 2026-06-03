@@ -503,6 +503,20 @@ group id from one provider must not hide chapters on another provider, and a
 selected group for one provider/manga pair must not leak into another provider
 with a coincidentally matching manga id.
 
+Provider search filter catalogs are cache-owned. The frontend does not ask a
+provider to live-search tags/authors/artists while the user is typing. Each
+provider SQLite cache has a `filter_option_cache` table keyed by option type
+and id. Provider catalog terms (`tag`, `demographic`, `type`, `status`) refresh
+at most once per day from the provider owner, while `author` and `artist`
+options are harvested opportunistically from cached search/detail payloads.
+The `/api/provider-filters/:providerId` and `/api/provider-filter-search/...`
+routes read through the provider cache owner. This keeps filter UI instant and
+keeps provider-specific option discovery out of frontend state.
+
+Tags are surfaced as normal three-state chips: empty -> include -> exclude ->
+empty. Authors and artists keep the existing search-box UI, but the search box
+is cache-backed rather than upstream-backed.
+
 ### 40. Provider Runtime Owns Session Health and Request Coalescing
 
 Browser-backed provider APIs are fragile shared resources. The browser session
@@ -524,6 +538,13 @@ Mangadot searches previously raced through the same browser runtime and could
 produce mixed `200` and `504` results. The owning session now joins identical
 in-flight runtime API requests so callers share one provider request instead
 of competing with each other.
+
+The browser session also owns the bookkeeping promises used for runtime API
+coalescing and lane serialization. Those promises may reject when an upstream
+provider returns a normal job failure such as `404`. The returned caller promise
+still rejects so the cache job can fail/retry durably, but the bookkeeping
+promise itself must attach a rejection sink. Otherwise a provider-level job
+failure can become an unhandled process failure and restart the service.
 
 Mangadot's browser session is an explicit provider capability:
 

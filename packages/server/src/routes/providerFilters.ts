@@ -28,8 +28,8 @@ export default function providerFiltersRouter(coordinator: ProviderCoordinator |
             return;
         }
 
-        const result = await owner.provider.getFilterCatalog();
-        console.log(`[providerFilters] serve provider=${owner.provider.id} source=${result.source} ageMs=${result.ageMs}`);
+        const result = await owner.cache.getFilterCatalog();
+        console.log(`[providerFilters] serve provider=${owner.provider.id} source=${result.source} ageMs=${result.ageMs} genres=${result.filters.genres.length} demographics=${result.filters.demographics?.length ?? 0}`);
         res.json({
             status: 'ok',
             result: result.filters,
@@ -58,35 +58,12 @@ export default function providerFiltersRouter(coordinator: ProviderCoordinator |
             return;
         }
 
-        const url = owner.provider.filterSearchUrl(type, keyword);
-        if (!url) {
+        if (type !== 'tag' && type !== 'author' && type !== 'artist') {
             res.status(404).json({ error: 'Unknown filter search' });
             return;
         }
-        const started = Date.now();
-        const data = owner.provider.id === 'mangadotnet'
-            ? (await owner.browserSession.fetchRuntimeApi(url, {
-                owner: 'provider-filter-search',
-                priority: 'foreground',
-                reason: `${type}:${keyword}`,
-            })).data
-            : await fetch(url, {
-                headers: {
-                    Accept: 'application/json',
-                    'User-Agent': 'Mozilla/5.0 manga-reader filter-search',
-                },
-            }).then(async upstream => {
-                const data = await upstream.json() as unknown;
-                if (!upstream.ok) {
-                    const error = new Error(`HTTP ${upstream.status}`);
-                    Object.assign(error, { status: upstream.status, data });
-                    throw error;
-                }
-                return data;
-            });
-        const count = Array.isArray((data as Record<string, unknown>)?.result) ? ((data as Record<string, unknown>).result as unknown[]).length : 0;
-        console.log(`[providerFilters] search provider=${owner.provider.id} type=${type} keyword="${keyword}" count=${count} ${Date.now() - started}ms`);
-        res.json(data);
+        const result = owner.cache.searchFilterOptions(type, keyword);
+        res.json({ status: 'ok', result });
     }));
 
     return router;

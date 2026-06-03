@@ -176,22 +176,22 @@ function parsePagination(raw: unknown, fallbackPage: number, fallbackCount: numb
   return pagination(currentPage, fallbackCount, pageSize);
 }
 
-const filters: FilterDefinition = {
+const defaultFilters: FilterDefinition = {
   genres: [],
   types: [
-    { id: 'all', name: 'All' },
-    { id: 'manga', name: 'Manga' },
-    { id: 'manhwa', name: 'Manhwa' },
-    { id: 'manhua', name: 'Manhua' },
-    { id: 'one-shot', name: 'One Shot' },
+    { id: 'JP', name: 'Manga' },
+    { id: 'KR', name: 'Manhwa' },
+    { id: 'CN', name: 'Manhua' },
+    { id: 'ONESHOT', name: 'One Shot' },
   ],
   statuses: [
-    { id: 'any', name: 'Any' },
-    { id: 'ongoing', name: 'Ongoing' },
-    { id: 'completed', name: 'Completed' },
-    { id: 'hiatus', name: 'Hiatus' },
+    { id: 'Ongoing', name: 'Ongoing' },
+    { id: 'Completed', name: 'Completed' },
+    { id: 'Hiatus', name: 'Hiatus' },
   ],
 };
+
+let activeFilters: FilterDefinition = defaultFilters;
 
 const provider: MangaProvider = {
   id: 'mangadotnet',
@@ -203,10 +203,14 @@ const provider: MangaProvider = {
   chapterImagesResponseType: 'json',
 
   getFilters(): FilterDefinition {
-    return filters;
+    return activeFilters;
   },
 
-  searchRequest(query: string, page: number, _filters?: SearchFilters): HttpRequest {
+  setFilters(filters: FilterDefinition): void {
+    activeFilters = filters;
+  },
+
+  searchRequest(query: string, page: number, filters?: SearchFilters): HttpRequest {
     const params = new URLSearchParams();
     const search = query.trim();
     params.set('search', search);
@@ -217,6 +221,15 @@ const provider: MangaProvider = {
     }
     params.set('page', String(page));
     params.set('limit', String(SEARCH_MAX_PAGE_SIZE));
+    for (const id of filters?.includeGenres ?? []) params.append('genre', id);
+    for (const id of filters?.excludeGenres ?? []) params.append('genre', `-${id}`);
+    for (const origin of filters?.types ?? []) params.append('origin', origin);
+    const status = filters?.statuses?.[0];
+    if (status) params.set('status', status);
+    const author = filters?.authors?.[0];
+    if (author) params.set('author', author);
+    const artist = filters?.artists?.[0];
+    if (artist) params.set('artist', artist);
     return { url: `${BASE_URL}/api/search?${params}`, cloudflareProtected: true };
   },
 

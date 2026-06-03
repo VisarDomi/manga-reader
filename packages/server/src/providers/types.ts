@@ -56,5 +56,4 @@ export interface ServerMangaProvider {
   searchThumbnailReferer(): string;
   rawMangaUrlFromChapterItem(item: unknown, mangaId: string, chapterId: string, chapterNumber?: number): string;
   getFilterCatalog(): Promise<{ filters: FilterDefinition; source: 'cache' | 'upstream'; ageMs: number }>;
-  filterSearchUrl(type: string, keyword: string): string | null;
 }

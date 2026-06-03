@@ -125,41 +125,33 @@ var m = {
 	genres: [],
 	types: [
 		{
-			id: "all",
-			name: "All"
-		},
-		{
-			id: "manga",
+			id: "JP",
 			name: "Manga"
 		},
 		{
-			id: "manhwa",
+			id: "KR",
 			name: "Manhwa"
 		},
 		{
-			id: "manhua",
+			id: "CN",
 			name: "Manhua"
 		},
 		{
-			id: "one-shot",
+			id: "ONESHOT",
 			name: "One Shot"
 		}
 	],
 	statuses: [
 		{
-			id: "any",
-			name: "Any"
-		},
-		{
-			id: "ongoing",
+			id: "Ongoing",
 			name: "Ongoing"
 		},
 		{
-			id: "completed",
+			id: "Completed",
 			name: "Completed"
 		},
 		{
-			id: "hiatus",
+			id: "Hiatus",
 			name: "Hiatus"
 		}
 	]
@@ -174,9 +166,21 @@ var m = {
 	getFilters() {
 		return m;
 	},
+	setFilters(e) {
+		m = e;
+	},
 	searchRequest(n, r, i) {
 		let a = new URLSearchParams(), o = n.trim();
-		return a.set("search", o), o ? a.set("sortBy", "relevance") : a.set("sortBy", "latest"), a.set("page", String(r)), a.set("limit", String(t)), {
+		a.set("search", o), o ? a.set("sortBy", "relevance") : a.set("sortBy", "latest"), a.set("page", String(r)), a.set("limit", String(t));
+		for (let e of i?.includeGenres ?? []) a.append("genre", e);
+		for (let e of i?.excludeGenres ?? []) a.append("genre", `-${e}`);
+		for (let e of i?.types ?? []) a.append("origin", e);
+		let s = i?.statuses?.[0];
+		s && a.set("status", s);
+		let c = i?.authors?.[0];
+		c && a.set("author", c);
+		let l = i?.artists?.[0];
+		return l && a.set("artist", l), {
 			url: `${e}/api/search?${a}`,
 			cloudflareProtected: !0
 		};
