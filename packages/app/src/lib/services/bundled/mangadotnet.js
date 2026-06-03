@@ -1,5 +1,5 @@
 //#region src/index.ts
-var e = "https://mangadot.net", t = 28;
+var e = "https://mangadot.net", t = 100;
 function n(e) {
 	return typeof e == "object" && e && !Array.isArray(e) ? e : void 0;
 }
@@ -102,14 +102,26 @@ function d(e) {
 		authors: l.length > 0 ? l : void 0
 	};
 }
-function f(e, n) {
+function f(e, n, r = t) {
 	return {
 		currentPage: e,
-		lastPage: Math.max(1, Math.ceil(n / t)),
+		lastPage: Math.max(1, Math.ceil(n / r)),
 		total: n
 	};
 }
-var p = {
+function p(e, r, i) {
+	let o = n(e) ?? {}, s = a(o.current_page ?? o.currentPage ?? o.page) ?? r, c = a(o.per_page ?? o.perPage ?? o.page_size ?? o.limit) ?? t, l = a(o.total ?? o.total_results ?? o.totalResults ?? o.total_items ?? o.totalItems ?? o.count), u = a(o.last_page ?? o.lastPage ?? o.total_pages ?? o.totalPages);
+	return l == null ? u == null ? f(s, i, c) : {
+		currentPage: s,
+		lastPage: Math.max(1, Math.floor(u)),
+		total: Math.max(i, Math.floor(u) * c)
+	} : {
+		currentPage: s,
+		lastPage: Math.max(1, Math.floor(u ?? Math.ceil(l / c))),
+		total: l
+	};
+}
+var m = {
 	genres: [],
 	types: [
 		{
@@ -151,7 +163,7 @@ var p = {
 			name: "Hiatus"
 		}
 	]
-}, m = {
+}, h = {
 	id: "mangadotnet",
 	name: "Mangadotnet",
 	baseUrl: e,
@@ -160,21 +172,21 @@ var p = {
 	nsfw: !0,
 	chapterImagesResponseType: "json",
 	getFilters() {
-		return p;
+		return m;
 	},
-	searchRequest(t, n, r) {
-		let i = new URLSearchParams(), a = t.trim();
-		return i.set("search", a), a ? i.set("sortBy", "relevance") : i.set("sortBy", "latest"), i.set("page", String(n)), {
-			url: `${e}/api/search?${i}`,
+	searchRequest(n, r, i) {
+		let a = new URLSearchParams(), o = n.trim();
+		return a.set("search", o), o ? a.set("sortBy", "relevance") : a.set("sortBy", "latest"), a.set("page", String(r)), a.set("limit", String(t)), {
+			url: `${e}/api/search?${a}`,
 			cloudflareProtected: !0
 		};
 	},
 	parseSearchResponse(e) {
-		let t = s(e), r = n(t), i = Array.isArray(r?.manga_list) ? r.manga_list.filter((e) => typeof e == "object" && !!e && !Array.isArray(e)) : null, o = i ? null : c(t, "results"), l = (i ?? (Array.isArray(o?.results) ? o.results.filter((e) => typeof e == "object" && !!e && !Array.isArray(e)) : u(t))).map(d), p = a(r?.total ?? r?.count ?? o?.total ?? o?.count) ?? l.length, m = f(a(r?.page ?? o?.page ?? o?.currentPage) ?? 1, p);
+		let t = s(e), r = n(t), i = Array.isArray(r?.manga_list) ? r.manga_list.filter((e) => typeof e == "object" && !!e && !Array.isArray(e)) : null, o = i ? null : c(t, "results"), l = (i ?? (Array.isArray(o?.results) ? o.results.filter((e) => typeof e == "object" && !!e && !Array.isArray(e)) : u(t))).map(d), f = p(r?.pagination ?? o?.pagination ?? o?.meta, a(r?.page ?? o?.page ?? o?.currentPage) ?? 1, l.length);
 		return {
 			items: l,
-			pagination: m,
-			hasMore: m.currentPage < m.lastPage
+			pagination: f,
+			hasMore: f.currentPage < f.lastPage
 		};
 	},
 	parseMangaDetailResponse(e) {
@@ -219,7 +231,7 @@ var p = {
 	},
 	parseChapterImagesResponse(e) {
 		let t = n(e) ?? {}, o = n(t.result) ?? t;
-		return (Array.isArray(o.images) ? o.images : []).filter((e) => typeof e == "object" && !!e && !Array.isArray(e)).map((e) => {
+		return (Array.isArray(o.pages) ? o.pages : Array.isArray(o.images) ? o.images : []).filter((e) => typeof e == "object" && !!e && !Array.isArray(e)).map((e) => {
 			let t = i(r(e.url));
 			return {
 				url: t,
@@ -236,4 +248,4 @@ var p = {
 	}
 };
 //#endregion
-export { m as default };
+export { h as default };

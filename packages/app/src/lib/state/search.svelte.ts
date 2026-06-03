@@ -7,6 +7,7 @@ import type { ToastState } from './toast.svelte.js';
 import { FilterState } from './filter.svelte.js';
 import type { SearchContext } from './session.js';
 import { type LoadError, toLoadError, loadErrorMessage } from './errors.js';
+import type { LogEmit } from '../services/LogService.js';
 
 export { type LoadError as SearchError, loadErrorMessage as searchErrorMessage };
 
@@ -54,15 +55,17 @@ export class SearchState {
     private loadingWatchdog: ReturnType<typeof setTimeout> | null = null;
     private onStuck: (() => void) | null = null;
     private isRestoring: () => boolean;
+    private emit: LogEmit;
     private reconcileReported = new Set<string>();
     onNewSearch: (() => void) | null = null;
 
     get isLoading() { return this.machine.isActive; }
 
-    constructor(toast: ToastState, onStuck?: () => void, isRestoring?: () => boolean) {
+    constructor(toast: ToastState, onStuck?: () => void, isRestoring?: () => boolean, emit?: LogEmit) {
         this.toast = toast;
         this.onStuck = onStuck ?? null;
         this.isRestoring = isRestoring ?? (() => false);
+        this.emit = emit ?? (() => {}) as LogEmit;
         this.inputQuery = storage.getString('lastQuery', '');
         this.filters = new FilterState(() => this.search(this.inputQuery));
     }
@@ -210,22 +213,67 @@ export class SearchState {
     }
 
     async loadNextPage() {
-        if (this.machine.isActive || !this.hasMore || this.isRestoring()) return;
+        const restoring = this.isRestoring();
+        if (this.machine.isActive || !this.hasMore || restoring) {
+            this.emit('search-page-flow', {
+                action: 'skip',
+                query: this.currentQuery || '(browse)',
+                requestedPage: this.currentPage + 1,
+                currentPage: this.currentPage,
+                resultCount: this.results.length,
+                hasMore: this.hasMore,
+                machineActive: this.machine.isActive,
+                isRestoring: restoring,
+            });
+            return;
+        }
 
         this.machine.enter('loading-page');
         const signal = this.machine.signal!;
 
         this.startWatchdog();
         this.currentPage++;
+        this.emit('search-page-flow', {
+            action: 'start',
+            query: this.currentQuery || '(browse)',
+            requestedPage: this.currentPage,
+            currentPage: this.currentPage,
+            resultCount: this.results.length,
+            hasMore: this.hasMore,
+            machineActive: this.machine.isActive,
+            isRestoring: false,
+        });
 
         try {
-            await this.fetchAndAppendPage(this.currentPage, signal);
+            const added = await this.fetchAndAppendPage(this.currentPage, signal);
+            this.emit('search-page-flow', {
+                action: 'done',
+                query: this.currentQuery || '(browse)',
+                requestedPage: this.currentPage,
+                currentPage: this.currentPage,
+                resultCount: this.results.length,
+                hasMore: this.hasMore,
+                machineActive: this.machine.isActive,
+                isRestoring: false,
+                added: added.length,
+            });
         } catch (e) {
             if (signal.aborted) return;
             const isTransient = e instanceof api.ApiError &&
                 (e.kind === api.ApiErrKind.TIMEOUT || e.kind === api.ApiErrKind.NETWORK ||
                  (e.kind === api.ApiErrKind.HTTP && [408, 429, 500, 502, 503, 504].includes(e.status ?? 0)));
             this.currentPage--;
+            this.emit('search-page-flow', {
+                action: 'error',
+                query: this.currentQuery || '(browse)',
+                requestedPage: this.currentPage + 1,
+                currentPage: this.currentPage,
+                resultCount: this.results.length,
+                hasMore: this.hasMore,
+                machineActive: this.machine.isActive,
+                isRestoring: false,
+                error: String((e as Error)?.message ?? e),
+            });
             if (isTransient) {
                 this.toast.show(Msg.SLOW_CONNECTION);
             } else {

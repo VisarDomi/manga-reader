@@ -2,6 +2,7 @@ import type { Manga, ChapterMeta, MangaComment } from '../types.js';
 import { View } from '../logic.js';
 import * as api from '../services/api.js';
 import * as storage from '../services/storage.js';
+import { getProviderId } from '../services/provider.js';
 import type { LogEmit } from '../services/LogService.js';
 import type { MangaScrollSnapshot } from './session.js';
 import type { UIState } from './ui.svelte.js';
@@ -68,6 +69,20 @@ function hideRecommendations(manga: Manga): Manga {
 
 function delay(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function groupSelectionKey(mangaId: string): string {
+    return `group:${getProviderId()}:${mangaId}`;
+}
+
+function loadSelectedGroups(mangaId: string): Set<string> {
+    const key = groupSelectionKey(mangaId);
+    const scoped = storage.getJson<string[]>(key, []);
+    if (scoped.length > 0 || getProviderId() !== 'comix') return new Set(scoped);
+
+    const legacy = storage.getJson<string[]>(`group:${mangaId}`, []);
+    if (legacy.length > 0) storage.setJson(key, legacy);
+    return new Set(legacy);
 }
 
 export class MangaState {
@@ -222,12 +237,12 @@ export class MangaState {
     }
 
     private loadGroupSelection(entry: MangaEntry) {
-        entry.selectedGroups = new Set(storage.getJson<string[]>(`group:${entry.manga.id}`, []));
+        entry.selectedGroups = loadSelectedGroups(entry.manga.id);
         this.replaceEntry(entry);
     }
 
     private applyGroupSelection(entry: MangaEntry) {
-        entry.selectedGroups = new Set(storage.getJson<string[]>(`group:${entry.manga.id}`, []));
+        entry.selectedGroups = loadSelectedGroups(entry.manga.id);
     }
 
     refreshChapterStats(entryKey?: string): void {
@@ -244,9 +259,9 @@ export class MangaState {
         else next.add(id);
         entry.selectedGroups = next;
         if (next.size === 0) {
-            storage.remove(`group:${entry.manga.id}`);
+            storage.remove(groupSelectionKey(entry.manga.id));
         } else {
-            storage.setJson(`group:${entry.manga.id}`, [...next]);
+            storage.setJson(groupSelectionKey(entry.manga.id), [...next]);
         }
         this.replaceEntry(entry);
         this.refreshChapterStats(entry.key);
@@ -301,7 +316,7 @@ export class MangaState {
         const entry = this.entryFor(entryKey);
         if (!entry) return;
         entry.selectedGroups = new Set();
-        storage.remove(`group:${entry.manga.id}`);
+        storage.remove(groupSelectionKey(entry.manga.id));
         this.replaceEntry(entry);
         this.refreshChapterStats(entry.key);
     }

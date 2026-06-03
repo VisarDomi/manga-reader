@@ -24,6 +24,7 @@ export class ProviderCoordinator {
     for (const provider of listServerProviders()) {
       const db = new CacheDatabase(this.dbPath(provider.id));
       const browserSession = new BrowserSession(provider);
+      let cache: CacheService | null = null;
       const byteCache = new ByteCacheService(
         this.byteDir(provider.id),
         db,
@@ -31,9 +32,11 @@ export class ProviderCoordinator {
         provider.id === 'mangadotnet'
           ? (url, context) => browserSession.fetchRuntimeByte(url, context)
           : undefined,
+        () => provider.id !== 'mangadotnet'
+          || (browserSession.canRunBackgroundRuntimeWork() && !cache?.hasHigherPriorityDataWork()),
       );
-      const cache = new CacheService(browserSession, provider, byteCache, db);
-      const comments = new CommentsService(cache, provider);
+      cache = new CacheService(browserSession, provider, byteCache, db);
+      const comments = new CommentsService(cache, provider, browserSession);
       this.owners.set(provider.id, { provider, db, browserSession, byteCache, cache, comments });
     }
   }

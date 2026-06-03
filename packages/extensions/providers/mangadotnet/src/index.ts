@@ -12,7 +12,7 @@ import type {
 } from '@manga-reader/provider-types';
 
 const BASE_URL = 'https://mangadot.net';
-const SEARCH_PAGE_SIZE = 28;
+const SEARCH_MAX_PAGE_SIZE = 100;
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value != null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
@@ -145,12 +145,35 @@ function parseMangaItem(raw: Record<string, unknown>): Manga {
   };
 }
 
-function pagination(currentPage: number, total: number): PaginationMeta {
+function pagination(currentPage: number, total: number, pageSize = SEARCH_MAX_PAGE_SIZE): PaginationMeta {
   return {
     currentPage,
-    lastPage: Math.max(1, Math.ceil(total / SEARCH_PAGE_SIZE)),
+    lastPage: Math.max(1, Math.ceil(total / pageSize)),
     total,
   };
+}
+
+function parsePagination(raw: unknown, fallbackPage: number, fallbackCount: number): PaginationMeta {
+  const record = asRecord(raw) ?? {};
+  const currentPage = numeric(record.current_page ?? record.currentPage ?? record.page) ?? fallbackPage;
+  const pageSize = numeric(record.per_page ?? record.perPage ?? record.page_size ?? record.limit) ?? SEARCH_MAX_PAGE_SIZE;
+  const total = numeric(record.total ?? record.total_results ?? record.totalResults ?? record.total_items ?? record.totalItems ?? record.count);
+  const lastPage = numeric(record.last_page ?? record.lastPage ?? record.total_pages ?? record.totalPages);
+  if (total != null) {
+    return {
+      currentPage,
+      lastPage: Math.max(1, Math.floor(lastPage ?? Math.ceil(total / pageSize))),
+      total,
+    };
+  }
+  if (lastPage != null) {
+    return {
+      currentPage,
+      lastPage: Math.max(1, Math.floor(lastPage)),
+      total: Math.max(fallbackCount, Math.floor(lastPage) * pageSize),
+    };
+  }
+  return pagination(currentPage, fallbackCount, pageSize);
 }
 
 const filters: FilterDefinition = {
@@ -193,6 +216,7 @@ const provider: MangaProvider = {
       params.set('sortBy', 'latest');
     }
     params.set('page', String(page));
+    params.set('limit', String(SEARCH_MAX_PAGE_SIZE));
     return { url: `${BASE_URL}/api/search?${params}`, cloudflareProtected: true };
   },
 
@@ -208,9 +232,7 @@ const provider: MangaProvider = {
       : findMangaCards(decoded));
     const items = rawItems
       .map(parseMangaItem);
-    const total = numeric(apiRoot?.total ?? apiRoot?.count ?? holder?.total ?? holder?.count) ?? items.length;
-    const page = numeric(apiRoot?.page ?? holder?.page ?? holder?.currentPage) ?? 1;
-    const meta = pagination(page, total);
+    const meta = parsePagination(apiRoot?.pagination ?? holder?.pagination ?? holder?.meta, numeric(apiRoot?.page ?? holder?.page ?? holder?.currentPage) ?? 1, items.length);
     return { items, pagination: meta, hasMore: meta.currentPage < meta.lastPage };
   },
 
@@ -266,7 +288,11 @@ const provider: MangaProvider = {
   parseChapterImagesResponse(data: unknown): ChapterPage[] {
     const root = asRecord(data) ?? {};
     const result = asRecord(root.result) ?? root;
-    const images = Array.isArray(result.images) ? result.images : [];
+    const images = Array.isArray(result.pages)
+      ? result.pages
+      : Array.isArray(result.images)
+        ? result.images
+        : [];
     return images
       .filter((item): item is Record<string, unknown> => item != null && typeof item === 'object' && !Array.isArray(item))
       .map(item => {

@@ -17,6 +17,8 @@ type PerfContext = {
     readerPages: number;
 };
 
+type CoverPhase = 'mount' | 'load' | 'error' | 'missing';
+
 const cardActive = {
     search: 0,
     favorites: 0,
@@ -31,6 +33,23 @@ const cardEvents = {
 };
 
 let cardFlushTimer: ReturnType<typeof setTimeout> | null = null;
+let coverFlushTimer: ReturnType<typeof setTimeout> | null = null;
+
+const coverEvents: Record<CoverPhase, Record<MangaListSource | 'detail', number>> = {
+    mount: { search: 0, favorites: 0, recommendations: 0, detail: 0 },
+    load: { search: 0, favorites: 0, recommendations: 0, detail: 0 },
+    error: { search: 0, favorites: 0, recommendations: 0, detail: 0 },
+    missing: { search: 0, favorites: 0, recommendations: 0, detail: 0 },
+};
+
+const coverTiming = {
+    loadCount: 0,
+    loadTotalMs: 0,
+    loadMaxMs: 0,
+    errorCount: 0,
+    errorTotalMs: 0,
+    errorMaxMs: 0,
+};
 
 export function cardPerfSnapshot() {
     return {
@@ -93,6 +112,74 @@ export function recordMangaCardPerf(emit: LogEmit, source: MangaListSource, kind
         cardEvents.statsCallbacks.favorites = 0;
         cardEvents.statsCallbacks.recommendations = 0;
         emit('manga-card-subscription-summary', payload);
+    }, 250);
+}
+
+export function recordCoverImagePerf(
+    emit: LogEmit,
+    source: MangaListSource | 'detail',
+    phase: CoverPhase,
+    hasCover: boolean,
+    dtMs: number,
+): void {
+    coverEvents[phase][source]++;
+    if (!hasCover && phase === 'mount') coverEvents.missing[source]++;
+    if (phase === 'load') {
+        coverTiming.loadCount++;
+        coverTiming.loadTotalMs += dtMs;
+        coverTiming.loadMaxMs = Math.max(coverTiming.loadMaxMs, dtMs);
+    }
+    if (phase === 'error') {
+        coverTiming.errorCount++;
+        coverTiming.errorTotalMs += dtMs;
+        coverTiming.errorMaxMs = Math.max(coverTiming.errorMaxMs, dtMs);
+    }
+
+    if (coverFlushTimer != null) return;
+    coverFlushTimer = setTimeout(() => {
+        coverFlushTimer = null;
+        const total =
+            coverEvents.mount.search + coverEvents.mount.favorites + coverEvents.mount.recommendations + coverEvents.mount.detail
+            + coverEvents.load.search + coverEvents.load.favorites + coverEvents.load.recommendations + coverEvents.load.detail
+            + coverEvents.error.search + coverEvents.error.favorites + coverEvents.error.recommendations + coverEvents.error.detail
+            + coverEvents.missing.search + coverEvents.missing.favorites + coverEvents.missing.recommendations + coverEvents.missing.detail;
+        if (total === 0) return;
+
+        emit('manga-cover-image-summary', {
+            mountSearch: coverEvents.mount.search,
+            mountFavorites: coverEvents.mount.favorites,
+            mountRecommendations: coverEvents.mount.recommendations,
+            mountDetail: coverEvents.mount.detail,
+            loadSearch: coverEvents.load.search,
+            loadFavorites: coverEvents.load.favorites,
+            loadRecommendations: coverEvents.load.recommendations,
+            loadDetail: coverEvents.load.detail,
+            errorSearch: coverEvents.error.search,
+            errorFavorites: coverEvents.error.favorites,
+            errorRecommendations: coverEvents.error.recommendations,
+            errorDetail: coverEvents.error.detail,
+            missingSearch: coverEvents.missing.search,
+            missingFavorites: coverEvents.missing.favorites,
+            missingRecommendations: coverEvents.missing.recommendations,
+            missingDetail: coverEvents.missing.detail,
+            loadAvgMs: coverTiming.loadCount > 0 ? Math.round(coverTiming.loadTotalMs / coverTiming.loadCount) : 0,
+            loadMaxMs: Math.round(coverTiming.loadMaxMs),
+            errorAvgMs: coverTiming.errorCount > 0 ? Math.round(coverTiming.errorTotalMs / coverTiming.errorCount) : 0,
+            errorMaxMs: Math.round(coverTiming.errorMaxMs),
+        });
+
+        for (const phase of Object.keys(coverEvents) as CoverPhase[]) {
+            coverEvents[phase].search = 0;
+            coverEvents[phase].favorites = 0;
+            coverEvents[phase].recommendations = 0;
+            coverEvents[phase].detail = 0;
+        }
+        coverTiming.loadCount = 0;
+        coverTiming.loadTotalMs = 0;
+        coverTiming.loadMaxMs = 0;
+        coverTiming.errorCount = 0;
+        coverTiming.errorTotalMs = 0;
+        coverTiming.errorMaxMs = 0;
     }, 250);
 }
 

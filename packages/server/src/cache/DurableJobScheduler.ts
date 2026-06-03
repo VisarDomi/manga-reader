@@ -20,7 +20,7 @@ export interface DurableJobInput {
   retryFailedAfterMs?: number;
 }
 
-const BULK_JOB_KINDS = new Set(['cache-byte', 'cache-manga-detail', 'cache-chapters', 'cache-chapter-page-map']);
+const BULK_JOB_KINDS = new Set(['cache-byte', 'crawl-search-page', 'cache-manga-detail', 'cache-chapters', 'cache-chapter-page-map']);
 
 export class DurableJobScheduler {
   constructor(private readonly db: CacheDatabase) {}
@@ -78,7 +78,9 @@ export class DurableJobScheduler {
     const runAfter = Date.now() + delayMs;
     const message = conciseError(error);
     this.db.retryJob(job.id, message, runAfter);
-    console.log(`[cache-scheduler] retry id=${job.id} kind=${job.kind} resource=${job.resourceKey} delayMs=${delayMs} error=${message}`);
+    if (this.shouldLogRecord(job.kind, job.priority)) {
+      console.log(`[cache-scheduler] retry id=${job.id} kind=${job.kind} resource=${job.resourceKey} delayMs=${delayMs} error=${message}`);
+    }
   }
 
   yield(job: CacheJobRecord, reason: string): void {

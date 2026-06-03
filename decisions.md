@@ -497,6 +497,12 @@ Reader code consumes normalized chapter/page data. It should not know whether
 the active provider uses Comix store candidates, Comix scrambling, Mangadot
 direct image URLs, or browser-backed provider APIs.
 
+Provider-specific user state follows the same rule. Global chapter group
+filters and per-manga selected chapter groups are provider-scoped state. A
+group id from one provider must not hide chapters on another provider, and a
+selected group for one provider/manga pair must not leak into another provider
+with a coincidentally matching manga id.
+
 ### 40. Provider Runtime Owns Session Health and Request Coalescing
 
 Browser-backed provider APIs are fragile shared resources. The browser session
@@ -518,6 +524,39 @@ Mangadot searches previously raced through the same browser runtime and could
 produce mixed `200` and `504` results. The owning session now joins identical
 in-flight runtime API requests so callers share one provider request instead
 of competing with each other.
+
+Mangadot's browser session is an explicit provider capability:
+
+- Bootstrap Cloudflare once in visible Chromium using
+  `/tmp/mangadot-human-profile`.
+- Close the visible browser so the profile lock is released.
+- Reuse that exact profile in the backend/Xvfb provider runtime.
+- Page-side `fetch(..., { credentials: 'include' })` from the cleared browser
+  can read `/api/search`, `/api/manga/{id}`, `/api/manga/{id}/chapters/list`,
+  `/api/uploads/{chapterId}/images`, and direct comment APIs.
+- If the cleared browser returns Cloudflare challenge HTML, the provider state
+  is `needsHumanClearance`; background jobs should not retry-loop as if the
+  provider merely had a transient request failure.
+
+Mangadot data facts verified through the provider runtime:
+
+- Search uses `/api/search?search={query}&page={page}&sortBy={mode}&limit=100`.
+  The upstream clamps larger limits such as 200, 500, and 1000 back to
+  `per_page=100`, so 100 is the provider's current maximum effective page
+  size, not an arbitrary app cap.
+- Manga detail is available from `/api/manga/{mangaId}`.
+- Chapter list is available from `/api/manga/{mangaId}/chapters/list` and
+  returns rows with chapter id, number, title, language, group/source fields,
+  upload date, page count, and comment count.
+- Chapter image metadata is available from `/api/uploads/{chapterId}/images`.
+  Images are direct Mangadot-hosted URLs and should not use Comix store-host
+  ranking, candidate fanout, image-store observations, or descrambling.
+- Manga comments use `/api/comments?manga_id={mangaId}`.
+- Chapter comments use `/api/comments?chapter_id={chapterId}&source={source}`.
+  Mangadot comments normally log `mode=direct-api`.
+
+Remaining Mangadot parity gap: recommendation/"You may also like" extraction
+needs more endpoint investigation before claiming full parity with Comix.
 
 ### 41. Backend Cache Is the Manga Data Owner
 
@@ -592,6 +631,16 @@ Power-off safety comes from durable job rows and atomic cache mutations:
   expansion half-written.
 - Cooperative yield is allowed only at safe boundaries between upstream page
   requests, before the final cache write.
+
+Cache logs must be compact enough to support log-driven development. Foreground
+and user-visible work should log start/decision/result. Background bulk success
+paths should be summarized or represented by domain logs such as
+`search-crawl`, `chapters`, `manga-detail`, and byte-cache summaries. Repeating
+generic scheduler/job start/done lines for every tiny background job bloats
+context without adding evidence. Repeated background bulk failures should be
+reported as burst summaries with counts and sample job ids, while foreground
+failures, retries, yields, promotions, slow jobs, startup recovery, and
+foreground jobs remain explicit.
 
 ### 42. Cache Readiness Is a Contract
 

@@ -1,5 +1,6 @@
 import type { ChapterMeta } from '../types.js';
 import * as storage from '../services/storage.js';
+import { getProviderId } from '../services/provider.js';
 import type { GroupFilterState } from './groupFilter.svelte.js';
 
 interface ChapterStatsEntry {
@@ -23,7 +24,7 @@ export class ChapterStatsState {
     }
 
     keyFor(mangaId: string, selectedGroups?: Set<string>): string {
-        const selected = selectedGroups ?? new Set(storage.getJson<string[]>(`group:${mangaId}`, []));
+        const selected = selectedGroups ?? new Set(storage.getJson<string[]>(`group:${getProviderId()}:${mangaId}`, []));
         return [
             `blocked:${this.gf.key}`,
             `selected:${[...selected].sort().join(',')}`,
@@ -48,7 +49,7 @@ export class ChapterStatsState {
     }
 
     update(mangaId: string, upstreamMax: number | null, chapters: ChapterMeta[], selectedGroups?: Set<string>): void {
-        const selected = selectedGroups ?? new Set(storage.getJson<string[]>(`group:${mangaId}`, []));
+        const selected = selectedGroups ?? new Set(storage.getJson<string[]>(`group:${getProviderId()}:${mangaId}`, []));
         const filteredByBlock = this.gf.count === 0
             ? chapters
             : chapters.filter(ch => !this.gf.isFiltered(ch.groupId ?? ''));

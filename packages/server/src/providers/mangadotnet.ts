@@ -4,6 +4,7 @@ import type { RuntimeChapterImages, ServerMangaProvider } from './types.js';
 
 const BASE_URL = 'https://mangadot.net';
 const DOMAIN = 'mangadot.net';
+const SEARCH_PAGE_SIZE = 100;
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value != null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
@@ -41,6 +42,14 @@ function chapterNumberPathPart(value: unknown): string {
   const n = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
   if (!Number.isFinite(n)) return 'unknown';
   return Number.isInteger(n) ? String(n) : String(n).replace('.', '_');
+}
+
+function sourceFromChapterPageUrl(pageUrl: string): string {
+  try {
+    return new URL(pageUrl).searchParams.get('source') || 'user';
+  } catch {
+    return 'user';
+  }
 }
 
 function parseJsonList(value: unknown): string[] {
@@ -94,8 +103,11 @@ export const mangadotnetServerProvider: ServerMangaProvider = {
   baseUrl: BASE_URL,
   runtimeImageSource: 'mangadotnet-api',
   imageDelivery: 'direct',
+  searchPageSize: SEARCH_PAGE_SIZE,
+  commentsMode: 'page-document',
   browserProfileDir: '/tmp/mangadot-human-profile',
   browserExecutablePath: '/usr/bin/chromium',
+  browserInitTimeoutMs: 120_000,
   runtimeProbeMangaId: '118',
   runtimePageTimeoutMs: 45_000,
 
@@ -117,7 +129,7 @@ export const mangadotnetServerProvider: ServerMangaProvider = {
 
       global.__providerRuntimeProviderId = 'mangadotnet';
       global.__providerRuntimeHttp = {
-        async get(apiPath: string, options?: { params?: Record<string, unknown> }) {
+        async get(apiPath: string, options?: { params?: Record<string, unknown>; timeoutMs?: number }) {
           const url = new URL(apiPath, baseUrl);
           const params = options?.params ?? {};
           for (const [key, value] of Object.entries(params)) {
@@ -128,7 +140,15 @@ export const mangadotnetServerProvider: ServerMangaProvider = {
               url.searchParams.set(key, String(value));
             }
           }
-          const response = await fetch(url.href, { credentials: 'include' });
+          const timeoutMs = Number(options?.timeoutMs ?? 0);
+          const controller = timeoutMs > 0 ? new AbortController() : null;
+          const timeout = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+          let response: Response;
+          try {
+            response = await fetch(url.href, { credentials: 'include', signal: controller?.signal });
+          } finally {
+            if (timeout) clearTimeout(timeout);
+          }
           const contentType = response.headers.get('content-type') ?? '';
           const text = await response.text();
           if (!response.ok) throw new Error(`Mangadot API http=${response.status} path=${apiPath} body=${text.slice(0, 160)}`);
@@ -198,11 +218,12 @@ export const mangadotnetServerProvider: ServerMangaProvider = {
     };
   },
 
-  newestSearchUrl(page: number, _limit: number): string {
+  newestSearchUrl(page: number, limit: number): string {
     const params = new URLSearchParams({
       search: '',
       page: String(pageNumber(page)),
       sortBy: 'latest',
+      limit: String(limit > 0 ? limit : SEARCH_PAGE_SIZE),
     });
     return `${BASE_URL}/api/search?${params}`;
   },
@@ -234,6 +255,26 @@ export const mangadotnetServerProvider: ServerMangaProvider = {
 
   chapterCommentIdentifier(_numericMangaId: number, chapterNumber: number): string {
     return `chapter/${chapterNumber}`;
+  },
+
+  mangaCommentCountUrl(_numericMangaId: number, _pageUrl: string): string | null {
+    return null;
+  },
+
+  mangaCommentsUrl(numericMangaId: number, _pageUrl: string): string {
+    const params = new URLSearchParams({ manga_id: String(numericMangaId) });
+    return `${BASE_URL}/api/comments?${params}`;
+  },
+
+  chapterCommentCountUrl(chapterId: string, _chapterNumber: number, _pageUrl: string): string {
+    return `${BASE_URL}/api/comments/chapter/${encodeURIComponent(chapterId)}/count?source=user`;
+  },
+
+  chapterCommentsUrl(chapterId: string, _chapterNumber: number, pageUrl: string): string {
+    const params = new URLSearchParams({ chapter_id: chapterId });
+    const source = sourceFromChapterPageUrl(pageUrl);
+    if (source) params.set('source', source);
+    return `${BASE_URL}/api/comments?${params}`;
   },
 
   absoluteUrl(url: string): string {
@@ -276,7 +317,7 @@ export const mangadotnetServerProvider: ServerMangaProvider = {
   },
 
   filterSearchUrl(_type: string, keyword: string): string | null {
-    const params = new URLSearchParams({ search: keyword, page: '1', sortBy: 'relevance' });
+    const params = new URLSearchParams({ search: keyword, page: '1', sortBy: 'relevance', limit: String(SEARCH_PAGE_SIZE) });
     return `${BASE_URL}/api/search?${params}`;
   },
 };

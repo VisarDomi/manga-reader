@@ -107,11 +107,13 @@ class AppState {
         this.ui = new UIState(emit);
         this.bootSnapshot = loadSession();
         this.activeProviderId = this.bootSnapshot?.providerId ?? getProviderId();
+        this.groupFilter.setProvider(this.activeProviderId);
         this.applyRestoreShell(this.bootSnapshot);
         this.searchState = new SearchState(
             this.toast,
             () => this.recoverScrollContainers(),
             () => this.restore.phase === 'paginating-to-target',
+            emit,
         );
         this.searchState.onNewSearch = () => {
             if (this.restore.phase !== 'replaying-search') {
@@ -655,6 +657,7 @@ class AppState {
             const snapshotProviderId = this.bootSnapshot?.providerId;
             await initProvider(snapshotProviderId ?? this.activeProviderId, emit);
             this.activeProviderId = getProviderId();
+            this.groupFilter.setProvider(this.activeProviderId);
             await this.progress.init();
 
             const restored = await this.restoreSession(this.bootSnapshot);
@@ -721,6 +724,7 @@ class AppState {
         }
         await switchProvider(providerId, this.log.emit);
         this.activeProviderId = getProviderId();
+        this.groupFilter.setProvider(this.activeProviderId);
         this.providerFiltersPromise = null;
         this.restore.cancel();
         this.searchState.resetForProvider();

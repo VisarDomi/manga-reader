@@ -6,7 +6,7 @@ import type { Response } from 'express';
 import { BYTE_CACHE_DIR, CACHE_MAX_AGE } from '../config.js';
 import { proxyFetch } from '../utils/proxyFetch.js';
 import { CacheDatabase, type CacheJobEnqueueResult, type MangaCoverVariant } from './sqlite.js';
-import { DurableJobScheduler, type CacheJobPriorityName } from './DurableJobScheduler.js';
+import { CACHE_JOB_PRIORITY, DurableJobScheduler, type CacheJobPriorityName } from './DurableJobScheduler.js';
 import type { RuntimeByteResult } from '../providers/types.js';
 
 const BYTE_CACHE_WORKER_ID = 'byte-cache-service';
@@ -25,17 +25,24 @@ export class ByteCacheService {
   private summaryJobs = 0;
   private summaryBytes = 0;
   private summarySkipped = 0;
+  private backgroundPaused = false;
 
   constructor(
     private readonly rootDir = BYTE_CACHE_DIR,
     db?: CacheDatabase,
     private readonly ownerId = 'comix',
     private readonly runtimeByteFetcher?: (url: string, context: { owner?: string; priority?: string; reason?: string }) => Promise<RuntimeByteResult>,
+    private canRunBackgroundByteWork: () => boolean = () => true,
   ) {
     this.db = db ?? new CacheDatabase();
     this.ownsDb = !db;
     this.scheduler = new DurableJobScheduler(this.db);
     fs.mkdirSync(this.rootDir, { recursive: true });
+  }
+
+  setCanRunBackgroundByteWork(canRun: () => boolean): void {
+    this.canRunBackgroundByteWork = canRun;
+    this.drain();
   }
 
   close(): void {
@@ -173,7 +180,16 @@ export class ByteCacheService {
 
   private async runLoop(): Promise<void> {
     while (true) {
-      const record = this.scheduler.claimNext(BYTE_CACHE_WORKER_ID, 10 * 60 * 1000, [BYTE_CACHE_JOB_KIND]);
+      const runtimeAvailable = this.canRunBackgroundByteWork();
+      if (!runtimeAvailable && !this.backgroundPaused) {
+        this.backgroundPaused = true;
+        console.log(`[byteCache] background-paused provider=${this.ownerId} reason=provider-runtime-owned-by-data`);
+      } else if (runtimeAvailable && this.backgroundPaused) {
+        this.backgroundPaused = false;
+        console.log(`[byteCache] background-resumed provider=${this.ownerId}`);
+      }
+      const minPriority = runtimeAvailable ? undefined : CACHE_JOB_PRIORITY.foreground;
+      const record = this.scheduler.claimNext(BYTE_CACHE_WORKER_ID, 10 * 60 * 1000, [BYTE_CACHE_JOB_KIND], minPriority);
       if (!record) return;
       const payload = payloadObject(record.payload);
       const sourceUrl = stringOrUndefined(payload.sourceUrl) ?? record.resourceKey;

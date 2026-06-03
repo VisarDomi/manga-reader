@@ -8,13 +8,13 @@ import type { ByteCacheService } from './ByteCacheService.js';
 import type { ServerMangaProvider } from '../providers/types.js';
 import { getServerProvider } from '../services/providerRuntime.js';
 
-const NEWEST_LIMIT = 100;
+const DEFAULT_SEARCH_PAGE_SIZE = 100;
 const CHAPTER_PAGE_SIZE = 100;
 const RECONCILE_PAGE_BUDGET = 5;
 const DATA_CACHE_JOB_KINDS = ['seed-newest', 'crawl-search-page', 'cache-manga-detail', 'cache-chapters', 'reconcile-chapters', 'cache-chapter-page-map'];
 const CACHE_DAY_ROLLOVER_HOUR = 4;
 const CACHE_DAY_ROLLOVER_MINUTE = 45;
-const CRAWL_SEARCH_CONTRACT_VERSION = 'v2';
+const CRAWL_SEARCH_CONTRACT_VERSION = 'v3';
 const FAILED_DATA_RETRY_MS = 6 * 60 * 60 * 1000;
 const COVER_OWNERSHIP_REBUILD_VERSION = '1';
 const STORE_OBSERVATION_LIMIT = 50_000;
@@ -28,6 +28,9 @@ const STORE_TAIL_WEIGHTS = {
   p95: 0.4,
   p98: 0.35,
 };
+const VERBOSE_JOB_PRIORITY = CACHE_JOB_PRIORITY.observed;
+const SLOW_BACKGROUND_JOB_MS = 5_000;
+const BACKGROUND_FAILURE_SUMMARY_MS = 30_000;
 
 type CacheJobKind = 'seed-newest' | 'crawl-search-page' | 'cache-manga-detail' | 'cache-chapters' | 'reconcile-chapters' | 'cache-chapter-page-map';
 export type CacheJobPriority = 'interactive' | 'foreground' | 'observed' | 'daily' | 'background';
@@ -86,6 +89,21 @@ interface StoreRanking {
   failurePenaltyMs: number;
   scores: StoreScore[];
   expiresAt: number;
+}
+
+interface BackgroundFailureSummary {
+  provider: string;
+  kind: CacheJobKind;
+  mangaId: string;
+  priority: CacheJobPriority;
+  reason: string;
+  error: string;
+  firstAt: number;
+  lastAt: number;
+  count: number;
+  runMsTotal: number;
+  sampleIds: string[];
+  timer: ReturnType<typeof setTimeout> | null;
 }
 
 class CacheJobYield extends Error {
@@ -411,6 +429,7 @@ export class CacheService {
   private currentJob: CacheJob | null = null;
   private dailyRolloverTimer: ReturnType<typeof setTimeout> | null = null;
   private storeRanking: StoreRanking | null = null;
+  private readonly backgroundFailures = new Map<string, BackgroundFailureSummary>();
   private backgroundRuntimePaused = false;
 
   constructor(
@@ -480,7 +499,7 @@ export class CacheService {
   }
 
   isChapterListWarming(mangaId: string): boolean {
-    return this.hasChapterRepairWork(mangaId);
+    return this.hasForegroundChapterListWork(mangaId);
   }
 
   getChapterImages(mangaId: string, chapterId: string, context: { chapterNumber?: number; chapterUrl?: string } = {}): unknown | null {
@@ -588,7 +607,7 @@ export class CacheService {
     for (const item of stale) {
       const status = this.enqueue({
         kind: 'cache-chapters',
-        priority: 'observed',
+        priority: 'background',
         mangaId: item.mangaId,
         force: true,
         reason: 'repair-missing-upload-dates',
@@ -868,20 +887,29 @@ export class CacheService {
     return this.scheduler.claimNext(this.workerId, 30 * 60 * 1000, DATA_CACHE_JOB_KINDS, minPriority);
   }
 
-  private hasChapterRepairWork(mangaId: string): boolean {
-    const isRepair = (job: CacheJob | null | undefined) =>
+  private hasForegroundChapterListWork(mangaId: string): boolean {
+    const isUserVisibleRefresh = (job: CacheJob | null | undefined) =>
       job != null
       && job.mangaId === mangaId
+      && job.reason !== 'repair-missing-upload-dates'
+      && (job.priority === 'interactive' || job.priority === 'foreground' || job.priority === 'observed')
       && (job.kind === 'reconcile-chapters' || (job.kind === 'cache-chapters' && job.force === true));
-    if (isRepair(this.currentJob)) return true;
+    if (isUserVisibleRefresh(this.currentJob)) return true;
     const chapterJobs = this.scheduler.jobsForResource('cache-chapters', mangaId);
-    if (chapterJobs.some(record => isRepair(this.recordToJob(record)))) return true;
+    if (chapterJobs.some(record => isUserVisibleRefresh(this.recordToJob(record)))) return true;
     const reconcileJobs = this.scheduler.jobsForResource('reconcile-chapters', mangaId);
-    return reconcileJobs.some(record => isRepair(this.recordToJob(record)));
+    return reconcileJobs.some(record => isUserVisibleRefresh(this.recordToJob(record)));
   }
 
   private shouldYieldToForeground(job: CacheJob): boolean {
     return this.scheduler.runnableCountAbove(job.priority) > 0;
+  }
+
+  hasHigherPriorityDataWork(): boolean {
+    if (this.currentJob && CACHE_JOB_PRIORITY[this.currentJob.priority] > CACHE_JOB_PRIORITY.background) {
+      return true;
+    }
+    return this.scheduler.runnableCountAbove('background') > 0;
   }
 
   private yieldToForeground(job: CacheJob, label: string): never {
@@ -910,7 +938,10 @@ export class CacheService {
       const start = Date.now();
       const queueAgeMs = Math.max(0, start - record.createdAt);
       const requestWaitMs = job.requestedAt ? Math.max(0, start - job.requestedAt) : 'unknown';
-      console.log(`[cache] job-start provider=${this.provider.id} id=${record.id} kind=${job.kind} manga=${job.mangaId ?? 'none'} priority=${job.priority} reason=${job.reason} queueAgeMs=${queueAgeMs} requestWaitMs=${requestWaitMs} attempt=${record.attempts}/${record.maxAttempts}`);
+      const verboseLifecycle = this.shouldLogJobLifecycle(job);
+      if (verboseLifecycle) {
+        console.log(`[cache] job-start provider=${this.provider.id} id=${record.id} kind=${job.kind} manga=${job.mangaId ?? 'none'} priority=${job.priority} reason=${job.reason} queueAgeMs=${queueAgeMs} requestWaitMs=${requestWaitMs} attempt=${record.attempts}/${record.maxAttempts}`);
+      }
       try {
         if (job.kind === 'seed-newest') await this.seedNewest(job);
         else if (job.kind === 'crawl-search-page') await this.crawlSearchPage(job);
@@ -919,7 +950,10 @@ export class CacheService {
         else if (job.kind === 'reconcile-chapters' && job.mangaId) await this.reconcileChapters(job.mangaId, job);
         else if (job.kind === 'cache-chapter-page-map' && job.mangaId && job.chapterId) await this.cacheChapterPageMap(job.mangaId, job.chapterId, job);
         this.scheduler.complete(record);
-        console.log(`[cache] job-done provider=${this.provider.id} id=${record.id} kind=${job.kind} manga=${job.mangaId ?? 'none'} priority=${job.priority} reason=${job.reason} queueAgeMs=${queueAgeMs} requestWaitMs=${requestWaitMs} runMs=${Date.now() - start}`);
+        const runMs = Date.now() - start;
+        if (verboseLifecycle || runMs >= SLOW_BACKGROUND_JOB_MS) {
+          console.log(`[cache] job-done provider=${this.provider.id} id=${record.id} kind=${job.kind} manga=${job.mangaId ?? 'none'} priority=${job.priority} reason=${job.reason} queueAgeMs=${queueAgeMs} requestWaitMs=${requestWaitMs} runMs=${runMs}`);
+        }
       } catch (e) {
         if (e instanceof CacheJobYield) {
           this.scheduler.yield(record, e.message);
@@ -928,9 +962,63 @@ export class CacheService {
         }
         const msg = conciseError((e as Error)?.message ?? String(e));
         this.scheduler.retry(record, msg, this.retryDelayMs(record.attempts));
-        console.log(`[cache] job-failed provider=${this.provider.id} id=${record.id} kind=${job.kind} manga=${job.mangaId ?? 'none'} priority=${job.priority} reason=${job.reason} queueAgeMs=${queueAgeMs} requestWaitMs=${requestWaitMs} runMs=${Date.now() - start} ${msg}`);
+        this.logJobFailure(job, record.id, queueAgeMs, requestWaitMs, Date.now() - start, msg);
       }
     }
+  }
+
+  private shouldLogJobLifecycle(job: CacheJob): boolean {
+    return CACHE_JOB_PRIORITY[job.priority] >= VERBOSE_JOB_PRIORITY;
+  }
+
+  private logJobFailure(job: CacheJob, recordId: string, queueAgeMs: number, requestWaitMs: number | 'unknown', runMs: number, message: string): void {
+    if (this.shouldLogJobLifecycle(job)) {
+      console.log(`[cache] job-failed provider=${this.provider.id} id=${recordId} kind=${job.kind} manga=${job.mangaId ?? 'none'} priority=${job.priority} reason=${job.reason} queueAgeMs=${queueAgeMs} requestWaitMs=${requestWaitMs} runMs=${runMs} ${message}`);
+      return;
+    }
+
+    if (job.priority !== 'background' || job.kind !== 'cache-chapter-page-map' || !job.mangaId) {
+      console.log(`[cache] job-failed provider=${this.provider.id} id=${recordId} kind=${job.kind} manga=${job.mangaId ?? 'none'} priority=${job.priority} reason=${job.reason} queueAgeMs=${queueAgeMs} requestWaitMs=${requestWaitMs} runMs=${runMs} ${message}`);
+      return;
+    }
+
+    const key = `${this.provider.id}:${job.kind}:${job.mangaId}:${job.reason}:${failurePattern(message)}`;
+    const now = Date.now();
+    let summary = this.backgroundFailures.get(key);
+    if (!summary) {
+      summary = {
+        provider: this.provider.id,
+        kind: job.kind,
+        mangaId: job.mangaId,
+        priority: job.priority,
+        reason: job.reason,
+        error: failurePattern(message),
+        firstAt: now,
+        lastAt: now,
+        count: 0,
+        runMsTotal: 0,
+        sampleIds: [],
+        timer: null,
+      };
+      this.backgroundFailures.set(key, summary);
+    }
+    summary.lastAt = now;
+    summary.count += 1;
+    summary.runMsTotal += runMs;
+    if (summary.sampleIds.length < 6) summary.sampleIds.push(recordId);
+    if (!summary.timer) {
+      summary.timer = setTimeout(() => this.flushBackgroundFailureSummary(key), BACKGROUND_FAILURE_SUMMARY_MS);
+      summary.timer.unref?.();
+    }
+  }
+
+  private flushBackgroundFailureSummary(key: string): void {
+    const summary = this.backgroundFailures.get(key);
+    if (!summary) return;
+    this.backgroundFailures.delete(key);
+    const windowMs = Math.max(0, summary.lastAt - summary.firstAt);
+    const avgRunMs = summary.count > 0 ? Math.round(summary.runMsTotal / summary.count) : 0;
+    console.log(`[cache] job-failed-summary provider=${summary.provider} kind=${summary.kind} manga=${summary.mangaId} priority=${summary.priority} reason=${summary.reason} count=${summary.count} sampleIds=${summary.sampleIds.join(',')} avgRunMs=${avgRunMs} windowMs=${windowMs} error=${summary.error}`);
   }
 
   private async seedNewest(job: CacheJob): Promise<void> {
@@ -939,19 +1027,19 @@ export class CacheService {
 
   private startDailyNewestCrawl(): void {
     const crawlDate = todayKey();
+    const demoted = this.demoteOlderSearchCrawls(crawlDate);
     if (this.db.getMeta(this.crawlSearchMetaKey(crawlDate, 'complete')) === '1') {
-      console.log(`[cache] start daily-crawl provider=${this.provider.id} date=${crawlDate} action=already-complete`);
+      console.log(`[cache] start daily-crawl provider=${this.provider.id} date=${crawlDate} action=already-complete demotedOldCrawls=${demoted}`);
       return;
     }
 
     const existing = this.crawlSearchJobsForDate(crawlDate);
     if (existing.length > 0) {
-      console.log(`[cache] start daily-crawl provider=${this.provider.id} date=${crawlDate} action=resume-existing jobs=${existing.length}`);
+      console.log(`[cache] start daily-crawl provider=${this.provider.id} date=${crawlDate} action=resume-existing jobs=${existing.length} demotedOldCrawls=${demoted}`);
       this.drain();
       return;
     }
 
-    const demoted = this.demoteOlderSearchCrawls(crawlDate);
     const lastPage = Number(this.db.getMeta(this.crawlSearchMetaKey(crawlDate, 'last-page')) ?? 0);
     const page = Number.isFinite(lastPage) && lastPage > 0 ? lastPage + 1 : 1;
     this.enqueue({ kind: 'crawl-search-page', priority: 'daily', page, crawlDate, reason: 'startup' });
@@ -975,8 +1063,14 @@ export class CacheService {
   private async crawlSearchPage(job: CacheJob): Promise<void> {
     const page = job.page ?? 1;
     const crawlDate = job.crawlDate ?? todayKey();
+    const currentCrawlDate = todayKey();
+    const isCurrentCrawl = crawlDate === currentCrawlDate;
+    const crawlPriority: CacheJobPriority = isCurrentCrawl ? job.priority : 'background';
+    if (!isCurrentCrawl && job.priority !== 'background') {
+      console.log(`[cache] search-crawl stale-demoted provider=${this.provider.id} page=${page} date=${crawlDate} currentDate=${currentCrawlDate} from=${job.priority} to=background`);
+    }
     const reason = job.reason;
-    const url = this.provider.newestSearchUrl(page, NEWEST_LIMIT);
+    const url = this.provider.newestSearchUrl(page, this.provider.searchPageSize || DEFAULT_SEARCH_PAGE_SIZE);
     const start = Date.now();
     const { data, status } = await this.fetchSearchCrawlData(url, job);
     const parsed = await this.parseSearchCrawlData(data);
@@ -993,7 +1087,7 @@ export class CacheService {
       const mangaId = mangaIdFromItem(item);
       if (!mangaId) continue;
       this.db.upsertManga(mangaId, item);
-      const coverJobs = this.enqueueMangaCoverJob(mangaId, item, 'card', 'search-newest', 'daily');
+      const coverJobs = this.enqueueMangaCoverJob(mangaId, item, 'card', 'search-newest', crawlPriority);
       coverDiscovered += coverJobs.discovered;
       coverQueued += coverJobs.queued;
       this.enqueue({ kind: 'cache-manga-detail', priority: 'background', mangaId, reason });
@@ -1006,7 +1100,7 @@ export class CacheService {
     if (hasNext && !otherFrontierExists) {
       this.enqueue({
         kind: 'crawl-search-page',
-        priority: 'daily',
+        priority: crawlPriority,
         page: page + 1,
         crawlDate,
         reason: `crawl-next:${crawlDate}`,
@@ -1059,11 +1153,17 @@ export class CacheService {
   private async cacheMangaDetail(mangaId: string, job: CacheJob): Promise<void> {
     const existing = this.db.getManga(mangaId)?.data ?? null;
     if (!job.force && isMangaDetailPayload(existing)) {
-      console.log(`[cache] manga-detail provider=${this.provider.id} skip manga=${mangaId} reason=cached`);
+      if (this.shouldLogJobLifecycle(job)) {
+        console.log(`[cache] manga-detail provider=${this.provider.id} skip manga=${mangaId} reason=cached`);
+      }
       return;
     }
 
-    const result = await this.browserSession.fetchMangaDetail(mangaId);
+    const result = await this.browserSession.fetchMangaDetail(mangaId, {
+      owner: 'cache-manga-detail',
+      priority: job.priority,
+      reason: job.reason,
+    });
     this.db.upsertManga(mangaId, result.data);
     const detail = result.data && typeof result.data === 'object'
       ? (result.data as Record<string, unknown>).result
@@ -1074,7 +1174,9 @@ export class CacheService {
     const genres = Array.isArray(r.genres) ? r.genres.length : 0;
     const description = Boolean(r.synopsis || r.description);
     const coverJobs = this.enqueueMangaCoverJob(mangaId, r, 'detail', 'manga-detail', job.priority);
-    console.log(`[cache] manga-detail provider=${this.provider.id} cached manga=${mangaId} recommendations=${recommendations} genres=${genres} tags=${tags} description=${description} cover=${coverJobs.queued}/${coverJobs.discovered} fetchMs=${result.durationMs}`);
+    if (this.shouldLogJobLifecycle(job)) {
+      console.log(`[cache] manga-detail provider=${this.provider.id} cached manga=${mangaId} recommendations=${recommendations} genres=${genres} tags=${tags} description=${description} cover=${coverJobs.queued}/${coverJobs.discovered} fetchMs=${result.durationMs}`);
+    }
   }
 
   private crawlSearchJobsForDate(crawlDate: string): CacheJob[] {
@@ -1101,11 +1203,13 @@ export class CacheService {
 
   private async cacheChapters(mangaId: string, job: CacheJob): Promise<void> {
     if (!job.force && this.db.getChapterList(mangaId)) {
-      console.log(`[cache] chapters provider=${this.provider.id} skip manga=${mangaId} reason=cached`);
+      if (this.shouldLogJobLifecycle(job)) {
+        console.log(`[cache] chapters provider=${this.provider.id} skip manga=${mangaId} reason=cached`);
+      }
       return;
     }
 
-    const first = await this.fetchChapterPage(mangaId, 1);
+    const first = await this.fetchChapterPage(mangaId, 1, job);
     const pagination = resultPagination(first);
     const lastPage = Number(pagination.last_page ?? pagination.lastPage ?? 1);
     const allItems = [...resultItems(first)];
@@ -1121,7 +1225,7 @@ export class CacheService {
         return;
       }
       try {
-        const data = await this.fetchChapterPage(mangaId, page);
+        const data = await this.fetchChapterPage(mangaId, page, job);
         allItems.push(...resultItems(data));
       } catch (e) {
         failed++;
@@ -1146,7 +1250,9 @@ export class CacheService {
     };
     this.db.upsertChapterList(mangaId, staticChapterListPayload(cached), failed > 0 ? 'partial' : 'ready');
     const pageMapJobs = this.enqueueChapterPageMapJobs(mangaId, allItems, 'chapter-list-cached');
-    console.log(`[cache] chapters provider=${this.provider.id} cached manga=${mangaId} pages=${lastPage} items=${allItems.length} failed=${failed} pageMapJobs=${pageMapJobs.queued}/${pageMapJobs.discovered}`);
+    if (this.shouldLogJobLifecycle(job) || failed > 0) {
+      console.log(`[cache] chapters provider=${this.provider.id} cached manga=${mangaId} pages=${lastPage} items=${allItems.length} failed=${failed} pageMapJobs=${pageMapJobs.queued}/${pageMapJobs.discovered}`);
+    }
   }
 
   private async reconcileChapters(mangaId: string, job: CacheJob): Promise<void> {
@@ -1175,7 +1281,7 @@ export class CacheService {
       if (this.shouldYieldToForeground(job)) {
         this.yieldToForeground(job, `reconcile-chapters manga=${mangaId} beforePage=${page}/${RECONCILE_PAGE_BUDGET}`);
       }
-      const data = await this.fetchChapterPage(mangaId, page);
+      const data = await this.fetchChapterPage(mangaId, page, job);
       fetchedPages++;
       lastPagination = resultPagination(data);
       const items = resultItems(data);
@@ -1240,8 +1346,12 @@ export class CacheService {
     console.log(`[cache] reconcile provider=${this.provider.id} merged manga=${mangaId} previousCount=${cachedItems.length} nextCount=${mergedItems.length} previousMax=${previousMax ?? 'unknown'} nextMax=${nextMax ?? 'unknown'} new=${newItems.length} pages=${fetchedPages} pageMapJobs=${pageMapJobs.queued}/${pageMapJobs.discovered}`);
   }
 
-  private async fetchChapterPage(mangaId: string, page: number): Promise<unknown> {
-    const result = await this.browserSession.fetchChapterListPage(mangaId, page, CHAPTER_PAGE_SIZE);
+  private async fetchChapterPage(mangaId: string, page: number, job: CacheJob): Promise<unknown> {
+    const result = await this.browserSession.fetchChapterListPage(mangaId, page, CHAPTER_PAGE_SIZE, {
+      owner: job.kind,
+      priority: job.priority,
+      reason: job.reason,
+    });
     return result.data;
   }
 
@@ -1278,7 +1388,9 @@ export class CacheService {
 
   private async cacheChapterPageMap(mangaId: string, chapterId: string, job: CacheJob): Promise<void> {
     if (!job.force && this.getChapterImages(mangaId, chapterId)) {
-      console.log(`[cache] chapter-page-map provider=${this.provider.id} skip manga=${mangaId} chapter=${chapterId} priority=${job.priority} reason=${job.reason} status=cached`);
+      if (this.shouldLogJobLifecycle(job)) {
+        console.log(`[cache] chapter-page-map provider=${this.provider.id} skip manga=${mangaId} chapter=${chapterId} priority=${job.priority} reason=${job.reason} status=cached`);
+      }
       return;
     }
 
@@ -1297,7 +1409,9 @@ export class CacheService {
       if (imageUrl) learnStoreHostFromUrl(imageUrl);
     }
     this.db.upsertChapterImages(mangaId, chapterId, result.data, readiness.ready ? 'ready' : 'empty');
-    console.log(`[cache] chapter-page-map provider=${this.provider.id} cached manga=${mangaId} chapter=${chapterId} priority=${job.priority} reason=${job.reason} status=${readiness.ready ? 'ready' : 'empty'} pages=${pages.length} targetCount=${readiness.targetCount ?? 'unknown'} source=${readiness.source} schema=${readiness.schemaVersion ?? 'unknown'} scrambleKnown=${readiness.scrambleKnown} scrambled=${scrambled} fetchMs=${result.durationMs} totalMs=${Date.now() - start}`);
+    if (this.shouldLogJobLifecycle(job) || !readiness.ready) {
+      console.log(`[cache] chapter-page-map provider=${this.provider.id} cached manga=${mangaId} chapter=${chapterId} priority=${job.priority} reason=${job.reason} status=${readiness.ready ? 'ready' : 'empty'} pages=${pages.length} targetCount=${readiness.targetCount ?? 'unknown'} source=${readiness.source} schema=${readiness.schemaVersion ?? 'unknown'} scrambleKnown=${readiness.scrambleKnown} scrambled=${scrambled} fetchMs=${result.durationMs} totalMs=${Date.now() - start}`);
+    }
   }
 
   private resourceKey(job: CacheJob): string | null {
@@ -1351,6 +1465,13 @@ function numberOrUndefined(value: unknown): number | undefined {
 
 function conciseError(error: string): string {
   return error.split('\n')[0]?.trim().slice(0, 500) || 'unknown-error';
+}
+
+function failurePattern(error: string): string {
+  return conciseError(error)
+    .replace(/for [^/\s]+\/[^:\s]+:/, 'for <manga>/<chapter>:')
+    .replace(/\btargetCount=\d+\b/g, 'targetCount=*')
+    .replace(/\bpages=\d+\b/g, 'pages=*');
 }
 
 function todayKey(): string {

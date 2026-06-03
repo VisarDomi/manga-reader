@@ -21,8 +21,11 @@ export interface ServerMangaProvider {
   readonly baseUrl: string;
   readonly runtimeImageSource: string;
   readonly imageDelivery: 'store-candidates' | 'direct';
+  readonly searchPageSize: number;
+  readonly commentsMode?: 'thread-api' | 'count-only' | 'page-document';
   readonly browserProfileDir?: string;
   readonly browserExecutablePath?: string;
+  readonly browserInitTimeoutMs?: number;
   readonly runtimeProbeMangaId?: string;
   readonly runtimePageTimeoutMs?: number;
 
@@ -44,6 +47,10 @@ export interface ServerMangaProvider {
   commentTreeUrl(commentId: number): string;
   mangaCommentIdentifier(numericMangaId: number): string;
   chapterCommentIdentifier(numericMangaId: number, chapterNumber: number): string;
+  mangaCommentCountUrl?(numericMangaId: number, pageUrl: string): string | null;
+  mangaCommentsUrl?(numericMangaId: number, pageUrl: string): string | null;
+  chapterCommentCountUrl?(chapterId: string, chapterNumber: number, pageUrl: string): string | null;
+  chapterCommentsUrl?(chapterId: string, chapterNumber: number, pageUrl: string): string | null;
 
   absoluteUrl(url: string): string;
   searchThumbnailReferer(): string;

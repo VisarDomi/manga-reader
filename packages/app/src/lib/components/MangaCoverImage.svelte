@@ -1,7 +1,7 @@
 <script lang="ts">
     import { appState } from '$lib/state/index.svelte.js';
     import * as api from '$lib/services/api.js';
-    import type { MangaListSource } from '$lib/services/PerfDiagnostics.js';
+    import { recordCoverImagePerf, type MangaListSource } from '$lib/services/PerfDiagnostics.js';
 
     let {
         mangaId,
@@ -30,15 +30,8 @@
     });
 
     function emit(phase: 'mount' | 'load' | 'error' | 'missing', img?: HTMLImageElement) {
-        appState.log.emit('manga-cover-image', {
-            source,
-            phase,
-            mangaId,
-            hasCover: !!imageUrl,
-            dtMs: Math.round(performance.now() - mountedAt),
-            naturalWidth: img?.naturalWidth,
-            naturalHeight: img?.naturalHeight,
-        });
+        void img;
+        recordCoverImagePerf(appState.log.emit, source, phase, !!imageUrl, Math.round(performance.now() - mountedAt));
     }
 
     function handleError() {

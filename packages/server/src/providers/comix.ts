@@ -4,6 +4,7 @@ import type { RuntimeChapterImages, ServerMangaProvider } from './types.js';
 
 const BASE_URL = 'https://comix.to';
 const DOMAIN = 'comix.to';
+const SEARCH_PAGE_SIZE = 100;
 const FILTER_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const FILTER_SEARCH_TYPES = new Set(['tag', 'author', 'artist']);
 const NSFW_NAMES = new Set(['Adult', 'Ecchi', 'Hentai', 'Mature', 'Smut']);
@@ -99,6 +100,7 @@ export const comixServerProvider: ServerMangaProvider = {
   baseUrl: BASE_URL,
   runtimeImageSource: 'runtime-http',
   imageDelivery: 'store-candidates',
+  searchPageSize: SEARCH_PAGE_SIZE,
 
   async resolveRuntimeHttpClient(page: Page, probeMangaId: string, owner: string): Promise<void> {
     const start = Date.now();

@@ -1,17 +1,44 @@
 import * as storage from '../services/storage.js';
 
-const STORAGE_KEY = 'globalGroupFilter';
+const LEGACY_STORAGE_KEY = 'globalGroupFilter';
+const ACTIVE_PROVIDER_KEY = 'active-provider-id';
+
+function storageKey(providerId: string): string {
+    return `globalGroupFilter:${providerId || 'comix'}`;
+}
+
+function activeProviderId(): string {
+    return storage.getString(ACTIVE_PROVIDER_KEY, 'comix');
+}
 
 export class GroupFilterState {
     groups = $state<{ groupId: string; groupName: string }[]>([]);
+    private providerId = activeProviderId();
     private onChange: (() => void) | null = null;
 
     constructor() {
-        this.groups = storage.getJson<{ groupId: string; groupName: string }[]>(STORAGE_KEY, []);
+        this.groups = this.load(this.providerId);
+    }
+
+    private load(providerId: string): { groupId: string; groupName: string }[] {
+        const scoped = storage.getJson<{ groupId: string; groupName: string }[]>(storageKey(providerId), []);
+        if (scoped.length > 0 || providerId !== 'comix') return scoped;
+
+        const legacy = storage.getJson<{ groupId: string; groupName: string }[]>(LEGACY_STORAGE_KEY, []);
+        if (legacy.length > 0) storage.setJson(storageKey(providerId), legacy);
+        return legacy;
+    }
+
+    setProvider(providerId: string): void {
+        const next = providerId || 'comix';
+        if (next === this.providerId) return;
+        this.providerId = next;
+        this.groups = this.load(next);
+        this.onChange?.();
     }
 
     private persist() {
-        storage.setJson(STORAGE_KEY, this.groups);
+        storage.setJson(storageKey(this.providerId), this.groups);
     }
 
     setOnChange(fn: () => void): void {
@@ -44,7 +71,7 @@ export class GroupFilterState {
     }
 
     get key(): string {
-        return this.groups.map(g => g.groupId).sort().join(',');
+        return `${this.providerId}:${this.groups.map(g => g.groupId).sort().join(',')}`;
     }
 
     get count(): number {
