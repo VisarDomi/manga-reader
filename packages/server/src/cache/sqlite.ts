@@ -430,8 +430,16 @@ export class CacheDatabase {
         name = excluded.name,
         group_name = COALESCE(excluded.group_name, filter_option_cache.group_name),
         nsfw = excluded.nsfw,
-        source = excluded.source,
-        updated_at = excluded.updated_at
+        source = CASE
+          WHEN filter_option_cache.source = 'provider-catalog' AND excluded.source <> 'provider-catalog'
+          THEN filter_option_cache.source
+          ELSE excluded.source
+        END,
+        updated_at = CASE
+          WHEN filter_option_cache.source = 'provider-catalog' AND excluded.source <> 'provider-catalog'
+          THEN filter_option_cache.updated_at
+          ELSE excluded.updated_at
+        END
     `);
     let changed = 0;
     for (const option of options) {

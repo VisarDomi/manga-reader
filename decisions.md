@@ -507,11 +507,25 @@ Provider search filter catalogs are cache-owned. The frontend does not ask a
 provider to live-search tags/authors/artists while the user is typing. Each
 provider SQLite cache has a `filter_option_cache` table keyed by option type
 and id. Provider catalog terms (`tag`, `demographic`, `type`, `status`) refresh
-at most once per day from the provider owner, while `author` and `artist`
-options are harvested opportunistically from cached search/detail payloads.
+on service startup and at most once per day from the provider owner, while
+`author` and `artist` options are harvested opportunistically from cached
+search/detail payloads.
 The `/api/provider-filters/:providerId` and `/api/provider-filter-search/...`
 routes read through the provider cache owner. This keeps filter UI instant and
 keeps provider-specific option discovery out of frontend state.
+
+Provider-catalog rows are stronger than harvested enrichment rows. Search or
+manga-detail harvesting may add missing filter options, but it must not change
+a row's source away from `provider-catalog` or age the catalog backward. This
+keeps daily/startup catalog refresh as the single writer for provider-owned
+tag/type/status definitions.
+
+Search filter selections and search contexts are provider-owned frontend state.
+Persist selected filters under a provider key and persist `providerId` with
+search contexts. If a saved context belongs to a different provider, reload the
+active provider's local filters instead of replaying stale IDs. This prevents
+Comix ids such as `23` from being sent to Mangadot, where the semantic id is
+`Romance`.
 
 Tags are surfaced as normal three-state chips: empty -> include -> exclude ->
 empty. Authors and artists keep the existing search-box UI, but the search box
@@ -526,7 +540,8 @@ must go through the provider document route (`/search?...&genre=Romance` or
 `genre=-Romance`) and parse the React Router stream. Unfiltered Mangadot
 search/browse stays on `/api/search` because it supports 100-item pages. The
 document route is only used when filters are present; it has provider-fixed
-28-item pages but correct include/exclude semantics.
+28-item pages but correct include/exclude semantics. Verified on 2026-06-04:
+Mangadot include `Romance` logged `count=28 current=1 last=349 total=9758`.
 
 ### 40. Provider Runtime Owns Session Health and Request Coalescing
 

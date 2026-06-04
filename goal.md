@@ -16,6 +16,26 @@ After startup:
 
 Verify and fix provider tag filters end to end.
 
+Current user-facing bug to preserve through compaction:
+
+- Search filters should be saved locally in the frontend per provider.
+- Filter definitions/catalogs should be cached in the backend per provider and
+  refreshed daily.
+- Comix filters currently appear to work.
+- Mangadotnet filters sometimes return HTTP 500 and sometimes work but return
+  page size `28` instead of `100`; verify whether `28` is a provider document
+  limit for filtered searches or a bug in our request/parser/cache path.
+- Mangadotnet and Comix showing the same exact filter catalog is suspicious and
+  must be treated as a cache/ownership bug unless logs prove otherwise.
+
+Target ownership:
+
+- Frontend owns only local selected filter state keyed by provider.
+- Backend cache owns provider filter catalogs keyed by provider and option type.
+- Provider owns translating generic filter intent into provider-specific query
+  parameters/routes.
+- No provider may read or overwrite another provider's cached filter catalog.
+
 The cached filter catalog is only correct if each cached option can be used by
 the provider search path in all three UI states:
 
@@ -93,3 +113,29 @@ Implementation result:
   served `17` direct page URLs from cache in `997ms`; the first direct image
   URL returned HTTP `206`, `content-type=image/webp`, with a Cloudflare
   `cf-ray` header in `170ms`.
+
+## Updated 2026-06-04 Filter Cache Fix
+
+- Startup now attempts to refresh each provider's filter catalog when the
+  provider cache starts, in addition to the normal 24h TTL refresh path.
+- Mangadot filter catalog refresh is owned by the warmed browser/runtime
+  document path, not raw backend `fetch`, because raw provider access can be
+  Cloudflare-blocked or incomplete.
+- Search context persistence is provider-owned. New search contexts include
+  `providerId`; replaying a context from another provider logs
+  `search-context-provider-mismatch` and reloads the active provider's locally
+  saved filters instead of replaying stale filter IDs.
+- Verified after restart: Comix startup filter refresh completed and
+  `Romance` is `23`; Comix Romance search logged `count=100 total=47094`.
+- Verified after final restart: both providers report ready.
+- Verified after final restart: Mangadot startup filter refresh completed via
+  runtime document fetch, `117` provider-catalog tags, `3` statuses, `4` types.
+- Verified after final restart: Mangadot cached filters are provider-specific
+  and serve `Romance` as `Romance`, not Comix id `23`. The DB row for
+  `Romance` remains `provider-catalog`.
+- Mangadot filtered search page size is provider-fixed at `28` for the
+  document search path: `/api/search` with include `Romance` logged
+  `count=28 current=1 last=349 total=9758 396ms`.
+- If Mangadot runtime is blocked during a future restart, foreground search now
+  attempts one runtime warm before returning explicit `503 Provider runtime not
+  ready`, avoiding the previous generic `500`.

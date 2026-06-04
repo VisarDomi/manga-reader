@@ -51,6 +51,21 @@ export default function createSearchRouter(coordinator: ProviderCoordinator | nu
     const started = Date.now();
     const owner = coordinator.require(providerId);
     const provider = await getServerProvider(providerId);
+    if (owner.provider.id === 'mangadotnet' && !owner.browserSession.canServeRuntimeRequests()) {
+      const warmStarted = Date.now();
+      try {
+        await owner.browserSession.warmRuntimeHttp('foreground-search');
+      } catch (error) {
+        console.log(`[search] provider=${provider.id} mode=warm-failed query="${query || '(browse)'}" page=${page} http=503 reason=${String((error as Error)?.message ?? error)} ${Date.now() - warmStarted}ms`);
+        res.status(503).json({ error: 'Provider runtime not ready', status: 503, providerId: provider.id });
+        return;
+      }
+      if (!owner.browserSession.canServeRuntimeRequests()) {
+        console.log(`[search] provider=${provider.id} mode=unavailable query="${query || '(browse)'}" page=${page} http=503 reason=provider-runtime-not-ready ${Date.now() - warmStarted}ms`);
+        res.status(503).json({ error: 'Provider runtime not ready', status: 503, providerId: provider.id });
+        return;
+      }
+    }
     const upstream = provider.searchRequest(query, page, filters);
     const mangadotPath = owner.provider.id === 'mangadotnet' ? new URL(upstream.url).pathname : '';
     const fetched = owner.provider.id === 'mangadotnet' && mangadotPath === '/search'

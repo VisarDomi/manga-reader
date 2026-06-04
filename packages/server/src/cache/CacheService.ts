@@ -497,12 +497,27 @@ export class CacheService {
       }
     }
     this.enqueueChapterUploadDateRepairs();
+    void this.refreshFilterCatalogOnStartup();
     if (DATA_CACHE_BACKGROUND_ENABLED) {
       this.startDailyNewestCrawl();
       this.drain();
       this.scheduleDailyRollover();
     } else {
       console.log(`[cache] background-data-cache disabled provider=${this.provider.id}; foreground requests only`);
+    }
+  }
+
+  private async refreshFilterCatalogOnStartup(): Promise<void> {
+    const started = Date.now();
+    try {
+      const upstream = await this.fetchProviderFilterCatalog();
+      const counts = this.db.replaceProviderFilterCatalog(upstream.filters);
+      console.log(`[cache] filter-catalog-startup-refresh provider=${this.provider.id} tags=${counts.tags} demographics=${counts.demographics} types=${counts.types} statuses=${counts.statuses} ${Date.now() - started}ms`);
+    } catch (error) {
+      const cached = this.db.filterCatalogFromCache();
+      const age = this.db.filterCatalogAge();
+      const hasCachedCatalog = cached.genres.length > 0 || (cached.demographics?.length ?? 0) > 0 || (cached.types?.length ?? 0) > 0 || (cached.statuses?.length ?? 0) > 0;
+      console.log(`[cache] filter-catalog-startup-refresh-failed provider=${this.provider.id} action=${hasCachedCatalog ? 'keep-cache' : 'no-cache'} ageMs=${age ?? 'none'} error=${String((error as Error)?.message ?? error)}`);
     }
   }
 
@@ -535,7 +550,7 @@ export class CacheService {
 
     const started = Date.now();
     try {
-      const upstream = await this.provider.getFilterCatalog();
+      const upstream = await this.fetchProviderFilterCatalog();
       const counts = this.db.replaceProviderFilterCatalog(upstream.filters);
       const next = this.db.filterCatalogFromCache();
       console.log(`[cache] filter-catalog-refresh provider=${this.provider.id} source=${upstream.source} tags=${counts.tags} demographics=${counts.demographics} types=${counts.types} statuses=${counts.statuses} ${Date.now() - started}ms`);
@@ -547,6 +562,23 @@ export class CacheService {
       }
       throw error;
     }
+  }
+
+  private async fetchProviderFilterCatalog(): Promise<{ filters: FilterDefinition; source: 'upstream'; ageMs: number }> {
+    if (this.provider.filterCatalogDocumentUrl && this.provider.parseFilterCatalogDocument) {
+      const url = this.provider.filterCatalogDocumentUrl();
+      const started = Date.now();
+      const document = await this.browserSession.fetchRuntimeDocument(url, {
+        owner: 'filter-catalog',
+        priority: 'foreground',
+        reason: 'daily-provider-filters',
+      });
+      const filters = this.provider.parseFilterCatalogDocument(document.html);
+      console.log(`[cache] filter-catalog-document provider=${this.provider.id} url=${url} genres=${filters.genres.length} ${Date.now() - started}ms`);
+      return { filters, source: 'upstream', ageMs: 0 };
+    }
+    const upstream = await this.provider.getFilterCatalog();
+    return { filters: upstream.filters, source: 'upstream', ageMs: 0 };
   }
 
   searchFilterOptions(type: 'tag' | 'author' | 'artist', keyword: string): Array<{ id: string; name: string }> {

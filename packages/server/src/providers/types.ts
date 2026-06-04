@@ -55,5 +55,7 @@ export interface ServerMangaProvider {
   absoluteUrl(url: string): string;
   searchThumbnailReferer(): string;
   rawMangaUrlFromChapterItem(item: unknown, mangaId: string, chapterId: string, chapterNumber?: number): string;
+  filterCatalogDocumentUrl?(): string;
+  parseFilterCatalogDocument?(html: string): FilterDefinition;
   getFilterCatalog(): Promise<{ filters: FilterDefinition; source: 'cache' | 'upstream'; ageMs: number }>;
 }

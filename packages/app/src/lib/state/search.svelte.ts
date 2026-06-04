@@ -8,6 +8,7 @@ import { FilterState } from './filter.svelte.js';
 import type { SearchContext } from './session.js';
 import { type LoadError, toLoadError, loadErrorMessage } from './errors.js';
 import type { LogEmit } from '../services/LogService.js';
+import { getProviderId } from '../services/provider.js';
 
 export { type LoadError as SearchError, loadErrorMessage as searchErrorMessage };
 
@@ -116,6 +117,7 @@ export class SearchState {
         this.startWatchdog();
 
         const ctx: SearchContext = {
+            providerId: getProviderId(),
             query,
             filters: this.filters.buildFilters(),
         };
@@ -147,19 +149,20 @@ export class SearchState {
     }
 
     async replayFromContext(ctx: SearchContext) {
+        const normalizedContext = this.contextForActiveProvider(ctx);
         this.onNewSearch?.();
         this.machine.enter('searching');
         const signal = this.machine.signal!;
         this.startWatchdog();
 
-        this.context = ctx;
-        this.currentQuery = ctx.query;
-        this.inputQuery = ctx.query;
+        this.context = normalizedContext;
+        this.currentQuery = normalizedContext.query;
+        this.inputQuery = normalizedContext.query;
         this.currentPage = 1;
-        storage.setString('lastQuery', ctx.query);
+        storage.setString('lastQuery', normalizedContext.query);
 
         try {
-            const data = await api.searchManga(ctx.query, 1, ctx.filters, signal);
+            const data = await api.searchManga(normalizedContext.query, 1, normalizedContext.filters, signal);
             if (signal.aborted) return;
             this.error = null;
             this.results = data.manga;
@@ -178,6 +181,24 @@ export class SearchState {
                 this.machine.done();
             }
         }
+    }
+
+    private contextForActiveProvider(ctx: SearchContext): SearchContext {
+        const activeProviderId = getProviderId();
+        const contextProviderId = ctx.providerId ?? 'comix';
+        if (contextProviderId === activeProviderId) return ctx;
+        this.emit('search-context-provider-mismatch', {
+            contextProviderId,
+            activeProviderId,
+            includeGenres: ctx.filters?.includeGenres?.length ?? 0,
+            excludeGenres: ctx.filters?.excludeGenres?.length ?? 0,
+        });
+        this.filters.setProvider(activeProviderId, true);
+        return {
+            providerId: activeProviderId,
+            query: '',
+            filters: this.filters.buildFilters(),
+        };
     }
 
     private async fetchAndAppendPage(page: number, signal?: AbortSignal): Promise<Manga[]> {

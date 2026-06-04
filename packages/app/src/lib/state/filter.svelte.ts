@@ -42,9 +42,9 @@ export class FilterState {
         this.restore();
     }
 
-    setProvider(providerId: string): void {
+    setProvider(providerId: string, forceRestore = false): void {
         const normalized = providerId || 'comix';
-        if (normalized === this.providerId) return;
+        if (normalized === this.providerId && !forceRestore) return;
         this.providerId = normalized;
         this.demographicIds = new Set();
         this.termIds = new Set();

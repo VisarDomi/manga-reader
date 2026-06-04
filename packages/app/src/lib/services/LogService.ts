@@ -6,6 +6,7 @@ export type LogEvent =
     | { event: 'provider-dynamic-load-failed'; providerId: string; error: string }
     | { event: 'provider-filters-loaded'; source: string; ageMs: number; genres: number; demographics: number; types: number; statuses: number }
     | { event: 'provider-filters-fallback'; error: string; genres: number; demographics: number; types: number; statuses: number }
+    | { event: 'search-context-provider-mismatch'; contextProviderId: string; activeProviderId: string; includeGenres: number; excludeGenres: number }
     | { event: 'restore-none' }
     | { event: 'restore-start'; view: string; mangaId: string | null; targetId: string | null; hasSearch: boolean }
     | { event: 'restore-search-done'; view: string }

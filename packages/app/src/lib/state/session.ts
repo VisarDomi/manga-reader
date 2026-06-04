@@ -5,6 +5,7 @@ import * as storage from '../services/storage.js';
 const SESSION_KEY = 'session';
 
 export interface SearchContext {
+    providerId?: string;
     query: string;
     filters: SearchFilters | undefined;
 }

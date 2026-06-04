@@ -138,16 +138,7 @@ function mangadotGenreGroup(name: string): string {
   return 'theme';
 }
 
-async function fetchMangadotFilterCatalog(): Promise<FilterDefinition> {
-  const started = Date.now();
-  const response = await fetch(`${BASE_URL}/search`, {
-    headers: {
-      Accept: 'text/html',
-      'User-Agent': 'Mozilla/5.0 manga-reader mangadot-filter-catalog',
-    },
-  });
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  const html = await response.text();
+function parseMangadotFilterCatalogDocument(html: string): FilterDefinition {
   const genres = new Map<string, { id: string; name: string; group: string }>();
   for (const payload of extractReactRouterStreamPayloads(html)) {
     try {
@@ -162,7 +153,7 @@ async function fetchMangadotFilterCatalog(): Promise<FilterDefinition> {
     }
   }
   if (genres.size === 0) throw new Error('Mangadot filter catalog missing allGenres');
-  const filters = {
+  return {
     genres: [...genres.values()],
     demographics: [],
     types: [
@@ -177,7 +168,20 @@ async function fetchMangadotFilterCatalog(): Promise<FilterDefinition> {
       { id: 'Hiatus', name: 'Hiatus' },
     ],
   };
-  console.log(`[provider:mangadotnet] filters refresh ok genres=${filters.genres.length} types=${filters.types.length} statuses=${filters.statuses.length} ${Date.now() - started}ms`);
+}
+
+async function fetchMangadotFilterCatalog(): Promise<FilterDefinition> {
+  const started = Date.now();
+  const response = await fetch(`${BASE_URL}/search`, {
+    headers: {
+      Accept: 'text/html',
+      'User-Agent': 'Mozilla/5.0 manga-reader mangadot-filter-catalog',
+    },
+  });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const html = await response.text();
+  const filters = parseMangadotFilterCatalogDocument(html);
+  console.log(`[provider:mangadotnet] filters refresh ok genres=${filters.genres.length} types=${filters.types?.length ?? 0} statuses=${filters.statuses?.length ?? 0} ${Date.now() - started}ms`);
   return filters;
 }
 
@@ -409,6 +413,14 @@ export const mangadotnetServerProvider: ServerMangaProvider = {
     const source = chapterSourceFromItem(item);
     const number = chapterNumberPathPart(raw?.chapter_number ?? chapterNumber);
     return `${BASE_URL}/chapter/${encodeURIComponent(id)}?source=${encodeURIComponent(source)}#chapter=${number}`;
+  },
+
+  filterCatalogDocumentUrl(): string {
+    return `${BASE_URL}/search`;
+  },
+
+  parseFilterCatalogDocument(html: string): FilterDefinition {
+    return parseMangadotFilterCatalogDocument(html);
   },
 
   async getFilterCatalog(): Promise<{ filters: FilterDefinition; source: 'cache' | 'upstream'; ageMs: number }> {
