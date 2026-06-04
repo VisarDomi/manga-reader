@@ -122,6 +122,13 @@ export class BrowserSession {
         return this.runtimeHttpHealthy;
     }
 
+    canServeRuntimeRequests(): boolean {
+        if (!this._ready || !this.runtimeHttpHealthy) return false;
+        return this.provider.runtimeProbeMangaId
+            ? this.runtimeHttpReady.get('foreground') === true
+            : true;
+    }
+
     async init(): Promise<void> {
         if (this._ready && this.context) return;
         if (this._ready && !this.context) {
@@ -150,8 +157,8 @@ export class BrowserSession {
             await this.claimStartupPage();
             this.decoder = new ScrambledPageDecoder(this.context, this.provider);
 
-            console.log(`[browserSession] ready ${this.provider.domain} ${Date.now() - start}ms`);
             this._ready = true;
+            console.log(`[browserSession] ready ${this.provider.domain} ${Date.now() - start}ms`);
             this.startBrowserSurfaceLog();
         } catch (e) {
             this._ready = false;
@@ -178,6 +185,26 @@ export class BrowserSession {
         const results = await Promise.allSettled(orphans.map(page => page.close()));
         const failed = results.filter(result => result.status === 'rejected').length;
         console.log(`[browserSession] startup-pages-adopted kept=1 closed=${orphans.length} failed=${failed} ${Date.now() - start}ms`);
+    }
+
+    async warmRuntimeHttp(reason: string): Promise<void> {
+        await this.init();
+        const start = Date.now();
+        const probeMangaId = this.provider.runtimeProbeMangaId ?? '';
+        if (!probeMangaId) {
+            console.log(`[browserSession] runtime-http warm-skipped provider=${this.provider.id} reason=${reason} noProbeManga=1`);
+            return;
+        }
+        const lanes: RuntimeHttpLane[] = ['foreground', 'background'];
+        const results = await Promise.allSettled(lanes.map(lane => this.ensureRuntimeHttpPage(probeMangaId, lane)));
+        const failed = results.filter(result => result.status === 'rejected').length;
+        if (failed > 0) {
+            const firstError = results.find((result): result is PromiseRejectedResult => result.status === 'rejected')?.reason;
+            const msg = this.errorMessage(firstError);
+            this.markRuntimeUnhealthy(msg);
+            throw new Error(`${this.provider.name} runtime warm failed lanes=${failed}/${lanes.length}: ${msg}`);
+        }
+        console.log(`[browserSession] runtime-http warm provider=${this.provider.id} reason=${reason} lanes=${lanes.length} ${Date.now() - start}ms`);
     }
 
     async fetchMangaDetail(mangaId: string, context: BrowserFetchContext = {}): Promise<BrowserFetchResult> {

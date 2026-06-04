@@ -1,5 +1,19 @@
 # Goal: Provider Filter Semantics
 
+## Runtime/cache invariant
+
+Normal usage should be warm. The only acceptable cold runtime path is immediately
+after the computer/service starts or after a provider loses its browser session.
+After startup:
+
+- provider browser sessions keep their human-cleared profile outside `/tmp`
+- foreground runtime HTTP is warmed before the provider is reported ready
+- background runtime HTTP is warmed before background cache jobs resume
+- foreground cache misses can still happen for never-seen manga, but they should
+  become durable cache work and subsequent opens should be cache hits
+- provider status must say not ready / needs human clearance when runtime API
+  calls are Cloudflare-blocked, not merely when Chromium launched
+
 Verify and fix provider tag filters end to end.
 
 The cached filter catalog is only correct if each cached option can be used by
@@ -20,6 +34,20 @@ For both `comix` and `mangadotnet`:
    logs instead of pretending the filter works.
 
 Evidence should come from current code, `/api/search`, and provider/runtime logs.
+
+Do not mark this goal complete from provider internals alone. Verification must
+exercise the live app-facing path for both providers after a service restart:
+
+- `/api/providers` reports both providers ready.
+- `/api/provider-filters/:providerId` serves the cached/provider catalog.
+- `/api/search` accepts UI-shaped filters for each provider and returns parsed
+  results whose totals/items change for include/exclude.
+- The frontend filter owner keeps provider filter state separate, so Mangadot
+  tags cannot leak into Comix and Comix numeric IDs cannot leak into Mangadot.
+- Reader image delivery is verified for each provider. Comix uses generated
+  store candidates. Mangadot must be verified separately because it currently
+  exposes direct image URLs from provider metadata rather than Comix-style
+  store candidates.
 
 ## Verified 2026-06-03
 
@@ -44,3 +72,24 @@ Implementation result:
   pages.
 - Mangadot uses document search for filtered search, preserving correct
   provider semantics even though the page size is provider-fixed at `28`.
+
+## Verified 2026-06-04
+
+- The user service is enabled and active after a power-loss restart:
+  `systemctl --user is-enabled manga-reader.service` -> `enabled`,
+  `systemctl --user is-active manga-reader.service` -> `active`.
+- Mangadot no longer stores the human-cleared profile in `/tmp`; it uses the
+  persistent provider profile at `~/.cloakbrowser-profiles/mangadot.net`.
+- `/api/providers` reports both providers ready after runtime warm-up.
+- Comix live search via `/api/search`:
+  neutral `100/89579`, include Romance id `23` `100/47094`, exclude Romance
+  id `23` `100/42485`.
+- Mangadot live search via `/api/search`:
+  neutral `100/10000`, include `Romance` `28/9758`, exclude `Romance`
+  `28/10000`. It is functionally correct, but provider latency can still be
+  high: one warm run measured neutral `42249ms`, include `10420ms`, exclude
+  `5256ms`.
+- Mangadot cached reader image metadata for manga `26866`, chapter `450803`
+  served `17` direct page URLs from cache in `997ms`; the first direct image
+  URL returned HTTP `206`, `content-type=image/webp`, with a Cloudflare
+  `cf-ray` header in `170ms`.

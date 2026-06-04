@@ -47,8 +47,8 @@ export class ProviderCoordinator {
       name: owner.provider.name,
       domain: owner.provider.domain,
       baseUrl: owner.provider.baseUrl,
-      ready: owner.browserSession.ready,
-      needsHumanClearance: owner.provider.id === 'mangadotnet' && !owner.browserSession.ready,
+      ready: owner.browserSession.canServeRuntimeRequests(),
+      needsHumanClearance: !owner.browserSession.canServeRuntimeRequests(),
     }));
   }
 
@@ -66,6 +66,7 @@ export class ProviderCoordinator {
   async start(): Promise<void> {
     for (const owner of this.owners.values()) {
       owner.browserSession.init()
+        .then(() => owner.browserSession.warmRuntimeHttp('startup'))
         .then(() => {
           owner.cache.start();
           owner.byteCache.start();

@@ -4,7 +4,7 @@ import { Filter } from '../logic.js';
 import { SEARCH_DEBOUNCE_MS } from '../constants.js';
 import * as storage from '../services/storage.js';
 
-const STORAGE_KEY = 'filters';
+const LEGACY_STORAGE_KEY = 'filters';
 
 interface PersistedFilters {
     terms: [string, 'include' | 'exclude'][];
@@ -34,10 +34,25 @@ export class FilterState {
     private initialized = false;
     private demographicIds = new Set<string>();
     private termIds = new Set<string>();
+    private providerId = 'comix';
 
-    constructor(onChange: () => void) {
+    constructor(onChange: () => void, providerId = 'comix') {
         this.onChange = onChange;
+        this.providerId = providerId;
         this.restore();
+    }
+
+    setProvider(providerId: string): void {
+        const normalized = providerId || 'comix';
+        if (normalized === this.providerId) return;
+        this.providerId = normalized;
+        this.demographicIds = new Set();
+        this.termIds = new Set();
+        this.restore();
+    }
+
+    private storageKey(): string {
+        return `filters:${this.providerId}`;
     }
 
     private debouncedOnChange(): void {
@@ -67,13 +82,31 @@ export class FilterState {
             types: [...this.selectedTypes],
             statuses: [...this.selectedStatuses],
         };
-        storage.setJson(STORAGE_KEY, data);
+        storage.setJson(this.storageKey(), data);
     }
 
     private restore(): void {
         storage.remove('contentMode');
 
-        const data = storage.getJson<PersistedFilters | null>(STORAGE_KEY, null);
+        this.termStates = new Map();
+        this.selectedDemographics = new Set();
+        this.selectedAuthors = new Set();
+        this.selectedArtists = new Set();
+        this.authorLabels = new Map();
+        this.artistLabels = new Map();
+        this.termLabels = new Map();
+        this.selectedTypes = new Set();
+        this.selectedStatuses = new Set();
+        this.initialized = false;
+
+        let data = storage.getJson<PersistedFilters | null>(this.storageKey(), null);
+        if (!data && this.providerId === 'comix') {
+            data = storage.getJson<PersistedFilters | null>(LEGACY_STORAGE_KEY, null);
+            if (data) {
+                storage.setJson(this.storageKey(), data);
+                storage.remove(LEGACY_STORAGE_KEY);
+            }
+        }
         if (!data) return;
         this.initialized = true;
         if (Array.isArray(data.terms) && data.terms.length > 0) {

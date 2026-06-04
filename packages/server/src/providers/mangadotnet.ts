@@ -1,3 +1,5 @@
+import os from 'node:os';
+import path from 'node:path';
 import type { Page } from 'playwright';
 import type { FilterDefinition } from '@manga-reader/provider-types';
 import type { RuntimeChapterImages, ServerMangaProvider } from './types.js';
@@ -221,7 +223,7 @@ export const mangadotnetServerProvider: ServerMangaProvider = {
   imageDelivery: 'direct',
   searchPageSize: SEARCH_PAGE_SIZE,
   commentsMode: 'page-document',
-  browserProfileDir: '/tmp/mangadot-human-profile',
+  browserProfileDir: path.join(os.homedir(), '.cloakbrowser-profiles', 'mangadot.net'),
   browserExecutablePath: '/usr/bin/chromium',
   browserInitTimeoutMs: 120_000,
   runtimeProbeMangaId: '118',

@@ -481,7 +481,7 @@ Current provider ownership:
   runtime HTTP discovery, store-host candidate generation, smart store
   ordering, and scrambled-page decoding.
 - `mangadotnet` uses its own SQLite cache and byte directory. It owns the
-  manually cleared Cloudflare browser profile, Xvfb runtime access, direct
+  manually cleared persistent Cloudflare browser profile, Xvfb runtime access, direct
   `/api/search`, `/api/manga/*`, `/api/uploads/*` parsing, and direct image
   semantics.
 
@@ -560,7 +560,7 @@ failure can become an unhandled process failure and restart the service.
 Mangadot's browser session is an explicit provider capability:
 
 - Bootstrap Cloudflare once in visible Chromium using
-  `/tmp/mangadot-human-profile`.
+  `~/.cloakbrowser-profiles/mangadot.net`.
 - Close the visible browser so the profile lock is released.
 - Reuse that exact profile in the backend/Xvfb provider runtime.
 - Page-side `fetch(..., { credentials: 'include' })` from the cleared browser
@@ -569,6 +569,16 @@ Mangadot's browser session is an explicit provider capability:
 - If the cleared browser returns Cloudflare challenge HTML, the provider state
   is `needsHumanClearance`; background jobs should not retry-loop as if the
   provider merely had a transient request failure.
+
+Mangadot readiness is runtime readiness, not merely Chromium launch. The
+service remains responsive while the provider warms, but `/api/providers`
+reports Mangadot as not ready until the foreground runtime HTTP lane can serve
+the provider probe. On 2026-06-04, after moving the profile out of `/tmp`,
+Mangadot's cold startup warm took about 78s total: foreground runtime became
+ready in about 45s and background runtime in about 78s. After warm-up,
+background cache workers may resume. Normal user flow should then be cache
+hits and warm runtime calls; cold runtime costs are expected only after machine
+or service restart, or after losing Cloudflare/session validity.
 
 Mangadot data facts verified through the provider runtime:
 
@@ -583,6 +593,10 @@ Mangadot data facts verified through the provider runtime:
 - Chapter image metadata is available from `/api/uploads/{chapterId}/images`.
   Images are direct Mangadot-hosted URLs and should not use Comix store-host
   ranking, candidate fanout, image-store observations, or descrambling.
+  A verified direct image URL returned HTTP `206`, `content-type=image/webp`,
+  and a Cloudflare `cf-ray` header without needing Comix-style store
+  candidates. Mangadot images are Cloudflare-served direct URLs, not the
+  `wowpic` store-candidate model.
 - Manga comments use `/api/comments?manga_id={mangaId}`.
 - Chapter comments use `/api/comments?chapter_id={chapterId}&source={source}`.
   Mangadot comments normally log `mode=direct-api`.
@@ -1556,7 +1570,7 @@ Current persistent domains:
 - **IDB progress** — one latest reader position per manga.
 - **IDB favorites** — favorite manga identities and card snapshots needed for
   instant favorite-list rendering.
-- **localStorage filters** — current Comix search/filter state.
+- **localStorage filters** — provider-scoped search/filter state.
 - **localStorage group blacklist and per-manga group selection** — local group
   filtering policy.
 - **Session snapshot** — current view/back stack, active/nested manga context,

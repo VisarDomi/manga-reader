@@ -514,8 +514,8 @@ export class CacheDatabase {
 
   listChapterListsMissingUploadDates(limit = 500): Array<{ mangaId: string; total: number; missing: number }> {
     const boundedLimit = Math.max(1, Math.min(10_000, Math.floor(limit)));
-    const rows = this.db.prepare('SELECT manga_id, data_json FROM chapter_list_cache ORDER BY updated_at ASC')
-      .all() as unknown as Array<{ manga_id: string; data_json: string }>;
+    const rows = this.db.prepare('SELECT manga_id, data_json FROM chapter_list_cache ORDER BY updated_at ASC LIMIT ?')
+      .all(boundedLimit) as unknown as Array<{ manga_id: string; data_json: string }>;
     const result: Array<{ mangaId: string; total: number; missing: number }> = [];
     for (const row of rows) {
       let data: unknown;
