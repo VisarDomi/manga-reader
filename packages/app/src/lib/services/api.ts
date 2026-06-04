@@ -17,6 +17,7 @@ export function setCloudflareCallback(cb: () => void): void {
 
 const CACHE_WARM_POLL_MS = 500;
 const CACHE_WARM_ATTEMPTS = 1;
+const MANGA_DETAIL_CACHE_TIMEOUT_MS = 30_000;
 const CHAPTER_IMAGE_CACHE_TIMEOUT_MS = 30_000;
 const COMMENTS_FETCH_TIMEOUT_MS = 45_000;
 const SEARCH_FETCH_TIMEOUT_MS = 45_000;
@@ -189,7 +190,7 @@ export async function fetchMangaCardSnapshots(fallbacks: Manga[], signal?: Abort
             signal,
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ providerId, ids: fallbacks.map(manga => manga.id), includeChapters }),
+            body: JSON.stringify({ providerId, items: fallbacks, includeChapters }),
         });
     } catch (e) {
         emit('manga-card-snapshots-error', {
@@ -349,7 +350,7 @@ export async function peekMangaDetailCache(manga: Manga, signal?: AbortSignal): 
 
 export async function fetchMangaDetailWithCacheInfo(manga: Manga, signal?: AbortSignal): Promise<MangaDetailCacheResult> {
     try {
-        const raw = await fetchCachedPayloadWithMeta(`/api/cache/manga/${encodeURIComponent(manga.id)}?priority=interactive&${providerQueryParam()}`, signal, 'manga-detail', manga.id);
+        const raw = await fetchCachedPayloadWithMeta(`/api/cache/manga/${encodeURIComponent(manga.id)}?priority=interactive&${providerQueryParam()}`, signal, 'manga-detail', manga.id, undefined, MANGA_DETAIL_CACHE_TIMEOUT_MS);
         const merged = mergeMangaDetail(manga, raw.data);
         emit('cache-read', { providerId: getProviderId(), resource: 'manga-detail', action: 'hit', mangaId: manga.id });
         emitMangaDetailResult(merged);

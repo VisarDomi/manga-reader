@@ -1,11 +1,12 @@
-import { proxyFetchJson } from '../utils/proxyFetch.js';
+import { CloudflareError, UpstreamError, proxyFetchJson } from '../utils/proxyFetch.js';
 import type { CacheService } from '../cache/CacheService.js';
 import type { ServerMangaProvider } from '../providers/types.js';
 import type { BrowserFetchContext, BrowserSession } from './BrowserSession.js';
 
-const COMMENTS_PAGE_LIMIT = 10;
-const COMMENT_REPLY_PAGE_LIMIT = 20;
-const COMMENT_TREE_FILL_LIMIT = 40;
+const COMMENTS_MIN_ROOT_PAGE_BUDGET = 10;
+const COMMENTS_PAGE_TIMEOUT_MS = 30_000;
+const COMMENTS_PAGE_ATTEMPTS = 3;
+const COMMENTS_RETRY_DELAY_MS = 350;
 
 export interface CommentsFetchResult {
     data: unknown;
@@ -78,7 +79,7 @@ export class CommentsService {
 
     async fetchMangaComments(mangaId: string): Promise<CommentsFetchResult> {
         const start = Date.now();
-        const raw = this.getCachedMangaDetailRecord(mangaId);
+        const raw = await this.getCachedMangaDetailRecord(mangaId);
         const numericId = this.numericMangaId(raw, `comments ${mangaId}`);
         const pageUrl = this.provider.mangaPageUrl(mangaId, raw.url);
         const directUrl = this.provider.mangaCommentsUrl?.(numericId, pageUrl) ?? null;
@@ -108,7 +109,7 @@ export class CommentsService {
 
     async fetchChapterComments(mangaId: string, chapterId: string, chapterNumber: number, chapterUrl?: string): Promise<CommentsFetchResult> {
         const start = Date.now();
-        const raw = this.getCachedMangaDetailRecord(mangaId);
+        const raw = await this.getCachedMangaDetailRecord(mangaId);
         const numericId = this.numericMangaId(raw, `chapter comments ${mangaId}/${chapterId}`);
         const pageUrl = this.provider.chapterPageUrl(mangaId, chapterId, chapterNumber, chapterUrl);
         const directUrl = this.provider.chapterCommentsUrl?.(chapterId, chapterNumber, pageUrl) ?? null;
@@ -184,10 +185,13 @@ export class CommentsService {
         };
     }
 
-    private getCachedMangaDetailRecord(mangaId: string): Record<string, unknown> {
-        const detail = this.cache.getManga(mangaId);
+    private async getCachedMangaDetailRecord(mangaId: string): Promise<Record<string, unknown>> {
+        const result = await this.cache.getMangaForRequest(mangaId, {
+            priority: 'interactive',
+            reason: 'comments-cache-miss',
+        });
+        const detail = result.data;
         if (!detail) {
-            this.cache.warmManga(mangaId, 'comments-cache-miss');
             throw new CacheDataUnavailableError(`Manga detail cache is not ready for comments: ${mangaId}`);
         }
         return this.asRecord(this.asRecord(detail)?.result) ?? this.asRecord(detail) ?? {};
@@ -243,13 +247,13 @@ export class CommentsService {
         let lastCursor: string | null = null;
         const mainCount = Number(thread?.mainCommentCount ?? 0);
 
-        const newest = await this.loadRootCommentPages(commentsBaseUrl, headers, 'newest', rootById, fetchContext);
+        const newest = await this.loadRootCommentPages(commentsBaseUrl, headers, 'newest', rootById, mainCount, fetchContext);
         count = newest.upstreamCount;
         lastCursor = newest.cursor;
 
         let rootPages = newest.pages;
         if (mainCount > 0 && rootById.size < mainCount) {
-            const supplement = await this.loadRootCommentPages(commentsBaseUrl, headers, null, rootById, fetchContext);
+            const supplement = await this.loadRootCommentPages(commentsBaseUrl, headers, null, rootById, mainCount, fetchContext);
             rootPages += supplement.pages;
             lastCursor = supplement.cursor ?? lastCursor;
         }
@@ -526,13 +530,16 @@ export class CommentsService {
         headers: Record<string, string>,
         sort: 'newest' | null,
         rootById: Map<number, NormalizedMangaComment>,
+        targetRootCount: number,
         fetchContext: BrowserFetchContext,
     ): Promise<{ pages: number; cursor: string | null; upstreamCount: number }> {
         let cursor: string | null = null;
         let pages = 0;
         let upstreamCount = Number.NaN;
+        const seenCursors = new Set<string>();
+        const maxPages = this.maxRootPageBudget(targetRootCount);
 
-        while (pages < COMMENTS_PAGE_LIMIT) {
+        while (pages < maxPages) {
             const params = new URLSearchParams();
             if (sort) params.set('sort', sort);
             if (cursor) params.set('cursor', cursor);
@@ -541,17 +548,26 @@ export class CommentsService {
             const pageItems = Array.isArray(result?.items) ? result.items : [];
             for (const pageItem of pageItems) {
                 const item = this.normalizeComment(pageItem);
-                if (item && !rootById.has(item.id)) rootById.set(item.id, item);
+                if (item && !rootById.has(item.id)) {
+                    rootById.set(item.id, item);
+                }
             }
             if (!Number.isFinite(upstreamCount)) upstreamCount = Number(result?.count ?? pageItems.length);
             pages++;
 
             const nextCursor = typeof result?.cursor === 'string' && result.cursor.length > 0 ? result.cursor : null;
-            if (!nextCursor || nextCursor === cursor || pageItems.length === 0) break;
+            if (targetRootCount > 0 && rootById.size >= targetRootCount) break;
+            if (!nextCursor || nextCursor === cursor || seenCursors.has(nextCursor)) break;
+            seenCursors.add(nextCursor);
             cursor = nextCursor;
         }
 
         return { pages, cursor, upstreamCount };
+    }
+
+    private maxRootPageBudget(targetRootCount: number): number {
+        if (!Number.isFinite(targetRootCount) || targetRootCount <= 0) return COMMENTS_MIN_ROOT_PAGE_BUDGET;
+        return Math.max(COMMENTS_MIN_ROOT_PAGE_BUDGET, Math.ceil(targetRootCount) + 5);
     }
 
     private normalizeComment(value: unknown): NormalizedMangaComment | null {
@@ -597,8 +613,11 @@ export class CommentsService {
 
         let cursor = comment.cursor || null;
         const seen = new Set(comment.replies.map(reply => reply.id));
+        const seenCursors = new Set<string>();
+        const maxOwnPages = Math.max(1, comment.replyCount + 5);
+        let ownPages = 0;
 
-        while (cursor && pages < COMMENT_REPLY_PAGE_LIMIT && comment.replies.length < comment.replyCount) {
+        while (cursor && ownPages < maxOwnPages && comment.replies.length < comment.replyCount) {
             const params = new URLSearchParams({
                 parent_id: String(comment.id),
                 cursor,
@@ -607,6 +626,7 @@ export class CommentsService {
             const result = this.asRecord(comments.data.result) ?? this.asRecord(comments.data);
             const pageItems = Array.isArray(result?.items) ? result.items : [];
             pages++;
+            ownPages++;
 
             for (const pageItem of pageItems) {
                 const reply = this.normalizeComment(pageItem);
@@ -617,7 +637,8 @@ export class CommentsService {
             }
 
             const nextCursor = typeof result?.cursor === 'string' && result.cursor.length > 0 ? result.cursor : null;
-            if (!nextCursor || nextCursor === cursor || pageItems.length === 0) break;
+            if (!nextCursor || nextCursor === cursor || seenCursors.has(nextCursor)) break;
+            seenCursors.add(nextCursor);
             cursor = nextCursor;
             comment.cursor = nextCursor;
             comment.shownReplies = comment.replies.length;
@@ -637,7 +658,7 @@ export class CommentsService {
             if (seen.has(comment.id)) continue;
             seen.add(comment.id);
 
-            if (comment.replyCount > comment.replies.length && fills < COMMENT_TREE_FILL_LIMIT) {
+            if (comment.replyCount > comment.replies.length) {
                 const tree = await this.fetchCommentsJson(this.provider.commentTreeUrl(comment.id), headers, fetchContext);
                 const fresh = this.normalizeComment(this.asRecord(tree.data.result) ?? tree.data);
                 fills++;
@@ -654,14 +675,49 @@ export class CommentsService {
         headers: Record<string, string>,
         context: BrowserFetchContext,
     ): Promise<{ data: Record<string, unknown> }> {
-        if (this.provider.id === 'mangadotnet' && this.browserSession) {
-            const result = await this.browserSession.fetchRuntimeApi(url, context);
-            return { data: this.asRecord(result.data) ?? {} };
+        let lastError: unknown;
+        for (let attempt = 1; attempt <= COMMENTS_PAGE_ATTEMPTS; attempt++) {
+            const start = Date.now();
+            try {
+                if (this.provider.id === 'mangadotnet' && this.browserSession) {
+                    const result = await this.browserSession.fetchRuntimeApi(url, context);
+                    return { data: this.asRecord(result.data) ?? {} };
+                }
+                return await proxyFetchJson<Record<string, unknown>>(url, {
+                    headers,
+                    cloudflareProtected: true,
+                }, COMMENTS_PAGE_TIMEOUT_MS);
+            } catch (error) {
+                lastError = error;
+                if (!this.isRetryableCommentFetchError(error) || attempt >= COMMENTS_PAGE_ATTEMPTS) throw error;
+                console.log(`[comments] retry owner=${context.owner ?? 'unknown'} attempt=${attempt + 1}/${COMMENTS_PAGE_ATTEMPTS} afterMs=${Date.now() - start} url=${this.compactCommentUrl(url)} error=${this.errorMessage(error)}`);
+                await this.sleep(COMMENTS_RETRY_DELAY_MS * attempt);
+            }
         }
-        return proxyFetchJson<Record<string, unknown>>(url, {
-            headers,
-            cloudflareProtected: true,
-        });
+        throw lastError;
+    }
+
+    private isRetryableCommentFetchError(error: unknown): boolean {
+        if (error instanceof CloudflareError) return true;
+        if (error instanceof UpstreamError) return error.status === 429 || error.status >= 500;
+        return error instanceof DOMException && error.name === 'TimeoutError';
+    }
+
+    private compactCommentUrl(url: string): string {
+        try {
+            const parsed = new URL(url);
+            return `${parsed.pathname}${parsed.search}`;
+        } catch {
+            return url;
+        }
+    }
+
+    private errorMessage(error: unknown): string {
+        return error instanceof Error ? error.message : String(error);
+    }
+
+    private sleep(ms: number): Promise<void> {
+        return new Promise(resolve => setTimeout(resolve, ms));
     }
 
     private mergeComment(target: NormalizedMangaComment, source: NormalizedMangaComment): void {

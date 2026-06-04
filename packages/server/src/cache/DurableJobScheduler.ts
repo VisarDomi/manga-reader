@@ -119,13 +119,14 @@ export class DurableJobScheduler {
 
   private shouldLogLifecycle(kind: string, priority: CacheJobPriorityName, status: CacheJobEnqueueResult): boolean {
     if (status === 'requeued') return true;
-    if (priority === 'interactive' || priority === 'foreground' || priority === 'observed' || status === 'promoted') return true;
+    if (priority === 'interactive' || priority === 'foreground') return true;
+    if (status === 'promoted') return !BULK_JOB_KINDS.has(kind);
     if (status === 'existing') return false;
     return !BULK_JOB_KINDS.has(kind);
   }
 
   private shouldLogRecord(kind: string, priority: number): boolean {
-    if (priority >= CACHE_JOB_PRIORITY.observed) return true;
+    if (priority >= CACHE_JOB_PRIORITY.foreground) return true;
     return !BULK_JOB_KINDS.has(kind);
   }
 }

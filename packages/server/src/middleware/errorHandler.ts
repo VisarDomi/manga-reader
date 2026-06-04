@@ -21,7 +21,9 @@ function formatOptionalMeta(meta: ProxyFetchMeta | null): string {
 export function errorHandler(err: Error, req: Request, res: Response, _next: NextFunction): void {
   if (res.headersSent) return;
 
-  if (err instanceof CloudflareError) {
+  if (isClientAbort(err)) {
+    res.status(499).end();
+  } else if (err instanceof CloudflareError) {
     console.error(`[${req.path}] cloudflare ${formatMeta(err.meta)}`);
     res.status(503).set('X-Cloudflare-Solving', 'true').json({ error: 'cloudflare', solving: true });
   } else if (err instanceof UpstreamError) {
@@ -37,4 +39,11 @@ export function errorHandler(err: Error, req: Request, res: Response, _next: Nex
     console.error(`[${req.path}] unexpected: ${err.stack || err.message}`);
     res.status(500).json({ error: 'Internal server error', status: 500 });
   }
+}
+
+function isClientAbort(err: Error): boolean {
+  const record = err as Error & { type?: string; status?: number; code?: string };
+  return record.type === 'request.aborted'
+    || record.code === 'ECONNABORTED'
+    || record.status === 400 && err.message === 'request aborted';
 }

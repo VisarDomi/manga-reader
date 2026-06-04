@@ -717,7 +717,9 @@ export class BrowserSession {
     }
 
     private errorMessage(error: unknown): string {
-        return (error as Error)?.message ?? String(error);
+        const raw = (error as Error)?.message ?? String(error);
+        const firstLine = raw.split('\n', 1)[0]?.trim() ?? raw;
+        return firstLine.replace(/^page\.evaluate:\s*/, '');
     }
 
     private async runtimeHttpGet<T>(mangaId: string, apiPath: string, params?: Record<string, unknown>, context: BrowserFetchContext = {}, attempt = 1): Promise<T> {

@@ -30,7 +30,7 @@ const STORE_TAIL_WEIGHTS = {
   p95: 0.4,
   p98: 0.35,
 };
-const VERBOSE_JOB_PRIORITY = CACHE_JOB_PRIORITY.observed;
+const VERBOSE_JOB_PRIORITY = CACHE_JOB_PRIORITY.foreground;
 const SLOW_BACKGROUND_JOB_MS = 5_000;
 const BACKGROUND_FAILURE_SUMMARY_MS = 30_000;
 const FILTER_CATALOG_TTL_MS = 24 * 60 * 60 * 1000;
@@ -633,6 +633,47 @@ export class CacheService {
     return isMangaDetailPayload(data) ? data : null;
   }
 
+  async getMangaForRequest(
+    mangaId: string,
+    context: { priority?: CacheJobPriority; signal?: AbortSignal; reason?: string } = {},
+  ): Promise<{ data: unknown | null; waitedMs: number; status: 'hit' | 'warmed' | 'warming' }> {
+    const first = this.getManga(mangaId);
+    if (first) return { data: first, waitedMs: 0, status: 'hit' };
+
+    const priority = context.priority ?? 'interactive';
+    const enqueueStatus = this.enqueue({
+      kind: 'cache-manga-detail',
+      priority,
+      mangaId,
+      reason: context.reason ?? 'cache-miss',
+    });
+    this.enqueue({
+      kind: 'cache-chapters',
+      priority,
+      mangaId,
+      reason: context.reason ?? 'cache-miss',
+    });
+
+    const startedAt = Date.now();
+    const resource = this.waiterKey('cache-manga-detail', mangaId);
+    console.log(`[cache] manga-detail-wait provider=${this.provider.id} manga=${mangaId} priority=${priority} enqueue=${enqueueStatus}`);
+
+    while (!context.signal?.aborted && Date.now() - startedAt < FOREGROUND_CACHE_WAIT_MS) {
+      const data = this.getManga(mangaId);
+      if (data) {
+        const waitedMs = Date.now() - startedAt;
+        console.log(`[cache] manga-detail-wait-done provider=${this.provider.id} manga=${mangaId} priority=${priority} waitedMs=${waitedMs}`);
+        return { data, waitedMs, status: 'warmed' };
+      }
+      if (!this.hasMangaDetailWork(mangaId)) break;
+      await this.waitForResource(resource, Math.max(1, FOREGROUND_CACHE_WAIT_MS - (Date.now() - startedAt)), context.signal).catch(() => {});
+    }
+
+    const waitedMs = Date.now() - startedAt;
+    console.log(`[cache] manga-detail-wait-open provider=${this.provider.id} manga=${mangaId} priority=${priority} waitedMs=${waitedMs} aborted=${context.signal?.aborted === true} stillQueued=${this.hasMangaDetailWork(mangaId)}`);
+    return { data: null, waitedMs, status: 'warming' };
+  }
+
   getChapterList(mangaId: string): unknown | null {
     return this.db.getChapterList(mangaId)?.data ?? null;
   }
@@ -1180,6 +1221,11 @@ export class CacheService {
       && this.currentJob.mangaId === mangaId
       && this.currentJob.chapterId === chapterId) return true;
     return this.scheduler.jobsForResource('cache-chapter-page-map', `${mangaId}:${chapterId}`).length > 0;
+  }
+
+  private hasMangaDetailWork(mangaId: string): boolean {
+    if (this.currentJob?.kind === 'cache-manga-detail' && this.currentJob.mangaId === mangaId) return true;
+    return this.scheduler.jobsForResource('cache-manga-detail', mangaId).length > 0;
   }
 
   private shouldYieldToForeground(job: CacheJob): boolean {

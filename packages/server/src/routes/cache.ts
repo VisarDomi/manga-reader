@@ -18,6 +18,16 @@ function coverVariant(value: string | string[] | undefined): MangaCoverVariant |
   return value === 'card' || value === 'detail' ? value : null;
 }
 
+function mangaIdFromCardItem(item: unknown): string | null {
+  if (!item || typeof item !== 'object') return null;
+  const record = item as Record<string, unknown>;
+  for (const key of ['id', 'hid', 'slug']) {
+    const value = record[key];
+    if (typeof value === 'string' && value.length > 0) return value;
+  }
+  return null;
+}
+
 function requestedPriority(value: unknown): CacheJobPriority {
   return value === 'interactive'
     ? 'interactive'
@@ -113,21 +123,34 @@ export function createCacheRouter(coordinator: ProviderCoordinator | null): Rout
     const startedAt = Date.now();
     const owner = requireOwner(coordinator, req, res);
     if (!owner) return;
-    const ids = Array.isArray(req.body?.ids)
-      ? req.body.ids.filter((id: unknown): id is string => typeof id === 'string' && id.length > 0)
+    const body = req.body && typeof req.body === 'object' ? req.body as Record<string, unknown> : {};
+    const rawItems = Array.isArray(body.items) ? body.items : [];
+    const fallbackItems = rawItems.length > 0
+      ? rawItems.filter((item: unknown) => mangaIdFromCardItem(item) != null)
+      : [];
+    const fallbackIds = fallbackItems
+      .map((item: unknown) => mangaIdFromCardItem(item))
+      .filter((id: string | null): id is string => id != null);
+    const ids = fallbackIds.length > 0
+      ? fallbackIds
+      : Array.isArray(body.ids)
+      ? body.ids.filter((id: unknown): id is string => typeof id === 'string' && id.length > 0)
       : [];
     if (ids.length === 0) {
       res.status(400).json({ error: 'Missing ids', status: 400 });
       return;
     }
-    const includeChapters = req.body?.includeChapters === true;
+    const includeChapters = body.includeChapters === true;
     const result = owner.cache.getMangaCardSnapshots(ids, { includeChapters });
     owner.cache.warmMangaCardCovers(
       result.map(item => item.manga).filter(Boolean),
       'card-snapshot',
       'observed',
     );
-    console.log(`[cacheRoute] manga-card-snapshots ids=${ids.length} unique=${new Set(ids).size} includeChapters=${includeChapters} mangaReady=${result.filter(item => item.mangaReady).length} chaptersReady=${result.filter(item => item.chaptersReady).length} totalMs=${Date.now() - startedAt}`);
+    if (fallbackItems.length > 0) {
+      owner.cache.warmMangaCardCovers(fallbackItems, 'card-fallback', 'observed');
+    }
+    console.log(`[cacheRoute] manga-card-snapshots ids=${ids.length} fallbackItems=${fallbackItems.length} unique=${new Set(ids).size} includeChapters=${includeChapters} mangaReady=${result.filter(item => item.mangaReady).length} chaptersReady=${result.filter(item => item.chaptersReady).length} totalMs=${Date.now() - startedAt}`);
     res.json({
       status: 'ok',
       result: {
@@ -144,13 +167,19 @@ export function createCacheRouter(coordinator: ProviderCoordinator | null): Rout
       res.status(400).json({ error: 'Missing mangaId', status: 400 });
       return;
     }
-    const data = owner.cache.getManga(mangaId);
-    if (!data) {
-      owner.cache.warmManga(mangaId, 'cache-miss', requestedPriority(req.query.priority));
+    const result = await owner.cache.getMangaForRequest(mangaId, {
+      priority: requestedPriority(req.query.priority),
+      signal: requestAbortSignal(req),
+    });
+    if (!result.data) {
       res.status(202).json({ status: 'warming', mangaId });
       return;
     }
-    res.json(data);
+    if (result.waitedMs > 0) {
+      res.setHeader('X-Cache-Waited-Ms', String(result.waitedMs));
+      res.setHeader('X-Cache-Wait-Status', result.status);
+    }
+    res.json(result.data);
   }));
 
   router.get('/cache/manga/:mangaId/chapters', asyncHandler(async (req, res) => {

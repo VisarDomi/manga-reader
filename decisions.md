@@ -768,6 +768,25 @@ invented:
   serves the completed row in the same request when possible. The frontend
   still owns cancellation through request aborts, but it no longer guesses that
   a `warming` row failed after a single 500ms poll.
+- Foreground manga-detail cache reads follow the same owner rule. Opening a
+  recommended manga can have a cached chapter list before its manga-detail row
+  is ready. The cache route must join/promote the exact
+  `cache-manga-detail:{mangaId}` job and serve the completed detail row when it
+  finishes, rather than making the frontend render a partial card and letting
+  comments fail because the numeric provider id is not cached yet.
+- Comments are live/fresh, but their provider identity metadata is cache-owned.
+  If comments need a cached manga-detail row for numeric ids or page
+  identifiers, `CommentsService` joins the manga-detail cache owner before
+  calling the live comments API. A warming detail row is a loading state for
+  comments, not a hard comments failure. The same owner also owns comment-page
+  transport policy: slow root/reply/tree pages retry inside `CommentsService`
+  with compact attempt logs. A transient Comix timeout on one deep reply cursor
+  must not escape as an unowned proxy timeout before the comments transaction
+  has exhausted its own attempts. Comment traversal follows provider cursors and
+  known provider counts; fixed page caps must not decide that a comment tree is
+  "done." If the provider exhausts every valid cursor while thread metadata
+  still reports more comments, the remainder is logged/reported as provider
+  unavailable data rather than a frontend or cache failure.
 - Durable job selection is foreground infrastructure. The scheduler must claim
   runnable jobs through an indexed priority/run-after path and handle expired
   running leases separately. A broad `queued OR expired-running` query that
@@ -776,7 +795,11 @@ invented:
 - Recommendation lists own card-cover discovery as a list-level intent.
   Reader-tail recommendations are not allowed to rely only on per-card image
   fallback behavior; mounting a recommendations list should batch-warm card
-  cover ownership through the cache route just like search and favorites.
+  cover ownership through the cache route just like search and favorites. The
+  list may send its fallback card payloads so the backend can use raw card
+  cover URLs as byte-cache source hints before each recommended manga's full
+  detail row is cached. Those fallback cards are not authoritative manga data;
+  they only help the cover cache owner discover bytes sooner.
 
 SQLite stores:
 
@@ -808,7 +831,12 @@ generic scheduler/job start/done lines for every tiny background job bloats
 context without adding evidence. Repeated background bulk failures should be
 reported as burst summaries with counts and sample job ids, while foreground
 failures, retries, yields, promotions, slow jobs, startup recovery, and
-foreground jobs remain explicit.
+foreground jobs remain explicit. Observed-priority bulk jobs such as
+recommendation cover downloads should not emit per-job scheduler start/done
+lines when a domain summary already records the count and result. BrowserSession
+logs provider-runtime failures at the ownership boundary and compacts provider
+bundle stack traces to the actionable first line; minified upstream stacks are
+not useful evidence in normal service logs.
 
 ### 42. Cache Readiness Is a Contract
 
