@@ -19,6 +19,7 @@ export class ByteCacheService {
   private readonly ownsDb: boolean;
   private active = false;
   private started = false;
+  private suspended = false;
   private currentJob: { sourceUrl: string; reason: string } | null = null;
   private summaryStartedAt = Date.now();
   private summaryLastLogAt = Date.now();
@@ -46,10 +47,17 @@ export class ByteCacheService {
   }
 
   close(): void {
+    this.suspend();
     if (this.ownsDb) this.db.close();
   }
 
+  suspend(): void {
+    this.suspended = true;
+    this.started = false;
+  }
+
   start(): void {
+    this.suspended = false;
     if (this.started) return;
     this.started = true;
     this.scheduler.recoverWorker(BYTE_CACHE_WORKER_ID);
@@ -155,6 +163,7 @@ export class ByteCacheService {
   }
 
   private drain(): void {
+    if (this.suspended) return;
     if (this.active) return;
     this.active = true;
     void this.runLoop().finally(() => {
@@ -180,6 +189,7 @@ export class ByteCacheService {
 
   private async runLoop(): Promise<void> {
     while (true) {
+      if (this.suspended) return;
       const runtimeAvailable = this.canRunBackgroundByteWork();
       if (!runtimeAvailable && !this.backgroundPaused) {
         this.backgroundPaused = true;

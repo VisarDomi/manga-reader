@@ -484,6 +484,7 @@ export class CacheService {
   private readonly db: CacheDatabase;
   private readonly scheduler: DurableJobScheduler;
   private readonly workerId: string;
+  private suspended = false;
   private active = false;
   private started = false;
   private currentJob: CacheJob | null = null;
@@ -504,6 +505,7 @@ export class CacheService {
   }
 
   start(): void {
+    this.suspended = false;
     if (this.started) return;
     this.started = true;
     this.scheduler.recoverWorker(this.workerId);
@@ -552,11 +554,17 @@ export class CacheService {
   }
 
   stop(): void {
+    this.suspend();
+    this.db.close();
+  }
+
+  suspend(): void {
+    this.suspended = true;
+    this.started = false;
     if (this.dailyRolloverTimer) {
       clearTimeout(this.dailyRolloverTimer);
       this.dailyRolloverTimer = null;
     }
-    this.db.close();
   }
 
   status(): Record<string, unknown> {
@@ -1124,6 +1132,7 @@ export class CacheService {
   }
 
   private drain(): void {
+    if (this.suspended) return;
     if (this.active) return;
     this.active = true;
     let loopFailed = false;
@@ -1141,6 +1150,7 @@ export class CacheService {
 
   private async runLoop(): Promise<void> {
     while (true) {
+      if (this.suspended) return;
       if (this.browserSession.hasCriticalScrambledPageWork()) {
         setTimeout(() => this.drain(), 250);
         return;

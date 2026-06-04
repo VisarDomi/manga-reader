@@ -1,6 +1,6 @@
 import { ConnectionMonitor } from '../services/ConnectionMonitor.svelte.js';
 import { watchdog } from '../services/WatchdogService.js';
-import { initProvider, getProvider, getProviderId, switchProvider, refreshProviderFilters } from '../services/provider.js';
+import { initProvider, getProvider, getProviderId, switchProvider, refreshProviderFilters, fetchProviderRuntimeSummaries, setProviderRuntimeEnabled, type ProviderRuntimeSummary } from '../services/provider.js';
 import { LogService } from '../services/LogService.js';
 import { PerformanceProbe } from '../services/PerfDiagnostics.js';
 import { setDbLogger } from '../services/db.js';
@@ -78,6 +78,7 @@ class AppState {
     groupFilter = new GroupFilterState();
     chapterStats = new ChapterStatsState(this.groupFilter);
     activeProviderId = $state('comix');
+    providers = $state<ProviderRuntimeSummary[]>([]);
     providerFilters = $state<FilterDefinition>(EMPTY_PROVIDER_FILTERS);
 
     status = $state<AppStatus>('BOOTING');
@@ -669,8 +670,13 @@ class AppState {
             setApiLogger(emit);
             setCloudflareCallback(() => this.toast.show(Msg.SOLVING_CLOUDFLARE, 15000));
 
-            const snapshotProviderId = this.bootSnapshot?.providerId;
-            await initProvider(snapshotProviderId ?? this.activeProviderId, emit);
+            await this.loadProviders();
+            if (this.bootSnapshot?.providerId && !this.isProviderEnabled(this.bootSnapshot.providerId)) {
+                this.bootSnapshot = null;
+                this.ui.resetTo(View.LIST);
+            }
+            const snapshotProviderId = this.enabledProviderId(this.bootSnapshot?.providerId) ?? this.enabledProviderId(this.activeProviderId) ?? 'comix';
+            await initProvider(snapshotProviderId, emit);
             this.activeProviderId = getProviderId();
             this.providerFilters = getProvider().getFilters();
             this.groupFilter.setProvider(this.activeProviderId);
@@ -735,6 +741,7 @@ class AppState {
     }
 
     async selectProvider(providerId: string): Promise<void> {
+        if (!this.isProviderEnabled(providerId)) return;
         if (providerId === this.activeProviderId) {
             this.ui.resetTo(View.LIST);
             return;
@@ -753,6 +760,45 @@ class AppState {
         await this.loadProviderFiltersInBackground();
         await this.searchState.search(this.searchState.inputQuery);
         this.persistSession();
+    }
+
+    async setProviderEnabled(providerId: string, enabled: boolean): Promise<void> {
+        try {
+            this.providers = await setProviderRuntimeEnabled(providerId, enabled);
+            if (!this.isProviderEnabled(this.activeProviderId)) {
+                const fallback = this.enabledProviderId();
+                if (fallback) await this.selectProvider(fallback);
+            }
+        } catch (error) {
+            this.log.emit('provider-dynamic-load-failed', {
+                providerId,
+                error: String((error as Error)?.message ?? error),
+            });
+        }
+    }
+
+    isProviderEnabled(providerId: string): boolean {
+        const provider = this.providers.find(item => item.id === providerId);
+        return provider?.enabled === true;
+    }
+
+    private async loadProviders(): Promise<void> {
+        try {
+            this.providers = await fetchProviderRuntimeSummaries();
+        } catch (error) {
+            this.log.emit('provider-dynamic-load-failed', {
+                providerId: this.activeProviderId,
+                error: String((error as Error)?.message ?? error),
+            });
+            this.providers = [
+                { id: 'comix', name: 'Comix', domain: 'comix.to', baseUrl: 'https://comix.to', enabled: true, ready: false, needsHumanClearance: false },
+            ];
+        }
+    }
+
+    private enabledProviderId(preferred?: string): string | null {
+        if (preferred && this.isProviderEnabled(preferred)) return preferred;
+        return this.providers.find(provider => provider.enabled)?.id ?? null;
     }
     private handleConnectivityChange(online: boolean) {
         if (online) {

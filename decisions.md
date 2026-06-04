@@ -484,6 +484,18 @@ the active provider owner. That owner contains the provider definition,
 provider-scoped browser session, provider-scoped data cache, provider-scoped
 cover/byte cache, and provider-scoped comments service.
 
+Provider runtime enablement is backend-owned. The Providers view may choose the
+active provider, but the checkbox beside each provider controls whether the
+server owns resource-intensive work for that provider. Enabled providers start
+their browser session, data cache, and byte cache on service startup. Disabled
+providers remain visible in the provider list but do not start browser/cache
+work, cannot be selected by the frontend, and report `enabled=false`.
+
+Runtime enablement is persisted in
+`~/.local/state/manga-reader/provider-runtime.json`. Disabling a provider
+suspends its cache workers and destroys its browser session without deleting
+the provider's cache data. At least one provider must remain enabled.
+
 Current provider ownership:
 
 - `comix` uses the original cache database and byte directory. It owns Comix

@@ -1,4 +1,5 @@
 import path from 'node:path';
+import fs from 'node:fs';
 import { STATE_DIR, BYTE_CACHE_DIR } from '../config.js';
 import { CacheDatabase } from '../cache/sqlite.js';
 import { ByteCacheService } from '../cache/ByteCacheService.js';
@@ -17,10 +18,27 @@ export interface ProviderRuntimeOwner {
   comments: CommentsService;
 }
 
+export interface ProviderSummary {
+  id: string;
+  name: string;
+  domain: string;
+  baseUrl: string;
+  enabled: boolean;
+  ready: boolean;
+  needsHumanClearance: boolean;
+}
+
+interface ProviderRuntimeSettings {
+  enabledProviderIds?: string[];
+}
+
 export class ProviderCoordinator {
   private readonly owners = new Map<string, ProviderRuntimeOwner>();
+  private readonly enabledProviderIds: Set<string>;
+  private readonly settingsPath = path.join(STATE_DIR, 'provider-runtime.json');
 
   constructor() {
+    this.enabledProviderIds = new Set(this.loadEnabledProviderIds());
     for (const provider of listServerProviders()) {
       const db = new CacheDatabase(this.dbPath(provider.id));
       const browserSession = new BrowserSession(provider);
@@ -41,19 +59,21 @@ export class ProviderCoordinator {
     }
   }
 
-  list(): Array<{ id: string; name: string; domain: string; baseUrl: string; ready: boolean; needsHumanClearance: boolean }> {
+  list(): ProviderSummary[] {
     return [...this.owners.values()].map(owner => ({
       id: owner.provider.id,
       name: owner.provider.name,
       domain: owner.provider.domain,
       baseUrl: owner.provider.baseUrl,
-      ready: owner.browserSession.canServeRuntimeRequests(),
-      needsHumanClearance: !owner.browserSession.canServeRuntimeRequests(),
+      enabled: this.isEnabled(owner.provider.id),
+      ready: this.isEnabled(owner.provider.id) && owner.browserSession.canServeRuntimeRequests(),
+      needsHumanClearance: this.isEnabled(owner.provider.id) && !owner.browserSession.canServeRuntimeRequests(),
     }));
   }
 
   get(providerId?: string | null): ProviderRuntimeOwner | null {
     const id = this.normalizeProviderId(providerId);
+    if (!this.isEnabled(id)) return null;
     return this.owners.get(id) ?? null;
   }
 
@@ -65,15 +85,13 @@ export class ProviderCoordinator {
 
   async start(): Promise<void> {
     for (const owner of this.owners.values()) {
-      owner.browserSession.init()
-        .then(() => owner.browserSession.warmRuntimeHttp('startup'))
-        .then(() => {
-          owner.cache.start();
-          owner.byteCache.start();
-        })
-        .catch(err => {
-          console.error(`[providerCoordinator] init failed provider=${owner.provider.id} domain=${owner.provider.domain}: ${err.message}`);
-        });
+      if (!this.isEnabled(owner.provider.id)) {
+        console.log(`[providerCoordinator] provider-disabled provider=${owner.provider.id} action=skip-start`);
+        owner.cache.suspend();
+        owner.byteCache.suspend();
+        continue;
+      }
+      void this.startOwner(owner, 'startup');
     }
   }
 
@@ -83,6 +101,67 @@ export class ProviderCoordinator {
       owner.cache.stop();
       owner.byteCache.close();
     }
+  }
+
+  async setEnabled(providerId: string, enabled: boolean): Promise<ProviderSummary[]> {
+    const id = this.normalizeProviderId(providerId);
+    const owner = this.owners.get(id);
+    if (!owner) throw new Error(`Unknown provider: ${providerId}`);
+    if (enabled) {
+      this.enabledProviderIds.add(id);
+      this.saveEnabledProviderIds();
+      void this.startOwner(owner, 'enabled');
+      return this.list();
+    }
+
+    if (this.enabledProviderIds.size <= 1 && this.enabledProviderIds.has(id)) {
+      throw new Error('At least one provider must remain enabled');
+    }
+    this.enabledProviderIds.delete(id);
+    this.saveEnabledProviderIds();
+    owner.cache.suspend();
+    owner.byteCache.suspend();
+    await owner.browserSession.destroy();
+    console.log(`[providerCoordinator] provider-disabled provider=${id} action=stopped`);
+    return this.list();
+  }
+
+  isEnabled(providerId: string): boolean {
+    return this.enabledProviderIds.has(this.normalizeProviderId(providerId));
+  }
+
+  private startOwner(owner: ProviderRuntimeOwner, reason: string): Promise<void> {
+    const providerId = owner.provider.id;
+    return owner.browserSession.init()
+      .then(() => {
+        if (!this.isEnabled(providerId)) return;
+        return owner.browserSession.warmRuntimeHttp(reason);
+      })
+      .then(() => {
+        if (!this.isEnabled(providerId)) return;
+        owner.cache.start();
+        owner.byteCache.start();
+      })
+      .catch(err => {
+        console.error(`[providerCoordinator] init failed provider=${owner.provider.id} domain=${owner.provider.domain} reason=${reason}: ${err.message}`);
+      });
+  }
+
+  private loadEnabledProviderIds(): string[] {
+    const providers = listServerProviders().map(provider => provider.id);
+    try {
+      const raw = JSON.parse(fs.readFileSync(this.settingsPath, 'utf8')) as ProviderRuntimeSettings;
+      const enabled = (raw.enabledProviderIds ?? []).filter(id => providers.includes(id));
+      return enabled.length > 0 ? [...new Set(enabled)] : providers;
+    } catch {
+      return providers;
+    }
+  }
+
+  private saveEnabledProviderIds(): void {
+    fs.mkdirSync(path.dirname(this.settingsPath), { recursive: true });
+    const enabledProviderIds = [...this.enabledProviderIds].filter(id => this.owners.has(id));
+    fs.writeFileSync(this.settingsPath, JSON.stringify({ enabledProviderIds }, null, 2));
   }
 
   private normalizeProviderId(providerId?: string | null): string {

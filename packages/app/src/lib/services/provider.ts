@@ -14,6 +14,16 @@ interface ProviderMeta {
     bundle: string;
 }
 
+export interface ProviderRuntimeSummary {
+    id: string;
+    name: string;
+    domain: string;
+    baseUrl: string;
+    enabled: boolean;
+    ready: boolean;
+    needsHumanClearance: boolean;
+}
+
 async function bundledProvider(providerId: string): Promise<MangaProvider> {
     if (providerId === 'mangadotnet') {
         const mod = await import('./bundled/mangadotnet.js');
@@ -66,6 +76,24 @@ export async function switchProvider(providerId: string, emit?: LogEmit): Promis
     if (providerId === getProviderId() && activeProvider) return activeProvider;
     await initProvider(providerId, emit);
     return getProvider();
+}
+
+export async function fetchProviderRuntimeSummaries(): Promise<ProviderRuntimeSummary[]> {
+    const res = await fetch('/api/providers');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json() as { result?: ProviderRuntimeSummary[] };
+    return data.result ?? [];
+}
+
+export async function setProviderRuntimeEnabled(providerId: string, enabled: boolean): Promise<ProviderRuntimeSummary[]> {
+    const res = await fetch(`/api/providers/${encodeURIComponent(providerId)}/enabled`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json() as { result?: ProviderRuntimeSummary[] };
+    return data.result ?? [];
 }
 
 export async function refreshProviderFilters(providerId = 'comix', emit?: LogEmit): Promise<FilterDefinition> {

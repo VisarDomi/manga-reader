@@ -17,6 +17,21 @@ export default function providerFiltersRouter(coordinator: ProviderCoordinator |
         res.json({ status: 'ok', result: coordinator.list() });
     }));
 
+    router.patch('/providers/:providerId/enabled', asyncHandler(async (req, res) => {
+        if (!coordinator) {
+            res.status(503).json({ error: 'Provider coordinator unavailable' });
+            return;
+        }
+        const providerId = singleParam(req.params.providerId);
+        const enabled = req.body?.enabled === true;
+        try {
+            const result = await coordinator.setEnabled(providerId, enabled);
+            res.json({ status: 'ok', result });
+        } catch (error) {
+            res.status(400).json({ error: String((error as Error)?.message ?? error) });
+        }
+    }));
+
     router.get('/provider-filters/:providerId', asyncHandler(async (req, res) => {
         if (!coordinator) {
             res.status(503).json({ error: 'Provider coordinator unavailable' });
