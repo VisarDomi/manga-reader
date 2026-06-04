@@ -27,6 +27,12 @@ export type AppStatus = 'BOOTING' | 'READY' | 'BACKGROUND' | 'RECONNECTING' | 'O
 
 const NSFW_NAMES = new Set(['Adult', 'Ecchi', 'Hentai', 'Mature', 'Smut']);
 const SESSION_TOAST_DURATION = 4000;
+const EMPTY_PROVIDER_FILTERS: FilterDefinition = {
+    genres: [],
+    demographics: [],
+    types: [],
+    statuses: [],
+};
 type RestorePhase = 'replaying-search' | 'paginating-to-target' | 'scrolling';
 type RestoreInner =
     | { kind: 'idle' }
@@ -72,7 +78,7 @@ class AppState {
     groupFilter = new GroupFilterState();
     chapterStats = new ChapterStatsState(this.groupFilter);
     activeProviderId = $state('comix');
-    providerFilters = $state<FilterDefinition>(getProvider().getFilters());
+    providerFilters = $state<FilterDefinition>(EMPTY_PROVIDER_FILTERS);
 
     status = $state<AppStatus>('BOOTING');
     private monitor!: ConnectionMonitor;
@@ -666,6 +672,7 @@ class AppState {
             const snapshotProviderId = this.bootSnapshot?.providerId;
             await initProvider(snapshotProviderId ?? this.activeProviderId, emit);
             this.activeProviderId = getProviderId();
+            this.providerFilters = getProvider().getFilters();
             this.groupFilter.setProvider(this.activeProviderId);
             this.searchState.filters.setProvider(this.activeProviderId);
             await this.progress.init();

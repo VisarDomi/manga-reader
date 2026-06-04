@@ -511,6 +511,12 @@ export class CacheService {
     if (staleChapterImages > 0) {
       console.log(`[cache] chapter-image-schema-invalidated provider=${this.provider.id} rows=${staleChapterImages} requiredSchema=2 reason=scramble-metadata`);
     }
+    if (this.provider.id === 'mangadotnet') {
+      const purged = this.db.deleteNonNumericResourceJobsByReason('favorite-card-cache-miss', ['cache-manga-detail', 'cache-chapters']);
+      if (purged > 0) {
+        console.log(`[cache] provider-job-repair provider=${this.provider.id} purged=${purged} reason=non-numeric-favorite-card-cache-miss`);
+      }
+    }
     if (this.byteCache) {
       const version = this.db.getMeta('cover-ownership-rebuild-version');
       if (version !== COVER_OWNERSHIP_REBUILD_VERSION) {

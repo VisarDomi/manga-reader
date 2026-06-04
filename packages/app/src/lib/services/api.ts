@@ -16,7 +16,7 @@ export function setCloudflareCallback(cb: () => void): void {
 }
 
 const CACHE_WARM_POLL_MS = 500;
-const CACHE_WARM_ATTEMPTS = 240;
+const CACHE_WARM_ATTEMPTS = 1;
 const COMMENTS_FETCH_TIMEOUT_MS = 45_000;
 
 function providerQueryParam(): string {
@@ -173,10 +173,10 @@ export async function searchManga(query: string, page = 1, filters?: SearchFilte
     return { manga: result.items, hasMore: result.hasMore };
 }
 
-export async function fetchMangaCardSnapshots(fallbacks: Manga[], signal?: AbortSignal, includeChapters = false): Promise<MangaCardSnapshot[]> {
+export async function fetchMangaCardSnapshots(fallbacks: Manga[], signal?: AbortSignal, includeChapters = false, providerId = getProviderId()): Promise<MangaCardSnapshot[]> {
     if (fallbacks.length === 0) return [];
     const startedAt = performance.now();
-    emit('manga-card-snapshots-request', { count: fallbacks.length, includeChapters });
+    emit('manga-card-snapshots-request', { providerId, count: fallbacks.length, includeChapters });
     const provider = getProvider();
     const fallbackById = new Map(fallbacks.map(manga => [manga.id, manga]));
     let data: unknown;
@@ -185,10 +185,11 @@ export async function fetchMangaCardSnapshots(fallbacks: Manga[], signal?: Abort
             signal,
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ providerId: getProviderId(), ids: fallbacks.map(manga => manga.id), includeChapters }),
+            body: JSON.stringify({ providerId, ids: fallbacks.map(manga => manga.id), includeChapters }),
         });
     } catch (e) {
         emit('manga-card-snapshots-error', {
+            providerId,
             count: fallbacks.length,
             includeChapters,
             dtMs: Math.round(performance.now() - startedAt),
@@ -226,6 +227,7 @@ export async function fetchMangaCardSnapshots(fallbacks: Manga[], signal?: Abort
         };
     });
     emit('manga-card-snapshots-result', {
+        providerId,
         count: fallbacks.length,
         includeChapters,
         resultCount: snapshots.length,

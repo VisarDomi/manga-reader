@@ -492,6 +492,16 @@ Frontend state is provider-scoped:
   provider.
 - Switching providers is a root switch. `mangadotnet` favorites start empty
   even if another provider has a manga with the same id.
+- Favorite card hydration is a provider-scoped transaction. The provider id is
+  captured when favorite rows are loaded and travels through card snapshot
+  requests, response parsing, IDB snapshot writes, and chapter-stat updates.
+  Late hydration from an old provider is discarded rather than applied through
+  the currently active provider. This prevents Comix favorite ids from being
+  sent to the Mangadot cache after a provider switch.
+- Durable cache jobs are provider data and may be repaired by the provider cache
+  owner. Mangadot manga ids are numeric; non-numeric `favorite-card-cache-miss`
+  jobs in Mangadot's durable queue are invalid cross-provider residue and are
+  purged at Mangadot cache startup with an explicit repair log.
 
 Reader code consumes normalized chapter/page data. It should not know whether
 the active provider uses Comix store candidates, Comix scrambling, Mangadot
@@ -1576,32 +1586,34 @@ handle refetch efficiency.
 
 ## BF. First Launch Shows Empty State
 
-The current app is a Comix-focused PWA, not a multi-repository provider
-installer. On first launch it initializes the bundled/dynamic Comix provider
-and searches/restores from that provider. If provider loading fails, the app
-shows the provider/load failure state and retry path rather than pushing a
-repository-management flow.
+The current app is a provider-scoped PWA with a small built-in provider picker,
+not a repository/provider installer. On first launch it initializes the
+persisted active provider, falling back to Comix when there is no saved
+provider, and searches/restores from that provider. If provider loading fails,
+the app shows the provider/load failure state and retry path rather than
+pushing a repository-management flow.
 
 ## BG. Repository and Provider Management
 
 Repository/provider installation UI is not part of the current product. The
 extension build still produces a provider manifest and the frontend can load
-the built Comix provider dynamically from `/providers/index.json`, but there is
-no user-facing repository list, provider install/uninstall flow, or provider
-switching state machine. Do not reintroduce a repo-management surface as part
-of cache/search/restore work unless the product direction changes explicitly.
+the built providers dynamically from `/providers/index.json`, but there is no
+user-facing repository list or provider install/uninstall flow. The provider
+picker only switches between providers already shipped with the app. Do not
+reintroduce a repo-management surface as part of cache/search/restore work
+unless the product direction changes explicitly.
 
 Provider builds are self-describing. The extension build imports each built
 provider bundle to read its metadata, writes the provider manifest, and copies
 the bundle into the app's bundled fallback directory. That fallback exists so
-the Comix-focused app can still boot if the dynamic manifest path fails.
+the app can still boot if the dynamic manifest path fails.
 
 ## BH. Data Isolation Per Provider
 
-The app currently has one active provider domain: Comix. Client persistence is
-still shaped so provider scoping can be reintroduced later, but the current
-runtime does not switch providers and the session snapshot does not contain an
-`activeProviderKey`.
+The app has one active provider at a time, selected from built-in providers.
+Client persistence is provider-scoped and the session snapshot stores the active
+provider id so restore, search, favorites, filters, and cache reads address the
+same provider owner.
 
 Current persistent domains:
 

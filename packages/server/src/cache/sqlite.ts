@@ -757,6 +757,18 @@ export class CacheDatabase {
     this.db.prepare('DELETE FROM cache_jobs WHERE id = ?').run(id);
   }
 
+  deleteNonNumericResourceJobsByReason(reason: string, kinds: string[]): number {
+    if (kinds.length === 0) return 0;
+    const placeholders = kinds.map(() => '?').join(', ');
+    const result = this.db.prepare(`
+      DELETE FROM cache_jobs
+      WHERE kind IN (${placeholders})
+        AND json_extract(payload_json, '$.reason') = ?
+        AND resource_key GLOB '*[^0-9]*'
+    `).run(...kinds, reason);
+    return Number(result.changes ?? 0);
+  }
+
   updateJobPriority(id: string, priority: number): void {
     this.db.prepare('UPDATE cache_jobs SET priority = ?, updated_at = ? WHERE id = ?').run(priority, Date.now(), id);
   }

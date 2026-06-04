@@ -27,8 +27,7 @@ export class FavoritesState {
 
     async init() {
         try {
-            await this.loadFavoriteRows();
-            this.loaded = true;
+            this.loaded = await this.loadFavoriteRows();
         } catch (e) {
             this.log.emit('favorites-activation', {
                 phase: 'failed',
@@ -91,9 +90,9 @@ export class FavoritesState {
         this.log.emit('favorites-activation', { phase: 'start', loaded: this.loaded, items: this.items.length, dtMs: 0 });
         this.isLoading = true;
         try {
-            await this.loadFavoriteRows();
+            const loaded = await this.loadFavoriteRows(providerId);
+            if (!loaded || providerId !== getProviderId()) return;
             this.loaded = true;
-            this.loadedProviderId = providerId;
             this.log.emit('favorites-activation', { phase: 'done', loaded: this.loaded, items: this.items.length, dtMs: Math.round(performance.now() - startedAt) });
         } catch (e) {
             this.log.emit('favorites-activation', {
@@ -118,12 +117,13 @@ export class FavoritesState {
         };
     }
 
-    private async loadFavoriteRows(): Promise<void> {
+    private async loadFavoriteRows(providerId = getProviderId()): Promise<boolean> {
         const startedAt = performance.now();
-        const providerId = getProviderId();
         const rows = await db.getAllFavoriteRows(providerId);
+        if (providerId !== getProviderId()) return false;
         this.hydrationGeneration++;
         const generation = this.hydrationGeneration;
+        this.loadedProviderId = providerId;
         this.ids = rows.map(row => row.id);
         this.items = rows.map(row => this.items.find(item => item.id === row.id) ?? this.placeholder(row.id, row.snapshot));
         this.log.emit('favorites-rows-loaded', {
@@ -132,10 +132,11 @@ export class FavoritesState {
             items: this.items.length,
             dtMs: Math.round(performance.now() - startedAt),
         });
-        if (rows.length > 0) void this.refreshFavoriteSnapshots(rows, generation);
+        if (rows.length > 0) void this.refreshFavoriteSnapshots(rows, generation, providerId);
+        return true;
     }
 
-    private async refreshFavoriteSnapshots(rows: db.FavoriteIdRow[], generation: number): Promise<void> {
+    private async refreshFavoriteSnapshots(rows: db.FavoriteIdRow[], generation: number, providerId: string): Promise<void> {
         const startedAt = performance.now();
         const fallbacks = rows.map(row => this.items.find(item => item.id === row.id) ?? this.placeholder(row.id, row.snapshot));
         this.log.emit('favorites-hydration', {
@@ -146,7 +147,7 @@ export class FavoritesState {
         });
 
         const batchStartedAt = performance.now();
-        const count = await this.repairCardSnapshots(fallbacks, generation);
+        const count = await this.repairCardSnapshots(fallbacks, generation, providerId);
         if (count == null) {
             this.log.emit('favorites-hydration', {
                 phase: 'cancelled',
@@ -175,11 +176,12 @@ export class FavoritesState {
         });
     }
 
-    private async repairCardSnapshots(fallbacks: Manga[], generation: number): Promise<number | null> {
+    private async repairCardSnapshots(fallbacks: Manga[], generation: number, providerId: string): Promise<number | null> {
+        if (generation !== this.hydrationGeneration || providerId !== this.loadedProviderId || providerId !== getProviderId()) return null;
         const startedAt = performance.now();
         let snapshots: api.MangaCardSnapshot[] = [];
         try {
-            snapshots = await api.fetchMangaCardSnapshots(fallbacks, undefined, true);
+            snapshots = await api.fetchMangaCardSnapshots(fallbacks, undefined, true, providerId);
         } catch (e) {
             this.log.emit('favorites-hydration-failed', {
                 total: fallbacks.length,
@@ -188,7 +190,7 @@ export class FavoritesState {
             });
             return 0;
         }
-        if (generation !== this.hydrationGeneration) return null;
+        if (generation !== this.hydrationGeneration || providerId !== this.loadedProviderId || providerId !== getProviderId()) return null;
 
         const activeIds = new Set(this.ids);
         const hydrated = snapshots.filter(snapshot => activeIds.has(snapshot.manga.id));
@@ -197,7 +199,7 @@ export class FavoritesState {
         const byId = new Map(hydrated.map(result => [result.manga.id, result.manga]));
         this.items = this.items.map(item => byId.get(item.id) ?? item);
         for (const result of hydrated) {
-            void db.updateFavoriteSnapshot(result.manga, getProviderId());
+            void db.updateFavoriteSnapshot(result.manga, providerId);
             if (!result.chapters) continue;
             this.chapterStats.update(result.manga.id, result.manga.latestChapter ?? null, result.chapters);
         }
@@ -206,10 +208,11 @@ export class FavoritesState {
 
     refreshChapterStats(): void {
         const generation = this.hydrationGeneration;
+        const providerId = this.loadedProviderId ?? getProviderId();
         const startedAt = performance.now();
-        void api.fetchMangaCardSnapshots(this.items, undefined, true)
+        void api.fetchMangaCardSnapshots(this.items, undefined, true, providerId)
             .then(snapshots => {
-                if (generation !== this.hydrationGeneration) return;
+                if (generation !== this.hydrationGeneration || providerId !== this.loadedProviderId || providerId !== getProviderId()) return;
                 for (const result of snapshots) {
                     if (!result.chapters) continue;
                     this.chapterStats.update(result.manga.id, result.manga.latestChapter ?? null, result.chapters);

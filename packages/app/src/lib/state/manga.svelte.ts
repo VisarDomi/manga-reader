@@ -528,21 +528,13 @@ export class MangaState {
             } else {
                 const detailCommitted = this.commitMangaContent(entry.key, {
                     manga: detailWithoutRecommendations,
+                    isLoading: false,
+                    isUpdatingChapters: true,
                     error: null,
                 });
                 if (!detailCommitted) return false;
                 this.emitEntryState(detailCommitted, 'detail-applied');
-                const chapterResult = await api.fetchChapterListWithCacheInfo(mangaId);
-                chapterPage = chapterResult.page;
-                const chapterCommitted = this.commitMangaContent(entry.key, {
-                    chapters: chapterPage.items,
-                    isLoading: false,
-                    isUpdatingChapters: chapterResult.updating,
-                    error: null,
-                });
-                if (!chapterCommitted) return false;
-                this.emitChapterListResult(mangaId, chapterPage);
-                this.emitEntryState(chapterCommitted, 'chapters-done');
+                return true;
             }
 
             const withRecommendations = this.commitMangaContent(entry.key, { manga: detailResult.manga });

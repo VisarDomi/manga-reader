@@ -1,4 +1,66 @@
-# Goal: Provider Filters and Mangadot Reader Images
+# Goal: Provider Warm Paths, Foreground Cache Ownership, and Mangadot Value
+
+## Current Active Goal 2026-06-04 Second Pass
+
+New user-facing regressions to investigate before fixing:
+
+1. The app currently cannot be opened reliably. Evidence must come from the
+   managed service logs, health endpoints, and frontend runtime logs before
+   claiming whether this is a service, startup, route, provider, or frontend
+   failure.
+2. Foreground UI must not block on provider cold work when stale cache exists.
+   The intended behavior is: serve any cached manga/search/chapter/image
+   metadata immediately, enqueue or promote the provider refresh as a high
+   priority background job, and atomically update the UI when fresh data lands.
+3. Mangadot cache value is unproven. Investigate whether caching Mangadot
+   chapters/images produces warm paths or whether runtime/Cloudflare/direct
+   image fallback still dominates foreground latency.
+4. Comix cache value is inconsistent from the user's point of view: sometimes
+   faster than the site, sometimes slower. Investigate whether slow cases are
+   cache misses, decoder work, store-selection policy, foreground/background
+   contention, or UI waiting on refresh instead of serving stale cache.
+5. Warm-path invariant remains: after startup, normal usage should hit warm
+   provider sessions or durable cache. Cache misses should be priority work,
+   not foreground UI stalls when stale data exists.
+
+Evidence targets:
+
+- service health and app root response
+- provider readiness and warmup timings
+- cache-read/cache-write/search/chapter-images logs with provider ids
+- foreground request latency vs background cache job activity
+- whether current app-open failure correlates with Mangadot background aborts,
+  browser process runaway, frontend runtime errors, or bad cached state
+
+Do not hide failures behind gates/timeouts. If logs are insufficient, improve
+structured logs around the ownership boundary that is blind.
+
+Findings/fixes from this pass:
+
+- The app-open failure was a frontend boot ownership bug: `AppState` read
+  `getProvider().getFilters()` before `initProvider()` had installed the active
+  provider. `providerFilters` now starts as an empty snapshot and is populated
+  only after provider init.
+- Foreground manga detail should not block on a warming/missing chapter list
+  when cached/detail-card data exists. The detail owner now commits available
+  manga detail immediately and marks chapters as updating; the refresh owner can
+  replace the chapter list when the backend cache finishes.
+- Provider switch leaked through favorite hydration. A favorite row load now
+  captures its provider id, and card snapshot requests, parsing, IDB snapshot
+  writes, and chapter stats all remain scoped to that provider. Late old-provider
+  hydration is cancelled.
+- The Mangadot durable queue had poisoned `favorite-card-cache-miss` jobs from
+  old Comix favorite ids. Mangadot cache startup now purges non-numeric durable
+  favorite-card miss jobs and logs the repair. Verified after restart:
+  `favorite-card-cache-miss` jobs in Mangadot cache = `0`.
+- Verified after restart on 2026-06-04 13:20:02: `/api/providers` returned both
+  providers ready in `0.635s`; Xvfb app-open rendered the Comix search grid;
+  frontend boot logged `boot-ready` in `2422ms`; Comix search returned `100`
+  results in `2309ms`; visible cover cache hits were served from local cache.
+
+---
+
+# Previous Goal: Provider Filters and Mangadot Reader Images
 
 ## Current Active Goal 2026-06-04
 
