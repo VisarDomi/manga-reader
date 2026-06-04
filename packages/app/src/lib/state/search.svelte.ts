@@ -58,6 +58,7 @@ export class SearchState {
     private isRestoring: () => boolean;
     private emit: LogEmit;
     private reconcileReported = new Set<string>();
+    private requestSeq = 0;
     onNewSearch: (() => void) | null = null;
 
     get isLoading() { return this.machine.isActive; }
@@ -99,6 +100,7 @@ export class SearchState {
     resetForProvider(): void {
         this.machine.abort();
         this.clearWatchdog();
+        this.requestSeq++;
         this.results = [];
         this.error = null;
         this.currentQuery = '';
@@ -114,6 +116,7 @@ export class SearchState {
         this.filters.cancelDebounce();
         this.machine.enter('searching');
         const signal = this.machine.signal!;
+        const requestId = this.nextRequestId('search', 1);
         this.startWatchdog();
 
         const ctx: SearchContext = {
@@ -127,8 +130,12 @@ export class SearchState {
         storage.setString('lastQuery', query);
 
         try {
-            const data = await api.searchManga(query, 1, ctx.filters, signal);
+            const data = await api.searchManga(query, 1, ctx.filters, signal, false, requestId);
             if (signal.aborted) return;
+            if (!this.isCurrentRequest(requestId)) {
+                this.emit('search-page-flow', this.searchFlowLog('stale', requestId, 1));
+                return;
+            }
             this.error = null;
             this.results = data.manga;
             this.resultsVersion++;
@@ -153,6 +160,7 @@ export class SearchState {
         this.onNewSearch?.();
         this.machine.enter('searching');
         const signal = this.machine.signal!;
+        const requestId = this.nextRequestId('replay', 1);
         this.startWatchdog();
 
         this.context = normalizedContext;
@@ -162,8 +170,12 @@ export class SearchState {
         storage.setString('lastQuery', normalizedContext.query);
 
         try {
-            const data = await api.searchManga(normalizedContext.query, 1, normalizedContext.filters, signal);
+            const data = await api.searchManga(normalizedContext.query, 1, normalizedContext.filters, signal, false, requestId);
             if (signal.aborted) return;
+            if (!this.isCurrentRequest(requestId)) {
+                this.emit('search-page-flow', this.searchFlowLog('stale', requestId, 1));
+                return;
+            }
             this.error = null;
             this.results = data.manga;
             this.resultsVersion++;
@@ -201,12 +213,16 @@ export class SearchState {
         };
     }
 
-    private async fetchAndAppendPage(page: number, signal?: AbortSignal): Promise<Manga[]> {
+    private async fetchAndAppendPage(page: number, signal: AbortSignal | undefined, requestId: string): Promise<Manga[]> {
         const data = await api.searchManga(
             this.currentQuery, page,
-            this.context!.filters, signal, true,
+            this.context!.filters, signal, true, requestId,
         );
         if (signal?.aborted) return [];
+        if (!this.isCurrentRequest(requestId)) {
+            this.emit('search-page-flow', this.searchFlowLog('stale', requestId, page));
+            return [];
+        }
         const seen = new Set(this.results.map(m => m.id));
         const deduped = data.manga.filter(m => !seen.has(m.id));
         this.results = [...this.results, ...deduped];
@@ -251,11 +267,13 @@ export class SearchState {
 
         this.machine.enter('loading-page');
         const signal = this.machine.signal!;
+        const requestId = this.nextRequestId('page', this.currentPage + 1);
 
         this.startWatchdog();
         this.currentPage++;
         this.emit('search-page-flow', {
             action: 'start',
+            requestId,
             query: this.currentQuery || '(browse)',
             requestedPage: this.currentPage,
             currentPage: this.currentPage,
@@ -266,9 +284,11 @@ export class SearchState {
         });
 
         try {
-            const added = await this.fetchAndAppendPage(this.currentPage, signal);
+            const added = await this.fetchAndAppendPage(this.currentPage, signal, requestId);
+            if (signal.aborted || !this.isCurrentRequest(requestId)) return;
             this.emit('search-page-flow', {
                 action: 'done',
+                requestId,
                 query: this.currentQuery || '(browse)',
                 requestedPage: this.currentPage,
                 currentPage: this.currentPage,
@@ -286,6 +306,7 @@ export class SearchState {
             this.currentPage--;
             this.emit('search-page-flow', {
                 action: 'error',
+                requestId,
                 query: this.currentQuery || '(browse)',
                 requestedPage: this.currentPage + 1,
                 currentPage: this.currentPage,
@@ -317,7 +338,8 @@ export class SearchState {
 
             this.currentPage++;
             try {
-                const added = await this.fetchAndAppendPage(this.currentPage, signal);
+                const requestId = this.nextRequestId('target', this.currentPage);
+                const added = await this.fetchAndAppendPage(this.currentPage, signal, requestId);
                 if (signal?.aborted) return false;
                 if (added.some(m => m.id === targetId)) return true;
             } catch {
@@ -327,5 +349,29 @@ export class SearchState {
             }
         }
         return false;
+    }
+
+    private nextRequestId(kind: string, page: number): string {
+        this.requestSeq++;
+        return `${getProviderId()}:${kind}:${page}:${this.requestSeq}`;
+    }
+
+    private isCurrentRequest(requestId: string): boolean {
+        const seq = Number(requestId.split(':').at(-1));
+        return Number.isFinite(seq) && seq === this.requestSeq;
+    }
+
+    private searchFlowLog(action: 'stale', requestId: string, requestedPage: number) {
+        return {
+            action,
+            requestId,
+            query: this.currentQuery || '(browse)',
+            requestedPage,
+            currentPage: this.currentPage,
+            resultCount: this.results.length,
+            hasMore: this.hasMore,
+            machineActive: this.machine.isActive,
+            isRestoring: this.isRestoring(),
+        };
     }
 }

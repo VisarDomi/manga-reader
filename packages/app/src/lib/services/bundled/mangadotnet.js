@@ -269,11 +269,11 @@ var g = {
 	parseChapterImagesResponse(e) {
 		let t = n(e) ?? {}, o = n(t.result) ?? t;
 		return (Array.isArray(o.pages) ? o.pages : Array.isArray(o.images) ? o.images : []).filter((e) => typeof e == "object" && !!e && !Array.isArray(e)).map((e) => {
-			let t = i(r(e.url));
+			let t = i(r(e.url)), n = Array.isArray(e.candidates) ? e.candidates.filter((e) => typeof e == "string" && e.length > 0) : t ? [t] : [];
 			return {
 				url: t,
-				candidates: t ? [t] : [],
-				criticalCandidates: t ? [t] : [],
+				candidates: n,
+				criticalCandidates: Array.isArray(e.criticalCandidates) ? e.criticalCandidates.filter((e) => typeof e == "string" && e.length > 0) : n,
 				width: a(e.w ?? e.width) ?? 0,
 				height: a(e.h ?? e.height) ?? 0,
 				scramble: !1

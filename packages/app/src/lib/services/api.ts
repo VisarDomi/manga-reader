@@ -18,6 +18,7 @@ export function setCloudflareCallback(cb: () => void): void {
 const CACHE_WARM_POLL_MS = 500;
 const CACHE_WARM_ATTEMPTS = 1;
 const COMMENTS_FETCH_TIMEOUT_MS = 45_000;
+const SEARCH_FETCH_TIMEOUT_MS = 45_000;
 
 function providerQueryParam(): string {
     return `providerId=${encodeURIComponent(getProviderId())}`;
@@ -142,17 +143,19 @@ function rawCardSnapshots(data: unknown): RawMangaCardSnapshot[] {
         .filter(item => item.mangaId.length > 0);
 }
 
-export async function searchManga(query: string, page = 1, filters?: SearchFilters, signal?: AbortSignal, retry = false): Promise<SearchResult> {
+export async function searchManga(query: string, page = 1, filters?: SearchFilters, signal?: AbortSignal, retry = false, requestId?: string): Promise<SearchResult> {
     const provider = getProvider();
     const data = await fetchJson<unknown>('/api/search', {
         signal,
         retry,
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ providerId: getProviderId(), query, page, filters }),
+        body: JSON.stringify({ providerId: getProviderId(), query, page, filters, requestId }),
+        timeoutMs: SEARCH_FETCH_TIMEOUT_MS,
     });
     const result = provider.parseSearchResponse(data);
     emit('search-result', {
+        requestId,
         query: query || '(browse)',
         page,
         resultCount: result.items.length,

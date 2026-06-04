@@ -36,6 +36,11 @@ function providerIdFromBody(value: unknown): string {
   return typeof body.providerId === 'string' && body.providerId.length > 0 ? body.providerId : 'comix';
 }
 
+function requestIdFromBody(value: unknown): string {
+  const body = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+  return typeof body.requestId === 'string' && body.requestId.length > 0 ? body.requestId : 'none';
+}
+
 export default function createSearchRouter(coordinator: ProviderCoordinator | null): Router {
   const router = Router();
 
@@ -48,6 +53,7 @@ export default function createSearchRouter(coordinator: ProviderCoordinator | nu
     const page = numberParam(req.body?.page, 1);
     const filters = filtersFrom(req.body?.filters);
     const providerId = providerIdFromBody(req.body);
+    const requestId = requestIdFromBody(req.body);
     const started = Date.now();
     const owner = coordinator.require(providerId);
     const provider = await getServerProvider(providerId);
@@ -56,12 +62,12 @@ export default function createSearchRouter(coordinator: ProviderCoordinator | nu
       try {
         await owner.browserSession.warmRuntimeHttp('foreground-search');
       } catch (error) {
-        console.log(`[search] provider=${provider.id} mode=warm-failed query="${query || '(browse)'}" page=${page} http=503 reason=${String((error as Error)?.message ?? error)} ${Date.now() - warmStarted}ms`);
+        console.log(`[search] provider=${provider.id} requestId=${requestId} mode=warm-failed query="${query || '(browse)'}" page=${page} http=503 reason=${String((error as Error)?.message ?? error)} ${Date.now() - warmStarted}ms`);
         res.status(503).json({ error: 'Provider runtime not ready', status: 503, providerId: provider.id });
         return;
       }
       if (!owner.browserSession.canServeRuntimeRequests()) {
-        console.log(`[search] provider=${provider.id} mode=unavailable query="${query || '(browse)'}" page=${page} http=503 reason=provider-runtime-not-ready ${Date.now() - warmStarted}ms`);
+        console.log(`[search] provider=${provider.id} requestId=${requestId} mode=unavailable query="${query || '(browse)'}" page=${page} http=503 reason=provider-runtime-not-ready ${Date.now() - warmStarted}ms`);
         res.status(503).json({ error: 'Provider runtime not ready', status: 503, providerId: provider.id });
         return;
       }
@@ -94,7 +100,7 @@ export default function createSearchRouter(coordinator: ProviderCoordinator | nu
         });
     const { data, meta } = fetched;
     const parsed = provider.parseSearchResponse(data);
-    console.log(`[search] provider=${provider.id} mode=${mangadotPath === '/search' ? 'document' : 'api'} query="${query || '(browse)'}" page=${page} http=${meta.status} count=${parsed.items.length} current=${parsed.pagination?.currentPage ?? page} last=${parsed.pagination?.lastPage ?? 'unknown'} total=${parsed.pagination?.total ?? parsed.items.length} ${Date.now() - started}ms`);
+    console.log(`[search] provider=${provider.id} requestId=${requestId} mode=${mangadotPath === '/search' ? 'document' : 'api'} query="${query || '(browse)'}" page=${page} http=${meta.status} count=${parsed.items.length} current=${parsed.pagination?.currentPage ?? page} last=${parsed.pagination?.lastPage ?? 'unknown'} total=${parsed.pagination?.total ?? parsed.items.length} ${Date.now() - started}ms`);
     res.json(data);
   }));
 

@@ -353,10 +353,16 @@ const provider: MangaProvider = {
       .filter((item): item is Record<string, unknown> => item != null && typeof item === 'object' && !Array.isArray(item))
       .map(item => {
         const url = absoluteUrl(firstString(item.url));
+        const candidates = Array.isArray(item.candidates)
+          ? item.candidates.filter((candidate): candidate is string => typeof candidate === 'string' && candidate.length > 0)
+          : url ? [url] : [];
+        const criticalCandidates = Array.isArray(item.criticalCandidates)
+          ? item.criticalCandidates.filter((candidate): candidate is string => typeof candidate === 'string' && candidate.length > 0)
+          : candidates;
         return {
           url,
-          candidates: url ? [url] : [],
-          criticalCandidates: url ? [url] : [],
+          candidates,
+          criticalCandidates,
           width: numeric(item.w ?? item.width) ?? 0,
           height: numeric(item.h ?? item.height) ?? 0,
           scramble: false,

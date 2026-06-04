@@ -464,6 +464,15 @@ URL construction via `searchRequest` and response shape via
 This prevents duplicating provider query parameters in the server while also
 preventing the frontend from regaining a "fetch anything live" escape hatch.
 
+Search requests are owned transactions. The frontend assigns a request id to
+each search/page owner and the backend logs that same id. A late response may
+finish in the backend, but it cannot mutate search state if a newer request id
+owns the surface. This is especially important for Mangadot filtered search,
+where provider document pages are fixed at 28 items and can take tens of
+seconds. The frontend search path uses a search-owned request budget rather than
+the generic JSON timeout, because the provider route owns whether slow document
+search is still valid work or an actual failure.
+
 ### 39. Provider Boundaries Are Owned, Not Conditional
 
 Multiple providers make the ownership boundary concrete. Provider id is an
@@ -517,6 +526,14 @@ route first tries a normal backend proxy with provider headers and, if blocked,
 falls back to the provider-owned runtime byte fetch. It must not invoke the
 generic Cloudflare solver, because Mangadot's browser profile/session is owned
 by its ProviderRuntimeOwner.
+
+Provider parsers must preserve cache-projected render candidates. The raw
+Mangadot provider response contains direct image URLs, but once the server cache
+has wrapped those pages with local render candidates, the frontend parser must
+not reconstruct direct upstream candidates from `url`. It should read
+`candidates`/`criticalCandidates` when present and use direct URLs only as a raw
+provider-payload fallback. Logs that show `reader-image-candidate host=mangadot.net`
+for Mangadot are evidence that this ownership boundary leaked.
 
 Provider-specific user state follows the same rule. Global chapter group
 filters and per-manga selected chapter groups are provider-scoped state. A
