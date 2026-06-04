@@ -211,6 +211,23 @@ export function createCacheRouter(coordinator: ProviderCoordinator | null): Rout
     res.send(decoded.buffer);
   }));
 
+  router.get('/cache/manga/:mangaId/chapters/:chapterId/pages/:pageIndex/image', asyncHandler(async (req, res) => {
+    const owner = requireOwner(coordinator, req, res);
+    if (!owner) return;
+    const mangaId = singleParam(req.params.mangaId);
+    const chapterId = singleParam(req.params.chapterId);
+    const pageIndex = typeof req.params.pageIndex === 'string' ? Number(req.params.pageIndex) : NaN;
+    if (!mangaId || !chapterId || !Number.isInteger(pageIndex) || pageIndex < 0) {
+      res.status(400).json({ error: 'Missing mangaId, chapterId, or pageIndex', status: 400 });
+      return;
+    }
+    const rawNumber = typeof req.query.number === 'string' ? Number(req.query.number) : NaN;
+    const chapterNumber = Number.isFinite(rawNumber) ? rawNumber : undefined;
+    const chapterUrl = typeof req.query.url === 'string' ? req.query.url : undefined;
+    const policy = req.query.policy === 'critical' ? 'critical' : 'preload';
+    await owner.cache.streamChapterPageImage(mangaId, chapterId, pageIndex, res, { chapterNumber, chapterUrl, policy });
+  }));
+
   router.post('/cache/manga/:mangaId/refresh', asyncHandler(async (req, res) => {
     const owner = requireOwner(coordinator, req, res);
     if (!owner) return;

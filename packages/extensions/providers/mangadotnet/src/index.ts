@@ -267,8 +267,8 @@ const provider: MangaProvider = {
       || (filters?.statuses?.length ?? 0) > 0
       || (filters?.authors?.length ?? 0) > 0
       || (filters?.artists?.length ?? 0) > 0;
-    if (hasFilters) return { url: `${BASE_URL}/search?${params}`, cloudflareProtected: true };
     params.set('limit', String(SEARCH_MAX_PAGE_SIZE));
+    if (hasFilters) return { url: `${BASE_URL}/search?${params}`, cloudflareProtected: true };
     return { url: `${BASE_URL}/api/search?${params}`, cloudflareProtected: true };
   },
 

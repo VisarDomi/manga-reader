@@ -497,6 +497,17 @@ Reader code consumes normalized chapter/page data. It should not know whether
 the active provider uses Comix store candidates, Comix scrambling, Mangadot
 direct image URLs, or browser-backed provider APIs.
 
+Chapter-image rendering candidates are provider/cache-owned. Cache metadata may
+store a provider's canonical image URL, but the frontend should not infer how
+that URL must be loaded. Comix cache rows expose generated store candidates or
+local decoder URLs. Mangadot cache rows store direct page URLs, but render
+candidates are local `/api/cache/.../image` URLs because Safari/frontends cannot
+attach provider headers and may fail upstream hotlink checks. The direct-image
+route first tries a normal backend proxy with provider headers and, if blocked,
+falls back to the provider-owned runtime byte fetch. It must not invoke the
+generic Cloudflare solver, because Mangadot's browser profile/session is owned
+by its ProviderRuntimeOwner.
+
 Provider-specific user state follows the same rule. Global chapter group
 filters and per-manga selected chapter groups are provider-scoped state. A
 group id from one provider must not hide chapters on another provider, and a
@@ -527,9 +538,19 @@ active provider's local filters instead of replaying stale IDs. This prevents
 Comix ids such as `23` from being sent to Mangadot, where the semantic id is
 `Romance`.
 
+Filter definitions are also provider-owned frontend state. Components must not
+capture `getProvider().getFilters()` once at mount and assume the provider will
+never change. AppState owns the active provider's filter definition snapshot and
+keys in-flight filter refreshes by provider id so a slow load from one provider
+cannot overwrite the currently active provider.
+
 Tags are surfaced as normal three-state chips: empty -> include -> exclude ->
 empty. Authors and artists keep the existing search-box UI, but the search box
 is cache-backed rather than upstream-backed.
+
+The filter panel intentionally has no "Clear All" button. Filter state is
+provider-local and reversible through each chip's three-state cycle; broad
+destructive clearing is not part of the current UI contract.
 
 Filter option IDs must be provider-semantic, not normalized display strings.
 For Comix, cached genre/tag ids are numeric provider ids such as `23` for
@@ -542,6 +563,8 @@ search/browse stays on `/api/search` because it supports 100-item pages. The
 document route is only used when filters are present; it has provider-fixed
 28-item pages but correct include/exclude semantics. Verified on 2026-06-04:
 Mangadot include `Romance` logged `count=28 current=1 last=349 total=9758`.
+Adding `limit=100` to the document route did not change that page size; the
+provider page itself still exposed `per_page=28`.
 
 ### 40. Provider Runtime Owns Session Health and Request Coalescing
 

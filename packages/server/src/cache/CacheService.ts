@@ -1,7 +1,8 @@
 import type { BrowserSession } from '../services/BrowserSession.js';
+import type { Response } from 'express';
 import type { FilterDefinition } from '@manga-reader/provider-types';
 import { learnStoreHostFromUrl, listStoreHosts } from '../utils/storeHosts.js';
-import { proxyFetchJson } from '../utils/proxyFetch.js';
+import { proxyFetch, proxyFetchJson } from '../utils/proxyFetch.js';
 import { DATA_CACHE_BACKGROUND_ENABLED } from '../config.js';
 import { CacheDatabase, type CachedFilterOption, type CacheJobEnqueueResult, type ImageStoreObservation, type ImageStoreObservationRecord } from './sqlite.js';
 import { CACHE_JOB_PRIORITY, DurableJobScheduler, type CacheJobPriorityName } from './DurableJobScheduler.js';
@@ -296,6 +297,12 @@ function resultPages(data: unknown): unknown[] {
   return Array.isArray(pages) ? pages : [];
 }
 
+function resultRecord(data: unknown): Record<string, unknown> {
+  if (!data || typeof data !== 'object') return {};
+  const result = (data as Record<string, unknown>).result;
+  return result && typeof result === 'object' ? result as Record<string, unknown> : {};
+}
+
 function chapterImageReadiness(data: unknown): { ready: boolean; pages: number; targetCount: number | null; source: string; schemaVersion: number | null; scrambleKnown: number } {
   const pages = resultPages(data);
   const result = data && typeof data === 'object'
@@ -395,8 +402,8 @@ function withImageStoreCandidates(
   mangaId: string,
   chapterId: string,
   context: { chapterNumber?: number; chapterUrl?: string },
-  candidateOrder: (imageUrl: string) => string[],
-  criticalCandidateOrder: (imageUrl: string) => string[],
+  candidateOrder: (imageUrl: string, pageIndex: number) => string[],
+  criticalCandidateOrder: (imageUrl: string, pageIndex: number) => string[],
 ): unknown {
   if (!data || typeof data !== 'object') return data;
   const root = data as Record<string, unknown>;
@@ -432,12 +439,29 @@ function withImageStoreCandidates(
         }
         return {
           ...record,
-          candidates: candidateOrder(imageUrl),
-          criticalCandidates: criticalCandidateOrder(imageUrl),
+          candidates: candidateOrder(imageUrl, pageIndex),
+          criticalCandidates: criticalCandidateOrder(imageUrl, pageIndex),
         };
       }),
     },
   };
+}
+
+function directChapterImageCandidate(
+  providerId: string,
+  mangaId: string,
+  chapterId: string,
+  pageIndex: number,
+  policy: 'critical' | 'preload',
+  context: { chapterNumber?: number; chapterUrl?: string },
+  resultRecord: Record<string, unknown>,
+): string {
+  const params = new URLSearchParams({ providerId, policy });
+  const chapterNumber = context.chapterNumber ?? resultRecord.chapterNumber;
+  const chapterUrl = context.chapterUrl ?? resultRecord.chapterUrl;
+  if (typeof chapterNumber === 'number' && Number.isFinite(chapterNumber)) params.set('number', String(chapterNumber));
+  if (typeof chapterUrl === 'string' && chapterUrl.length > 0) params.set('url', chapterUrl);
+  return `/api/cache/manga/${encodeURIComponent(mangaId)}/chapters/${encodeURIComponent(chapterId)}/pages/${pageIndex}/image?${params}`;
 }
 
 function coverUrlFromItem(data: unknown, variant: 'card' | 'detail'): string | null {
@@ -614,9 +638,87 @@ export class CacheService {
       mangaId,
       chapterId,
       context,
-      imageUrl => this.provider.imageDelivery === 'store-candidates' ? this.orderedImageStoreCandidates(imageUrl, 'preload') : [imageUrl],
-      imageUrl => this.provider.imageDelivery === 'store-candidates' ? this.orderedImageStoreCandidates(imageUrl, 'critical') : [imageUrl],
+      (imageUrl, pageIndex) => this.provider.imageDelivery === 'store-candidates'
+        ? this.orderedImageStoreCandidates(imageUrl, 'preload')
+        : [directChapterImageCandidate(this.provider.id, mangaId, chapterId, pageIndex, 'preload', context, resultRecord(cached.data))],
+      (imageUrl, pageIndex) => this.provider.imageDelivery === 'store-candidates'
+        ? this.orderedImageStoreCandidates(imageUrl, 'critical')
+        : [directChapterImageCandidate(this.provider.id, mangaId, chapterId, pageIndex, 'critical', context, resultRecord(cached.data))],
     );
+  }
+
+  async streamChapterPageImage(
+    mangaId: string,
+    chapterId: string,
+    pageIndex: number,
+    res: Response,
+    options: { chapterNumber?: number; chapterUrl?: string; policy?: 'critical' | 'preload' } = {},
+  ): Promise<void> {
+    const start = Date.now();
+    const cached = this.db.getChapterImages(mangaId, chapterId);
+    if (!cached) {
+      this.warmChapterImages(mangaId, chapterId, options.chapterNumber, options.chapterUrl, 'direct-image-cache-miss', 'interactive');
+      res.status(202).json({ status: 'warming', mangaId, chapterId, pageIndex });
+      return;
+    }
+    const readiness = chapterImageReadiness(cached.data);
+    if (cached.status !== 'ready' || !readiness.ready) {
+      res.status(202).json({ status: 'warming', mangaId, chapterId, pageIndex });
+      return;
+    }
+    const page = resultPages(cached.data)[pageIndex];
+    const sourceUrl = pageImageUrl(page);
+    if (!sourceUrl) {
+      res.status(404).json({ error: 'Chapter page image unavailable', status: 404, mangaId, chapterId, pageIndex });
+      return;
+    }
+
+    try {
+      const fetched = await this.fetchDirectChapterImage(sourceUrl, options.policy ?? 'preload');
+      res.setHeader('Content-Type', fetched.contentType || 'application/octet-stream');
+      res.setHeader('Cache-Control', 'private, max-age=86400');
+      res.setHeader('Content-Length', String(fetched.buffer.byteLength));
+      res.send(fetched.buffer);
+      console.log(`[cache] direct-chapter-image provider=${this.provider.id} manga=${mangaId} chapter=${chapterId} page=${pageIndex + 1} policy=${options.policy ?? 'preload'} source=${fetched.source} bytes=${fetched.buffer.byteLength} totalMs=${Date.now() - start}`);
+    } catch (error) {
+      const message = conciseError((error as Error)?.message ?? String(error));
+      console.log(`[cache] direct-chapter-image failed provider=${this.provider.id} manga=${mangaId} chapter=${chapterId} page=${pageIndex + 1} policy=${options.policy ?? 'preload'} totalMs=${Date.now() - start} error=${message}`);
+      if (!res.headersSent) res.status(502).json({ error: message, status: 502 });
+      else res.destroy();
+    }
+  }
+
+  private async fetchDirectChapterImage(sourceUrl: string, policy: 'critical' | 'preload'): Promise<{ buffer: Buffer; contentType: string; source: 'proxy' | 'runtime' }> {
+    const proxyStart = Date.now();
+    try {
+      const { response } = await proxyFetch(sourceUrl, {
+        headers: { Referer: this.provider.baseUrl },
+        cloudflareProtected: false,
+      });
+      if (response.ok) {
+        const buffer = Buffer.from(await response.arrayBuffer());
+        console.log(`[cache] direct-chapter-image-fetch provider=${this.provider.id} source=proxy policy=${policy} http=${response.status} bytes=${buffer.byteLength} totalMs=${Date.now() - proxyStart}`);
+        return {
+          buffer,
+          contentType: response.headers.get('content-type') || 'application/octet-stream',
+          source: 'proxy',
+        };
+      }
+      console.log(`[cache] direct-chapter-image-fetch provider=${this.provider.id} source=proxy-failed policy=${policy} http=${response.status} totalMs=${Date.now() - proxyStart}`);
+    } catch (error) {
+      console.log(`[cache] direct-chapter-image-fetch provider=${this.provider.id} source=proxy-error policy=${policy} totalMs=${Date.now() - proxyStart} error=${conciseError((error as Error)?.message ?? String(error))}`);
+    }
+
+    const runtime = await this.browserSession.fetchRuntimeByte(sourceUrl, {
+      owner: 'direct-chapter-image',
+      priority: policy === 'critical' ? 'foreground' : 'interactive',
+      reason: policy,
+    });
+    return {
+      buffer: runtime.buffer,
+      contentType: runtime.contentType,
+      source: 'runtime',
+    };
   }
 
   async decodeChapterPage(

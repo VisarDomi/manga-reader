@@ -65,17 +65,18 @@ interface CachedPayloadPeek {
 }
 
 async function fetchCachedPayloadWithMeta(url: string, signal: AbortSignal | undefined, resource: CacheResource, mangaId: string, chapterId?: string): Promise<CachedPayloadResult> {
+    const providerId = getProviderId();
     for (let attempt = 0; attempt < CACHE_WARM_ATTEMPTS; attempt++) {
         const data = await fetchJson<unknown>(url, { signal });
         if (cacheStatus(data) !== 'warming') {
             const updating = cacheUpdating(data);
-            emit('cache-read', { resource, action: 'hit', mangaId, chapterId, count: attempt, updating });
+            emit('cache-read', { providerId, resource, action: 'hit', mangaId, chapterId, count: attempt, updating });
             return { data, attempts: attempt, updating };
         }
-        emit('cache-read', { resource, action: 'warming', mangaId, chapterId, count: attempt + 1 });
+        emit('cache-read', { providerId, resource, action: 'warming', mangaId, chapterId, count: attempt + 1 });
         await sleep(CACHE_WARM_POLL_MS, signal);
     }
-    emit('cache-read', { resource, action: 'miss', mangaId, chapterId, count: CACHE_WARM_ATTEMPTS });
+    emit('cache-read', { providerId, resource, action: 'miss', mangaId, chapterId, count: CACHE_WARM_ATTEMPTS });
     throw new Error(`Cache warming timed out for ${resource}`);
 }
 
@@ -84,13 +85,14 @@ async function fetchCachedPayload(url: string, signal: AbortSignal | undefined, 
 }
 
 async function peekCachedPayload(url: string, signal: AbortSignal | undefined, resource: CacheResource, mangaId: string, chapterId?: string): Promise<CachedPayloadPeek> {
+    const providerId = getProviderId();
     const data = await fetchJson<unknown>(url, { signal });
     if (cacheStatus(data) === 'warming') {
-        emit('cache-read', { resource, action: 'warming', mangaId, chapterId, count: 1 });
+        emit('cache-read', { providerId, resource, action: 'warming', mangaId, chapterId, count: 1 });
         return { status: 'warming' };
     }
     const updating = cacheUpdating(data);
-    emit('cache-read', { resource, action: 'hit', mangaId, chapterId, count: 0, updating });
+    emit('cache-read', { providerId, resource, action: 'hit', mangaId, chapterId, count: 0, updating });
     return { status: 'hit', data, updating };
 }
 
@@ -343,12 +345,12 @@ export async function fetchMangaDetailWithCacheInfo(manga: Manga, signal?: Abort
     try {
         const raw = await fetchCachedPayloadWithMeta(`/api/cache/manga/${encodeURIComponent(manga.id)}?priority=interactive&${providerQueryParam()}`, signal, 'manga-detail', manga.id);
         const merged = mergeMangaDetail(manga, raw.data);
-        emit('cache-read', { resource: 'manga-detail', action: 'hit', mangaId: manga.id });
+        emit('cache-read', { providerId: getProviderId(), resource: 'manga-detail', action: 'hit', mangaId: manga.id });
         emitMangaDetailResult(merged);
         return { manga: merged, attempts: raw.attempts };
     } catch (e) {
         if (!signal?.aborted) {
-            emit('cache-read', { resource: 'manga-detail', action: 'miss', mangaId: manga.id });
+            emit('cache-read', { providerId: getProviderId(), resource: 'manga-detail', action: 'miss', mangaId: manga.id });
             emit('manga-detail-error', { mangaId: manga.id, error: String((e as Error)?.message ?? e) });
         }
         return { manga, attempts: CACHE_WARM_ATTEMPTS };
@@ -495,6 +497,7 @@ async function fetchCachedChapterImages(mangaId: string, chapterId: string, chap
     );
     const pages = provider.parseChapterImagesResponse(data);
     emit('chapter-images-result', {
+        providerId: getProviderId(),
         mangaId,
         chapterId,
         chapterNumber,

@@ -1,10 +1,9 @@
 <script lang="ts">
     import { appState } from '$lib/state/index.svelte.js';
-    import { getProvider } from '$lib/services/provider.js';
     import FilterChip from './FilterChip.svelte';
     import FilterSearchBox from './FilterSearchBox.svelte';
 
-    const filterDef = getProvider().getFilters();
+    const filterDef = $derived(appState.providerFilters);
 
     const genresByGroup = $derived.by(() => {
         const map = new Map<string, typeof filterDef.genres>();
@@ -39,11 +38,6 @@
         <button class="filter-collapse" onclick={() => appState.ui.filtersExpanded = false}>
             Collapse
         </button>
-        {#if appState.searchState.filters.activeFilterCount > 0}
-            <button class="filter-clear" onclick={() => appState.searchState.filters.clear()}>
-                Clear All ({appState.searchState.filters.activeFilterCount})
-            </button>
-        {/if}
     </div>
 
 
@@ -171,17 +165,4 @@
     gap: 5px;
 }
 
-.filter-clear {
-    display: block;
-    margin-left: auto;
-    padding: 6px 12px;
-    font-size: 12px;
-    color: #888;
-    background: none;
-    border: none;
-}
-
-.filter-clear:active {
-    color: #fff;
-}
 </style>

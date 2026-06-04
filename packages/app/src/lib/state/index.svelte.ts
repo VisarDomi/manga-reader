@@ -21,6 +21,7 @@ import { ChapterStatsState } from './chapterStats.svelte.js';
 import { saveSession, loadSession, type SessionSnapshot, type SearchContext, type MangaScrollSnapshot } from './session.js';
 import { RESUME_RECOVERY_MS, DEEP_SLEEP_MS, VISIBLE_MANGA_DEBOUNCE_MS } from '../constants.js';
 import type { Manga, ViewMode } from '../types.js';
+import type { FilterDefinition } from '@manga-reader/provider-types';
 
 export type AppStatus = 'BOOTING' | 'READY' | 'BACKGROUND' | 'RECONNECTING' | 'OFFLINE';
 
@@ -71,6 +72,7 @@ class AppState {
     groupFilter = new GroupFilterState();
     chapterStats = new ChapterStatsState(this.groupFilter);
     activeProviderId = $state('comix');
+    providerFilters = $state<FilterDefinition>(getProvider().getFilters());
 
     status = $state<AppStatus>('BOOTING');
     private monitor!: ConnectionMonitor;
@@ -86,7 +88,7 @@ class AppState {
     private deferredSearchContext: SearchContext | undefined;
     private performanceProbe: PerformanceProbe;
     private bootSnapshot: SessionSnapshot | null = null;
-    private providerFiltersPromise: Promise<void> | null = null;
+    private providerFiltersPromise: { providerId: string; promise: Promise<void> } | null = null;
 
     constructor() {
         const emit = this.log.emit;
@@ -428,11 +430,14 @@ class AppState {
     }
 
     private async loadProviderFiltersInBackground(): Promise<void> {
-        if (this.providerFiltersPromise) return this.providerFiltersPromise;
+        const providerId = this.activeProviderId;
+        if (this.providerFiltersPromise?.providerId === providerId) return this.providerFiltersPromise.promise;
         const emit = this.log.emit;
-        this.providerFiltersPromise = (async () => {
+        const promise = (async () => {
             try {
-                const filters = await refreshProviderFilters(this.activeProviderId, emit);
+                const filters = await refreshProviderFilters(providerId, emit);
+                if (providerId !== this.activeProviderId) return;
+                this.providerFilters = filters;
                 this.searchState.filters.configureDefinitions(filters);
                 const nsfwIds = new Set<string>();
                 for (const g of filters.genres) {
@@ -440,10 +445,13 @@ class AppState {
                 }
                 this.searchState.filters.seedDefaults(nsfwIds);
             } finally {
-                this.providerFiltersPromise = null;
+                if (this.providerFiltersPromise?.providerId === providerId) {
+                    this.providerFiltersPromise = null;
+                }
             }
         })();
-        return this.providerFiltersPromise;
+        this.providerFiltersPromise = { providerId, promise };
+        return promise;
     }
 
     private async restoreSession(snapshotOverride?: SessionSnapshot | null): Promise<boolean> {
@@ -726,6 +734,7 @@ class AppState {
         }
         await switchProvider(providerId, this.log.emit);
         this.activeProviderId = getProviderId();
+        this.providerFilters = getProvider().getFilters();
         this.groupFilter.setProvider(this.activeProviderId);
         this.searchState.filters.setProvider(this.activeProviderId);
         this.providerFiltersPromise = null;

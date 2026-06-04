@@ -1,4 +1,37 @@
-# Goal: Provider Filter Semantics
+# Goal: Provider Filters and Mangadot Reader Images
+
+## Current Active Goal 2026-06-04
+
+Checkpoint `ee7d207` fixed provider-owned filter catalogs and was pushed.
+
+Next tasks:
+
+1. Mangadot reader images were failing at the frontend image load layer:
+   cached metadata returned one direct `mangadot.net` candidate per page, and
+   the browser logged `reader-image-candidate ok=false status=0`. The fix is
+   provider/cache ownership: Mangadot cache still stores the canonical direct
+   URL, but render candidates are local `/api/cache/.../image` URLs. Verified
+   after restart: the local route returned `200 image/webp`; plain backend
+   proxy got upstream `403`, then provider-owned runtime byte fetch succeeded.
+2. Frontend filter definitions are now AppState-owned and provider-keyed. The
+   filter panel derives from `appState.providerFilters`, and in-flight provider
+   filter refreshes are keyed by provider id so one provider cannot overwrite
+   another after a switch.
+3. FilterPanel "Clear All" was removed.
+4. Mangadot filtered search remains provider-document-owned. Adding `limit=100`
+   to `/search?...` did not change the provider's `per_page=28`; the route
+   still logged `count=28 current=1 last=349 total=9758`.
+5. Comix scrambling is still present; lack of visible errors means the decoder
+   is working. Recent logs showed `scrambled>0`, decoder cache/miss activity,
+   source recovery, and local-decoder image candidates.
+
+Keep these ownership targets:
+
+- Provider owns filter catalog discovery and provider-specific query shape.
+- Frontend owns only per-provider selected filter state.
+- Reader owns provider-neutral page rendering; provider/cache owns whether
+  image URLs are direct, generated store candidates, or decoded.
+- Logs must distinguish cache-metadata success from frontend image-load success.
 
 ## Runtime/cache invariant
 

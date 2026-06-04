@@ -199,13 +199,15 @@ var g = {
 		let c = i?.authors?.[0];
 		c && a.set("author", c);
 		let l = i?.artists?.[0];
-		return l && a.set("artist", l), (i?.includeGenres?.length ?? 0) > 0 || (i?.excludeGenres?.length ?? 0) > 0 || (i?.types?.length ?? 0) > 0 || (i?.statuses?.length ?? 0) > 0 || (i?.authors?.length ?? 0) > 0 || (i?.artists?.length ?? 0) > 0 ? {
+		l && a.set("artist", l);
+		let u = (i?.includeGenres?.length ?? 0) > 0 || (i?.excludeGenres?.length ?? 0) > 0 || (i?.types?.length ?? 0) > 0 || (i?.statuses?.length ?? 0) > 0 || (i?.authors?.length ?? 0) > 0 || (i?.artists?.length ?? 0) > 0;
+		return a.set("limit", String(t)), u ? {
 			url: `${e}/search?${a}`,
 			cloudflareProtected: !0
-		} : (a.set("limit", String(t)), {
+		} : {
 			url: `${e}/api/search?${a}`,
 			cloudflareProtected: !0
-		});
+		};
 	},
 	parseSearchResponse(e) {
 		for (let t of l(e)) {
