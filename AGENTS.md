@@ -33,5 +33,9 @@ Monorepo (npm workspaces). Packages: `provider-types`, `extensions`, `server`, `
 - Root `decisions.md` holds both app-level product decisions and technical constraints.
 - Read root `decisions.md` before investigating/debugging regressions, designing fixes, or adding features.
 - If `goal.md` exists, read it after `decisions.md`; it records the active unfinished task and should be treated as the handoff point after compaction.
+- Reusable manga investigation workflows live in `skills/<name>/SKILL.md`. Read
+  only the skill relevant to the current task, such as log investigation,
+  reader ownership debugging, cache/provider debugging, Xvfb browser testing,
+  restore layer debugging, or decision hygiene.
 - For Svelte 5 behavior, first read `~/Documents/memory/svelte5-pitfalls.md`; when it is unclear or may be stale, reference the official docs snapshot in `~/Documents/reference/svelte-5-docs/`.
 - `packages/extensions/providers/comix/business.md` holds provider-specific product rules.

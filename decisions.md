@@ -2109,3 +2109,25 @@ The chapter-image readiness contract was verified on 2026-05-09 with
 `7ez2/8996924`: the backend first rejected the previous `empty pages=0` cache
 row as `not-ready`, promoted the foreground image job, then cached and served
 `source=runtime-http pages=15 targetCount=15 status=ready`.
+
+## BL. Skills Are The On-Demand Investigation Layer
+
+Long manga-reader sessions regularly compact around 230k-240k tokens of the
+258400-token Codex subscription window. The repo therefore keeps always-loaded
+instructions small and moves reusable investigation workflows into
+`skills/<name>/SKILL.md`.
+
+`AGENTS.md` should point to the skills folder and to stable project docs, but
+must not absorb every lesson from the long manga thread. `decisions.md` remains
+the durable architecture/product truth. Skills are procedural playbooks for
+recurring tasks: log investigation, reader ownership debugging, cache/provider
+debugging, Xvfb browser testing, restore layer debugging, and decision hygiene.
+
+Skills must include concrete command recipes for fragile investigations. The
+point is not only to remind an agent what to look for, but to give a weaker
+agent copyable commands for bounded `journalctl` windows, service status,
+SQLite cache inspection, Xvfb/Playwright provider proofs, code searches, and
+checkpoint verification. Concept-only skills are not sufficient for this repo.
+
+This split exists so weaker or lower-context agents can load the one relevant
+workflow instead of carrying every manga lesson in base context.
