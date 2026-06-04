@@ -17,6 +17,7 @@ export function setCloudflareCallback(cb: () => void): void {
 
 const CACHE_WARM_POLL_MS = 500;
 const CACHE_WARM_ATTEMPTS = 1;
+const CHAPTER_IMAGE_CACHE_TIMEOUT_MS = 30_000;
 const COMMENTS_FETCH_TIMEOUT_MS = 45_000;
 const SEARCH_FETCH_TIMEOUT_MS = 45_000;
 
@@ -65,10 +66,10 @@ interface CachedPayloadPeek {
     updating?: boolean;
 }
 
-async function fetchCachedPayloadWithMeta(url: string, signal: AbortSignal | undefined, resource: CacheResource, mangaId: string, chapterId?: string): Promise<CachedPayloadResult> {
+async function fetchCachedPayloadWithMeta(url: string, signal: AbortSignal | undefined, resource: CacheResource, mangaId: string, chapterId?: string, timeoutMs?: number): Promise<CachedPayloadResult> {
     const providerId = getProviderId();
     for (let attempt = 0; attempt < CACHE_WARM_ATTEMPTS; attempt++) {
-        const data = await fetchJson<unknown>(url, { signal });
+        const data = await fetchJson<unknown>(url, { signal, timeoutMs });
         if (cacheStatus(data) !== 'warming') {
             const updating = cacheUpdating(data);
             emit('cache-read', { providerId, resource, action: 'hit', mangaId, chapterId, count: attempt, updating });
@@ -81,8 +82,8 @@ async function fetchCachedPayloadWithMeta(url: string, signal: AbortSignal | und
     throw new Error(`Cache warming timed out for ${resource}`);
 }
 
-async function fetchCachedPayload(url: string, signal: AbortSignal | undefined, resource: CacheResource, mangaId: string, chapterId?: string): Promise<unknown> {
-    return (await fetchCachedPayloadWithMeta(url, signal, resource, mangaId, chapterId)).data;
+async function fetchCachedPayload(url: string, signal: AbortSignal | undefined, resource: CacheResource, mangaId: string, chapterId?: string, timeoutMs?: number): Promise<unknown> {
+    return (await fetchCachedPayloadWithMeta(url, signal, resource, mangaId, chapterId, timeoutMs)).data;
 }
 
 async function peekCachedPayload(url: string, signal: AbortSignal | undefined, resource: CacheResource, mangaId: string, chapterId?: string): Promise<CachedPayloadPeek> {
@@ -499,6 +500,7 @@ async function fetchCachedChapterImages(mangaId: string, chapterId: string, chap
         'chapter-images',
         mangaId,
         chapterId,
+        CHAPTER_IMAGE_CACHE_TIMEOUT_MS,
     );
     const pages = provider.parseChapterImagesResponse(data);
     emit('chapter-images-result', {

@@ -1,6 +1,7 @@
 <script lang="ts">
     import { onMount } from 'svelte';
     import { appState } from '$lib/state/index.svelte.js';
+    import * as api from '$lib/services/api.js';
     import type { MangaListSource } from '$lib/services/PerfDiagnostics.js';
     import type { Manga } from '$lib/types.js';
     import MangaCoverCard from './MangaCoverCard.svelte';
@@ -58,6 +59,7 @@
 
     onMount(() => {
         mountedAt = performance.now();
+        const controller = new AbortController();
         appState.log.emit('manga-list-lifecycle', {
             source,
             phase: 'mount',
@@ -66,9 +68,24 @@
             updateCount,
             dtMs: 0,
         });
+        if (source === 'recommendations' && manga.length > 0) {
+            void api.fetchMangaCardSnapshots(manga, controller.signal, false)
+                .catch(error => {
+                    if (!controller.signal.aborted) {
+                        appState.log.emit('manga-card-snapshots-error', {
+                            providerId: appState.providerId,
+                            count: manga.length,
+                            includeChapters: false,
+                            dtMs: Math.round(performance.now() - mountedAt),
+                            error: String((error as Error)?.message ?? error),
+                        });
+                    }
+                });
+        }
         const root = scrollRoot();
         if (!root) {
             return () => {
+                controller.abort();
                 appState.log.emit('manga-list-lifecycle', {
                     source,
                     phase: 'unmount',
@@ -93,6 +110,7 @@
         root.addEventListener('scroll', onScroll, { passive: true });
 
         return () => {
+            controller.abort();
             root.removeEventListener('scroll', onScroll);
             appState.log.emit('manga-list-lifecycle', {
                 source,

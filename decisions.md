@@ -761,6 +761,22 @@ invented:
   page-map job. The reader owner should prewarm current/nearby chapters so slow
   scrolling normally sees hits; it should not fake store candidates without
   canonical page metadata.
+- Foreground chapter-image cache reads are backend-owned waits, not frontend
+  one-shot polling. If a reader request misses page-map metadata, the cache
+  route promotes/queues the exact durable `cache-chapter-page-map` resource,
+  waits for that resource to complete up to the foreground request budget, then
+  serves the completed row in the same request when possible. The frontend
+  still owns cancellation through request aborts, but it no longer guesses that
+  a `warming` row failed after a single 500ms poll.
+- Durable job selection is foreground infrastructure. The scheduler must claim
+  runnable jobs through an indexed priority/run-after path and handle expired
+  running leases separately. A broad `queued OR expired-running` query that
+  sorts millions of background page-map jobs can starve health checks and
+  foreground cache misses even when the requested job is ready to run.
+- Recommendation lists own card-cover discovery as a list-level intent.
+  Reader-tail recommendations are not allowed to rely only on per-card image
+  fallback behavior; mounting a recommendations list should batch-warm card
+  cover ownership through the cache route just like search and favorites.
 
 SQLite stores:
 

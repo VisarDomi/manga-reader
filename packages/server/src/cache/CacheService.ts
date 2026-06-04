@@ -34,6 +34,7 @@ const VERBOSE_JOB_PRIORITY = CACHE_JOB_PRIORITY.observed;
 const SLOW_BACKGROUND_JOB_MS = 5_000;
 const BACKGROUND_FAILURE_SUMMARY_MS = 30_000;
 const FILTER_CATALOG_TTL_MS = 24 * 60 * 60 * 1000;
+const FOREGROUND_CACHE_WAIT_MS = 25_000;
 
 type CacheJobKind = 'seed-newest' | 'crawl-search-page' | 'cache-manga-detail' | 'cache-chapters' | 'reconcile-chapters' | 'cache-chapter-page-map';
 export type CacheJobPriority = 'interactive' | 'foreground' | 'observed' | 'daily' | 'background';
@@ -491,6 +492,7 @@ export class CacheService {
   private dailyRolloverTimer: ReturnType<typeof setTimeout> | null = null;
   private storeRanking: StoreRanking | null = null;
   private readonly backgroundFailures = new Map<string, BackgroundFailureSummary>();
+  private readonly resourceWaiters = new Map<string, Set<() => void>>();
   private backgroundRuntimePaused = false;
 
   constructor(
@@ -661,6 +663,36 @@ export class CacheService {
     );
   }
 
+  async getChapterImagesForRequest(
+    mangaId: string,
+    chapterId: string,
+    context: { chapterNumber?: number; chapterUrl?: string; priority?: CacheJobPriority; signal?: AbortSignal } = {},
+  ): Promise<{ data: unknown | null; waitedMs: number; status: 'hit' | 'warmed' | 'warming' }> {
+    const priority = context.priority ?? 'interactive';
+    const first = this.getChapterImages(mangaId, chapterId, context);
+    if (first) return { data: first, waitedMs: 0, status: 'hit' };
+
+    const status = this.warmChapterImages(mangaId, chapterId, context.chapterNumber, context.chapterUrl, 'cache-miss', priority);
+    const startedAt = Date.now();
+    const resource = this.waiterKey('cache-chapter-page-map', `${mangaId}:${chapterId}`);
+    console.log(`[cache] chapter-images-wait provider=${this.provider.id} manga=${mangaId} chapter=${chapterId} priority=${priority} enqueue=${status}`);
+
+    while (!context.signal?.aborted && Date.now() - startedAt < FOREGROUND_CACHE_WAIT_MS) {
+      const data = this.getChapterImages(mangaId, chapterId, context);
+      if (data) {
+        const waitedMs = Date.now() - startedAt;
+        console.log(`[cache] chapter-images-wait-done provider=${this.provider.id} manga=${mangaId} chapter=${chapterId} priority=${priority} waitedMs=${waitedMs}`);
+        return { data, waitedMs, status: 'warmed' };
+      }
+      if (!this.hasChapterPageMapWork(mangaId, chapterId)) break;
+      await this.waitForResource(resource, Math.max(1, FOREGROUND_CACHE_WAIT_MS - (Date.now() - startedAt)), context.signal).catch(() => {});
+    }
+
+    const waitedMs = Date.now() - startedAt;
+    console.log(`[cache] chapter-images-wait-open provider=${this.provider.id} manga=${mangaId} chapter=${chapterId} priority=${priority} waitedMs=${waitedMs} aborted=${context.signal?.aborted === true} stillQueued=${this.hasChapterPageMapWork(mangaId, chapterId)}`);
+    return { data: null, waitedMs, status: 'warming' };
+  }
+
   async streamChapterPageImage(
     mangaId: string,
     chapterId: string,
@@ -822,6 +854,20 @@ export class CacheService {
     console.log(`[cache] search-result-covers provider=${this.provider.id} requestId=${context.requestId ?? 'none'} page=${context.page} items=${items.length} covers=${queued}/${discovered}`);
   }
 
+  warmMangaCardCovers(items: unknown[], reason: string, priority: CacheJobPriority = 'observed'): { discovered: number; queued: number } {
+    let discovered = 0;
+    let queued = 0;
+    for (const item of items) {
+      const mangaId = mangaIdFromItem(item);
+      if (!mangaId) continue;
+      const result = this.enqueueMangaCoverJob(mangaId, item, 'card', reason, priority);
+      discovered += result.discovered;
+      queued += result.queued;
+    }
+    console.log(`[cache] manga-card-covers provider=${this.provider.id} reason=${reason} items=${items.length} covers=${queued}/${discovered} priority=${priority}`);
+    return { discovered, queued };
+  }
+
   refreshManga(mangaId: string, reason = 'frontend-refresh'): void {
     this.db.invalidateChapterList(mangaId);
     this.enqueue({ kind: 'cache-manga-detail', priority: 'interactive', mangaId, force: true, reason });
@@ -906,8 +952,8 @@ export class CacheService {
     this.enqueue({ kind: 'cache-chapter-page-map', priority: 'interactive', mangaId, chapterId, chapterNumber, chapterUrl, force: true, reason });
   }
 
-  warmChapterImages(mangaId: string, chapterId: string, chapterNumber?: number, chapterUrl?: string, reason = 'cache-miss', priority: CacheJobPriority = 'interactive'): void {
-    this.enqueue({ kind: 'cache-chapter-page-map', priority, mangaId, chapterId, chapterNumber, chapterUrl, reason });
+  warmChapterImages(mangaId: string, chapterId: string, chapterNumber?: number, chapterUrl?: string, reason = 'cache-miss', priority: CacheJobPriority = 'interactive'): CacheJobEnqueueResult {
+    return this.enqueue({ kind: 'cache-chapter-page-map', priority, mangaId, chapterId, chapterNumber, chapterUrl, reason });
   }
 
   private orderedImageStoreCandidates(imageUrl: string, policy: 'critical' | 'preload'): string[] {
@@ -1129,6 +1175,13 @@ export class CacheService {
     return reconcileJobs.some(record => isUserVisibleRefresh(this.recordToJob(record)));
   }
 
+  private hasChapterPageMapWork(mangaId: string, chapterId: string): boolean {
+    if (this.currentJob?.kind === 'cache-chapter-page-map'
+      && this.currentJob.mangaId === mangaId
+      && this.currentJob.chapterId === chapterId) return true;
+    return this.scheduler.jobsForResource('cache-chapter-page-map', `${mangaId}:${chapterId}`).length > 0;
+  }
+
   private shouldYieldToForeground(job: CacheJob): boolean {
     return this.scheduler.runnableCountAbove(job.priority) > 0;
   }
@@ -1187,6 +1240,7 @@ export class CacheService {
         else if (job.kind === 'reconcile-chapters' && job.mangaId) await this.reconcileChapters(job.mangaId, job);
         else if (job.kind === 'cache-chapter-page-map' && job.mangaId && job.chapterId) await this.cacheChapterPageMap(job.mangaId, job.chapterId, job);
         this.scheduler.complete(record);
+        this.notifyJobResource(job);
         const runMs = Date.now() - start;
         if (verboseLifecycle || runMs >= SLOW_BACKGROUND_JOB_MS) {
           console.log(`[cache] job-done provider=${this.provider.id} id=${record.id} kind=${job.kind} manga=${job.mangaId ?? 'none'} priority=${job.priority} reason=${job.reason} queueAgeMs=${queueAgeMs} requestWaitMs=${requestWaitMs} runMs=${runMs}`);
@@ -1199,9 +1253,53 @@ export class CacheService {
         }
         const msg = conciseError((e as Error)?.message ?? String(e));
         this.scheduler.retry(record, msg, this.retryDelayMs(record.attempts));
+        this.notifyJobResource(job);
         this.logJobFailure(job, record.id, queueAgeMs, requestWaitMs, Date.now() - start, msg);
       }
     }
+  }
+
+  private notifyJobResource(job: CacheJob): void {
+    const resourceKey = this.resourceKey(job);
+    if (!resourceKey) return;
+    const key = this.waiterKey(job.kind, resourceKey);
+    const waiters = this.resourceWaiters.get(key);
+    if (!waiters) return;
+    this.resourceWaiters.delete(key);
+    for (const notify of waiters) notify();
+  }
+
+  private waiterKey(kind: string, resourceKey: string): string {
+    return `${kind}:${resourceKey}`;
+  }
+
+  private waitForResource(key: string, timeoutMs: number, signal?: AbortSignal): Promise<void> {
+    if (signal?.aborted) return Promise.reject(signal.reason ?? new DOMException('Aborted', 'AbortError'));
+    return new Promise((resolve, reject) => {
+      let done = false;
+      const finish = (fn: () => void) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        const waiters = this.resourceWaiters.get(key);
+        if (waiters) {
+          waiters.delete(notify);
+          if (waiters.size === 0) this.resourceWaiters.delete(key);
+        }
+        signal?.removeEventListener('abort', abort);
+        fn();
+      };
+      const notify = () => finish(resolve);
+      const abort = () => finish(() => reject(signal?.reason ?? new DOMException('Aborted', 'AbortError')));
+      const timer = setTimeout(() => finish(resolve), timeoutMs);
+      let waiters = this.resourceWaiters.get(key);
+      if (!waiters) {
+        waiters = new Set();
+        this.resourceWaiters.set(key, waiters);
+      }
+      waiters.add(notify);
+      signal?.addEventListener('abort', abort, { once: true });
+    });
   }
 
   private shouldLogJobLifecycle(job: CacheJob): boolean {

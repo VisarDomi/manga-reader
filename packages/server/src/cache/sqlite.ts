@@ -321,6 +321,10 @@ export class CacheDatabase {
       CREATE INDEX IF NOT EXISTS idx_cache_jobs_kind_priority
       ON cache_jobs(kind, priority, created_at);
 
+      CREATE INDEX IF NOT EXISTS idx_cache_jobs_runnable_order
+      ON cache_jobs(priority DESC, run_after ASC, created_at ASC)
+      WHERE status IN ('queued', 'retry');
+
       CREATE INDEX IF NOT EXISTS idx_cache_jobs_lease
       ON cache_jobs(status, lease_until);
 
@@ -715,19 +719,30 @@ export class CacheDatabase {
         : '';
       const priorityFilter = minPriority != null ? 'AND priority >= ?' : '';
       const params = minPriority != null ? [...(kinds ?? []), minPriority] : (kinds ?? []);
-      const row = this.db.prepare(`
+      const runnable = this.db.prepare(`
         SELECT id, kind, resource_key, priority, payload_json, status, run_after, attempts, max_attempts,
           lease_owner, lease_until, last_error, created_at, updated_at
-        FROM cache_jobs
-        WHERE (
-          (status IN ('queued', 'retry') AND run_after <= ?)
-          OR (status = 'running' AND lease_until IS NOT NULL AND lease_until < ?)
-        )
+        FROM cache_jobs INDEXED BY idx_cache_jobs_runnable_order
+        WHERE status IN ('queued', 'retry')
+          AND run_after <= ?
         ${kindFilter}
         ${priorityFilter}
         ORDER BY priority DESC, run_after ASC, created_at ASC
         LIMIT 1
-      `).get(now, now, ...params) as CacheJobRow | undefined;
+      `).get(now, ...params) as CacheJobRow | undefined;
+
+      const row = runnable ?? this.db.prepare(`
+        SELECT id, kind, resource_key, priority, payload_json, status, run_after, attempts, max_attempts,
+          lease_owner, lease_until, last_error, created_at, updated_at
+        FROM cache_jobs
+        WHERE status = 'running'
+          AND lease_until IS NOT NULL
+          AND lease_until < ?
+        ${kindFilter}
+        ${priorityFilter}
+        ORDER BY priority DESC, lease_until ASC, created_at ASC
+        LIMIT 1
+      `).get(now, ...params) as CacheJobRow | undefined;
 
       if (!row) return null;
 

@@ -58,6 +58,12 @@ function requireOwner(coordinator: ProviderCoordinator | null, req: Request, res
   return owner;
 }
 
+function requestAbortSignal(req: Request): AbortSignal {
+  const controller = new AbortController();
+  req.on('close', () => controller.abort(new DOMException('Request closed', 'AbortError')));
+  return controller.signal;
+}
+
 export function createCacheRouter(coordinator: ProviderCoordinator | null): Router {
   const router = Router();
 
@@ -116,6 +122,11 @@ export function createCacheRouter(coordinator: ProviderCoordinator | null): Rout
     }
     const includeChapters = req.body?.includeChapters === true;
     const result = owner.cache.getMangaCardSnapshots(ids, { includeChapters });
+    owner.cache.warmMangaCardCovers(
+      result.map(item => item.manga).filter(Boolean),
+      'card-snapshot',
+      'observed',
+    );
     console.log(`[cacheRoute] manga-card-snapshots ids=${ids.length} unique=${new Set(ids).size} includeChapters=${includeChapters} mangaReady=${result.filter(item => item.mangaReady).length} chaptersReady=${result.filter(item => item.chaptersReady).length} totalMs=${Date.now() - startedAt}`);
     res.json({
       status: 'ok',
@@ -177,13 +188,21 @@ export function createCacheRouter(coordinator: ProviderCoordinator | null): Rout
     const rawNumber = typeof req.query.number === 'string' ? Number(req.query.number) : NaN;
     const chapterNumber = Number.isFinite(rawNumber) ? rawNumber : undefined;
     const chapterUrl = typeof req.query.url === 'string' ? req.query.url : undefined;
-    const data = owner.cache.getChapterImages(mangaId, chapterId, { chapterNumber, chapterUrl });
-    if (!data) {
-      owner.cache.warmChapterImages(mangaId, chapterId, chapterNumber, chapterUrl, 'cache-miss', requestedPriority(req.query.priority));
+    const result = await owner.cache.getChapterImagesForRequest(mangaId, chapterId, {
+      chapterNumber,
+      chapterUrl,
+      priority: requestedPriority(req.query.priority),
+      signal: requestAbortSignal(req),
+    });
+    if (!result.data) {
       res.status(202).json({ status: 'warming', mangaId, chapterId });
       return;
     }
-    res.json(data);
+    if (result.waitedMs > 0) {
+      res.setHeader('X-Cache-Waited-Ms', String(result.waitedMs));
+      res.setHeader('X-Cache-Wait-Status', result.status);
+    }
+    res.json(result.data);
   }));
 
   router.get('/cache/manga/:mangaId/chapters/:chapterId/pages/:pageIndex/decoded', asyncHandler(async (req, res) => {
