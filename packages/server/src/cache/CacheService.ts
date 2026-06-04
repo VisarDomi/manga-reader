@@ -809,6 +809,19 @@ export class CacheService {
     return snapshots;
   }
 
+  warmSearchResultCovers(items: unknown[], context: { page: number; requestId?: string }): void {
+    let discovered = 0;
+    let queued = 0;
+    for (const item of items) {
+      const mangaId = mangaIdFromItem(item);
+      if (!mangaId) continue;
+      const result = this.enqueueMangaCoverJob(mangaId, item, 'card', 'search-result', 'observed');
+      discovered += result.discovered;
+      queued += result.queued;
+    }
+    console.log(`[cache] search-result-covers provider=${this.provider.id} requestId=${context.requestId ?? 'none'} page=${context.page} items=${items.length} covers=${queued}/${discovered}`);
+  }
+
   refreshManga(mangaId: string, reason = 'frontend-refresh'): void {
     this.db.invalidateChapterList(mangaId);
     this.enqueue({ kind: 'cache-manga-detail', priority: 'interactive', mangaId, force: true, reason });
@@ -1400,8 +1413,18 @@ export class CacheService {
     const genres = Array.isArray(r.genres) ? r.genres.length : 0;
     const description = Boolean(r.synopsis || r.description);
     const coverJobs = this.enqueueMangaCoverJob(mangaId, r, 'detail', 'manga-detail', job.priority);
+    let recommendationCovers = { discovered: 0, queued: 0 };
+    if (Array.isArray(r.recommendations)) {
+      for (const recommendation of r.recommendations) {
+        const recommendationId = mangaIdFromItem(recommendation);
+        if (!recommendationId) continue;
+        const result = this.enqueueMangaCoverJob(recommendationId, recommendation, 'card', 'manga-recommendation', job.priority);
+        recommendationCovers.discovered += result.discovered;
+        recommendationCovers.queued += result.queued;
+      }
+    }
     if (this.shouldLogJobLifecycle(job)) {
-      console.log(`[cache] manga-detail provider=${this.provider.id} cached manga=${mangaId} recommendations=${recommendations} genres=${genres} tags=${tags} description=${description} cover=${coverJobs.queued}/${coverJobs.discovered} fetchMs=${result.durationMs}`);
+      console.log(`[cache] manga-detail provider=${this.provider.id} cached manga=${mangaId} recommendations=${recommendations} genres=${genres} tags=${tags} description=${description} cover=${coverJobs.queued}/${coverJobs.discovered} recommendationCovers=${recommendationCovers.queued}/${recommendationCovers.discovered} fetchMs=${result.durationMs}`);
     }
   }
 

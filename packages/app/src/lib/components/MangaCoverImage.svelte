@@ -19,7 +19,7 @@
         loading?: 'lazy' | 'eager';
     } = $props();
 
-    const imageUrl = $derived(sourceUrl ? api.coverProxyUrl(mangaId, variant, sourceUrl) : '');
+    const imageUrl = $derived(api.coverProxyUrl(mangaId, variant, sourceUrl));
     let mountedAt = 0;
     let failedUrl = $state<string | null>(null);
     const showImage = $derived(imageUrl.length > 0 && failedUrl !== imageUrl);

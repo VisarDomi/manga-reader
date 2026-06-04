@@ -100,6 +100,7 @@ export default function createSearchRouter(coordinator: ProviderCoordinator | nu
         });
     const { data, meta } = fetched;
     const parsed = provider.parseSearchResponse(data);
+    owner.cache.warmSearchResultCovers(parsed.items, { page, requestId });
     console.log(`[search] provider=${provider.id} requestId=${requestId} mode=${mangadotPath === '/search' ? 'document' : 'api'} query="${query || '(browse)'}" page=${page} http=${meta.status} count=${parsed.items.length} current=${parsed.pagination?.currentPage ?? page} last=${parsed.pagination?.lastPage ?? 'unknown'} total=${parsed.pagination?.total ?? parsed.items.length} ${Date.now() - started}ms`);
     res.json(data);
   }));

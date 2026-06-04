@@ -83,6 +83,7 @@ export class ByteCacheService {
     const owned = this.db.getMangaCover(mangaId, variant);
     const usableSourceUrl = sourceUrl || owned?.sourceUrl;
     if (!usableSourceUrl) {
+      console.log(`[coverCache] unavailable provider=${this.ownerId} manga=${mangaId} variant=${variant} reason=no-source`);
       res.status(404).json({ error: 'Cover source unavailable', status: 404, mangaId, variant });
       return;
     }

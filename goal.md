@@ -1,79 +1,64 @@
-# Goal: Mangadot Provider Stability
+# Goal: Cache-First Provider Ownership
 
-Active handoff for the Mangadot integration. Read this after `decisions.md`.
+Active handoff. Read this after `decisions.md`.
 
-## Current Evidence
+## Product Rule
 
-Logs since the 2026-06-04 13:20:02 service restart show these user-facing
-Mangadot issues:
+The app should serve from cache first. Foreground UI should show cached data
+immediately when it exists, then ask the backend to refresh stale/missing data
+asynchronously and swap in new data when the cache owner finishes.
 
-1. Reader images leak provider-direct URLs to the frontend.
-   - `chapter-images-result providerId=mangadotnet imageCount=30` proved cached
-     metadata was present.
-   - `reader-image-candidate ok=false host=mangadot.net status=0` showed Safari
-     tried direct upstream page URLs.
-   - Server logs then ignored store observations with
-     `reason=direct-images`, proving those candidates bypassed the intended
-     local `/api/cache/.../image` route.
-   - Desired ownership: cache may store canonical direct image URLs, but render
-     candidates must be server-owned local image routes for Mangadot.
-   - Implemented: Mangadot frontend provider parser now preserves
-     server-projected `candidates` and `criticalCandidates` instead of
-     reconstructing direct upstream candidates from `url`.
-   - Verified directly after rebuild: cached page metadata for
-     `26855/449182` exposes local `/api/cache/.../image` render candidates, and
-     the local critical image route returned `200 image/webp`.
-   - Still needs phone-side verification: reader logs should no longer show
-     `reader-image-candidate host=mangadot.net` for Mangadot.
+This applies to:
 
-2. Filtered Mangadot search is slow and old work can finish after the frontend
-   has timed out or moved on.
-   - Unfiltered `/api/search` returns `100` items and `total=10000`.
-   - Filtered document search is provider-limited to `28` items per page.
-   - Page 3 took about `23s`; page 4 hit a frontend timeout while backend work
-     later completed. Investigate whether frontend search ownership needs
-     request-generation logs/cancellation tightening, or whether backend
-     document search needs better coalescing/cancellation.
-   - Implemented first ownership tightening: search requests now carry a
-     request id through frontend logs and backend search logs, and stale
-     responses are ignored if a newer search/page owner took over.
-   - Search uses a search-owned 45s request budget instead of the generic 12s
-     JSON fetch budget, matching the observed provider document-search latency
-     envelope without changing Mangadot's provider-owned 28-item filtered page
-     size.
+- search results and favorite cards
+- manga detail metadata, chapter lists, recommendations, and comments
+- search/favorites/recommendation thumbnails
+- manga-detail covers
+- reader image metadata and direct/scrambled render candidates
 
-3. Mangadot reconcile jobs can report stale cache but then fetch `new=0`.
-   - Examples: `26865 cachedMax=9.1 observed=13`, page fetched `13` items but
-     `new=0 reachedExisting=true`.
-   - Investigate chapter identity/number semantics before changing behavior.
+## Current Issues To Investigate/Fix
 
-4. Background Mangadot runtime jobs still intermittently fail with
-   `AbortError: signal is aborted without reason` or `TypeError: Failed to
-   fetch`.
-   - Keep these as provider-runtime health evidence. Do not hide with broad
-     retries unless the owning runtime state is explicit.
-   - New evidence after the final restart: Mangadot browser launch was quick,
-     but runtime HTTP warm took `40.3s` foreground and `42.7s` background before
-     provider readiness became true. A status check before that warm finished
-     can report `needsHumanClearance=true`; the real issue is slow runtime
-     readiness, not necessarily a permanent clearance failure.
+1. Search thumbnails are missing on page 2+.
+   - Suspected ownership leak: search appends provider results, but thumbnail
+     byte/cache ownership may only be warming page 1 or may not rewrite later
+     cards to local cover routes.
+   - Fix must keep cards provider-neutral: frontend consumes normalized card
+     data and local cache routes; provider/cache owns upstream thumbnail URLs.
 
-5. Cached Mangadot manga open can still feel slower than expected.
-   - Example manga `26855`: manga detail and chapter list were cache hits, but
-     `manga-open-done` was about `2926ms`.
-   - Investigate only after the image-candidate leak and search ownership are
-     fixed, because reader image failures and concurrent search/comment work may
-     be contaminating perceived latency.
+2. Recommendations may have the same thumbnail ownership leak.
+   - Check both manga-detail recommendations and reader-tail recommendations.
+   - They use `MangaList`/`MangaCoverCard`, so the correct fix should probably
+     be in card normalization or card snapshot ownership, not per-view patches.
 
-## Implementation Order
+3. Thumbnails/covers should be cache-owned.
+   - On cache hit: serve local bytes immediately.
+   - On cache miss: return a stable local image route, queue/promote byte work,
+     and let the image route fetch/store/serve. The frontend should not need to
+     know whether the bytes were already local or fetched on demand.
 
-1. Phone-test Mangadot reader and verify logs no longer show direct
-   `host=mangadot.net` reader candidates.
-2. Investigate filtered search timeout/overlap using request-generation logs.
-   The next useful test is rapid filter/page changes on Mangadot and then
-   reading matching `requestId` values across frontend/backend logs.
-3. Investigate why Mangadot runtime warm sometimes takes about `42s` even when
-   the persistent browser profile eventually works.
-4. Investigate reconcile `new=0` semantics.
-5. Investigate background runtime aborts and cached manga-open latency if still
-   visible after the first fixes.
+4. Cache miss behavior should not block the visible UI.
+   - Cached stale data should be rendered first.
+   - Refresh/update work should be explicit background/observed/interactive
+     cache work, with the UI showing update state only where useful.
+
+## Evidence So Far
+
+- Logs after the 2026-06-04 13:50 restart show Comix provider runtime and cache
+  running while Mangadotnet is disabled.
+- Logs around 17:28 show many observed `cache-chapters` and
+  `cache-manga-detail` jobs from search-result reconciliation. Detail jobs queue
+  `cover:*:detail` byte cache work, but thumbnail/card behavior still needs
+  tracing.
+- Provider runtime enablement is now backend-owned. Disabled providers should
+  not run browser/cache/byte-cache work.
+
+## Implementation Rules
+
+- Do not hardcode provider-specific thumbnail behavior in views.
+- Keep one owner for each resource:
+  - provider parses upstream shape
+  - cache owns durable data and local image routes
+  - byte cache owns image bytes
+  - frontend renders normalized URLs and reports observations
+- Prefer fixing `MangaCoverCard`/card normalization/card snapshot paths over
+  patching search, manga-detail, and reader recommendations separately.
