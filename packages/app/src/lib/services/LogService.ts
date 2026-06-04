@@ -17,6 +17,7 @@ export type LogEvent =
     | { event: 'restore-shell'; view: string; stack: string; mangaId: string | null; hasReader: boolean; hasComments: boolean }
     | { event: 'restore-foreground'; view: string; stack: string; mangaId: string | null; hasReader: boolean; hasComments: boolean }
     | { event: 'restore-mounted-layers'; phase: 'foreground' | 'backing' | 'fallback'; foreground: string; stack: string; mounted: string }
+    | { event: 'restore-root'; action: 'scheduled' | 'deferred' | 'start' | 'done' | 'failed'; root: 'list' | 'favorites' | 'providers' | 'none'; view: string; targetId?: string | null; reason?: string; error?: string; results?: number; favorites?: number }
     | { event: 'search-result'; requestId?: string; query: string; page: number; resultCount: number; hasMore: boolean; includeGenres: number; excludeGenres: number; demographics: number; authors: number; artists: number; types: number; statuses: number; currentPage?: number; lastPage?: number; total?: number }
     | { event: 'search-page-flow'; action: 'skip' | 'start' | 'done' | 'error' | 'stale'; requestId?: string; query: string; requestedPage: number; currentPage: number; resultCount: number; hasMore: boolean; machineActive: boolean; isRestoring: boolean; added?: number; error?: string }
     | { event: 'cache-reconcile-request'; mangaId: string; observedLatestChapter: number; source: 'search-result' | 'manga-open'; priority: 'observed' | 'foreground' | 'interactive' }

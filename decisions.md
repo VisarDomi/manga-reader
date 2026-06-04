@@ -1513,6 +1513,15 @@ order so swipe-back has real layers behind it. Search and favorites remain
 exclusive roots: a favorites-root restore must not mount or hydrate a stale
 search root, and a search-root restore must not mount favorites.
 
+Root replay is a separate restore owner. Manga, reader, and chapter-comment
+restore paths must not each hand-roll `if search then replay else if favorites
+then activate` branches. They schedule one pending root transaction (`list`,
+`favorites`, or `providers`) after the foreground/backing shell is rebuilt. If
+reader or chapter comments owns the foreground, that root transaction is
+deferred and drained when the view becomes safe, usually when the user swipes
+back to manga detail. This keeps reader restore responsive while still
+guaranteeing that swiping all the way back eventually reveals a populated root.
+
 Restore is silent during normal cold start. If the user takes any action during
 restore (scrolls, taps a manga, changes view, or starts a new search), the
 restore is cancelled silently — user action always wins. Each phase is

@@ -1014,9 +1014,6 @@ export class CacheService {
       : null;
     const canonical = canonicalHost ? byHost.get(canonicalHost) : null;
     const exploit = winner != null && Math.random() < STORE_EXPLOIT_RATE;
-    const mode = canonical
-      ? policy === 'critical' ? 'canonical-critical' : exploit ? 'canonical-exploit' : winner ? 'canonical-explore' : 'canonical'
-      : policy === 'critical' && winner ? 'critical' : exploit ? 'exploit' : winner ? 'explore' : 'no-winner';
     const firstHost = canonicalHost && canonical
       ? canonicalHost
       : exploit
@@ -1048,12 +1045,6 @@ export class CacheService {
       return !host || !pinnedHosts.has(host);
     });
     const ordered = [...pinned, ...shuffled(rest)];
-    const firstHosts = ordered
-      .slice(0, 5)
-      .map(candidate => hostFromUrl(candidate) ?? 'invalid')
-      .join(',');
-    const winnerScore = winner ? ranking.scores.find(score => score.host === winner) : null;
-    console.log(`[cache] image-store-order policy=${policy} mode=${mode} canonical=${canonicalHost ?? 'none'} winner=${winner ?? 'none'} first=${firstHost} firstHosts=${firstHosts} total=${ordered.length} winnerScore=${winnerScore ? Math.round(winnerScore.score) : 'none'} winnerAttempts=${winnerScore?.attempts ?? 0} image=${imageLogKey(imageUrl)}`);
     return ordered;
   }
 

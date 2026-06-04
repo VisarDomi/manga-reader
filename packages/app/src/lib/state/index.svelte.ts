@@ -37,6 +37,13 @@ type RestorePhase = 'replaying-search' | 'paginating-to-target' | 'scrolling';
 type RestoreInner =
     | { kind: 'idle' }
     | { kind: 'active'; phase: RestorePhase; controller: AbortController; targetId: string };
+type RestoreRootKind = 'list' | 'favorites' | 'providers' | 'none';
+interface PendingRootRestore {
+    kind: RestoreRootKind;
+    searchContext?: SearchContext;
+    targetId?: string | null;
+    generation: number;
+}
 
 class RestoreMachine {
     private inner = $state<RestoreInner>({ kind: 'idle' });
@@ -92,7 +99,9 @@ class AppState {
     private lastVisibleMangaId: string | null = null;
     private lastMangaScroll: MangaScrollSnapshot | null = null;
     private lastMangaScrolls: MangaScrollSnapshot[] = [];
-    private deferredSearchContext: SearchContext | undefined;
+    private pendingRootRestore: PendingRootRestore | null = null;
+    private rootRestoreGeneration = 0;
+    private rootRestoreRunning = false;
     private performanceProbe: PerformanceProbe;
     private bootSnapshot: SessionSnapshot | null = null;
     private providerFiltersPromise: { providerId: string; promise: Promise<void> } | null = null;
@@ -204,10 +213,99 @@ class AppState {
     private resumeBackgroundWork(): void {
         if (!this.canRunBackgroundWork()) return;
         this.manga.resumeBackgroundWork();
+        void this.drainPendingRootRestore('view-safe');
     }
 
     private ownsSearchContext(viewMode = this.ui.viewMode, viewStack = this.ui.viewStack): boolean {
         return viewMode === View.LIST || viewStack.includes(View.LIST);
+    }
+
+    private rootKindFor(viewMode: ViewMode, viewStack: ViewMode[]): RestoreRootKind {
+        if (viewMode === View.LIST || viewStack.includes(View.LIST)) return 'list';
+        if (viewMode === View.FAVORITES || viewStack.includes(View.FAVORITES)) return 'favorites';
+        if (viewMode === View.PROVIDERS || viewStack.includes(View.PROVIDERS)) return 'providers';
+        return 'none';
+    }
+
+    private scheduleRootRestore(snapshot: SessionSnapshot, viewStack: ViewMode[], reason: string): void {
+        const kind = this.rootKindFor(snapshot.viewMode, viewStack);
+        this.scheduleRootRestoreKind(kind, snapshot.searchContext, snapshot.targetMangaId ?? null, reason);
+    }
+
+    private scheduleRootRestoreKind(kind: RestoreRootKind, searchContext: SearchContext | undefined, targetId: string | null, reason: string): void {
+        if (kind === 'none') {
+            this.log.emit('restore-root', { action: 'deferred', root: kind, view: this.ui.viewMode, targetId, reason });
+            return;
+        }
+
+        this.pendingRootRestore = {
+            kind,
+            searchContext: kind === 'list' ? searchContext : undefined,
+            targetId,
+            generation: ++this.rootRestoreGeneration,
+        };
+        this.log.emit('restore-root', { action: 'scheduled', root: kind, view: this.ui.viewMode, targetId, reason });
+        void this.drainPendingRootRestore(reason);
+    }
+
+    private async drainPendingRootRestore(reason: string): Promise<void> {
+        const pending = this.pendingRootRestore;
+        if (!pending || this.rootRestoreRunning) return;
+        if (!this.canRunBackgroundWork()) {
+            this.log.emit('restore-root', { action: 'deferred', root: pending.kind, view: this.ui.viewMode, targetId: pending.targetId ?? null, reason });
+            return;
+        }
+
+        this.rootRestoreRunning = true;
+        this.log.emit('restore-root', { action: 'start', root: pending.kind, view: this.ui.viewMode, targetId: pending.targetId ?? null, reason });
+        try {
+            if (pending.kind === 'list') {
+                await this.replayRootSearch(pending);
+            } else if (pending.kind === 'favorites') {
+                await this.favorites.activate();
+            }
+
+            if (this.pendingRootRestore?.generation === pending.generation) {
+                this.pendingRootRestore = null;
+            }
+            this.log.emit('restore-root', {
+                action: 'done',
+                root: pending.kind,
+                view: this.ui.viewMode,
+                targetId: pending.targetId ?? null,
+                reason,
+                results: this.searchState.results.length,
+                favorites: this.favorites.items.length,
+            });
+            this.persistSession();
+        } catch (error) {
+            this.log.emit('restore-root', {
+                action: 'failed',
+                root: pending.kind,
+                view: this.ui.viewMode,
+                targetId: pending.targetId ?? null,
+                reason,
+                error: String((error as Error)?.message ?? error),
+            });
+        } finally {
+            this.rootRestoreRunning = false;
+            if (this.pendingRootRestore && this.pendingRootRestore.generation !== pending.generation) {
+                void this.drainPendingRootRestore('newer-root-pending');
+            }
+        }
+    }
+
+    private async replayRootSearch(pending: PendingRootRestore): Promise<void> {
+        if (pending.targetId) this.restore.start(pending.targetId);
+        if (pending.searchContext) {
+            this.searchState.filters.restoreFromContext(pending.searchContext.filters);
+            await this.searchState.replayFromContext(pending.searchContext);
+        } else {
+            await this.searchState.search(this.searchState.inputQuery);
+        }
+        if (pending.targetId && this.restore.isActive) {
+            await this.bgPaginateToTarget();
+        }
     }
 
     async activateSearchRoot(): Promise<void> {
@@ -363,8 +461,6 @@ class AppState {
 
     private hydrateRestoredManga(snapshot: SessionSnapshot, viewStack: ViewMode[]): void {
         if (!snapshot.activeManga) return;
-        const shouldReplaySearch = this.ownsSearchContext(snapshot.viewMode, viewStack);
-        const targetId = snapshot.targetMangaId ?? null;
         const ok = this.manga.restoreMangaShell(snapshot.activeManga, snapshot.mangaScrolls ?? (snapshot.mangaScroll ? [snapshot.mangaScroll] : []));
         if (!ok) {
             this.manga.setNavigationStack([]);
@@ -372,24 +468,18 @@ class AppState {
             const fallbackStack = viewStack.slice(0, -1);
             this.ui.setViewDirect(fallback, fallbackStack);
             this.ui.mountRestoreLayers(fallback, fallbackStack, 'fallback');
+            this.scheduleRootRestoreKind(this.rootKindFor(fallback, fallbackStack), snapshot.searchContext, snapshot.targetMangaId ?? null, 'manga-fallback');
             this.persistSession();
             this.log.emit('restore-fallback', { view: 'manga', reason: 'manga-shell-failed' });
             return;
         }
-        if (targetId && shouldReplaySearch) this.restore.start(targetId);
-        if (shouldReplaySearch) {
-            this.bgReplaySearch(snapshot.searchContext);
-        } else if (viewStack.includes(View.FAVORITES)) {
-            void this.favorites.activate();
-        }
         this.ui.mountRestoreLayers(snapshot.viewMode, viewStack, 'backing');
+        this.scheduleRootRestore(snapshot, viewStack, 'manga-restored');
         this.persistSession();
     }
 
     private hydrateRestoredReader(snapshot: SessionSnapshot, readerStack: ViewMode[]): void {
         if (!snapshot.activeManga) return;
-        const targetId = snapshot.targetMangaId ?? null;
-        const shouldReplaySearch = this.ownsSearchContext(snapshot.viewMode, readerStack);
         const mangaFallbackStack = readerStack[readerStack.length - 1] === View.MANGA
             ? readerStack.slice(0, -1)
             : readerStack;
@@ -411,27 +501,17 @@ class AppState {
                 const fallbackStack = mangaFallbackStack.length > 0 ? mangaFallbackStack : [View.LIST];
                 this.ui.setViewDirect(View.MANGA, fallbackStack);
                 this.ui.mountRestoreLayers(View.MANGA, fallbackStack, 'fallback');
-                if (targetId && shouldReplaySearch) this.restore.start(targetId);
-                if (shouldReplaySearch) {
-                    this.bgReplaySearch(snapshot.searchContext);
-                } else if (fallbackStack.includes(View.FAVORITES)) {
-                    void this.favorites.activate();
-                }
+                this.scheduleRootRestore(snapshot, fallbackStack, 'reader-fallback');
                 this.persistSession();
                 this.log.emit('restore-fallback', { view: 'reader', reason: 'reader-load-failed', fallback: 'manga', error: this.reader.error?.message });
                 return;
             }
 
-            if (targetId && shouldReplaySearch) this.restore.start(targetId);
-            if (shouldReplaySearch) {
-                this.bgReplaySearch(snapshot.searchContext);
-            } else if (readerStack.includes(View.FAVORITES)) {
-                void this.favorites.activate();
-            }
             if (snapshot.viewMode === View.CHAPTER_COMMENTS) {
                 this.reader.openChapterComments();
             }
             this.ui.mountRestoreLayers(snapshot.viewMode, readerStack, 'backing');
+            this.scheduleRootRestore(snapshot, readerStack, 'reader-restored');
             this.persistSession();
         })();
     }
@@ -536,28 +616,6 @@ class AppState {
         this.persistSession();
         emit('restore-fallback', { view: snapshot.viewMode, reason: 'unknown-view' });
         return false;
-    }
-
-    private async bgReplaySearch(searchContext?: SearchContext) {
-        if (!this.canRunBackgroundWork()) {
-            this.deferredSearchContext = searchContext;
-            this.log.emit('foreground-work', {
-                owner: 'search',
-                action: 'defer',
-                view: this.ui.viewMode,
-                reason: 'foreground-reader',
-            });
-            return;
-        }
-        if (searchContext) {
-            this.searchState.filters.restoreFromContext(searchContext.filters);
-            await this.searchState.replayFromContext(searchContext);
-        } else {
-            await this.searchState.search(this.searchState.inputQuery);
-        }
-        this.persistSession();
-        if (!this.restore.isActive) return;
-        await this.bgPaginateToTarget();
     }
 
     private async bgPaginateToTarget() {
