@@ -718,6 +718,14 @@ Serving ownership:
   `poster.large`. `ByteCacheService` stores the bytes, but
   `manga_cover_cache` records the manga id, variant, source URL, local key,
   status, and error.
+- Cover rendering is cache-route-owned. Search/favorites/recommendation cards
+  and manga-detail covers render `/api/cache/manga/:id/cover/:variant` even
+  when the current frontend card payload has no raw `cover` URL. A raw source
+  URL is only a hint for storing bytes on miss, not the condition for trying a
+  cached cover. Search result pages enqueue card-cover byte work for every
+  returned page. Manga-detail caching also enqueues card-cover byte work for
+  recommendations, so manga-detail recommendations and reader-tail
+  recommendations share the same cache-owned thumbnail path as search/favorites.
 - There is no generic `/api/byte` route and no reader `/api/image` proxy.
   Comment avatars/content images are not cover-cache data.
 
@@ -725,6 +733,10 @@ Cache layers:
 
 - Startup seeds the cache from newest 100 manga and queues those manga for
   detail and chapter-list caching.
+- Search/newest cache stores provider search payloads, discovers manga rows,
+  and queues card-cover byte work.
+- Manga-detail cache stores metadata, detail cover source, recommendations,
+  tags/genres, and description, and queues recommendation card-cover byte work.
 - Chapter-list caching fetches complete lists and stores them durably.
 - Chapter-image caching discovers complete canonical page URLs after chapter
   lists exist. Store candidates are generated when a chapter-image response is
@@ -732,6 +744,23 @@ Cache layers:
 - Frontend priority requests can promote foreground cache work ahead of queued
   lower-priority work. Long non-foreground chapter-list and reconcile jobs also
   yield at page boundaries when foreground work appears.
+
+Cache-first serving is a contract, not a claim that missing data can be
+invented:
+
+- If manga detail and chapter-list rows both exist, manga detail opens from
+  cache in one UI commit and reconciliation may update stale chapter rows
+  asynchronously. Logs should show `cache-read ... action=hit`, `updating=true`
+  while foreground refresh runs, and `chapter-list-refresh phase=applied` when
+  newer rows replace the old list.
+- If one row exists and another is missing, show the existing cached/card data
+  and queue/promote the missing cache work. The UI should not block all visible
+  content waiting for an unrelated missing layer.
+- If chapter-image metadata is a true miss, there is no older page-map/store
+  candidate payload to serve. The cache route returns `warming` and queues the
+  page-map job. The reader owner should prewarm current/nearby chapters so slow
+  scrolling normally sees hits; it should not fake store candidates without
+  canonical page metadata.
 
 SQLite stores:
 
