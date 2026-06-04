@@ -132,6 +132,9 @@ group by kind, status, priority
 order by kind, status, priority desc;"
 ```
 
+After this summary, always inspect the resource the user actually touched.
+Healthy aggregate counts do not prove foreground ownership is working.
+
 Runnable work that should be claimed next:
 
 ```bash

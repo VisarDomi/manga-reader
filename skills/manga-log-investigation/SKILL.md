@@ -61,6 +61,46 @@ journalctl --user -u manga-reader.service --since 'YYYY-MM-DD HH:MM:SS' --until 
   > /tmp/manga-investigation.log
 ```
 
+## Aggregate Before Reading Raw Logs
+
+For large windows, do not dump everything into context. Count first, then pick
+the suspicious slice.
+
+Get event/error counts from a bounded window:
+
+```bash
+journalctl --user -u manga-reader.service --since 'YYYY-MM-DD HH:MM:SS' --until now --no-pager \
+  | rg -o "reader-[a-z0-9-]+|restore-[a-z0-9-]+|view-[a-z0-9-]+|cache-[a-z0-9-]+|provider-[a-z0-9-]+|decoder-[a-z0-9-]+|programmatic-scroll|error|failed|timeout" \
+  | sort | uniq -c | sort -nr | head -60
+```
+
+Find the first and last line numbers for suspicious families:
+
+```bash
+journalctl --user -u manga-reader.service --since 'YYYY-MM-DD HH:MM:SS' --until now --no-pager \
+  | nl -ba \
+  | rg "programmatic-scroll|reader-rebase|reader-current|chapter-images|decoder|timeout|failed"
+```
+
+Extract a tight timeline around one manga/chapter/provider id:
+
+```bash
+ID='<manga-or-chapter-id>'
+journalctl --user -u manga-reader.service --since 'YYYY-MM-DD HH:MM:SS' --until now --no-pager \
+  | rg "$ID|reader-|chapter-images|progress-save|programmatic-scroll|cache|provider|decoder|view-"
+```
+
+Summarize browser/CPU symptoms without reading all logs:
+
+```bash
+journalctl --user -u manga-reader.service --since 'YYYY-MM-DD HH:MM:SS' --until now --no-pager \
+  | rg -o "browser-surface-[a-z0-9-]+|cpu-[a-z0-9-]+|runaway|chrome|chromium|decoder-[a-z0-9-]+" \
+  | sort | uniq -c | sort -nr
+```
+
+Only after the aggregate points to a family should you read the raw lines for
+that family.
+
 ## Tell The Story In Order
 
 Extract a timeline, not isolated lines:
