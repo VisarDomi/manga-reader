@@ -1108,10 +1108,17 @@ Favorites store favorite IDs plus the minimum card snapshot needed to render
 instantly when the favorites root is opened. The backend cache remains the
 authoritative source for chapter stats and full manga data; favorite snapshots
 are only a local card-start cache and can be refreshed from backend cache data.
-There is no card-owned chapter prewarm path. Search results still provide
-their upstream max directly from live search. Opening a manga remains the
-authoritative foreground path for displaying the full cached detail and chapter
-list. Card cover bytes are separately owned by the backend cover cache.
+Refreshing favorite snapshots must not rewrite the visible favorite card list.
+The favorite root commits IDB rows once, starts all local cached card-cover
+requests immediately, waits only for the first visible batch before revealing
+the grid, then background repair may update persistent snapshots and keyed
+chapter stats only. Background repair must not remount the visible favorite
+cards. There is no card-owned chapter prewarm path. Search results still
+provide their upstream max directly from live search. Opening a manga remains
+the authoritative foreground path for displaying the full cached detail and
+chapter list. Card cover bytes are separately owned by the backend cover cache,
+and cover images are eager/high-priority because they are local cached UI
+chrome, unlike reader pages.
 
 ## AF. Chapter Group Filtering
 

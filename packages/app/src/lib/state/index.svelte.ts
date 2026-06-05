@@ -265,7 +265,7 @@ class AppState {
             if (pending.kind === 'list') {
                 await this.replayRootSearch(pending);
             } else if (pending.kind === 'favorites') {
-                await this.favorites.prepareRoot({ repairSnapshots: true, warmCovers: true });
+                await this.favorites.prepareRoot();
             }
 
             if (this.pendingRootRestore?.generation === pending.generation) {

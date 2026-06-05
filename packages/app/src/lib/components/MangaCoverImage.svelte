@@ -60,6 +60,7 @@
         src={imageUrl}
         alt={title}
         {loading}
+        fetchpriority="high"
         decoding="async"
         onload={(event) => emit('load', event.currentTarget)}
         onerror={handleError}

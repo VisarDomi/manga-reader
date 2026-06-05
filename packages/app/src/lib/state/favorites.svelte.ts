@@ -14,6 +14,7 @@ export class FavoritesState {
     private hydrationGeneration = 0;
     private loaded = false;
     private loadedProviderId: string | null = null;
+    private static readonly FIRST_VISIBLE_COVER_COUNT = 12;
 
     private toast: ToastState;
     private log: LogService;
@@ -84,24 +85,26 @@ export class FavoritesState {
     }
 
     async activate() {
-        await this.prepareRoot({ repairSnapshots: false, warmCovers: false });
+        await this.prepareRoot();
     }
 
-    async prepareRoot(options: { repairSnapshots?: boolean; warmCovers?: boolean } = {}) {
+    async prepareRoot() {
         const providerId = getProviderId();
-        if (this.loaded && this.loadedProviderId === providerId) {
-            if (options.warmCovers) await this.warmCoverImages(this.items, providerId);
-            return;
-        }
+        if (this.loaded && this.loadedProviderId === providerId) return;
         const startedAt = performance.now();
         this.log.emit('favorites-activation', { phase: 'start', loaded: this.loaded, items: this.items.length, dtMs: 0 });
         this.isLoading = true;
         try {
-            const loaded = await this.loadFavoriteRows(providerId, options.repairSnapshots === true);
+            const loaded = await this.loadFavoriteRows(providerId);
             if (!loaded || providerId !== getProviderId()) return;
+            const generation = this.hydrationGeneration;
+            const coverPrep = this.prepareCoverImages(this.items, providerId, FavoritesState.FIRST_VISIBLE_COVER_COUNT);
+            await coverPrep.visibleReady;
+            if (providerId !== getProviderId()) return;
             this.loaded = true;
-            if (options.warmCovers) await this.warmCoverImages(this.items, providerId);
             this.log.emit('favorites-activation', { phase: 'done', loaded: this.loaded, items: this.items.length, dtMs: Math.round(performance.now() - startedAt) });
+            void coverPrep.allReady;
+            void this.refreshFavoriteSnapshots(this.items, generation, providerId);
         } catch (e) {
             this.log.emit('favorites-activation', {
                 phase: 'failed',
@@ -125,7 +128,7 @@ export class FavoritesState {
         };
     }
 
-    private async loadFavoriteRows(providerId = getProviderId(), awaitRepair = false): Promise<boolean> {
+    private async loadFavoriteRows(providerId = getProviderId()): Promise<boolean> {
         const startedAt = performance.now();
         const rows = await db.getAllFavoriteRows(providerId);
         if (providerId !== getProviderId()) return false;
@@ -140,21 +143,17 @@ export class FavoritesState {
             items: this.items.length,
             dtMs: Math.round(performance.now() - startedAt),
         });
-        if (rows.length > 0) {
-            const repair = this.refreshFavoriteSnapshots(rows, generation, providerId);
-            if (awaitRepair) await repair;
-            else void repair;
-        }
         return true;
     }
 
-    private async refreshFavoriteSnapshots(rows: db.FavoriteIdRow[], generation: number, providerId: string): Promise<void> {
+    private async refreshFavoriteSnapshots(items: Manga[], generation: number, providerId: string): Promise<void> {
+        if (items.length === 0) return;
         const startedAt = performance.now();
-        const fallbacks = rows.map(row => this.items.find(item => item.id === row.id) ?? this.placeholder(row.id, row.snapshot));
+        const fallbacks = [...items];
         this.log.emit('favorites-hydration', {
             phase: 'start',
-            total: rows.length,
-            batchSize: rows.length,
+            total: items.length,
+            batchSize: items.length,
             dtMs: 0,
         });
 
@@ -163,8 +162,8 @@ export class FavoritesState {
         if (count == null) {
             this.log.emit('favorites-hydration', {
                 phase: 'cancelled',
-                total: rows.length,
-                batchSize: rows.length,
+                total: items.length,
+                batchSize: items.length,
                 batchIndex: 0,
                 count: 0,
                 dtMs: Math.round(performance.now() - startedAt),
@@ -173,8 +172,8 @@ export class FavoritesState {
         }
         this.log.emit('favorites-hydration', {
             phase: 'batch',
-            total: rows.length,
-            batchSize: rows.length,
+            total: items.length,
+            batchSize: items.length,
             batchIndex: 0,
             count,
             dtMs: Math.round(performance.now() - batchStartedAt),
@@ -182,8 +181,8 @@ export class FavoritesState {
 
         this.log.emit('favorites-hydration', {
             phase: 'done',
-            total: rows.length,
-            batchSize: rows.length,
+            total: items.length,
+            batchSize: items.length,
             dtMs: Math.round(performance.now() - startedAt),
         });
     }
@@ -208,8 +207,6 @@ export class FavoritesState {
         const hydrated = snapshots.filter(snapshot => activeIds.has(snapshot.manga.id));
         if (hydrated.length === 0) return 0;
 
-        const byId = new Map(hydrated.map(result => [result.manga.id, result.manga]));
-        this.items = this.items.map(item => byId.get(item.id) ?? item);
         for (const result of hydrated) {
             void db.updateFavoriteSnapshot(result.manga, providerId);
             if (!result.chapters) continue;
@@ -239,14 +236,19 @@ export class FavoritesState {
             });
     }
 
-    private async warmCoverImages(items: Manga[], providerId: string): Promise<void> {
-        if (typeof Image === 'undefined' || items.length === 0) return;
+    private prepareCoverImages(items: Manga[], providerId: string, visibleCount: number): { visibleReady: Promise<void>; allReady: Promise<void> } {
+        if (typeof Image === 'undefined' || items.length === 0) {
+            const ready = Promise.resolve();
+            return { visibleReady: ready, allReady: ready };
+        }
         const startedAt = performance.now();
         const urls = items.map(item => api.coverProxyUrl(item.id, 'card', item.cover || undefined));
         let ok = 0;
         let failed = 0;
-        await Promise.allSettled(urls.map(url => new Promise<void>(resolve => {
+        const loads = urls.map(url => new Promise<void>(resolve => {
             const img = new Image();
+            img.decoding = 'async';
+            img.loading = 'eager';
             img.onload = () => {
                 ok++;
                 resolve();
@@ -256,14 +258,29 @@ export class FavoritesState {
                 resolve();
             };
             img.src = url;
-        })));
-        this.log.emit('favorites-cover-warm', {
-            providerId,
-            count: urls.length,
-            ok,
-            failed,
-            dtMs: Math.round(performance.now() - startedAt),
+        }));
+        const firstCount = Math.min(Math.max(1, visibleCount), loads.length);
+        const visibleReady = Promise.allSettled(loads.slice(0, firstCount)).then(() => {
+            this.log.emit('favorites-cover-ready', {
+                providerId,
+                phase: 'visible',
+                count: firstCount,
+                ok,
+                failed,
+                dtMs: Math.round(performance.now() - startedAt),
+            });
         });
+        const allReady = Promise.allSettled(loads).then(() => {
+            this.log.emit('favorites-cover-ready', {
+                providerId,
+                phase: 'all',
+                count: urls.length,
+                ok,
+                failed,
+                dtMs: Math.round(performance.now() - startedAt),
+            });
+        });
+        return { visibleReady, allReady };
     }
 
 }
