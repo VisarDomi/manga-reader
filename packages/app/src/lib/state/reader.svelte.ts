@@ -8,7 +8,7 @@ import { PageTracker, type VisiblePageSnapshot } from '../services/PageTracker.j
 import { ReaderWindowManager, type ReaderScrollDirection, type ReaderWindowSource, type WindowCandidate } from '../services/ReaderWindowManager.js';
 import type { UIState } from './ui.svelte.js';
 import type { MangaState } from './manga.svelte.js';
-import type { ProgressState } from './progress.svelte.js';
+import type { ProgressData, ProgressState } from './progress.svelte.js';
 import type { ToastState } from './toast.svelte.js';
 import { type LoadError, toLoadError } from './errors.js';
 import {
@@ -272,10 +272,7 @@ export class ReaderState {
             this.loadedChapters = this.positionVirtualSlots(this.loadedChapters, chapter.id, 0, 0);
 
             if (!hasRestore) {
-                const progressData = { chapterId: chapter.id, chapterNumber: chapter.number };
-                db.setProgress(manga.id, progressData);
-                this.progress.update(manga.id, progressData);
-                this.log.emit('progress-save', { source: 'open', mangaId: manga.id, ...progressData });
+                this.saveProgress('open', manga.id, { chapterId: chapter.id, chapterNumber: chapter.number });
             }
         } catch (e) {
             this.error = toLoadError(e);
@@ -444,11 +441,21 @@ export class ReaderState {
             if (ch) {
                 const loaded = this.chapterDataById.get(cId) ?? this.loadedChapters.find(lc => lc.id === cId);
                 const pageCount = loaded?.pages.length;
-                const progressData = { chapterId: cId, chapterNumber: ch.number, pageIndex, pageCount, scrollOffset };
-                db.setProgress(manga.id, progressData);
-                this.progress.update(manga.id, progressData);
-                this.log.emit('progress-save', { source: 'scheduled', mangaId: manga.id, chapterId: cId, chapterNumber: ch.number, pageIndex, pageCount });
+                this.saveProgress('scheduled', manga.id, { chapterId: cId, chapterNumber: ch.number, pageIndex, pageCount, scrollOffset });
             }
+        });
+    }
+
+    private saveProgress(source: 'open' | 'scheduled' | 'close', mangaId: string, data: ProgressData): void {
+        db.setProgress(mangaId, data);
+        this.progress.update(mangaId, data);
+        this.log.emit('progress-save', {
+            source,
+            mangaId,
+            chapterId: data.chapterId,
+            chapterNumber: data.chapterNumber,
+            pageIndex: data.pageIndex,
+            pageCount: data.pageCount,
         });
     }
 
@@ -747,10 +754,7 @@ export class ReaderState {
             if (ch) {
                 const loaded = this.chapterDataById.get(flushChapterId) ?? this.loadedChapters.find(lc => lc.id === flushChapterId);
                 const pageCount = loaded?.pages.length;
-                const progressData = { chapterId: flushChapterId, chapterNumber: ch.number, pageIndex, pageCount, scrollOffset };
-                db.setProgress(mangaId, progressData);
-                this.progress.update(mangaId, progressData);
-                this.log.emit('progress-save', { source: 'close', mangaId, chapterId: flushChapterId, chapterNumber: ch.number, pageIndex, pageCount });
+                this.saveProgress('close', mangaId, { chapterId: flushChapterId, chapterNumber: ch.number, pageIndex, pageCount, scrollOffset });
             }
         });
         this.commitMangaScrollTarget();

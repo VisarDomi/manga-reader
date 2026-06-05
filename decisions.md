@@ -371,6 +371,14 @@ physically rebase the runway, retire top/bottom slots, revoke blob URLs, or
 remove image `src` values. Those destructive projection and cleanup operations
 belong to idle/initial transactions, not scroll ticks.
 
+Reader progress has one command writer inside `ReaderState`. Open, scheduled
+visible-page sync, and close flush all go through the same progress-save
+command, which writes IndexedDB, updates keyed progress state, and emits the
+`progress-save` log. Reader scroll DOM writes are still centralized in
+`Reader.svelte`; do not extract a separate `ScrollOwner` until logs show a
+current multi-writer leak, because the existing bounded scroller is sensitive
+to iOS momentum and restore behavior.
+
 ### 32. Synthetic Reproductions Prove Narrow Claims Only
 
 A reduced test app is useful for proving one isolated claim, such as whether

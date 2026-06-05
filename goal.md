@@ -186,16 +186,28 @@ Target command owners:
 
 Checklist:
 
-- [ ] Audit all DOM scroll writes in `Reader.svelte`, manga detail restore,
+- [x] Audit all DOM scroll writes in `Reader.svelte`, manga detail restore,
   search restore, and swipe/restore code.
-- [ ] Audit all `db.setProgress`, `progress.update`, and progress-save paths.
-- [ ] Decide whether scroll/progress extraction is justified now by current
+- [x] Audit all `db.setProgress`, `progress.update`, and progress-save paths.
+- [x] Decide whether scroll/progress extraction is justified now by current
   bugs/logs or should stay coupled until the next confirmed leak.
-- [ ] If justified, extract one owner at a time, with logs proving command
+- [x] If justified, extract one owner at a time, with logs proving command
   input/output and no new gates.
 - [ ] Preserve known-good reader constraints:
   bounded physical window, iOS Safari momentum, native `scrollend + 100ms`
   rebase policy, cache/decoder priority for visible images.
+
+Phase 3 batch from 2026-06-05:
+
+- Progress writes were duplicated in reader open, scheduled visible-page sync,
+  and close flush. Consolidated them into one `ReaderState.saveProgress`
+  command so IndexedDB, keyed progress state, and `progress-save` logging have
+  one local writer.
+- DOM scroll writes are still in `Reader.svelte`. This is intentionally left
+  coupled for now: the audit found many writes, but no current post-restart
+  log proving a live multi-writer scroll leak. A full `ScrollOwner` extraction
+  would be a behavior-risky rewrite of the bounded iOS scroller, so it should
+  wait for a confirmed reader jump/black-screen log.
 
 Do not:
 
