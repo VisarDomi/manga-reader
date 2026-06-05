@@ -26,15 +26,19 @@ export interface ProviderSummary {
   enabled: boolean;
   ready: boolean;
   needsHumanClearance: boolean;
+  runtimeState: ProviderRuntimeState;
 }
 
 interface ProviderRuntimeSettings {
   enabledProviderIds?: string[];
 }
 
+type ProviderRuntimeState = 'disabled' | 'warming' | 'ready' | 'degraded' | 'stopping';
+
 export class ProviderCoordinator {
   private readonly owners = new Map<string, ProviderRuntimeOwner>();
   private readonly enabledProviderIds: Set<string>;
+  private readonly runtimeStates = new Map<string, ProviderRuntimeState>();
   private readonly settingsPath = path.join(STATE_DIR, 'provider-runtime.json');
 
   constructor() {
@@ -56,6 +60,7 @@ export class ProviderCoordinator {
       cache = new CacheService(browserSession, provider, byteCache, db);
       const comments = new CommentsService(cache, provider, browserSession);
       this.owners.set(provider.id, { provider, db, browserSession, byteCache, cache, comments });
+      this.runtimeStates.set(provider.id, this.isEnabled(provider.id) ? 'warming' : 'disabled');
     }
   }
 
@@ -68,6 +73,7 @@ export class ProviderCoordinator {
       enabled: this.isEnabled(owner.provider.id),
       ready: this.isEnabled(owner.provider.id) && owner.browserSession.canServeRuntimeRequests(),
       needsHumanClearance: this.isEnabled(owner.provider.id) && !owner.browserSession.canServeRuntimeRequests(),
+      runtimeState: this.runtimeStates.get(owner.provider.id) ?? (this.isEnabled(owner.provider.id) ? 'warming' : 'disabled'),
     }));
   }
 
@@ -86,6 +92,7 @@ export class ProviderCoordinator {
   async start(): Promise<void> {
     for (const owner of this.owners.values()) {
       if (!this.isEnabled(owner.provider.id)) {
+        this.setRuntimeState(owner.provider.id, 'disabled', 'startup-disabled');
         console.log(`[providerCoordinator] provider-disabled provider=${owner.provider.id} action=skip-start`);
         owner.cache.suspend();
         owner.byteCache.suspend();
@@ -110,6 +117,7 @@ export class ProviderCoordinator {
     if (enabled) {
       this.enabledProviderIds.add(id);
       this.saveEnabledProviderIds();
+      this.setRuntimeState(id, 'warming', 'enabled');
       void this.startOwner(owner, 'enabled');
       return this.list();
     }
@@ -119,9 +127,11 @@ export class ProviderCoordinator {
     }
     this.enabledProviderIds.delete(id);
     this.saveEnabledProviderIds();
+    this.setRuntimeState(id, 'stopping', 'disabled');
     owner.cache.suspend();
     owner.byteCache.suspend();
     await owner.browserSession.destroy();
+    this.setRuntimeState(id, 'disabled', 'stopped');
     console.log(`[providerCoordinator] provider-disabled provider=${id} action=stopped`);
     return this.list();
   }
@@ -132,6 +142,7 @@ export class ProviderCoordinator {
 
   private startOwner(owner: ProviderRuntimeOwner, reason: string): Promise<void> {
     const providerId = owner.provider.id;
+    this.setRuntimeState(providerId, 'warming', reason);
     return owner.browserSession.init()
       .then(() => {
         if (!this.isEnabled(providerId)) return;
@@ -141,10 +152,20 @@ export class ProviderCoordinator {
         if (!this.isEnabled(providerId)) return;
         owner.cache.start();
         owner.byteCache.start();
+        this.setRuntimeState(providerId, 'ready', reason);
       })
       .catch(err => {
+        if (this.isEnabled(providerId)) this.setRuntimeState(providerId, 'degraded', reason, err.message);
         console.error(`[providerCoordinator] init failed provider=${owner.provider.id} domain=${owner.provider.domain} reason=${reason}: ${err.message}`);
       });
+  }
+
+  private setRuntimeState(providerId: string, state: ProviderRuntimeState, reason: string, error?: string): void {
+    const previous = this.runtimeStates.get(providerId);
+    if (previous === state) return;
+    this.runtimeStates.set(providerId, state);
+    const suffix = error ? ` error=${singleLine(error)}` : '';
+    console.log(`[providerCoordinator] runtime-state provider=${providerId} from=${previous ?? 'unknown'} to=${state} reason=${reason}${suffix}`);
   }
 
   private loadEnabledProviderIds(): string[] {
@@ -180,4 +201,8 @@ export class ProviderCoordinator {
       ? BYTE_CACHE_DIR
       : path.join(STATE_DIR, `bytes-${providerId}`);
   }
+}
+
+function singleLine(value: string): string {
+  return value.split('\n')[0]?.trim().slice(0, 300) || 'unknown-error';
 }

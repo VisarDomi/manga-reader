@@ -101,6 +101,17 @@ export class DurableJobScheduler {
     return recovered;
   }
 
+  recoverExpiredRunning(limit = 100): number {
+    const recovered = this.db.recoverExpiredRunningJobs(Date.now(), limit);
+    if (recovered.length > 0) {
+      const sample = recovered.slice(0, 5)
+        .map(job => `${job.kind}:${job.resourceKey}:owner=${job.leaseOwner ?? 'none'}`)
+        .join(',');
+      console.log(`[cache-scheduler] reaper-recovered-expired jobs=${recovered.length} sample=${sample}`);
+    }
+    return recovered.length;
+  }
+
   counts(): Record<string, number> {
     return this.db.cacheJobCounts();
   }

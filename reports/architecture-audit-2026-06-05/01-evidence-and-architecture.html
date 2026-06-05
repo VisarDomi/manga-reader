@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Manga Architecture Audit - Evidence And Architecture</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+<main>
+  <h1>Manga Architecture Audit</h1>
+  <p class="subtitle">Part 1 - Evidence dashboard and high-level monorepo map. Generated from logs/code on 2026-06-05.</p>
+
+  <section>
+    <h2>Evidence Anchor</h2>
+    <div class="grid">
+      <div class="card"><strong>Service Start</strong><div class="metric">2026-06-04 21:37:36</div><div class="muted">Europe/Tirane / CEST</div></div>
+      <div class="card"><strong>Service</strong><div class="metric">manga-reader</div><div class="muted">systemd user service, wrapped in xvfb-run</div></div>
+      <div class="card"><strong>Runtime Memory</strong><div class="metric warn">7.8 GB</div><div class="muted">systemctl status after about 13h uptime</div></div>
+      <div class="card"><strong>Runtime CPU</strong><div class="metric warn">20h20m</div><div class="muted">accumulated CPU after about 13h uptime</div></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>What The Current Run Says</h2>
+    <div class="grid">
+      <div class="card"><strong>Runtime request failures</strong><div class="metric bad">6,490</div><div class="muted">mostly background Comix chapter page-map jobs</div></div>
+      <div class="card"><strong>Failed/error tokens</strong><div class="metric bad">7,432</div><div class="muted">6,686 failed + 746 error matches in bounded logs</div></div>
+      <div class="card"><strong>Job failed summaries</strong><div class="metric bad">218</div><div class="muted">grouped cache failures, mostly background</div></div>
+      <div class="card"><strong>Reader scroll/session telemetry</strong><div class="metric">1,867</div><div class="muted">reader-scroll-perf + reader-scroll-session</div></div>
+    </div>
+
+    <p class="callout risk">
+      Observed fact: restart working around bugs is plausible because durable
+      queue/browser state has confirmed stale running jobs and many runtime
+      client/module failures. Inference: at least some bugs are ownership leaks
+      across browser runtime, durable queue leases, and foreground UI contracts,
+      not only transient provider failures.
+    </p>
+  </section>
+
+  <section>
+    <h2>Current Monorepo Shape</h2>
+    <div class="flow">
+      <div class="node-row">
+        <div class="node">Svelte PWA<br><span class="muted">packages/app</span></div>
+        <span class="arrow">-></span>
+        <div class="node">Express Backend<br><span class="muted">packages/server</span></div>
+        <span class="arrow">-></span>
+        <div class="node">Provider Owners<br><span class="muted">Comix / Mangadot</span></div>
+      </div>
+      <div class="node-row">
+        <div class="node">ReaderState<br><span class="muted">virtual window, progress, comments</span></div>
+        <span class="arrow">-></span>
+        <div class="node">CacheService<br><span class="muted">durable data jobs</span></div>
+        <span class="arrow">-></span>
+        <div class="node">BrowserSession<br><span class="muted">runtime HTTP, provider page</span></div>
+      </div>
+      <div class="node-row">
+        <div class="node">ReaderMemoryManager<br><span class="muted">image loading and store telemetry</span></div>
+        <span class="arrow">-></span>
+        <div class="node">ByteCacheService<br><span class="muted">covers/thumbnails/provider bytes</span></div>
+        <span class="arrow">-></span>
+        <div class="node">SQLite<br><span class="muted">provider-specific durable cache</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Package Responsibilities</h2>
+    <table>
+      <thead><tr><th>Package / Area</th><th>Current owner role</th><th>Soft point</th></tr></thead>
+      <tbody>
+        <tr><td><code>packages/app</code></td><td>PWA UI, session restore, reader virtual scroller, swipe layers, image loading, local state.</td><td>Large state owners coordinate many domains: restore, root replay, reader, progress, manga detail, comments.</td></tr>
+        <tr><td><code>packages/server</code></td><td>HTTP API, cache engine, durable jobs, provider coordination, browser sessions, decoder, comments.</td><td>Cache, browser runtime, byte cache, and provider state can all affect foreground behavior.</td></tr>
+        <tr><td><code>packages/extensions</code></td><td>Provider-specific parsing and provider runtime contracts.</td><td>Provider boundaries are clearer than before, but Comix runtime dependency is still a fragile live-browser contract.</td></tr>
+        <tr><td><code>packages/provider-types</code></td><td>Shared provider interface types.</td><td>Useful boundary, but not yet strong enough to encode all ownership/lifecycle contracts.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Hotspot File Sizes</h2>
+    <table>
+      <thead><tr><th>File</th><th>Lines</th><th>Why it matters</th></tr></thead>
+      <tbody>
+        <tr><td><code>CacheService.ts</code></td><td>1,895</td><td>Owns background/foreground cache jobs, stale/fresh policy, store ranking, filter refresh, page maps.</td></tr>
+        <tr><td><code>reader.svelte.ts</code></td><td>1,877</td><td>Owns reader state, restore, progress, chapter hydration, comments, virtual window integration.</td></tr>
+        <tr><td><code>sqlite.ts</code></td><td>1,166</td><td>Owns durable queue and cache persistence.</td></tr>
+        <tr><td><code>BrowserSession.ts</code></td><td>1,005</td><td>Owns browser runtime, provider page, runtime HTTP lanes, decoder lifecycle.</td></tr>
+        <tr><td><code>index.svelte.ts</code></td><td>986</td><td>App-level restore/root/view orchestration.</td></tr>
+        <tr><td><code>CommentsService.ts</code></td><td>898</td><td>Comments workflow, provider-shaped identifiers, paging.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Confirmed First Finding</h2>
+    <p class="callout risk">
+      Durable job state currently has stale running leases:
+      <code>cache-chapter-page-map:jlnve:8793582</code> in Comix and
+      <code>cache-manga-detail:18556</code> in Mangadot. A restart can reclaim
+      or reset parts of this state, which matches the symptom that restarting
+      the app gets around bugs.
+    </p>
+  </section>
+
+  <p><a href="./index.html">Back to report index</a></p>
+</main>
+</body>
+</html>

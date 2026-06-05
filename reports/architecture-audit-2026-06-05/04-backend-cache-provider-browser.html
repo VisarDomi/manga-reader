@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Manga Architecture Audit - Backend Cache Provider Browser</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+<main>
+  <h1>Backend Cache, Provider, And Browser Ownership</h1>
+  <p class="subtitle">Part 4 - Provider owners, durable jobs, browser runtime lanes, byte/cache policy, and where restarts hide bugs.</p>
+
+  <section>
+    <h2>Backend Owner Graph</h2>
+    <div class="flow">
+      <div class="node-row">
+        <div class="node">Express API<br><span class="muted">search, manga, chapters, comments, images</span></div>
+        <span class="arrow">-></span>
+        <div class="node">ProviderCoordinator<br><span class="muted">selects provider owner by id</span></div>
+        <span class="arrow">-></span>
+        <div class="node">Provider Owner<br><span class="muted">DB, BrowserSession, CacheService, ByteCacheService, CommentsService</span></div>
+      </div>
+      <div class="node-row">
+        <div class="node">CacheService<br><span class="muted">data jobs, priority, stale reads, foreground waits</span></div>
+        <span class="arrow">-></span>
+        <div class="node">DurableJobScheduler<br><span class="muted">queued/retry/running leases</span></div>
+        <span class="arrow">-></span>
+        <div class="node">SQLite Cache DB<br><span class="muted">manga, chapters, page maps, byte metadata, jobs</span></div>
+      </div>
+      <div class="node-row">
+        <div class="node">BrowserSession<br><span class="muted">provider runtime HTTP, Cloudflare context, page metadata</span></div>
+        <span class="arrow">-></span>
+        <div class="node">Chromium/Xvfb<br><span class="muted">foreground/background runtime lanes</span></div>
+        <span class="arrow">-></span>
+        <div class="node">Provider Site<br><span class="muted">Comix or Mangadot</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Observed Durable Queue State</h2>
+    <table>
+      <thead><tr><th>Provider</th><th>Important queue facts</th><th>Meaning</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>Comix</td>
+          <td>
+            About <strong>2,871,095</strong> queued <code>cache-chapter-page-map</code>,
+            <strong>36,491</strong> retry page-map jobs, and one <code>running</code>
+            page-map job.
+          </td>
+          <td>
+            The cache engine is not idle. Background page-map work dominates the queue and logs.
+          </td>
+        </tr>
+        <tr>
+          <td>Mangadot</td>
+          <td>
+            About <strong>185,861</strong> queued page-map jobs,
+            <strong>15,716</strong> queued byte jobs, and one <code>running</code>
+            manga-detail job.
+          </td>
+          <td>
+            The second provider has a smaller but still significant backlog.
+          </td>
+        </tr>
+        <tr>
+          <td>Both</td>
+          <td>
+            Confirmed stale <code>running</code> jobs existed:
+            <code>cache-chapter-page-map:jlnve:8793582</code> and
+            <code>cache-manga-detail:18556</code>.
+          </td>
+          <td class="bad">
+            This is a confirmed ownership leak: a durable job can be left in a
+            running state after the worker/browser owner that held it is no
+            longer making forward progress.
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Durable Job Lifecycle</h2>
+    <div class="flow">
+      <div class="node-row">
+        <div class="node">enqueue<br><span class="muted">kind/resource/priority</span></div>
+        <span class="arrow">-></span>
+        <div class="node">queued/retry</div>
+        <span class="arrow">-></span>
+        <div class="node">claimNextJob()</div>
+        <span class="arrow">-></span>
+        <div class="node">running + lease</div>
+        <span class="arrow">-></span>
+        <div class="node">complete or retry/failed</div>
+      </div>
+    </div>
+    <p>
+      The scheduler does have lease-based recovery: <code>claimNextJob()</code>
+      can reclaim stale <code>running</code> work, and
+      <code>recoverRunningJobsForOwner(workerId)</code> exists on service start.
+      The observed stale jobs show the recovery contract is incomplete.
+    </p>
+    <p class="callout risk">
+      Inference: recovery is tied too closely to the active worker path. If a
+      provider is disabled, suspended, blocked by kind filters, or not claiming
+      the same class of work, stale running jobs can remain visible in the DB
+      long after they stopped doing useful work.
+    </p>
+  </section>
+
+  <section>
+    <h2>Runtime Browser Shape</h2>
+    <table>
+      <thead><tr><th>Component</th><th>What it owns today</th><th>Soft point</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>BrowserSession</code></td>
+          <td>Warm runtime pages, foreground/background lanes, fetch through page runtime, provider page parsing, runtime health, context reset, decoder integration.</td>
+          <td class="warn">One class owns too many browser lifecycles and policies.</td>
+        </tr>
+        <tr>
+          <td><code>ScrambledPageDecoder</code></td>
+          <td>Warm decode page and screenshot-based descrambling for Comix images that require site rendering.</td>
+          <td>Correctly separate from frontend, but still shares browser resource pressure with cache work.</td>
+        </tr>
+        <tr>
+          <td><code>CacheService</code></td>
+          <td>Foreground stale/cache responses, background crawling, priority jobs, provider update policy, store policy, resource waiters.</td>
+          <td class="warn">Foreground and background policy live together; user intent can wait on cache-owner internals.</td>
+        </tr>
+        <tr>
+          <td><code>ByteCacheService</code></td>
+          <td>Thumbnail/cover bytes and image response ownership.</td>
+          <td>Good boundary, but byte ownership must stay provider-local and never scan globally for a specific card request.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Failure Families From Cache DB</h2>
+    <table>
+      <thead><tr><th>Family</th><th>Observed examples</th><th>Architecture interpretation</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>Runtime module drift</td>
+          <td><code>Comix main module not found</code>, runtime HTTP client export mismatch.</td>
+          <td>Provider runtime discovery is brittle enough that logs should treat it as provider-degraded, not generic request failure.</td>
+        </tr>
+        <tr>
+          <td>Provider HTTP failures</td>
+          <td>Large Comix 404/5xx families, Mangadot 500/502/521 and challenge cases.</td>
+          <td>Provider availability and invalid manga/chapter data must be separate states.</td>
+        </tr>
+        <tr>
+          <td>Browser lifecycle failures</td>
+          <td>context closed, browser closed, <code>newPage</code> failures, target closed.</td>
+          <td>A browser/runtime owner can die while durable jobs still believe they are owned.</td>
+        </tr>
+        <tr>
+          <td>Incomplete page-map data</td>
+          <td>Incomplete chapter images and empty page maps.</td>
+          <td>Cache rows need explicit completeness states so the frontend does not confuse "known empty" with "still warming" or "bad cache".</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Backend Soft Points</h2>
+    <div class="grid">
+      <div class="card">
+        <strong>Runaway Risk</strong>
+        <div class="metric bad">7.8G</div>
+        <div class="muted">Service memory after long uptime. Not proof of one leak, but enough to require lifecycle accounting.</div>
+      </div>
+      <div class="card">
+        <strong>Background Noise</strong>
+        <div class="metric warn">6.5k</div>
+        <div class="muted">Current run page-map failures were dominated by background Comix work.</div>
+      </div>
+      <div class="card">
+        <strong>Large Job Table</strong>
+        <div class="metric warn">3.0M+</div>
+        <div class="muted">Comix cache jobs alone. Index/write policy matters.</div>
+      </div>
+      <div class="card">
+        <strong>Unexpected DB Weight</strong>
+        <div class="metric warn">172MB</div>
+        <div class="muted"><code>cache_meta</code> was unexpectedly large in DB stats and should be audited.</div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Backend Restructure Direction</h2>
+    <p class="callout">
+      The best architectural fix is not another timeout. It is to make provider
+      runtime, foreground requests, and background crawling explicit owners with
+      bounded authority.
+    </p>
+    <ul>
+      <li><strong>ProviderRuntimeActor:</strong> one per provider, with explicit <code>disabled</code>, <code>warming</code>, <code>ready</code>, <code>challenged</code>, <code>degraded</code>, and <code>stopping</code> states.</li>
+      <li><strong>RuntimeLanePool:</strong> separate foreground, background, and decode lanes so background page-map work cannot poison visible image restore or comments/search work.</li>
+      <li><strong>DurableQueueReaper:</strong> a provider-independent lease reclaimer that periodically returns stale <code>running</code> jobs to retry/queued and logs the action.</li>
+      <li><strong>ForegroundRequestOwner:</strong> serve the freshest valid cache immediately, enqueue/subscribe to refresh, and never block visible UI on background queue depth.</li>
+      <li><strong>BackgroundCrawlerOwner:</strong> owns daily crawl and eager cache, but can be suspended or degraded without changing foreground cache semantics.</li>
+      <li><strong>Completeness contracts:</strong> cache entries should distinguish <code>ready</code>, <code>stale</code>, <code>refreshing</code>, <code>incomplete</code>, <code>provider-failed</code>, and <code>not-found</code>.</li>
+    </ul>
+  </section>
+
+  <p><a href="./index.html">Back to report index</a></p>
+</main>
+</body>
+</html>

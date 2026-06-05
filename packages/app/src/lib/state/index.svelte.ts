@@ -262,7 +262,7 @@ class AppState {
             if (pending.kind === 'list') {
                 await this.replayRootSearch(pending);
             } else if (pending.kind === 'favorites') {
-                await this.favorites.activate();
+                await this.favorites.prepareRoot({ repairSnapshots: true, warmCovers: true });
             }
 
             if (this.pendingRootRestore?.generation === pending.generation) {

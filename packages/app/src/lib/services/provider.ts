@@ -22,6 +22,7 @@ export interface ProviderRuntimeSummary {
     enabled: boolean;
     ready: boolean;
     needsHumanClearance: boolean;
+    runtimeState?: 'disabled' | 'warming' | 'ready' | 'degraded' | 'stopping';
 }
 
 async function bundledProvider(providerId: string): Promise<MangaProvider> {

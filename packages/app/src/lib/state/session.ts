@@ -1,5 +1,5 @@
 import type { SearchFilters } from '@manga-reader/provider-types';
-import type { Manga, ViewMode } from '../types.js';
+import type { ViewMode } from '../types.js';
 import * as storage from '../services/storage.js';
 
 const SESSION_KEY = 'session';

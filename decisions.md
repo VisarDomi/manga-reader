@@ -232,6 +232,13 @@ should land on the saved foreground first. If a backing layer needs data before
 its saved scroll can be applied, that layer owns a pending restore target and
 applies it when its height/data is ready.
 
+Backing roots are not optional lazy surfaces. After restoring the foreground,
+the restore owner must prepare the next layer in stack order even while it is
+hidden. For favorites, preparation means IDB favorite rows, backend card
+snapshot repair, and cached cover warmup. Normal favorites activation may stay
+lightweight, but restore-root completion must mean the backing root is ready to
+display when swipe-back reveals it.
+
 For nested manga details, each manga layer owns its own scroll snapshot. A
 single "current manga scroll" is not enough because the stack can contain
 multiple independent manga-detail surfaces. Persist and restore scroll by
@@ -457,12 +464,18 @@ Production data ownership is explicit:
   stats hydrate from the backend cache.
 
 The search endpoint is intentionally narrow. It is not a generic proxy. The
-backend route owns transport, Cloudflare cookie/header handling, request
-validation, and logging. The provider owns provider-specific search semantics:
-URL construction via `searchRequest` and response shape via
-`parseSearchResponse`.
+backend route owns transport selection, Cloudflare cookie/header handling,
+request validation, and logging. The provider owns provider-specific search
+semantics: URL construction via `searchRequest`, optional browser-runtime
+fallback mapping, and response shape via `parseSearchResponse`.
 This prevents duplicating provider query parameters in the server while also
 preventing the frontend from regaining a "fetch anything live" escape hatch.
+
+Search errors are not a reason to serve stale frontend search results. If
+`/api/search` returns 500 while the provider site is alive, that is a backend
+search-transport ownership bug. Fix the provider route/transport owner and log
+the selected mode (`proxy`, `runtime-api`, `document`, or fallback failure)
+instead of masking the failure in UI state.
 
 Search requests are owned transactions. The frontend assigns a request id to
 each search/page owner and the backend logs that same id. A late response may
@@ -1884,6 +1897,14 @@ which normalized payloads are ready to serve. The provider owns URL/path
 semantics and normalization. BrowserSession should not decide cache policy,
 comment behavior, frontend behavior, or product-level request routing.
 
+ProviderCoordinator owns provider runtime state at the service boundary. A
+provider can be `disabled`, `warming`, `ready`, `degraded`, or `stopping`.
+These states are telemetry and ownership boundaries, not UI guesses. The
+coordinator changes state around browser initialization, runtime warmup,
+cache/byte-cache startup, provider disable, and startup failures. This keeps
+"provider cannot currently serve runtime requests" distinct from "provider is
+disabled" and from ordinary cache misses.
+
 ## D16. Chapter Log Ownership: Manga Content Owner, Not API Layer
 
 The `chapters-page` and `chapters-done` log events are emitted by the
@@ -2002,6 +2023,21 @@ worker. If power dies mid chapter-list job, no partial chapter-list row is
 committed and the durable job is reclaimed. If power dies mid page-map job, the
 canonical page-map payload is written atomically, so startup either sees the
 completed row and skips it or reclaims the job.
+
+Startup owner recovery is not enough by itself. The cache service also runs a
+provider-scoped durable queue reaper while the provider is enabled. The reaper
+returns expired `running` leases to `retry` even when no matching worker is
+currently claiming that kind or priority. This prevents stale durable ownership
+from depending on a future foreground request, and it logs compact recovery
+samples so the queue can be audited from service logs.
+
+Provider readiness should not wait for background cache maintenance. Cache
+startup marks the cache owner active, recovers the current worker, starts the
+durable queue reaper, then defers heavier startup maintenance such as schema
+invalidations, cover ownership rebuild checks, upload-date repair discovery,
+filter refresh, daily crawl setup, and background drain. This keeps
+`/api/providers` and foreground routes responsive once the browser runtime is
+warm, while the cache owner still performs maintenance in its own turn.
 
 Corrupt cache rows are not fatal during rebuild/discovery passes. If a cached
 manga row or saved search page snapshot cannot be parsed while rebuilding cover

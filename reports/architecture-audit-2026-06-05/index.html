@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Manga Architecture Audit - 2026-06-05</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+<main>
+  <h1>Manga Architecture Audit</h1>
+  <p class="subtitle">
+    Evidence-backed report for the manga-reader monorepo, generated from logs,
+    SQLite state, process state, and source code on 2026-06-05.
+  </p>
+
+  <section>
+    <h2>Executive Summary</h2>
+    <div class="grid">
+      <div class="card">
+        <strong>Service State</strong>
+        <div class="metric warn">7.8 GB</div>
+        <div class="muted">memory after long uptime, with browser-backed cache work active</div>
+      </div>
+      <div class="card">
+        <strong>Current Run Signal</strong>
+        <div class="metric bad">6,490</div>
+        <div class="muted">request-failed logs, mostly background Comix page-map work</div>
+      </div>
+      <div class="card">
+        <strong>Confirmed Leak</strong>
+        <div class="metric bad">2</div>
+        <div class="muted">stale/running durable jobs observed across providers</div>
+      </div>
+      <div class="card">
+        <strong>Reader Core</strong>
+        <div class="metric good">sound</div>
+        <div class="muted">bounded geometry is worth keeping, ownership should be tightened</div>
+      </div>
+    </div>
+    <p class="callout risk">
+      Main conclusion: the app is not simply suffering from one bad reader bug.
+      It has several good architectural ideas, but some owners are still too
+      broad. Restart clears symptoms because browser/runtime/durable-job state
+      is not fully self-healing. The next fixes should strengthen owners rather
+      than add gates or timeouts.
+    </p>
+  </section>
+
+  <section>
+    <h2>Report Parts</h2>
+    <table>
+      <thead><tr><th>Part</th><th>What it covers</th><th>Open</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>1</td>
+          <td>Evidence anchor, high-level architecture map, package responsibilities, hotspot file sizes.</td>
+          <td><a href="./01-evidence-and-architecture.html">Evidence and architecture</a></td>
+        </tr>
+        <tr>
+          <td>2</td>
+          <td>Current service logs, cache DB queues, stale jobs, historical failure families, storage distribution.</td>
+          <td><a href="./02-logs-and-cache.html">Logs and cache</a></td>
+        </tr>
+        <tr>
+          <td>3</td>
+          <td>Frontend reader geometry, scroll writers, progress ownership, restore/root replay, session soft points.</td>
+          <td><a href="./03-frontend-reader-session.html">Frontend reader/session</a></td>
+        </tr>
+        <tr>
+          <td>4</td>
+          <td>Backend cache, provider owners, browser runtime lanes, durable queue lifecycle, provider failures.</td>
+          <td><a href="./04-backend-cache-provider-browser.html">Backend/provider/browser</a></td>
+        </tr>
+        <tr>
+          <td>5</td>
+          <td>Consolidated anti-patterns, edge cases, what to keep, what drifted, and recommended restructure path.</td>
+          <td><a href="./05-soft-points-and-restructure.html">Soft points/restructure</a></td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Architecture At A Glance</h2>
+    <div class="flow">
+      <div class="node-row">
+        <div class="node">Svelte PWA<br><span class="muted">reader, layers, search/favs, local state</span></div>
+        <span class="arrow">-></span>
+        <div class="node">Express API<br><span class="muted">provider-scoped endpoints</span></div>
+        <span class="arrow">-></span>
+        <div class="node">ProviderCoordinator<br><span class="muted">Comix / Mangadot owners</span></div>
+      </div>
+      <div class="node-row">
+        <div class="node">Foreground Request<br><span class="muted">visible user intent</span></div>
+        <span class="arrow">-></span>
+        <div class="node">CacheService<br><span class="muted">stale/fresh, durable jobs</span></div>
+        <span class="arrow">-></span>
+        <div class="node">BrowserSession<br><span class="muted">runtime HTTP, Cloudflare, provider page</span></div>
+      </div>
+      <div class="node-row">
+        <div class="node">Background Crawl<br><span class="muted">daily/eager cache</span></div>
+        <span class="arrow">-></span>
+        <div class="node">Durable SQLite Queue<br><span class="muted">queued/retry/running leases</span></div>
+        <span class="arrow">-></span>
+        <div class="node">Byte/Metadata Cache<br><span class="muted">covers, thumbnails, page maps</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Recommended Next Fixes</h2>
+    <ol>
+      <li>Add a provider-independent durable queue reaper for stale <code>running</code> jobs.</li>
+      <li>Introduce explicit provider runtime states and foreground/background/decode lane ownership.</li>
+      <li>Extract a frontend <code>ScrollOwner</code> and <code>ProgressOwner</code> around existing reader commands.</li>
+      <li>Make every foreground cache miss return typed stale/refreshing/failed state instead of silent waits.</li>
+      <li>Compact provider state-transition logs so future investigations do not drown in repeated request failures.</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>Evidence Boundary</h2>
+    <p>
+      Facts in this report come from the current systemd service run beginning
+      <code>2026-06-04 21:37:36 CEST</code>, SQLite snapshots under
+      <code>~/.local/state/manga-reader/</code>, and current source code.
+      Inferences are labeled where the logs/code support a likely explanation
+      but do not prove the full user-visible path by themselves.
+    </p>
+  </section>
+</main>
+</body>
+</html>

@@ -84,15 +84,23 @@ export class FavoritesState {
     }
 
     async activate() {
+        await this.prepareRoot({ repairSnapshots: false, warmCovers: false });
+    }
+
+    async prepareRoot(options: { repairSnapshots?: boolean; warmCovers?: boolean } = {}) {
         const providerId = getProviderId();
-        if (this.loaded && this.loadedProviderId === providerId) return;
+        if (this.loaded && this.loadedProviderId === providerId) {
+            if (options.warmCovers) await this.warmCoverImages(this.items, providerId);
+            return;
+        }
         const startedAt = performance.now();
         this.log.emit('favorites-activation', { phase: 'start', loaded: this.loaded, items: this.items.length, dtMs: 0 });
         this.isLoading = true;
         try {
-            const loaded = await this.loadFavoriteRows(providerId);
+            const loaded = await this.loadFavoriteRows(providerId, options.repairSnapshots === true);
             if (!loaded || providerId !== getProviderId()) return;
             this.loaded = true;
+            if (options.warmCovers) await this.warmCoverImages(this.items, providerId);
             this.log.emit('favorites-activation', { phase: 'done', loaded: this.loaded, items: this.items.length, dtMs: Math.round(performance.now() - startedAt) });
         } catch (e) {
             this.log.emit('favorites-activation', {
@@ -117,7 +125,7 @@ export class FavoritesState {
         };
     }
 
-    private async loadFavoriteRows(providerId = getProviderId()): Promise<boolean> {
+    private async loadFavoriteRows(providerId = getProviderId(), awaitRepair = false): Promise<boolean> {
         const startedAt = performance.now();
         const rows = await db.getAllFavoriteRows(providerId);
         if (providerId !== getProviderId()) return false;
@@ -132,7 +140,11 @@ export class FavoritesState {
             items: this.items.length,
             dtMs: Math.round(performance.now() - startedAt),
         });
-        if (rows.length > 0) void this.refreshFavoriteSnapshots(rows, generation, providerId);
+        if (rows.length > 0) {
+            const repair = this.refreshFavoriteSnapshots(rows, generation, providerId);
+            if (awaitRepair) await repair;
+            else void repair;
+        }
         return true;
     }
 
@@ -225,6 +237,33 @@ export class FavoritesState {
                     error: String((e as Error)?.message ?? e),
                 });
             });
+    }
+
+    private async warmCoverImages(items: Manga[], providerId: string): Promise<void> {
+        if (typeof Image === 'undefined' || items.length === 0) return;
+        const startedAt = performance.now();
+        const urls = items.map(item => api.coverProxyUrl(item.id, 'card', item.cover || undefined));
+        let ok = 0;
+        let failed = 0;
+        await Promise.allSettled(urls.map(url => new Promise<void>(resolve => {
+            const img = new Image();
+            img.onload = () => {
+                ok++;
+                resolve();
+            };
+            img.onerror = () => {
+                failed++;
+                resolve();
+            };
+            img.src = url;
+        })));
+        this.log.emit('favorites-cover-warm', {
+            providerId,
+            count: urls.length,
+            ok,
+            failed,
+            dtMs: Math.round(performance.now() - startedAt),
+        });
     }
 
 }

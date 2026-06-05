@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Manga Architecture Audit - Soft Points And Restructure</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+<main>
+  <h1>Soft Points, Anti-Patterns, And Restructure Options</h1>
+  <p class="subtitle">Part 5 - Consolidated interpretation of the evidence, with options that handle multiple edge cases at once.</p>
+
+  <section>
+    <h2>Highest-Confidence Findings</h2>
+    <table>
+      <thead><tr><th>Finding</th><th>Evidence</th><th>Confidence</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>Restart works around real state leaks.</td>
+          <td>Stale <code>running</code> jobs existed, runtime/browser failures are persisted, and user reports restart clears some classes of bad behavior.</td>
+          <td class="good">High</td>
+        </tr>
+        <tr>
+          <td>Background cache work is not cleanly isolated from foreground quality.</td>
+          <td>Current run had thousands of background page-map failures while the same service owns foreground runtime/browser resources.</td>
+          <td class="good">High</td>
+        </tr>
+        <tr>
+          <td>Reader geometry is fundamentally correct but still too distributed.</td>
+          <td>Bounded 200k/200k physical window and scrollend+100ms solved earlier iOS height/momentum issues, but scroll writes and progress commands remain spread across owners.</td>
+          <td class="good">High</td>
+        </tr>
+        <tr>
+          <td>The provider boundary is clearer now than earlier, but runtime state still leaks across policies.</td>
+          <td>ProviderCoordinator owns per-provider owners, but BrowserSession and CacheService still combine foreground/background/decoder/runtime policy.</td>
+          <td class="good">High</td>
+        </tr>
+        <tr>
+          <td>Some log volume is useful, but failure aggregation still needs stronger decision logs.</td>
+          <td>Logs expose request failures and reader sessions, but durable recovery, provider state transitions, and foreground/background arbitration are not compact enough yet.</td>
+          <td class="warn">Medium-high</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Anti-Pattern Matrix</h2>
+    <table>
+      <thead><tr><th>Pattern</th><th>Where it appears</th><th>Why it matters</th><th>Better owner</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>Timer as truth</td>
+          <td>Reader recovery/progress/deep-sleep timers, cache waits and drain sleeps.</td>
+          <td>Timers can be necessary, but they become bugs when they decide ownership instead of observing state.</td>
+          <td>State-machine transition with a logged reason.</td>
+        </tr>
+        <tr>
+          <td>Catch and continue</td>
+          <td>Cache foreground waiters and several browser/cache paths.</td>
+          <td>Hides whether work was cancelled, failed, timed out, or superseded.</td>
+          <td>Typed result: <code>ready</code>, <code>refreshing</code>, <code>failed</code>, <code>aborted</code>.</td>
+        </tr>
+        <tr>
+          <td>Large owner class</td>
+          <td><code>reader.svelte.ts</code>, <code>CacheService.ts</code>, <code>BrowserSession.ts</code>, <code>AppState</code>.</td>
+          <td>Hard to prove one writer per resource because ownership is mixed inside large classes.</td>
+          <td>Small command owners with narrow inputs and explicit outputs.</td>
+        </tr>
+        <tr>
+          <td>Foreground/background sharing without arbitration</td>
+          <td>Provider runtime/browser/cache work.</td>
+          <td>A background crawler failure can consume the same runtime health and browser resources as a visible user request.</td>
+          <td>Separate lanes and a provider runtime actor.</td>
+        </tr>
+        <tr>
+          <td>Persisted state as implicit truth</td>
+          <td>Session restore, favorite card snapshots, cache job rows.</td>
+          <td>Old state can be structurally valid but wrong for the current provider or runtime.</td>
+          <td>Normalize persisted state before replay, and version cache contracts.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Edge Cases And Shared Fixes</h2>
+    <table>
+      <thead><tr><th>User-visible edge case</th><th>Current pressure point</th><th>Shared restructure that helps</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>Restart fixes a broken app state.</td>
+          <td>Browser/runtime and durable queue ownership are not fully self-healing.</td>
+          <td>ProviderRuntimeActor + DurableQueueReaper.</td>
+        </tr>
+        <tr>
+          <td>Reader black screen or missing page after long use.</td>
+          <td>Visible image loading, decoder, and cache freshness compete through several owners.</td>
+          <td>ImageVisibilityOwner + foreground lane separate from background crawler.</td>
+        </tr>
+        <tr>
+          <td>Programmatic scroll jump.</td>
+          <td>Multiple scroll writers and progress/visibility side effects.</td>
+          <td>ScrollOwner as the only DOM scroll writer; ProjectionOwner can request transactions but not write DOM directly.</td>
+        </tr>
+        <tr>
+          <td>Wrong root after restore or swipe-back.</td>
+          <td>AppState owns root, search, favorites, manga stack, and reader restore together.</td>
+          <td>RootRestoreOwner with typed root exclusivity and per-layer restore contracts.</td>
+        </tr>
+        <tr>
+          <td>Foreground waits while cache engine is busy.</td>
+          <td>CacheService both serves foreground and consumes background queue.</td>
+          <td>ForegroundRequestOwner serves stale cache immediately and subscribes to refresh completion.</td>
+        </tr>
+        <tr>
+          <td>Provider-specific breakage spreads into app behavior.</td>
+          <td>Provider runtime failures are sometimes logged as generic request failures.</td>
+          <td>Provider state machine and provider-scoped degraded/challenged states.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>What Looks Worth Keeping</h2>
+    <ul>
+      <li><strong>Bounded reader geometry:</strong> it directly addresses iOS/Safari scroll-height and momentum problems.</li>
+      <li><strong>ProviderCoordinator:</strong> per-provider owners are the right direction; the next step is making runtime state explicit.</li>
+      <li><strong>Durable SQLite jobs:</strong> the DB queue gives power-off recovery potential; it needs stronger stale-running reaping and compact status logs.</li>
+      <li><strong>Byte/cache split:</strong> thumbnails/covers and provider data should remain separately owned.</li>
+      <li><strong>Log-driven workflow:</strong> the app has enough event structure to investigate; the next improvement is decision-level summaries.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>What Looks Like Bloat Or Drift</h2>
+    <table>
+      <thead><tr><th>Area</th><th>Why it is suspect</th><th>Suggested action</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>cache_meta</code> size</td>
+          <td>DB stats showed roughly 172MB, unusually high for metadata.</td>
+          <td>Audit keys and payload sizes; move noisy metrics to compact rollups or prune old data.</td>
+        </tr>
+        <tr>
+          <td>Runtime failure persistence</td>
+          <td>Historical failures include stale module/runtime errors after provider behavior changed.</td>
+          <td>Classify errors by provider runtime generation and expire stale runtime-drift failures.</td>
+        </tr>
+        <tr>
+          <td>Foreground waits with swallowed timeout</td>
+          <td><code>FOREGROUND_CACHE_WAIT_MS</code> plus ignored waiter errors can hide why UI waited.</td>
+          <td>Return typed stale+refreshing state to frontend; log wait result explicitly.</td>
+        </tr>
+        <tr>
+          <td>Large owner files</td>
+          <td>Several core files are near or above 1,000 lines.</td>
+          <td>Extract command owners only when a boundary is proven by bugs, not as cosmetic refactor.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Recommended Path</h2>
+    <ol>
+      <li>
+        Add a <strong>DurableQueueReaper</strong> first. This is the smallest high-confidence
+        backend fix because stale running jobs are observed facts.
+      </li>
+      <li>
+        Split provider runtime state into a <strong>ProviderRuntimeActor</strong>.
+        This should not rewrite provider parsing; it should make warm/degraded/challenged/stopping
+        explicit and logged.
+      </li>
+      <li>
+        Extract frontend <strong>ScrollOwner</strong> and <strong>ProgressOwner</strong>
+        only around existing commands. Do not change reader geometry while doing this.
+      </li>
+      <li>
+        Convert foreground cache misses to <strong>stale-now, refresh-async</strong>
+        typed responses everywhere that user-visible UI can accept stale data.
+      </li>
+      <li>
+        After those are stable, decide whether the cache/background engine needs a
+        broader actor rewrite. Do not start there; too many unrelated edge cases
+        would move at once.
+      </li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>Open Questions For The Next Investigation</h2>
+    <ul>
+      <li>Which exact path writes the most data into <code>cache_meta</code>, and is it still useful?</li>
+      <li>Can stale <code>running</code> jobs be reproduced by disabling a provider during an active browser job?</li>
+      <li>Does foreground image restore ever wait behind background runtime lane work after the latest provider changes?</li>
+      <li>Are root restore misses now only old session snapshots, or can current code still create them?</li>
+      <li>Can logs summarize provider state transitions once per transition instead of emitting repeated request failures?</li>
+    </ul>
+  </section>
+
+  <p><a href="./index.html">Back to report index</a></p>
+</main>
+</body>
+</html>

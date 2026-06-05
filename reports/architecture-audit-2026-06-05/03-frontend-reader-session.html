@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Manga Architecture Audit - Frontend Reader And Session</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+<main>
+  <h1>Frontend Reader And Session Ownership</h1>
+  <p class="subtitle">Part 3 - Reader, restore, root replay, progress, and image-loading ownership.</p>
+
+  <section>
+    <h2>Reader Design That Is Working</h2>
+    <div class="grid">
+      <div class="card"><strong>Physical window</strong><div class="metric">200k + viewport + 200k</div><div class="muted">bounded scroller avoids huge iOS/Safari pixel heights</div></div>
+      <div class="card"><strong>Load radius</strong><div class="metric">10x viewport</div><div class="muted">chapter window candidates</div></div>
+      <div class="card"><strong>DOM keep radius</strong><div class="metric">12x viewport</div><div class="muted">mounted chapter slots</div></div>
+      <div class="card"><strong>Image keep radius</strong><div class="metric">14x viewport</div><div class="muted">image source loading/retention</div></div>
+      <div class="card"><strong>Rebase boundary</strong><div class="metric">scrollend + 100ms</div><div class="muted">user-approved policy</div></div>
+    </div>
+    <p class="callout ok">
+      This architecture directly handles the hardest reader edge case: fast
+      infinite up/down scrolling without unbounded physical scroll height.
+    </p>
+  </section>
+
+  <section>
+    <h2>Reader Ownership Map</h2>
+    <div class="flow">
+      <div class="node-row">
+        <div class="node">Reader.svelte<br><span class="muted">DOM scroll, RAF, scrollend, layout effects</span></div>
+        <span class="arrow">-></span>
+        <div class="node">ReaderState<br><span class="muted">chapters, current chapter, progress, comments</span></div>
+        <span class="arrow">-></span>
+        <div class="node">ReaderWindowManager<br><span class="muted">logical layout and physical projection</span></div>
+      </div>
+      <div class="node-row">
+        <div class="node">ReaderScrollCoordinator<br><span class="muted">programmatic scroll transactions</span></div>
+        <span class="arrow">-></span>
+        <div class="node">ReaderMemoryManager<br><span class="muted">image src, candidates, cleanup</span></div>
+        <span class="arrow">-></span>
+        <div class="node">PageTracker<br><span class="muted">debounced progress saves</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Programmatic Scroll Writers</h2>
+    <table>
+      <thead><tr><th>Owner</th><th>Observed write points</th><th>Risk</th></tr></thead>
+      <tbody>
+        <tr><td><code>ReaderScrollCoordinator</code></td><td><code>scrollIntoView</code>, initial restore offset, reset top, prepend adjust.</td><td>Good that it names transactions, but it is still a DOM writer separate from the virtual projection writer.</td></tr>
+        <tr><td><code>Reader.svelte</code></td><td>projection ack, rebase commit, restore top, visible correction.</td><td class="warn">Multiple DOM writes outside one single scroll transaction owner.</td></tr>
+        <tr><td><code>MangaView.svelte / ChapterList</code></td><td>manga detail restore and chapter scroll targets.</td><td>Different view scroll ownership; safe only if layer restore order is stable.</td></tr>
+        <tr><td><code>AppState</code></td><td>search/favorites root restore uses <code>scrollIntoView</code> for target cards.</td><td>Can compete with foreground restore if root replay timing leaks.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Progress Ownership Is Still Spread Out</h2>
+    <table>
+      <thead><tr><th>Path</th><th>Writes progress?</th><th>Why it exists</th></tr></thead>
+      <tbody>
+        <tr><td><code>openReader</code></td><td>Yes</td><td>New chapter starts at top and resets single-progress ownership.</td></tr>
+        <tr><td><code>trackVisiblePage</code> -> <code>scheduleProgressSync</code></td><td>Yes</td><td>Debounced scrolling progress.</td></tr>
+        <tr><td><code>syncChapterProgress</code></td><td>Yes</td><td>Explicit current chapter sync.</td></tr>
+        <tr><td><code>closeReader</code></td><td>Yes</td><td>Swipe-back/close flush.</td></tr>
+      </tbody>
+    </table>
+    <p class="callout">
+      Inference: these paths are legitimate user-facing requirements, but they
+      should be treated as commands into one ProgressOwner rather than many
+      places that can directly write <code>db.setProgress</code> and
+      <code>progress.update</code>.
+    </p>
+  </section>
+
+  <section>
+    <h2>Restore And Root Replay</h2>
+    <div class="flow">
+      <div class="node-row">
+        <div class="node">loadSession()</div>
+        <span class="arrow">-></span>
+        <div class="node">applyRestoreShell()</div>
+        <span class="arrow">-></span>
+        <div class="node">foreground layer</div>
+        <span class="arrow">-></span>
+        <div class="node">backing layers</div>
+        <span class="arrow">-></span>
+        <div class="node">pending root restore</div>
+      </div>
+    </div>
+    <p>
+      This is the intended model. The code has a distinct pending-root owner,
+      which is good. The soft point is that <code>AppState</code> also owns
+      search state, favorites state, manga stack restore, reader restore,
+      background pause/resume, and session persistence in a single large class.
+    </p>
+  </section>
+
+  <section>
+    <h2>Frontend Soft Points</h2>
+    <table>
+      <thead><tr><th>Soft point</th><th>Evidence</th><th>Edge cases affected</th></tr></thead>
+      <tbody>
+        <tr><td>One large app state owner</td><td><code>index.svelte.ts</code> is 986 lines and owns restore/root/search/favs/manga/reader coordination.</td><td>Restore order, root missing after swipe-back, background work leaking into foreground.</td></tr>
+        <tr><td>Reader state owner is too broad</td><td><code>reader.svelte.ts</code> is 1,877 lines and owns chapters, geometry, progress, comments, image metadata hydration.</td><td>Scroll jumps, black screens, wrong chapter progress, comments side effects.</td></tr>
+        <tr><td>DOM scroll ownership split</td><td>Scroll writes exist in <code>Reader.svelte</code>, <code>ReaderScrollCoordinator</code>, manga views, and root restore.</td><td>Programmatic scroll leaks, iOS momentum stops, restore jumps.</td></tr>
+        <tr><td>Image loading is DOM-event based</td><td><code>ReaderMemoryManager</code> drives <code>img.src</code>, onload/onerror, store telemetry, cleanup.</td><td>Unloaded visible images, slow decoder visibility, candidate failures.</td></tr>
+        <tr><td>Progress has multiple command sources</td><td>Open, scroll, explicit sync, and close all write progress.</td><td>Wrong chapter resume after navigation or fast transitions.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Frontend Restructure Direction</h2>
+    <p class="callout">
+      The current frontend should not be patched with more gates. The stronger
+      structure is a small set of command owners:
+    </p>
+    <ul>
+      <li><strong>ScrollOwner:</strong> the only code allowed to write DOM scroll positions.</li>
+      <li><strong>ProjectionOwner:</strong> owns logical-to-physical window projection and rebase eligibility.</li>
+      <li><strong>ProgressOwner:</strong> accepts open/visible/close commands and serializes progress writes.</li>
+      <li><strong>RootRestoreOwner:</strong> already partly exists; should fully own root replay and make AppState thinner.</li>
+      <li><strong>ImageVisibilityOwner:</strong> owns critical vs preload image loading and visibility guarantees.</li>
+    </ul>
+  </section>
+
+  <p><a href="./index.html">Back to report index</a></p>
+</main>
+</body>
+</html>

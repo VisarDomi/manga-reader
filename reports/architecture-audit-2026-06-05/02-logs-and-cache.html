@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Manga Architecture Audit - Logs And Cache</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+<main>
+  <h1>Logs And Cache State</h1>
+  <p class="subtitle">Part 2 - What the current service run and provider SQLite databases say.</p>
+
+  <section>
+    <h2>Current Run Event Counts</h2>
+    <table>
+      <thead><tr><th>Event family</th><th>Count</th><th>Interpretation</th></tr></thead>
+      <tbody>
+        <tr><td><code>background</code></td><td>13,243</td><td>Background cache activity dominates the log window.</td></tr>
+        <tr><td><code>cache-chapter-page-map</code></td><td>7,783</td><td>Chapter image metadata/page-map jobs are the dominant cache workload.</td></tr>
+        <tr><td><code>failed</code></td><td class="bad">6,686</td><td>Failure tokens are frequent enough to be architectural signal, not noise.</td></tr>
+        <tr><td><code>request-failed</code></td><td class="bad">6,490</td><td>Runtime HTTP failures, mostly Comix page-map requests.</td></tr>
+        <tr><td><code>surface</code></td><td>783</td><td>Browser surface periodic telemetry is present.</td></tr>
+        <tr><td><code>job-failed-summary</code></td><td class="bad">218</td><td>Grouped failures, useful and compact logging.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Current Run Failure Shape</h2>
+    <div class="card">
+      <strong>Only grouped failure class found in current run</strong>
+      <div class="metric bad">6,540</div>
+      <p>
+        <code>provider=comix kind=cache-chapter-page-map priority=background reason=chapter-list-cached</code>
+        across 219 summaries.
+      </p>
+    </div>
+    <p class="callout">
+      Observed: current logs are not showing a wide mix of foreground failures.
+      They show a background page-map ingestion loop repeatedly requesting
+      chapter metadata that returns provider/runtime failures. Inference: this
+      can still hurt foreground indirectly through browser session health,
+      memory/CPU pressure, and stale durable state.
+    </p>
+  </section>
+
+  <section>
+    <h2>Provider Queue State</h2>
+    <table>
+      <thead><tr><th>Provider</th><th>Job kind</th><th>Status</th><th>Priority</th><th>Count</th><th>Oldest</th><th>Newest</th></tr></thead>
+      <tbody>
+        <tr><td>Comix</td><td>cache-chapter-page-map</td><td>queued</td><td>10</td><td>2,871,095</td><td>2026-05-10 16:00</td><td>2026-06-05 10:24</td></tr>
+        <tr><td>Comix</td><td>cache-chapter-page-map</td><td>retry</td><td>10</td><td class="bad">36,491</td><td>2026-05-09 23:37</td><td>2026-06-05 10:36</td></tr>
+        <tr><td>Comix</td><td>cache-chapter-page-map</td><td>running</td><td>10</td><td class="bad">1</td><td>2026-05-11 02:44</td><td>2026-06-05 10:42</td></tr>
+        <tr><td>Comix</td><td>cache-chapters</td><td>queued</td><td>10</td><td>89,534</td><td>2026-05-09 23:23</td><td>2026-06-05 04:57</td></tr>
+        <tr><td>Comix</td><td>cache-manga-detail</td><td>queued</td><td>10</td><td>89,539</td><td>2026-05-11 04:45</td><td>2026-06-05 04:57</td></tr>
+        <tr><td>Mangadot</td><td>cache-chapter-page-map</td><td>queued</td><td>10</td><td>185,861</td><td>2026-06-03 16:11</td><td>2026-06-04 13:49</td></tr>
+        <tr><td>Mangadot</td><td>cache-byte</td><td>queued</td><td>100/10</td><td>15,663</td><td>2026-06-03 15:43</td><td>2026-06-04 13:49</td></tr>
+        <tr><td>Mangadot</td><td>cache-manga-detail</td><td>running</td><td>10</td><td class="bad">1</td><td>2026-06-03 15:59</td><td>2026-06-04 13:49</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Confirmed Stale Running Jobs</h2>
+    <table>
+      <thead><tr><th>Provider</th><th>Job ID</th><th>Lease until</th><th>Updated</th><th>Risk</th></tr></thead>
+      <tbody>
+        <tr><td>Comix</td><td><code>cache-chapter-page-map:jlnve:8793582</code></td><td>2026-06-05 11:12</td><td>2026-06-05 10:42</td><td>May be legitimate if active now, but it was visible as running during investigation.</td></tr>
+        <tr><td>Mangadot</td><td><code>cache-manga-detail:18556</code></td><td>2026-06-04 14:19</td><td>2026-06-04 13:49</td><td class="bad">Definitely stale at investigation time.</td></tr>
+      </tbody>
+    </table>
+    <p class="callout risk">
+      Restart should not be the primary ownership recovery mechanism. Durable
+      leases should have an always-on reaper/claimer policy that makes stale
+      running work observable and reclaimable without a full service restart.
+    </p>
+  </section>
+
+  <section>
+    <h2>Comix Historical Failure Families In SQLite</h2>
+    <table>
+      <thead><tr><th>Failure family</th><th>Rows</th><th>Meaning</th></tr></thead>
+      <tbody>
+        <tr><td>Comix main module not found</td><td class="bad">15,970</td><td>Browser/runtime probing can fail when the upstream runtime shape changes or page is not ready.</td></tr>
+        <tr><td>HTTP 404</td><td class="bad">14,689</td><td>Many chapter IDs from cached chapter lists no longer return page maps or are provider-invalid.</td></tr>
+        <tr><td>Incomplete chapter images</td><td class="bad">2,913</td><td>Readiness contract catches partial/zero-page metadata before serving it.</td></tr>
+        <tr><td>HTTP 530</td><td>1,836</td><td>Provider/server-side transient failures.</td></tr>
+        <tr><td>Browser/context closed</td><td class="bad">418</td><td>BrowserSession lifecycle can leak into durable jobs.</td></tr>
+        <tr><td>Timeout</td><td>338</td><td>Timeouts exist as recovery, but they also hide a deeper owner/queue contention question.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Mangadot Historical Failure Families In SQLite</h2>
+    <table>
+      <thead><tr><th>Failure family</th><th>Rows</th><th>Meaning</th></tr></thead>
+      <tbody>
+        <tr><td>AbortError</td><td>113</td><td>Likely from provider disable/suspend, cache cancellation, or browser lane aborts.</td></tr>
+        <tr><td>HTTP 500</td><td>31</td><td>Provider or API failures.</td></tr>
+        <tr><td>HTTP 404</td><td>8</td><td>Provider resource mismatch or stale ID.</td></tr>
+        <tr><td>Cloudflare/challenge</td><td class="bad">5</td><td>Needs browser clearance; provider readiness must be explicit.</td></tr>
+        <tr><td>Failed to fetch / HTTP 502 / 521</td><td>10+</td><td>Provider instability and browser-context dependence.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Storage Distribution</h2>
+    <table>
+      <thead><tr><th>Table/index</th><th>Approx MB</th><th>Interpretation</th></tr></thead>
+      <tbody>
+        <tr><td><code>chapter_image_cache</code></td><td>2,041.9</td><td>Canonical chapter page-map metadata is the largest real data table.</td></tr>
+        <tr><td><code>cache_jobs</code></td><td>1,005.0</td><td>Durable queue itself is now a major storage owner.</td></tr>
+        <tr><td><code>chapter_list_cache</code></td><td>903.7</td><td>Chapter lists are large but expected for broad cache coverage.</td></tr>
+        <tr><td><code>manga_cache</code></td><td>295.6</td><td>Manga metadata.</td></tr>
+        <tr><td><code>cache_meta</code></td><td>172.4</td><td>Potential soft point; meta table is unexpectedly large and should be audited separately.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <p><a href="./index.html">Back to report index</a></p>
+</main>
+</body>
+</html>

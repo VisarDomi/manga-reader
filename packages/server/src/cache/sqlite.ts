@@ -863,6 +863,42 @@ export class CacheDatabase {
     return Number(result.changes ?? 0);
   }
 
+  recoverExpiredRunningJobs(now = Date.now(), limit = 100): Array<{ id: string; kind: string; resourceKey: string; leaseOwner: string | null; leaseUntil: number | null }> {
+    return this.transaction(() => {
+      const rows = this.db.prepare(`
+        SELECT id, kind, resource_key, lease_owner, lease_until
+        FROM cache_jobs
+        WHERE status = 'running'
+          AND lease_until IS NOT NULL
+          AND lease_until < ?
+        ORDER BY lease_until ASC, created_at ASC
+        LIMIT ?
+      `).all(now, limit) as unknown as Array<{ id: string; kind: string; resource_key: string; lease_owner: string | null; lease_until: number | null }>;
+      if (rows.length === 0) return [];
+
+      const ids = rows.map(row => row.id);
+      const placeholders = ids.map(() => '?').join(', ');
+      this.db.prepare(`
+        UPDATE cache_jobs
+        SET status = 'retry',
+          run_after = ?,
+          lease_owner = NULL,
+          lease_until = NULL,
+          last_error = 'expired lease recovered by durable queue reaper',
+          updated_at = ?
+        WHERE id IN (${placeholders})
+      `).run(now, now, ...ids);
+
+      return rows.map(row => ({
+        id: row.id,
+        kind: row.kind,
+        resourceKey: row.resource_key,
+        leaseOwner: row.lease_owner,
+        leaseUntil: row.lease_until,
+      }));
+    });
+  }
+
   cacheJobCounts(): Record<string, number> {
     const rows = this.db.prepare(`
       SELECT status, COUNT(*) AS count

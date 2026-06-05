@@ -110,6 +110,8 @@ interface BackgroundFailureSummary {
   timer: ReturnType<typeof setTimeout> | null;
 }
 
+type ResourceWaitOutcome = 'notified' | 'timeout' | 'aborted' | 'failed';
+
 class CacheJobYield extends Error {
   constructor(message: string) {
     super(message);
@@ -490,6 +492,8 @@ export class CacheService {
   private started = false;
   private currentJob: CacheJob | null = null;
   private dailyRolloverTimer: ReturnType<typeof setTimeout> | null = null;
+  private durableQueueReaperTimer: ReturnType<typeof setInterval> | null = null;
+  private startupMaintenanceTimer: ReturnType<typeof setTimeout> | null = null;
   private storeRanking: StoreRanking | null = null;
   private readonly backgroundFailures = new Map<string, BackgroundFailureSummary>();
   private readonly resourceWaiters = new Map<string, Set<() => void>>();
@@ -511,6 +515,13 @@ export class CacheService {
     if (this.started) return;
     this.started = true;
     this.scheduler.recoverWorker(this.workerId);
+    this.startDurableQueueReaper();
+    this.startupMaintenanceTimer = setTimeout(() => this.runStartupMaintenance(), 0);
+  }
+
+  private runStartupMaintenance(): void {
+    this.startupMaintenanceTimer = null;
+    if (this.suspended) return;
     const staleChapterImages = this.db.deleteStaleChapterImageSchemaRows();
     if (staleChapterImages > 0) {
       console.log(`[cache] chapter-image-schema-invalidated provider=${this.provider.id} rows=${staleChapterImages} requiredSchema=2 reason=scramble-metadata`);
@@ -563,10 +574,32 @@ export class CacheService {
   suspend(): void {
     this.suspended = true;
     this.started = false;
+    this.stopDurableQueueReaper();
+    if (this.startupMaintenanceTimer) {
+      clearTimeout(this.startupMaintenanceTimer);
+      this.startupMaintenanceTimer = null;
+    }
     if (this.dailyRolloverTimer) {
       clearTimeout(this.dailyRolloverTimer);
       this.dailyRolloverTimer = null;
     }
+  }
+
+  private startDurableQueueReaper(): void {
+    if (this.durableQueueReaperTimer) return;
+    const run = () => {
+      if (this.suspended) return;
+      const recovered = this.scheduler.recoverExpiredRunning();
+      if (recovered > 0) this.drain();
+    };
+    run();
+    this.durableQueueReaperTimer = setInterval(run, 60_000);
+  }
+
+  private stopDurableQueueReaper(): void {
+    if (!this.durableQueueReaperTimer) return;
+    clearInterval(this.durableQueueReaperTimer);
+    this.durableQueueReaperTimer = null;
   }
 
   status(): Record<string, unknown> {
@@ -666,7 +699,11 @@ export class CacheService {
         return { data, waitedMs, status: 'warmed' };
       }
       if (!this.hasMangaDetailWork(mangaId)) break;
-      await this.waitForResource(resource, Math.max(1, FOREGROUND_CACHE_WAIT_MS - (Date.now() - startedAt)), context.signal).catch(() => {});
+      const outcome = await this.waitForResourceOutcome(resource, Math.max(1, FOREGROUND_CACHE_WAIT_MS - (Date.now() - startedAt)), context.signal);
+      if (outcome !== 'notified') {
+        console.log(`[cache] manga-detail-wait-yield provider=${this.provider.id} manga=${mangaId} priority=${priority} outcome=${outcome} waitedMs=${Date.now() - startedAt}`);
+        if (outcome === 'aborted') break;
+      }
     }
 
     const waitedMs = Date.now() - startedAt;
@@ -726,7 +763,11 @@ export class CacheService {
         return { data, waitedMs, status: 'warmed' };
       }
       if (!this.hasChapterPageMapWork(mangaId, chapterId)) break;
-      await this.waitForResource(resource, Math.max(1, FOREGROUND_CACHE_WAIT_MS - (Date.now() - startedAt)), context.signal).catch(() => {});
+      const outcome = await this.waitForResourceOutcome(resource, Math.max(1, FOREGROUND_CACHE_WAIT_MS - (Date.now() - startedAt)), context.signal);
+      if (outcome !== 'notified') {
+        console.log(`[cache] chapter-images-wait-yield provider=${this.provider.id} manga=${mangaId} chapter=${chapterId} priority=${priority} outcome=${outcome} waitedMs=${Date.now() - startedAt}`);
+        if (outcome === 'aborted') break;
+      }
     }
 
     const waitedMs = Date.now() - startedAt;
@@ -1310,11 +1351,11 @@ export class CacheService {
     return `${kind}:${resourceKey}`;
   }
 
-  private waitForResource(key: string, timeoutMs: number, signal?: AbortSignal): Promise<void> {
-    if (signal?.aborted) return Promise.reject(signal.reason ?? new DOMException('Aborted', 'AbortError'));
-    return new Promise((resolve, reject) => {
+  private async waitForResourceOutcome(key: string, timeoutMs: number, signal?: AbortSignal): Promise<ResourceWaitOutcome> {
+    if (signal?.aborted) return 'aborted';
+    return new Promise(resolve => {
       let done = false;
-      const finish = (fn: () => void) => {
+      const finish = (outcome: ResourceWaitOutcome) => {
         if (done) return;
         done = true;
         clearTimeout(timer);
@@ -1324,18 +1365,22 @@ export class CacheService {
           if (waiters.size === 0) this.resourceWaiters.delete(key);
         }
         signal?.removeEventListener('abort', abort);
-        fn();
+        resolve(outcome);
       };
-      const notify = () => finish(resolve);
-      const abort = () => finish(() => reject(signal?.reason ?? new DOMException('Aborted', 'AbortError')));
-      const timer = setTimeout(() => finish(resolve), timeoutMs);
+      const notify = () => finish('notified');
+      const abort = () => finish('aborted');
+      const timer = setTimeout(() => finish('timeout'), timeoutMs);
       let waiters = this.resourceWaiters.get(key);
       if (!waiters) {
         waiters = new Set();
         this.resourceWaiters.set(key, waiters);
       }
-      waiters.add(notify);
-      signal?.addEventListener('abort', abort, { once: true });
+      try {
+        waiters.add(notify);
+        signal?.addEventListener('abort', abort, { once: true });
+      } catch {
+        finish('failed');
+      }
     });
   }
 

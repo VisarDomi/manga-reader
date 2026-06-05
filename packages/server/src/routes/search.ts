@@ -1,9 +1,10 @@
 import { Router } from 'express';
-import type { SearchFilters } from '@manga-reader/provider-types';
+import type { HttpRequest, SearchFilters } from '@manga-reader/provider-types';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import { proxyFetchJson } from '../utils/proxyFetch.js';
 import type { ProviderCoordinator } from '../services/ProviderCoordinator.js';
 import { getServerProvider } from '../services/providerRuntime.js';
+import type { ProviderRuntimeOwner } from '../services/ProviderCoordinator.js';
 
 function stringParam(value: unknown, fallback = ''): string {
   return typeof value === 'string' ? value : fallback;
@@ -41,6 +42,57 @@ function requestIdFromBody(value: unknown): string {
   return typeof body.requestId === 'string' && body.requestId.length > 0 ? body.requestId : 'none';
 }
 
+async function fetchProviderSearch(owner: ProviderRuntimeOwner, upstream: HttpRequest, query: string, page: number, requestId: string) {
+  const provider = owner.provider;
+  const path = new URL(upstream.url).pathname;
+  if (provider.id === 'mangadotnet' && path === '/search') {
+    return {
+      data: (await owner.browserSession.fetchRuntimeDocument(upstream.url, {
+        owner: 'search-route',
+        priority: 'foreground',
+        reason: query || 'browse-filtered',
+      })).html,
+      meta: { status: 200 },
+      mode: 'document',
+    };
+  }
+
+  if (provider.id === 'mangadotnet') {
+    return {
+      data: (await owner.browserSession.fetchRuntimeApi(upstream.url, {
+        owner: 'search-route',
+        priority: 'foreground',
+        reason: query || 'browse',
+      })).data,
+      meta: { status: 200 },
+      mode: 'api',
+    };
+  }
+
+  try {
+    const fetched = await proxyFetchJson(upstream.url, {
+      method: upstream.method,
+      headers: upstream.headers,
+      body: upstream.body,
+      cloudflareProtected: upstream.cloudflareProtected,
+    });
+    return { ...fetched, mode: 'proxy' };
+  } catch (error) {
+    if (provider.searchRuntimeFallback !== 'api' || !provider.searchRuntimePath) throw error;
+    const runtimePath = provider.searchRuntimePath(upstream.url);
+    console.log(`[search] provider=${provider.id} requestId=${requestId} mode=proxy-failed query="${query || '(browse)'}" page=${page} fallback=runtime-api reason=${String((error as Error)?.message ?? error)}`);
+    return {
+      data: (await owner.browserSession.fetchRuntimeApi(runtimePath, {
+        owner: 'search-route',
+        priority: 'foreground',
+        reason: query || 'browse-fallback',
+      })).data,
+      meta: { status: 200 },
+      mode: 'runtime-api',
+    };
+  }
+}
+
 export default function createSearchRouter(coordinator: ProviderCoordinator | null): Router {
   const router = Router();
 
@@ -73,35 +125,11 @@ export default function createSearchRouter(coordinator: ProviderCoordinator | nu
       }
     }
     const upstream = provider.searchRequest(query, page, filters);
-    const mangadotPath = owner.provider.id === 'mangadotnet' ? new URL(upstream.url).pathname : '';
-    const fetched = owner.provider.id === 'mangadotnet' && mangadotPath === '/search'
-      ? {
-          data: (await owner.browserSession.fetchRuntimeDocument(upstream.url, {
-            owner: 'search-route',
-            priority: 'foreground',
-            reason: query || 'browse-filtered',
-          })).html,
-          meta: { status: 200 },
-        }
-      : owner.provider.id === 'mangadotnet'
-      ? {
-          data: (await owner.browserSession.fetchRuntimeApi(upstream.url, {
-            owner: 'search-route',
-            priority: 'foreground',
-            reason: query || 'browse',
-          })).data,
-          meta: { status: 200 },
-        }
-      : await proxyFetchJson(upstream.url, {
-          method: upstream.method,
-          headers: upstream.headers,
-          body: upstream.body,
-          cloudflareProtected: upstream.cloudflareProtected,
-        });
+    const fetched = await fetchProviderSearch(owner, upstream, query, page, requestId);
     const { data, meta } = fetched;
     const parsed = provider.parseSearchResponse(data);
     owner.cache.warmSearchResultCovers(parsed.items, { page, requestId });
-    console.log(`[search] provider=${provider.id} requestId=${requestId} mode=${mangadotPath === '/search' ? 'document' : 'api'} query="${query || '(browse)'}" page=${page} http=${meta.status} count=${parsed.items.length} current=${parsed.pagination?.currentPage ?? page} last=${parsed.pagination?.lastPage ?? 'unknown'} total=${parsed.pagination?.total ?? parsed.items.length} ${Date.now() - started}ms`);
+    console.log(`[search] provider=${provider.id} requestId=${requestId} mode=${fetched.mode} query="${query || '(browse)'}" page=${page} http=${meta.status} count=${parsed.items.length} current=${parsed.pagination?.currentPage ?? page} last=${parsed.pagination?.lastPage ?? 'unknown'} total=${parsed.pagination?.total ?? parsed.items.length} ${Date.now() - started}ms`);
     res.json(data);
   }));
 
