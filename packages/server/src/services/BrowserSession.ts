@@ -107,6 +107,7 @@ export class BrowserSession {
     private readonly runtimeApiInflight = new Map<string, Promise<unknown>>();
     private decoder: ScrambledPageDecoder | null = null;
     private surfaceLogTimer: NodeJS.Timeout | null = null;
+    private runtimeGeneration = 0;
 
     constructor(
         private readonly provider: ServerMangaProvider,
@@ -643,7 +644,7 @@ export class BrowserSession {
             this.runtimeHttpPages.set(lane, page);
             this.runtimeHttpReady.set(lane, true);
             this.runtimeHttpHealthy = true;
-            console.log(`[browserSession] runtime-http ready provider=${this.provider.id} lane=${lane} manga=${mangaId} ${Date.now() - start}ms`);
+            console.log(`[browserSession] runtime-http ready provider=${this.provider.id} lane=${lane} generation=${this.runtimeGeneration} manga=${mangaId} ${Date.now() - start}ms`);
         } catch (error) {
             if (this.runtimeHttpPages.get(lane) === page) {
                 this.runtimeHttpPages.delete(lane);
@@ -659,13 +660,14 @@ export class BrowserSession {
                 console.log(`[browserSession] runtime-http init-page-kept provider=${this.provider.id} lane=${lane} manga=${mangaId} reason=last-context-page`);
             }
             this.runtimeHttpHealthy = false;
-            console.log(`[browserSession] runtime-http init-failed provider=${this.provider.id} lane=${lane} manga=${mangaId} ${Date.now() - start}ms ${msg}`);
+            console.log(`[browserSession] runtime-http init-failed provider=${this.provider.id} lane=${lane} generation=${this.runtimeGeneration} manga=${mangaId} ${Date.now() - start}ms ${msg}`);
             throw error;
         }
     }
 
     private async resetRuntimeHttpPage(reason: string, lane?: RuntimeHttpLane): Promise<void> {
         const lanes: RuntimeHttpLane[] = lane ? [lane] : ['foreground', 'background'];
+        this.runtimeGeneration++;
         for (const targetLane of lanes) {
             const page = this.runtimeHttpPages.get(targetLane);
             this.runtimeHttpPages.delete(targetLane);
@@ -677,9 +679,11 @@ export class BrowserSession {
                 });
             }
         }
+        console.log(`[browserSession] runtime-http reset-pages provider=${this.provider.id} lanes=${lanes.join(',')} generation=${this.runtimeGeneration} reason=${reason}`);
     }
 
     private resetRuntimeHttpState(): void {
+        this.runtimeGeneration++;
         this.runtimeHttpPages.clear();
         this.runtimeHttpReady.clear();
         this.runtimeHttpInit.clear();
@@ -705,7 +709,7 @@ export class BrowserSession {
                 console.log(`[browserSession] context-close failed provider=${this.provider.id} reason=${reason}: ${this.errorMessage(e)}`);
             });
         }
-        console.log(`[browserSession] context-reset provider=${this.provider.id} reason=${reason}`);
+        console.log(`[browserSession] context-reset provider=${this.provider.id} generation=${this.runtimeGeneration} reason=${reason}`);
     }
 
     private isClosedContextError(error: unknown): boolean {
@@ -764,12 +768,12 @@ export class BrowserSession {
             const msg = this.errorMessage(e);
             if (!this.shouldResetRuntimeHttp(e)) {
                 if (this.isProviderChallengeError(e)) this.markRuntimeUnhealthy(msg);
-                console.log(`[browserSession] runtime-http request-failed provider=${this.provider.id} lane=${lane} manga=${mangaId} path=${apiPath} ${browserFetchContextLog(context)} reason=${msg}`);
+                console.log(`[browserSession] runtime-http request-failed provider=${this.provider.id} lane=${lane} generation=${this.runtimeGeneration} manga=${mangaId} path=${apiPath} ${browserFetchContextLog(context)} reason=${msg}`);
                 throw e;
             }
             this.markRuntimeUnhealthy(msg);
             if (attempt >= 2) throw e;
-            console.log(`[browserSession] runtime-http reset provider=${this.provider.id} lane=${lane} manga=${mangaId} path=${apiPath} reason=${msg}`);
+            console.log(`[browserSession] runtime-http reset provider=${this.provider.id} lane=${lane} generation=${this.runtimeGeneration} manga=${mangaId} path=${apiPath} reason=${msg}`);
             if (this.isClosedContextError(e)) {
                 await this.resetBrowserContext('runtime-http-closed-context');
                 await this.init();
@@ -809,7 +813,7 @@ export class BrowserSession {
     private markRuntimeUnhealthy(reason: string): void {
         if (!this.runtimeHttpHealthy) return;
         this.runtimeHttpHealthy = false;
-        console.log(`[browserSession] runtime-unhealthy provider=${this.provider.id} reason=${reason}`);
+        console.log(`[browserSession] runtime-unhealthy provider=${this.provider.id} generation=${this.runtimeGeneration} reason=${reason}`);
     }
 
     private runInRuntimeLane<T>(lane: RuntimeHttpLane, work: () => Promise<T>): Promise<T> {

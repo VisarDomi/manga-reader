@@ -1784,6 +1784,14 @@ provider bundle to read its metadata, writes the provider manifest, and copies
 the bundle into the app's bundled fallback directory. That fallback exists so
 the app can still boot if the dynamic manifest path fails.
 
+External provider repositories are a future host/extension direction, not part
+of the current product. The safe path is not arbitrary remote code execution at
+runtime. Prefer a local extension folder or checked-out git source that is built
+into `packages/extensions/dist`, with `provider-types` as the stable host
+contract. A provider version change should be able to trigger provider-scoped
+cache contract invalidation. Do not implement external provider loading until
+that trust/update model is its own goal.
+
 ## BH. Data Isolation Per Provider
 
 The app has one active provider at a time, selected from built-in providers.
@@ -1998,6 +2006,11 @@ If the runtime HTTP call fails, BrowserSession closes and recreates the runtime
 page once, then retries the request. This keeps stale runtime state local to
 BrowserSession instead of leaking fallback behavior into CacheService or the
 frontend.
+
+Runtime ready/reset/unhealthy/request-failed logs include a runtime generation.
+The generation is diagnostic state: it lets logs distinguish stale failures
+from an old runtime page/context from failures after a reset. It must not become
+product logic, a retry gate, or cache truth.
 
 ## D18. CloakBrowser CPU Mitigation Under Xvfb
 
