@@ -258,10 +258,6 @@ class AppState {
     private async drainPendingRootRestore(reason: string): Promise<void> {
         const pending = this.pendingRootRestore;
         if (!pending || this.rootRestoreRunning) return;
-        if (!this.canRunBackgroundWork()) {
-            this.log.emit('restore-root', { action: 'deferred', root: pending.kind, view: this.ui.viewMode, targetId: pending.targetId ?? null, reason });
-            return;
-        }
 
         this.rootRestoreRunning = true;
         this.log.emit('restore-root', { action: 'start', root: pending.kind, view: this.ui.viewMode, targetId: pending.targetId ?? null, reason });
@@ -315,7 +311,7 @@ class AppState {
             throw new Error(`root search replay ${result}`);
         }
         if (pending.targetId && this.restore.isActive) {
-            await this.bgPaginateToTarget();
+            await this.bgPaginateToTarget({ allowHiddenRoot: true });
         }
     }
 
@@ -629,8 +625,8 @@ class AppState {
         return false;
     }
 
-    private async bgPaginateToTarget() {
-        if (!this.canRunBackgroundWork()) {
+    private async bgPaginateToTarget(options: { allowHiddenRoot?: boolean } = {}) {
+        if (!options.allowHiddenRoot && !this.canRunBackgroundWork()) {
             this.log.emit('foreground-work', {
                 owner: 'search',
                 action: 'defer',

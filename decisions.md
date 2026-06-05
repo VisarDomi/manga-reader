@@ -2230,6 +2230,19 @@ the root restore owner only logs completion after `committed`. Aborted or stale
 replay remains visible as a failed restore transaction instead of logging
 `restore-root done` with zero results.
 
+Root restore is not ordinary background work. If the foreground is reader or
+comments, the backing root must still hydrate immediately so swipe-back reveals
+a prepared search/favorites root instead of starting the load only when the
+gesture begins. Foreground reader cleanup can pause speculative search work,
+but it must not defer or cancel the root restore owner.
+
+Card covers are eager. Thumbnail and cover bytes are owned by the local cover
+cache; if the backend has the row, the route should stream local bytes
+immediately, and if it misses, that foreground request owns the on-demand
+proxy-and-store attempt. The browser should not add another hidden batching
+policy with `loading=lazy` for manga cards. Lazy loading is still acceptable
+for unrelated remote content such as comment images.
+
 Search-result cache reconciliation is an observation owned by the search
 generation that produced those cards. Timed reconcile work must not outlive the
 search/provider/root generation that scheduled it. If the generation changes

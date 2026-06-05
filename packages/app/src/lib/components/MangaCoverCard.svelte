@@ -39,7 +39,7 @@
 
 <button class="manga-card" data-manga-id={manga.id} onclick={() => onSelect ? onSelect(manga) : appState.manga.openManga(manga)}>
     <div class="manga-card-cover">
-        <MangaCoverImage mangaId={manga.id} title={manga.title} sourceUrl={manga.cover || undefined} variant="card" {source} />
+        <MangaCoverImage mangaId={manga.id} title={manga.title} sourceUrl={manga.cover || undefined} variant="card" {source} loading="eager" />
     </div>
     <div class="manga-card-info">
         {#if manga.latestChapter != null}
