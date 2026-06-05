@@ -350,6 +350,13 @@ export const mangadotnetServerProvider: ServerMangaProvider = {
     return `${BASE_URL}/api/search?${params}`;
   },
 
+  searchTransport(url: string) {
+    const path = new URL(url).pathname;
+    return path === '/search'
+      ? { mode: 'runtime-document' as const, runtimePath: url }
+      : { mode: 'runtime-api' as const, runtimePath: url };
+  },
+
   mangaPageUrl(mangaId: string, _rawUrl?: unknown): string {
     return `${BASE_URL}/manga/${encodeURIComponent(mangaId)}`;
   },

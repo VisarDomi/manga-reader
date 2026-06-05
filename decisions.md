@@ -479,18 +479,19 @@ Production data ownership is explicit:
   stats hydrate from the backend cache.
 
 The search endpoint is intentionally narrow. It is not a generic proxy. The
-backend route owns transport selection, Cloudflare cookie/header handling,
-request validation, and logging. The provider owns provider-specific search
-semantics: URL construction via `searchRequest`, optional browser-runtime
-fallback mapping, and response shape via `parseSearchResponse`.
+backend route owns request validation, transport execution, and logging. The
+provider owns provider-specific search semantics: URL construction via
+`searchRequest`, transport policy via `searchTransport`, optional
+browser-runtime fallback mapping, and response shape via `parseSearchResponse`.
 This prevents duplicating provider query parameters in the server while also
 preventing the frontend from regaining a "fetch anything live" escape hatch.
 
 Search errors are not a reason to serve stale frontend search results. If
 `/api/search` returns 500 while the provider site is alive, that is a backend
-search-transport ownership bug. Fix the provider route/transport owner and log
-the selected mode (`proxy`, `runtime-api`, `document`, or fallback failure)
-instead of masking the failure in UI state.
+search-transport ownership bug. Fix the provider transport declaration or the
+route transport executor and log the selected mode (`proxy`, `runtime-api`,
+`runtime-document`, or fallback failure) instead of masking the failure in UI
+state.
 
 Search requests are owned transactions. The frontend assigns a request id to
 each search/page owner and the backend logs that same id. A late response may
@@ -539,6 +540,13 @@ runtime is unhealthy. This preserves one durable source of truth while stopping
 a slow background page-map request from occupying the only data-cache worker.
 BrowserSession still owns the provider runtime pages; CacheService owns which
 durable jobs are allowed to enter foreground or background lanes.
+
+Live search uses the same boundary. Core code may ask a provider for a
+`searchRequest` and `searchTransport`, but it should not branch on concrete
+provider ids to decide whether search is proxy JSON, runtime API, or runtime
+document HTML. Comix currently declares proxy search with runtime API fallback.
+Mangadot declares runtime API for `/api/search` and runtime document for
+filtered `/search`. The route executes those declared modes uniformly.
 
 Current provider ownership:
 
@@ -1912,9 +1920,11 @@ detail, chapter lists, recommendations, or chapter image metadata, the provider
 resolves the current runtime HTTP client inside BrowserSession and calls that
 client by capability.
 
-Search remains a narrow backend route. Comments use `CommentsService` and
-normal backend fetches. Frontend code must not regain a generic "fetch Comix
-live" escape hatch or a signing API.
+Search remains a narrow backend route. The route executes provider-declared
+transport modes; the provider owns whether a search request uses proxy JSON,
+runtime API, runtime document HTML, or a fallback. Comments use
+`CommentsService` and normal backend fetches. Frontend code must not regain a
+generic "fetch Comix live" escape hatch or a signing API.
 
 ## D15. BrowserSession Owns Runtime Pages, Not Product Policy
 

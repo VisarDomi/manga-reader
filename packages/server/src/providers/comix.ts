@@ -100,7 +100,6 @@ export const comixServerProvider: ServerMangaProvider = {
   runtimeImageSource: 'runtime-http',
   imageDelivery: 'store-candidates',
   searchPageSize: SEARCH_PAGE_SIZE,
-  searchRuntimeFallback: 'api',
 
   async resolveRuntimeHttpClient(page: Page, probeMangaId: string, owner: string): Promise<void> {
     const start = Date.now();
@@ -249,13 +248,19 @@ export const comixServerProvider: ServerMangaProvider = {
     return `${BASE_URL}/api/v1/manga?${params}`;
   },
 
-  searchRuntimePath(url: string): string {
+  searchTransport(url: string) {
     const parsed = new URL(url);
     const prefix = '/api/v1';
     const pathname = parsed.pathname.startsWith(prefix)
       ? parsed.pathname.slice(prefix.length) || '/'
       : parsed.pathname;
-    return `${pathname}${parsed.search}`;
+    return {
+      mode: 'proxy' as const,
+      fallback: {
+        mode: 'runtime-api' as const,
+        runtimePath: `${pathname}${parsed.search}`,
+      },
+    };
   },
 
   mangaPageUrl(mangaId: string, rawUrl?: unknown): string {

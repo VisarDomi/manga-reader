@@ -292,7 +292,7 @@ similar in spirit to Tachiyomi/Tachimanga extension repositories.
 
 Exploration questions:
 
-- [ ] What provider-specific code exists today in:
+- [x] What provider-specific code exists today in:
   `packages/extensions/providers/*`,
   `packages/server/src/providers/*`,
   `BrowserSession`,
@@ -300,7 +300,7 @@ Exploration questions:
   `ByteCacheService`,
   search/comments/cache routes,
   and frontend provider state?
-- [ ] What would be the minimal provider package contract?
+- [x] What would be the minimal provider package contract?
   Search request/parse, manga detail, chapter list, chapter image metadata,
   comments, filters, cover/image byte rules, runtime requirements, scramble
   rules, Cloudflare/challenge behavior.
@@ -319,6 +319,19 @@ Likely target:
   declarations.
 - Core never checks `provider.id === 'comix'` for behavior except compatibility
   migration or display.
+
+Phase 6 batch from 2026-06-05:
+
+- Moved live-search transport policy to the server provider contract. Providers
+  now expose `searchTransport(url)`, so the search route executes declared
+  modes instead of branching on `provider.id`.
+- Comix declares proxy search with runtime API fallback. Mangadot declares
+  runtime API for `/api/search` and runtime document for filtered `/search`.
+- This is a real boundary fix, not an external-provider-package implementation:
+  it removes concrete provider behavior from one route while preserving current
+  behavior and logs.
+- Still open: external provider loading, provider versioning/cache
+  invalidation, and larger BrowserSession responsibility split.
 
 Do not:
 

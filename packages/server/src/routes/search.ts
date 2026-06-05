@@ -5,6 +5,7 @@ import { proxyFetchJson } from '../utils/proxyFetch.js';
 import type { ProviderCoordinator } from '../services/ProviderCoordinator.js';
 import { getServerProvider } from '../services/providerRuntime.js';
 import type { ProviderRuntimeOwner } from '../services/ProviderCoordinator.js';
+import type { ProviderSearchTransport } from '../providers/types.js';
 
 function stringParam(value: unknown, fallback = ''): string {
   return typeof value === 'string' ? value : fallback;
@@ -42,54 +43,68 @@ function requestIdFromBody(value: unknown): string {
   return typeof body.requestId === 'string' && body.requestId.length > 0 ? body.requestId : 'none';
 }
 
-async function fetchProviderSearch(owner: ProviderRuntimeOwner, upstream: HttpRequest, query: string, page: number, requestId: string) {
-  const provider = owner.provider;
-  const path = new URL(upstream.url).pathname;
-  if (provider.id === 'mangadotnet' && path === '/search') {
-    return {
-      data: (await owner.browserSession.fetchRuntimeDocument(upstream.url, {
-        owner: 'search-route',
-        priority: 'foreground',
-        reason: query || 'browse-filtered',
-      })).html,
-      meta: { status: 200 },
-      mode: 'document',
-    };
-  }
+function transportNeedsRuntime(transport: ProviderSearchTransport): boolean {
+  return transport.mode === 'runtime-api'
+    || transport.mode === 'runtime-document'
+    || (transport.fallback ? transportNeedsRuntime(transport.fallback) : false);
+}
 
-  if (provider.id === 'mangadotnet') {
-    return {
-      data: (await owner.browserSession.fetchRuntimeApi(upstream.url, {
-        owner: 'search-route',
-        priority: 'foreground',
-        reason: query || 'browse',
-      })).data,
-      meta: { status: 200 },
-      mode: 'api',
-    };
-  }
-
+async function ensureSearchRuntime(owner: ProviderRuntimeOwner, transport: ProviderSearchTransport, query: string, page: number, requestId: string): Promise<boolean> {
+  if (!transportNeedsRuntime(transport) || owner.browserSession.canServeRuntimeRequests()) return true;
+  const started = Date.now();
   try {
-    const fetched = await proxyFetchJson(upstream.url, {
-      method: upstream.method,
-      headers: upstream.headers,
-      body: upstream.body,
-      cloudflareProtected: upstream.cloudflareProtected,
-    });
-    return { ...fetched, mode: 'proxy' };
+    await owner.browserSession.warmRuntimeHttp('foreground-search');
   } catch (error) {
-    if (provider.searchRuntimeFallback !== 'api' || !provider.searchRuntimePath) throw error;
-    const runtimePath = provider.searchRuntimePath(upstream.url);
-    console.log(`[search] provider=${provider.id} requestId=${requestId} mode=proxy-failed query="${query || '(browse)'}" page=${page} fallback=runtime-api reason=${String((error as Error)?.message ?? error)}`);
-    return {
-      data: (await owner.browserSession.fetchRuntimeApi(runtimePath, {
-        owner: 'search-route',
-        priority: 'foreground',
-        reason: query || 'browse-fallback',
-      })).data,
-      meta: { status: 200 },
-      mode: 'runtime-api',
-    };
+    console.log(`[search] provider=${owner.provider.id} requestId=${requestId} mode=warm-failed query="${query || '(browse)'}" page=${page} http=503 reason=${String((error as Error)?.message ?? error)} ${Date.now() - started}ms`);
+    return false;
+  }
+  if (owner.browserSession.canServeRuntimeRequests()) return true;
+  console.log(`[search] provider=${owner.provider.id} requestId=${requestId} mode=unavailable query="${query || '(browse)'}" page=${page} http=503 reason=provider-runtime-not-ready ${Date.now() - started}ms`);
+  return false;
+}
+
+async function fetchByTransport(owner: ProviderRuntimeOwner, upstream: HttpRequest, transport: ProviderSearchTransport, query: string, modeReason: string) {
+  const runtimePath = transport.runtimePath ?? upstream.url;
+  switch (transport.mode) {
+    case 'runtime-document':
+      return {
+        data: (await owner.browserSession.fetchRuntimeDocument(runtimePath, {
+          owner: 'search-route',
+          priority: 'foreground',
+          reason: query || modeReason,
+        })).html,
+        meta: { status: 200 },
+        mode: transport.mode,
+      };
+    case 'runtime-api':
+      return {
+        data: (await owner.browserSession.fetchRuntimeApi(runtimePath, {
+          owner: 'search-route',
+          priority: 'foreground',
+          reason: query || modeReason,
+        })).data,
+        meta: { status: 200 },
+        mode: transport.mode,
+      };
+    case 'proxy': {
+      const fetched = await proxyFetchJson(upstream.url, {
+        method: upstream.method,
+        headers: upstream.headers,
+        body: upstream.body,
+        cloudflareProtected: upstream.cloudflareProtected,
+      });
+      return { ...fetched, mode: transport.mode };
+    }
+  }
+}
+
+async function fetchProviderSearch(owner: ProviderRuntimeOwner, upstream: HttpRequest, transport: ProviderSearchTransport, query: string, page: number, requestId: string) {
+  try {
+    return await fetchByTransport(owner, upstream, transport, query, 'browse');
+  } catch (error) {
+    if (!transport.fallback) throw error;
+    console.log(`[search] provider=${owner.provider.id} requestId=${requestId} mode=${transport.mode}-failed query="${query || '(browse)'}" page=${page} fallback=${transport.fallback.mode} reason=${String((error as Error)?.message ?? error)}`);
+    return await fetchByTransport(owner, upstream, transport.fallback, query, 'browse-fallback');
   }
 }
 
@@ -109,23 +124,13 @@ export default function createSearchRouter(coordinator: ProviderCoordinator | nu
     const started = Date.now();
     const owner = coordinator.require(providerId);
     const provider = await getServerProvider(providerId);
-    if (owner.provider.id === 'mangadotnet' && !owner.browserSession.canServeRuntimeRequests()) {
-      const warmStarted = Date.now();
-      try {
-        await owner.browserSession.warmRuntimeHttp('foreground-search');
-      } catch (error) {
-        console.log(`[search] provider=${provider.id} requestId=${requestId} mode=warm-failed query="${query || '(browse)'}" page=${page} http=503 reason=${String((error as Error)?.message ?? error)} ${Date.now() - warmStarted}ms`);
-        res.status(503).json({ error: 'Provider runtime not ready', status: 503, providerId: provider.id });
-        return;
-      }
-      if (!owner.browserSession.canServeRuntimeRequests()) {
-        console.log(`[search] provider=${provider.id} requestId=${requestId} mode=unavailable query="${query || '(browse)'}" page=${page} http=503 reason=provider-runtime-not-ready ${Date.now() - warmStarted}ms`);
-        res.status(503).json({ error: 'Provider runtime not ready', status: 503, providerId: provider.id });
-        return;
-      }
-    }
     const upstream = provider.searchRequest(query, page, filters);
-    const fetched = await fetchProviderSearch(owner, upstream, query, page, requestId);
+    const transport = owner.provider.searchTransport(upstream.url);
+    if (!await ensureSearchRuntime(owner, transport, query, page, requestId)) {
+      res.status(503).json({ error: 'Provider runtime not ready', status: 503, providerId: provider.id });
+      return;
+    }
+    const fetched = await fetchProviderSearch(owner, upstream, transport, query, page, requestId);
     const { data, meta } = fetched;
     const parsed = provider.parseSearchResponse(data);
     owner.cache.warmSearchResultCovers(parsed.items, { page, requestId });
