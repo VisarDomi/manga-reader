@@ -47,14 +47,15 @@ export class ProviderCoordinator {
       const db = new CacheDatabase(this.dbPath(provider.id));
       const browserSession = new BrowserSession(provider);
       let cache: CacheService | null = null;
+      const byteFetchMode = provider.byteFetchMode ?? 'proxy';
       const byteCache = new ByteCacheService(
         this.byteDir(provider.id),
         db,
         provider.id,
-        provider.id === 'mangadotnet'
+        byteFetchMode === 'runtime'
           ? (url, context) => browserSession.fetchRuntimeByte(url, context)
           : undefined,
-        () => provider.id !== 'mangadotnet'
+        () => byteFetchMode !== 'runtime'
           || (browserSession.canRunBackgroundRuntimeWork() && !cache?.hasHigherPriorityDataWork()),
       );
       cache = new CacheService(browserSession, provider, byteCache, db);

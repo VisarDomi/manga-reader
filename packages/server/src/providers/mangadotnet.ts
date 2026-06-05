@@ -225,8 +225,10 @@ export const mangadotnetServerProvider: ServerMangaProvider = {
   baseUrl: BASE_URL,
   runtimeImageSource: 'mangadotnet-api',
   imageDelivery: 'direct',
+  byteFetchMode: 'runtime',
   searchPageSize: SEARCH_PAGE_SIZE,
   commentsMode: 'page-document',
+  commentsFetchMode: 'runtime-api',
   browserProfileDir: path.join(os.homedir(), '.cloakbrowser-profiles', 'mangadot.net'),
   browserExecutablePath: '/usr/bin/chromium',
   browserInitTimeoutMs: 120_000,
@@ -355,6 +357,19 @@ export const mangadotnetServerProvider: ServerMangaProvider = {
     return path === '/search'
       ? { mode: 'runtime-document' as const, runtimePath: url }
       : { mode: 'runtime-api' as const, runtimePath: url };
+  },
+
+  runtimeRequestTimeoutMs(context) {
+    switch (context.priority) {
+      case 'interactive':
+        return 45_000;
+      case 'foreground':
+        return 30_000;
+      case 'observed':
+        return 20_000;
+      default:
+        return 12_000;
+    }
   },
 
   mangaPageUrl(mangaId: string, _rawUrl?: unknown): string {

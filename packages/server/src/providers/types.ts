@@ -22,6 +22,10 @@ export interface ProviderSearchTransport {
   fallback?: ProviderSearchTransport;
 }
 
+export interface ProviderRuntimeRequestContext {
+  priority?: string;
+}
+
 export interface ServerMangaProvider {
   readonly id: string;
   readonly name: string;
@@ -29,8 +33,10 @@ export interface ServerMangaProvider {
   readonly baseUrl: string;
   readonly runtimeImageSource: string;
   readonly imageDelivery: 'store-candidates' | 'direct';
+  readonly byteFetchMode?: 'proxy' | 'runtime';
   readonly searchPageSize: number;
   readonly commentsMode?: 'thread-api' | 'count-only' | 'page-document';
+  readonly commentsFetchMode?: 'proxy' | 'runtime-api';
   readonly browserProfileDir?: string;
   readonly browserExecutablePath?: string;
   readonly browserInitTimeoutMs?: number;
@@ -48,6 +54,7 @@ export interface ServerMangaProvider {
   normalizeChapterImages(detail: Record<string, unknown>): RuntimeChapterImages;
   newestSearchUrl(page: number, limit: number): string;
   searchTransport(url: string): ProviderSearchTransport;
+  runtimeRequestTimeoutMs?(context: ProviderRuntimeRequestContext): number | undefined;
 
   mangaPageUrl(mangaId: string, rawUrl?: unknown): string;
   chapterPageUrl(mangaId: string, chapterId: string, chapterNumber: number, rawUrl?: unknown): string;

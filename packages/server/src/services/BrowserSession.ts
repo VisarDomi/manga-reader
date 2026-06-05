@@ -756,7 +756,7 @@ export class BrowserSession {
                     if (!http?.get) throw new Error('Provider runtime HTTP client unavailable');
                     return http.get(apiPath, { ...(params ? { params } : {}), timeoutMs });
                 },
-                { apiPath, params, timeoutMs: this.provider.id === 'mangadotnet' ? this.runtimeRequestTimeoutMs(context) : undefined },
+                { apiPath, params, timeoutMs: this.provider.runtimeRequestTimeoutMs?.(context) },
             ) as T;
             this.markRuntimeHealthy();
             return value;

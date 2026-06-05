@@ -679,7 +679,7 @@ export class CommentsService {
         for (let attempt = 1; attempt <= COMMENTS_PAGE_ATTEMPTS; attempt++) {
             const start = Date.now();
             try {
-                if (this.provider.id === 'mangadotnet' && this.browserSession) {
+                if (this.provider.commentsFetchMode === 'runtime-api' && this.browserSession) {
                     const result = await this.browserSession.fetchRuntimeApi(url, context);
                     return { data: this.asRecord(result.data) ?? {} };
                 }

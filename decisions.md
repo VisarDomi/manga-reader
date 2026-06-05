@@ -548,6 +548,19 @@ document HTML. Comix currently declares proxy search with runtime API fallback.
 Mangadot declares runtime API for `/api/search` and runtime document for
 filtered `/search`. The route executes those declared modes uniformly.
 
+Provider runtime capabilities also own byte/comment/runtime request mechanics.
+Core code may ask whether bytes or comments should be fetched through proxy or
+runtime, but it should not hardcode Mangadot as "the runtime byte provider" or
+"the runtime comment provider." Mangadot declares `byteFetchMode=runtime`,
+`commentsFetchMode=runtime-api`, and provider-owned runtime request timeouts.
+BrowserSession executes those capabilities; it does not decide them from a
+provider id.
+
+Concrete provider-id checks are allowed only for compatibility and migration:
+the legacy Comix cache database/byte directory, legacy unscoped Comix favorites
+or filters, and one-time provider-specific repair of old malformed durable
+jobs. Those branches must stay narrow and should not own current behavior.
+
 Current provider ownership:
 
 - `comix` uses the original cache database and byte directory. It owns Comix

@@ -1582,13 +1582,22 @@ export class CacheService {
   }
 
   private async fetchSearchCrawlData(url: string, job: CacheJob): Promise<{ data: unknown; status: number }> {
-    if (this.provider.id === 'mangadotnet') {
-      const result = await this.browserSession.fetchRuntimeApi(url, {
+    const transport = this.provider.searchTransport(url);
+    if (transport.mode === 'runtime-api') {
+      const result = await this.browserSession.fetchRuntimeApi(transport.runtimePath ?? url, {
         owner: 'cache-search-crawl',
         priority: job.priority,
         reason: job.reason,
       });
       return { data: result.data, status: 200 };
+    }
+    if (transport.mode === 'runtime-document') {
+      const result = await this.browserSession.fetchRuntimeDocument(transport.runtimePath ?? url, {
+        owner: 'cache-search-crawl',
+        priority: job.priority,
+        reason: job.reason,
+      });
+      return { data: result.html, status: 200 };
     }
     const { data, meta } = await proxyFetchJson(url, { cloudflareProtected: true });
     return { data, status: meta.status };

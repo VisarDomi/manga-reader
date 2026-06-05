@@ -279,6 +279,21 @@ Potential split only if it reduces policy coupling:
 - `ScrambledDecodeOwner`: warm decoder and critical decode queue.
 - Provider capability object decides which runtime owner it needs.
 
+Phase 5 batch from 2026-06-05:
+
+- Removed the BrowserSession/provider-id decision for runtime API timeouts.
+  Providers may now declare `runtimeRequestTimeoutMs(context)`, and
+  BrowserSession only passes that through to the provider-resolved runtime HTTP
+  client.
+- Removed ProviderCoordinator's concrete Mangadot byte-cache branch. Providers
+  declare `byteFetchMode`; runtime-byte providers receive a BrowserSession byte
+  fetcher and background byte work yields to higher-priority data work.
+- Removed CommentsService's concrete Mangadot runtime-fetch branch. Providers
+  declare `commentsFetchMode`.
+- Kept BrowserSession as one class for now. The remaining responsibilities are
+  still coupled around one actual browser context/resource, and splitting them
+  without a bug would add files rather than reduce authority.
+
 Do not:
 
 - Do not split mechanically if the result is more files with the same hidden
@@ -327,6 +342,8 @@ Phase 6 batch from 2026-06-05:
   modes instead of branching on `provider.id`.
 - Comix declares proxy search with runtime API fallback. Mangadot declares
   runtime API for `/api/search` and runtime document for filtered `/search`.
+- Background search crawl now uses the same provider-declared transport policy,
+  so crawl does not separately special-case Mangadot runtime API.
 - This is a real boundary fix, not an external-provider-package implementation:
   it removes concrete provider behavior from one route while preserving current
   behavior and logs.
