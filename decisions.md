@@ -244,6 +244,13 @@ single "current manga scroll" is not enough because the stack can contain
 multiple independent manga-detail surfaces. Persist and restore scroll by
 layer identity, not by whichever layer happens to be active at shutdown.
 
+Root restore is currently an AppState-owned command cluster, not a separate
+file-level owner. Keep it there while the code remains cohesive: shell
+application, backing-root scheduling, search replay, favorites preparation,
+manga hydration, and reader hydration are already explicit methods. Extract a
+`RootRestoreOwner` only when logs prove a new root ownership leak or when the
+extraction deletes real branching complexity rather than moving it elsewhere.
+
 ### 23. Match the Source Product's Interaction Model
 
 When integrating with an upstream product, parity requires matching the

@@ -230,14 +230,26 @@ Expected restore model:
 
 Checklist:
 
-- [ ] Audit current `AppState` restore/root methods after the latest fixes.
-- [ ] If extraction reduces code, create `RootRestoreOwner` with typed commands:
+- [x] Audit current `AppState` restore/root methods after the latest fixes.
+- [x] If extraction reduces code, create `RootRestoreOwner` with typed commands:
   foreground, backing layers, root kind, target id, search context.
-- [ ] Keep feature-specific prep in feature owners:
+- [x] Keep feature-specific prep in feature owners:
   favorites prepares IDB rows + snapshots + cover warm;
   search replays search context;
   manga restores per-layer scroll;
   reader restores projection/progress.
+
+Phase 4 audit from 2026-06-05:
+
+- Current `AppState` already has a coherent root-restore method cluster:
+  `scheduleRootRestoreKind`, `drainPendingRootRestore`, `replayRootSearch`,
+  `applyRestoreShell`, `hydrateRestoredManga`, and `hydrateRestoredReader`.
+- Post-restart logs did not show a current root restore failure. Extracting a
+  separate `RootRestoreOwner` now would mostly move branches into another file
+  rather than remove a proven coupling.
+- Decision: keep root restore coupled in `AppState` until logs show a new
+  restore/backing-root bug or until a future cleanup can delete code, not only
+  rearrange it.
 
 Do not:
 
