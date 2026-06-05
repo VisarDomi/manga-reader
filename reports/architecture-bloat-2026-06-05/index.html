@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Manga Reader Architecture Bloat Report</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<main>
+  <h1>Manga Reader Architecture Bloat Report</h1>
+  <p class="subtitle">
+    Second architecture report, generated on 2026-06-05. The question is not
+    "is the app complicated?" It is: which complexity owns a real edge case, and
+    which complexity only exists because previous fixes added more machinery?
+  </p>
+
+  <nav>
+    <a href="01-log-evidence.html">01 Logs</a>
+    <a href="02-code-map.html">02 Code Map</a>
+    <a href="03-edge-case-ledger.html">03 Edge Cases</a>
+    <a href="04-bloat-candidates.html">04 Bloat Candidates</a>
+    <a href="05-restructure-options.html">05 Restructure Options</a>
+  </nav>
+
+  <section class="grid">
+    <div class="card">
+      <h3>Source Code</h3>
+      <p class="metric">22.9k LOC</p>
+      <p class="muted">Non-generated TS/Svelte/JS/CSS under <code>packages/*/src</code> and provider sources.</p>
+    </div>
+    <div class="card">
+      <h3>Runtime Data</h3>
+      <p class="metric">5.7GB</p>
+      <p class="muted">Current provider SQLite caches: Comix 5.4GB, Mangadot 270MB.</p>
+    </div>
+    <div class="card">
+      <h3>Durable Jobs</h3>
+      <p class="metric">3.29M</p>
+      <p class="muted">Mostly chapter page-map metadata jobs. This is data-shape bloat, not UI code bloat.</p>
+    </div>
+    <div class="card">
+      <h3>Hot Files</h3>
+      <p class="metric">4</p>
+      <p class="muted"><code>CacheService</code>, <code>ReaderState</code>, <code>Reader.svelte</code>, and <code>BrowserSession</code> hold most volatile policy.</p>
+    </div>
+  </section>
+
+  <div class="callout warn">
+    <strong>Executive read:</strong> the app is not bloated evenly. It has a few
+    legitimate hard domains, then several files that absorb too many domains.
+    The biggest simplification opportunity is to make those domains explicit,
+    not to delete edge-case handling blindly.
+  </div>
+
+  <section class="diagram">
+    <div class="flow">
+      <div class="node"><strong>Frontend UI</strong>Search/Favs, manga layers, reader, comments, restore/back state.</div>
+      <div class="arrow">→</div>
+      <div class="node"><strong>Cache API</strong>Serve cached data first, schedule/observe provider work, stream cover/image bytes.</div>
+      <div class="arrow">→</div>
+      <div class="node"><strong>Provider Runtime</strong>Comix/Mangadot runtime pages, signed APIs, Cloudflare, comments, image metadata.</div>
+      <div class="arrow">→</div>
+      <div class="node"><strong>Durable Stores</strong>SQLite rows, byte cache, provider settings, restore/session IndexedDB.</div>
+    </div>
+  </section>
+
+  <h2>Top-Level Classification</h2>
+  <table>
+    <thead>
+      <tr><th>Area</th><th>Status</th><th>Why</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Reader bounded physical window</td>
+        <td><span class="tag keep">KEEP</span></td>
+        <td>Necessary for iOS Safari and fast infinite scrolling. Complexity is real, but ownership is still concentrated in too many places.</td>
+      </tr>
+      <tr>
+        <td>Provider-specific browser runtime</td>
+        <td><span class="tag keep">KEEP</span></td>
+        <td>Necessary for Comix/Mangadot signed/runtime data and Cloudflare. Should remain provider-owned.</td>
+      </tr>
+      <tr>
+        <td>Durable eager chapter-image metadata cache</td>
+        <td><span class="tag question">QUESTION</span></td>
+        <td>It handles offline-ish warm paths, but current queue volume suggests the policy may be larger than the value.</td>
+      </tr>
+      <tr>
+        <td>Restore/root preparation machinery</td>
+        <td><span class="tag keep">KEEP</span></td>
+        <td>Real edge case: swipe-back layers must already be usable. The current implementation is better, but still lives in the broad app state hub.</td>
+      </tr>
+      <tr>
+        <td>Duplicated bundled provider code in frontend</td>
+        <td><span class="tag remove">REMOVE?</span></td>
+        <td>Likely leftover from earlier architecture. Needs verification before deletion, but it is suspicious because provider parsing should be backend/provider-owned.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>How To Read This Report</h2>
+  <p>
+    The report uses three labels:
+    <span class="tag keep">KEEP</span> means the complexity maps to an edge case the app currently needs;
+    <span class="tag question">QUESTION</span> means the code may be valid but the product value should be decided;
+    <span class="tag remove">REMOVE?</span> means the evidence points to likely dead or poorly owned code, but deletion still needs a code/test pass.
+  </p>
+</main>
+</body>
+</html>

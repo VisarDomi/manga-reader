@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>03 Edge Case Ledger</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<main>
+  <h1>03 Edge Case Ledger</h1>
+  <p class="subtitle">
+    This page separates necessary edge-case handling from optional or
+    questionable behavior. The goal is to make deletion risk visible.
+  </p>
+
+  <nav>
+    <a href="index.html">Index</a>
+    <a href="02-code-map.html">Previous: Code Map</a>
+    <a href="04-bloat-candidates.html">Next: Bloat Candidates</a>
+  </nav>
+
+  <h2>Required Edge Cases</h2>
+  <table>
+    <thead><tr><th>Edge case</th><th>Why it is real</th><th>Current owner</th><th>Cleanup direction</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>iOS Safari fast infinite reader scroll</td>
+        <td>Unbounded height and top-prepend/removal break momentum and can flash/black-screen.</td>
+        <td><code>ReaderState</code>, <code>Reader.svelte</code>, <code>ReaderWindowManager</code>, <code>ReaderMemoryManager</code>.</td>
+        <td><span class="tag keep">KEEP</span> Complexity is justified, but DOM scroll writes should stay in one explicit owner.</td>
+      </tr>
+      <tr>
+        <td>Reader restore and progress</td>
+        <td>App can reopen on reader; user expects page/progress continuity without hijacks.</td>
+        <td><code>AppState</code>, <code>ReaderState</code>, IndexedDB progress/session.</td>
+        <td><span class="tag keep">KEEP</span> Persisted state is needed; reduce cross-writes between restore, visible-page tracking, and close.</td>
+      </tr>
+      <tr>
+        <td>Swipe/back layer restoration</td>
+        <td>Search/favs, stacked manga details, reader, and comments are real layers in the interaction model.</td>
+        <td><code>AppState</code>, <code>UIState</code>, feature states.</td>
+        <td><span class="tag keep">KEEP</span> Current fix improved backing-root preparation. Long-term split restore planning from feature hydration.</td>
+      </tr>
+      <tr>
+        <td>Cache-first manga data</td>
+        <td>Provider runtime can be slow/unreliable; cached data makes app usable and often faster than site.</td>
+        <td><code>CacheService</code>, SQLite, cache routes, frontend API state.</td>
+        <td><span class="tag keep">KEEP</span> Serve cache immediately. Question only the eagerness/volume of background metadata.</td>
+      </tr>
+      <tr>
+        <td>Provider runtime / Cloudflare / signed APIs</td>
+        <td>Comix and Mangadot need browser-owned runtime access for some paths.</td>
+        <td><code>ProviderCoordinator</code>, <code>BrowserSession</code>, provider descriptors.</td>
+        <td><span class="tag keep">KEEP</span> Necessary. Move more provider-specific policy into provider capability objects.</td>
+      </tr>
+      <tr>
+        <td>Scrambled Comix pages</td>
+        <td>Some image files are visually scrambled. Site renders them through runtime logic.</td>
+        <td><code>ScrambledPageDecoder</code>, <code>BrowserSession</code>, <code>CacheService</code>.</td>
+        <td><span class="tag keep">KEEP</span> Needed for correctness. Keep warm and critical-priority aware.</td>
+      </tr>
+      <tr>
+        <td>Provider-specific filters</td>
+        <td>Search semantics differ by provider; tag catalogs should not be handwritten by user every time.</td>
+        <td>Provider cache, <code>providerFilters</code> routes/state, filter UI.</td>
+        <td><span class="tag keep">KEEP</span> Cache daily. Keep UI provider-scoped.</td>
+      </tr>
+      <tr>
+        <td>Comments on manga/chapter</td>
+        <td>User-facing feature, provider-specific identifiers and thread shapes.</td>
+        <td><code>CommentsService</code>, comments routes, frontend comments sections.</td>
+        <td><span class="tag keep">KEEP</span> Should be provider-owned. Avoid browser use unless provider requires it.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Questionable Or Product-Optional Edge Cases</h2>
+  <table>
+    <thead><tr><th>Edge case / behavior</th><th>Why it may be bloat</th><th>Evidence</th><th>User decision needed</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>Eagerly caching chapter image metadata for everything</td>
+        <td>It creates millions of durable jobs and GB-scale DBs. The user mostly needs foreground and near-future warm paths.</td>
+        <td>Comix queue has ~2.86M queued <code>cache-chapter-page-map</code> jobs; DB is 5.4GB.</td>
+        <td><span class="tag question">DECIDE</span> Keep all-eager, cap by recency/favorites, or make it on-demand plus daily newest.</td>
+      </tr>
+      <tr>
+        <td>Search/favorites root preparation while hidden</td>
+        <td>Needed for swipe-back UX, but hidden-root work can compete with foreground if not sequenced.</td>
+        <td>Current logs show root prep works; cover rendering still costs up to seconds after mount.</td>
+        <td><span class="tag keep">KEEP</span> Keep behavior, simplify into a root-preparation owner.</td>
+      </tr>
+      <tr>
+        <td>Recommendations at reader tail</td>
+        <td>Useful, but it ties reader geometry to manga-detail card rendering and navigation return targets.</td>
+        <td><code>Reader.svelte</code> calculates recommendation tail height and renders <code>MangaList</code>.</td>
+        <td><span class="tag question">DECIDE</span> If kept, make it a terminal slot type owned by reader model, not ad hoc component layout.</td>
+      </tr>
+      <tr>
+        <td>Multiple providers warmed at once</td>
+        <td>Provider runtimes are expensive. The user added provider enable/disable because Mangadot cost was high.</td>
+        <td>Browser surface logs show warm browser runtime uses 1.2GB RSS with Comix alone active in current run.</td>
+        <td><span class="tag keep">KEEP</span> Keep enable/disable. Maybe default disabled for costly providers is product policy, not code hack.</td>
+      </tr>
+      <tr>
+        <td>Dense diagnostics always present in source</td>
+        <td>Logs are essential, but diagnostic flags and probes can become runtime/code noise if not centralized.</td>
+        <td><code>Reader.svelte</code>, <code>PerfDiagnostics</code>, and cover summaries all own logging decisions.</td>
+        <td><span class="tag question">DECIDE</span> Keep lean aggregate logs; move debug probes behind one logging policy.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Edge Case To Owner Matrix</h2>
+  <table>
+    <thead><tr><th></th><th>AppState</th><th>Reader</th><th>CacheService</th><th>BrowserSession</th><th>Provider</th><th>DB/Byte cache</th></tr></thead>
+    <tbody>
+      <tr><td>Restore/back layers</td><td>Primary</td><td>Secondary</td><td></td><td></td><td></td><td>Session data</td></tr>
+      <tr><td>Reader scroll</td><td></td><td>Primary</td><td>Image warm source</td><td></td><td>URL rules</td><td>Progress/data</td></tr>
+      <tr><td>Manga details cache</td><td>Consumer</td><td></td><td>Primary</td><td>Fetch transport</td><td>Parse/shape</td><td>Storage</td></tr>
+      <tr><td>Search</td><td>Consumer/root</td><td></td><td>Cover warm</td><td>Runtime fallback</td><td>Request/parse</td><td>Filter/cache</td></tr>
+      <tr><td>Comments</td><td>Consumer</td><td>Chapter comments</td><td>IDs/cache assist</td><td>Only if needed</td><td>Thread shape</td><td></td></tr>
+      <tr><td>Scrambled images</td><td></td><td>Critical request</td><td>Policy</td><td>Decoder owner</td><td>Detect rule</td><td>Bytes/result</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout warn">
+    <strong>Finding:</strong> the biggest pain is not the number of edge cases.
+    It is that the same files are involved in too many rows of this matrix.
+    Cleanup should move policy to narrower owners, not add another layer above
+    all of them.
+  </div>
+</main>
+</body>
+</html>

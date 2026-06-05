@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>05 Restructure Options</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<main>
+  <h1>05 Restructure Options</h1>
+  <p class="subtitle">
+    Options for reducing code and conceptual load without dropping the core
+    edge cases. These are not implementation plans yet; they are decision
+    surfaces.
+  </p>
+
+  <nav>
+    <a href="index.html">Index</a>
+    <a href="04-bloat-candidates.html">Previous: Bloat Candidates</a>
+  </nav>
+
+  <h2>Option A: Resource-Oriented Cache Split</h2>
+  <div class="callout good">
+    <span class="tag keep">RECOMMENDED</span>
+    Split <code>CacheService</code> by resource ownership while keeping one
+    durable queue implementation.
+  </div>
+  <section class="diagram">
+    <div class="flow">
+      <div class="node"><strong>DurableQueue</strong>claim/retry/reap/yield only</div>
+      <div class="arrow">→</div>
+      <div class="node"><strong>MangaDataCache</strong>manga details, chapters, recommendations, filter harvest</div>
+      <div class="arrow">→</div>
+      <div class="node"><strong>ImageMetadataCache</strong>chapter page maps, store candidates, scrambled metadata</div>
+      <div class="arrow">→</div>
+      <div class="node"><strong>ByteCache</strong>covers/thumbnails/provider bytes</div>
+    </div>
+  </section>
+  <table>
+    <thead><tr><th>Expected gain</th><th>Risk</th><th>Acceptance test</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>Lower cognitive load. Policies move from one 1,940 LOC file into resources that can be reasoned about independently.</td>
+        <td>Can add files without reducing complexity if methods are only moved mechanically.</td>
+        <td>Each cache resource answers: what do I serve, when do I refresh, what jobs do I enqueue, what logs prove it?</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Option B: Change Background Data Policy</h2>
+  <div class="callout warn">
+    <span class="tag question">PRODUCT DECISION</span>
+    Keep cache-first UX, but stop pretending whole-catalog chapter image
+    metadata is always worth eager background work.
+  </div>
+  <table>
+    <thead><tr><th>Policy</th><th>Code/data effect</th><th>User-visible effect</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>Current: newest crawl eventually queues every manga/chapter image map.</td>
+        <td>Millions of jobs, GB DB, long-running background service.</td>
+        <td>Potentially warm obscure manga, but costly and often not useful today.</td>
+      </tr>
+      <tr>
+        <td>Lean: cache newest search pages, favorites, opened manga, and reader-near-window images.</td>
+        <td>Fewer jobs and smaller DB. More foreground misses for obscure first opens.</td>
+        <td>Likely same day-to-day UX if foreground priority is strong.</td>
+      </tr>
+      <tr>
+        <td>Hybrid: whole-catalog manga/chapter list, on-demand chapter image maps.</td>
+        <td>Keeps discovery metadata while removing largest job family.</td>
+        <td>Opening a never-read chapter may wait once, but manga detail stays rich.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Option C: Reader Projection Contract</h2>
+  <div class="callout good">
+    <span class="tag keep">HIGH VALUE</span>
+    Do not rewrite the reader. Instead, enforce one contract:
+    <code>ReaderState</code> computes the logical/physical projection and
+    returns at most one DOM scroll command; <code>Reader.svelte</code> applies
+    it and reports measurements.
+  </div>
+  <section class="diagram">
+    <div class="flow">
+      <div class="node"><strong>DOM event</strong>scrollTop, viewport, visible/measurements</div>
+      <div class="arrow">→</div>
+      <div class="node"><strong>ReaderProjection</strong>slots, frame epoch, image warm candidates, optional scroll write</div>
+      <div class="arrow">→</div>
+      <div class="node"><strong>Component</strong>apply scroll write, mount slots, schedule images</div>
+      <div class="arrow">→</div>
+      <div class="node"><strong>Logs</strong>one event explaining projection decision</div>
+    </div>
+  </section>
+  <p>
+    This preserves the bounded physical scroller and iOS momentum constraints.
+    It reduces bloat by making the DOM side less intelligent.
+  </p>
+
+  <h2>Option D: Provider Capability Objects</h2>
+  <div class="callout good">
+    <span class="tag keep">GOOD WITH 2+ PROVIDERS</span>
+    Keep generic cache/route/browser services, but stop encoding provider
+    choices as scattered <code>provider.id === ...</code> checks.
+  </div>
+  <table>
+    <thead><tr><th>Capability</th><th>Current symptom</th><th>Better owner</th></tr></thead>
+    <tbody>
+      <tr><td>Search transport</td><td>Search route chooses proxy/document/runtime fallback.</td><td>Provider declares search transport strategy.</td></tr>
+      <tr><td>Image byte fetch</td><td>Byte cache receives provider-specific runtime byte callback.</td><td>Provider image capability exposes <code>fetchByte</code> if required.</td></tr>
+      <tr><td>Scramble detection</td><td>Cache/browser/decoder share knowledge.</td><td>Provider image capability says whether page needs decode and how.</td></tr>
+      <tr><td>Filter catalog</td><td>Cache service fetches/harvests provider filters.</td><td>Provider catalog capability returns typed filter catalog; cache only stores it.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Option E: Restore Coordinator Extraction</h2>
+  <div class="callout warn">
+    <span class="tag question">MEDIUM VALUE</span>
+    This may reduce <code>AppState</code> complexity, but only if it removes
+    branches from <code>AppState</code>. A wrapper that calls the same methods
+    in the same order is bloat.
+  </div>
+  <p>
+    The target shape is a typed restore plan:
+  </p>
+  <pre class="mono-block">foreground: Reader | Manga | Search | Favorites | Providers | Comments
+backingLayers: [Manga, Manga, SearchRoot | FavoritesRoot | ProvidersRoot]
+for each layer:
+  mount shell immediately
+  ask owning feature to prepare hidden data
+  feature applies own scroll when its data height is ready</pre>
+
+  <h2>Anti-Options</h2>
+  <table>
+    <thead><tr><th>Tempting cleanup</th><th>Why it is bad</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>Delete reader virtual window and rely on normal DOM.</td>
+        <td>Breaks the exact iOS Safari fast-scroll edge case the app exists to solve.</td>
+      </tr>
+      <tr>
+        <td>Disable hidden backing-root preparation.</td>
+        <td>Reintroduces swipe-back blank/slow root bugs.</td>
+      </tr>
+      <tr>
+        <td>Remove logs because they are noisy.</td>
+        <td>Historical fixes depended on logs. The right move is aggregate logs, not blind logs.</td>
+      </tr>
+      <tr>
+        <td>Make provider runtime cold to save memory.</td>
+        <td>Cold runtime makes foreground UX depend on Cloudflare/browser startup. Use provider enable/disable instead.</td>
+      </tr>
+      <tr>
+        <td>Add a global "gate" for every race.</td>
+        <td>Gates hide ownership bugs and add latency. Use explicit resource/session ownership or bounded rollback instead.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Suggested Cleanup Order</h2>
+  <ol>
+    <li>Verify/remove frontend bundled provider code if unused.</li>
+    <li>Decide background chapter image metadata policy. This can remove the most data bloat without touching reader UX.</li>
+    <li>Split <code>CacheService</code> by resource ownership, measured by reducing policy branches in the original file.</li>
+    <li>Tighten reader projection contract, one small proofed step at a time.</li>
+    <li>Extract restore coordinator only if it deletes meaningful branches from <code>AppState</code>.</li>
+    <li>Move provider-specific runtime choices into provider capabilities.</li>
+  </ol>
+
+  <div class="callout good">
+    <strong>Best near-term bet:</strong> the fastest path to "less code, more
+    beautiful architecture" is not a rewrite. It is deleting stale frontend
+    provider bundles, reducing the all-eager chapter-image metadata policy, and
+    splitting <code>CacheService</code> only where it removes real policy
+    coupling.
+  </div>
+</main>
+</body>
+</html>

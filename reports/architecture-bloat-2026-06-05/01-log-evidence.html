@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>01 Log Evidence</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<main>
+  <h1>01 Log Evidence Since Last Restart</h1>
+  <p class="subtitle">
+    Window: <code>2026-06-05 11:27:58 CEST</code> to report time, from
+    <code>manga-reader.service</code>. This page is facts first; architecture
+    interpretation comes after the numbers.
+  </p>
+
+  <nav>
+    <a href="index.html">Index</a>
+    <a href="02-code-map.html">Next: Code Map</a>
+  </nav>
+
+  <section class="grid">
+    <div class="card"><h3>Log Lines</h3><p class="metric">956</p><p class="muted">Small enough to inspect, but still dominated by repeated image summaries.</p></div>
+    <div class="card"><h3>Frontend Events</h3><p class="metric">484</p><p class="muted">Most user-visible evidence is frontend-originated.</p></div>
+    <div class="card"><h3>Cover Cache Lines</h3><p class="metric">282</p><p class="muted">Cover/image observability is noisy relative to the window size.</p></div>
+    <div class="card"><h3>Error Tokens</h3><p class="metric">132</p><p class="muted">Mostly event-name/field matches in filtered output; not 132 fatal failures.</p></div>
+  </section>
+
+  <h2>Observed Runtime Story</h2>
+  <table>
+    <thead><tr><th>Time</th><th>Observed fact</th><th>Architecture meaning</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>11:27:59</td>
+        <td>Browser startup adopted one page, then browser surface was <code>pages=1 renderers=2 totalProcesses=8 cpu=233.9 rssMb=718</code>.</td>
+        <td>Provider runtime has a real cost even when the app is just becoming ready.</td>
+      </tr>
+      <tr>
+        <td>11:28:08</td>
+        <td>Decoder warm finished in <code>1860ms</code>.</td>
+        <td>Scrambled-page support is a real edge-case cost. It should stay warm and provider-owned.</td>
+      </tr>
+      <tr>
+        <td>11:29:11</td>
+        <td>Restore to list mounted only <code>list</code>; search replay loaded 100 results in <code>327ms</code>.</td>
+        <td>Search root restore is fast enough when backend transport is healthy.</td>
+      </tr>
+      <tr>
+        <td>11:29:21-11:29:23</td>
+        <td>Restore to manga with favorites backing layer scheduled root restore, warmed 27 favorite covers in <code>92ms</code>, then marked root done.</td>
+        <td>Latest root-preparation fix behaves as intended in this test: backing favorites were prepared before swipe-back.</td>
+      </tr>
+      <tr>
+        <td>11:29:28</td>
+        <td>Direct favorites foreground later showed 24 cover loads averaging <code>854ms</code>, max <code>924ms</code>.</td>
+        <td>Warming local URLs and actual image decode/render are separate. Logs prove preparation is not the full visual cost.</td>
+      </tr>
+      <tr>
+        <td>11:29:38-11:29:42</td>
+        <td>Search browse returned 100 results in <code>285ms</code>, but search cover batches ranged from <code>115ms</code> average to <code>2253ms</code> average.</td>
+        <td>The slow part in that flow was not search JSON. It was cover/image realization across mounted cards.</td>
+      </tr>
+      <tr>
+        <td>11:29:48-11:29:50</td>
+        <td>Restore to manga with search backing layer replayed search in <code>933ms</code> and marked root done with 100 results.</td>
+        <td>The backend search fallback fixed the previous 500 path, but search still makes hidden-root work non-trivial.</td>
+      </tr>
+      <tr>
+        <td>11:29:59 onward</td>
+        <td>Browser surface stayed at <code>pages=3 renderers=4 totalProcesses=10</code>, RSS rising from 1255MB to 1304MB over minutes.</td>
+        <td>Warm browser tabs are intentional, but they are a standing resource cost. This cost is not LOC bloat; it is provider-runtime bloat.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Event Family Counts</h2>
+  <table>
+    <thead><tr><th>Family</th><th>Count</th><th>Read</th></tr></thead>
+    <tbody>
+      <tr><td><code>[Frontend]</code></td><td>484</td><td>Useful but chatty. Summary events should stay compact.</td></tr>
+      <tr><td><code>[coverCache]</code></td><td>282</td><td>High-volume evidence. Keep aggregate summaries; avoid per-image spam.</td></tr>
+      <tr><td><code>search-result</code></td><td>184</td><td>Search result card/cacher events dominate when browsing.</td></tr>
+      <tr><td><code>[cache]</code></td><td>108</td><td>Cache lifecycle is visible enough to reason about current behavior.</td></tr>
+      <tr><td><code>cache-reconcile-*</code></td><td>134 total</td><td>Reconciliation is active and should remain decision-logged, not outcome-only.</td></tr>
+      <tr><td><code>restore-root</code></td><td>9</td><td>Good signal density. Restore root ownership is now observable.</td></tr>
+      <tr><td><code>[browserSession]</code></td><td>13</td><td>Low line count, high value. Surface/process logs are useful.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>What The Logs Prove</h2>
+  <div class="callout good">
+    <p><strong>Observed:</strong> current restore-root behavior no longer waits
+    for swipe-back before preparing favorites/search backing roots in the tested
+    flows.</p>
+    <p><strong>Observed:</strong> Comix search served cleanly after restart via
+    backend transport in 285-933ms for page 1.</p>
+    <p><strong>Observed:</strong> the largest visible delays in this window were
+    cover/image realization batches, not JSON API responses.</p>
+  </div>
+
+  <h2>What The Logs Do Not Prove</h2>
+  <div class="callout warn">
+    <p>They do not prove reader edge cases are currently safe, because this
+    window contains no deep reader scroll/rebase sequence.</p>
+    <p>They do not prove the eager data cache is worth its size. They only prove
+    the current queue/cache machinery is active and large.</p>
+    <p>They do not prove cover rendering slowness is caused by server, browser,
+    Safari decode, CSS, or image count. They show timing symptoms, not the
+    rendering owner.</p>
+  </div>
+
+  <h2>Useful Commands Used</h2>
+  <pre class="mono-block">systemctl --user show manga-reader.service -p ActiveState -p SubState -p MainPID -p ExecMainStartTimestamp
+journalctl --user -u manga-reader.service --since '2026-06-05 11:27:58' --until now --no-pager
+journalctl --user -u manga-reader.service --since '2026-06-05 11:27:58' --until now --no-pager \
+  | rg -o "\\[[^]]+\\]|reader-[a-z0-9-]+|restore-[a-z0-9-]+|cache-[a-z0-9-]+|error|failed|timeout" \
+  | sort | uniq -c | sort -nr</pre>
+</main>
+</body>
+</html>

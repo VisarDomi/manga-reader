@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>02 Code Map</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<main>
+  <h1>02 Code Map And Ownership Shape</h1>
+  <p class="subtitle">
+    Non-generated source only. Excludes <code>dist</code>, <code>.svelte-kit</code>, and
+    <code>node_modules</code>. The question is where code concentrates too many
+    reasons to change.
+  </p>
+
+  <nav>
+    <a href="index.html">Index</a>
+    <a href="01-log-evidence.html">Previous: Logs</a>
+    <a href="03-edge-case-ledger.html">Next: Edge Cases</a>
+  </nav>
+
+  <h2>Source Distribution</h2>
+  <table>
+    <thead><tr><th>Area</th><th>LOC</th><th>Share</th><th>Read</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>packages/app/src</code></td>
+        <td>13,459</td>
+        <td><div class="bar warn"><span style="width:59%"></span></div></td>
+        <td>Most code is frontend ownership: restore, reader, UI layers, IndexedDB, filters, gestures.</td>
+      </tr>
+      <tr>
+        <td><code>packages/server/src</code></td>
+        <td>8,422</td>
+        <td><div class="bar"><span style="width:37%"></span></div></td>
+        <td>Provider runtime, cache services, durable queues, byte/cache routes, comments.</td>
+      </tr>
+      <tr>
+        <td><code>packages/extensions/providers</code></td>
+        <td>806</td>
+        <td><div class="bar good"><span style="width:4%"></span></div></td>
+        <td>The provider abstraction is small compared with the server code that wraps it.</td>
+      </tr>
+      <tr>
+        <td><code>packages/provider-types/src</code></td>
+        <td>108</td>
+        <td><div class="bar good"><span style="width:1%"></span></div></td>
+        <td>Contracts are tiny relative to implementation. This hints at under-modeled ownership boundaries.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Largest Non-Generated Files</h2>
+  <table>
+    <thead><tr><th>File</th><th>LOC</th><th>Domains mixed inside</th><th>Assessment</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>server/src/cache/CacheService.ts</code></td>
+        <td>1,940</td>
+        <td>daily crawl, durable queue policy, foreground waiters, manga detail, chapters, image maps, cover jobs, filter catalog, store ranking, retries</td>
+        <td><span class="tag question">QUESTION</span> Real edge cases, but too many policies in one owner.</td>
+      </tr>
+      <tr>
+        <td><code>app/src/lib/state/reader.svelte.ts</code></td>
+        <td>1,877</td>
+        <td>reader lifecycle, progress, comments, geometry, virtual window, measurements, image metadata warm, retries</td>
+        <td><span class="tag question">QUESTION</span> The reader is the hardest domain, but this file is both model and scheduler.</td>
+      </tr>
+      <tr>
+        <td><code>app/src/lib/components/Reader.svelte</code></td>
+        <td>1,305</td>
+        <td>DOM scroll writes, RAF scheduling, measurement, image activation, diagnostics, recommendations tail, gestures</td>
+        <td><span class="tag question">QUESTION</span> Component owns too much behavior for a view surface.</td>
+      </tr>
+      <tr>
+        <td><code>server/src/cache/sqlite.ts</code></td>
+        <td>1,202</td>
+        <td>schema, migrations, jobs, cache tables, observations, filter cache, byte records</td>
+        <td><span class="tag keep">KEEP</span> Large but defensible if it remains dumb storage. Risk is policy leaking into SQL helpers.</td>
+      </tr>
+      <tr>
+        <td><code>server/src/services/BrowserSession.ts</code></td>
+        <td>1,005</td>
+        <td>browser lifecycle, runtime lanes, request cache, Cloudflare health, decoder, surface CPU logs, provider API fetching</td>
+        <td><span class="tag question">QUESTION</span> Necessary resource owner, but it now also behaves like a provider transport router.</td>
+      </tr>
+      <tr>
+        <td><code>app/src/lib/state/index.svelte.ts</code></td>
+        <td>986</td>
+        <td>boot, restore, root hydration, provider switch, session persistence, connectivity, background work, search pagination</td>
+        <td><span class="tag question">QUESTION</span> App-level orchestrator is expected, but it has become a policy hub.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Current Ownership Diagram</h2>
+  <section class="diagram">
+    <div class="flow">
+      <div class="node"><strong>AppState</strong>Boot, restore, root layers, provider switch, background pause/resume.</div>
+      <div class="arrow">↔</div>
+      <div class="node"><strong>Manga/Search/Favorites</strong>Feature state, cache reads, scroll targets, chapter stats.</div>
+      <div class="arrow">↔</div>
+      <div class="node"><strong>ReaderState + Reader.svelte</strong>Virtual model, DOM scroll, image activation, progress, comments.</div>
+      <div class="arrow">↔</div>
+      <div class="node"><strong>CacheService + BrowserSession</strong>Queue policy, provider runtime, byte/cache work, data freshness.</div>
+    </div>
+  </section>
+
+  <div class="callout warn">
+    <strong>Soft point:</strong> several owners are both state owners and
+    schedulers. That is where cleanup historically added more code: a symptom
+    appeared, so another mini-scheduler/flag/epoch was added inside a file that
+    already had several scheduling responsibilities.
+  </div>
+
+  <h2>Timer / Async Complexity Hotspots</h2>
+  <table>
+    <thead><tr><th>File</th><th>Timer/async keyword hits</th><th>Meaning</th></tr></thead>
+    <tbody>
+      <tr><td><code>BrowserSession.ts</code></td><td>83</td><td>Runtime pages, timeouts, lane locks, caches, process logging. Mostly necessary, but concentrated.</td></tr>
+      <tr><td><code>CacheService.ts</code></td><td>77</td><td>Queue loop, daily rollover, foreground waiters, retries, summaries. Highest simplification target.</td></tr>
+      <tr><td><code>AppState index.svelte.ts</code></td><td>46</td><td>Restore/root/session/background timing. Some real, some likely orchestration bloat.</td></tr>
+      <tr><td><code>Reader.svelte</code></td><td>20</td><td>RAF/scroll/measurement. Real iOS edge cases, but sensitive to accidental extra work.</td></tr>
+      <tr><td><code>ReaderState</code></td><td>17</td><td>Retries and virtual window scheduling. Real, but should remain model-side not DOM-side.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Provider Boundary Mismatch</h2>
+  <div class="callout bad">
+    <p><strong>Observed in source:</strong> provider source is small
+    (<code>806 LOC</code>), while provider-specific runtime policy lives mostly
+    in server files: <code>CacheService</code>, <code>BrowserSession</code>,
+    <code>routes/search.ts</code>, <code>ByteCacheService</code>.</p>
+    <p><strong>Inference:</strong> the provider boundary is still not as strong
+    as the product model wants. Adding Mangadot made the boundary clearer, but
+    much provider behavior is still expressed as conditionals around generic
+    services rather than provider-owned capabilities.</p>
+  </div>
+
+  <h2>Generated / Bundled Noise</h2>
+  <table>
+    <thead><tr><th>File</th><th>Why suspicious</th><th>Action</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>app/src/lib/services/bundled/comix.js</code></td>
+        <td>597 LOC of provider bundle inside frontend source. Provider parsing/runtime should not normally be frontend-owned.</td>
+        <td><span class="tag remove">VERIFY DELETE</span> Search imports/usages before deleting.</td>
+      </tr>
+      <tr>
+        <td><code>app/src/lib/services/bundled/mangadotnet.js</code></td>
+        <td>288 LOC similar issue.</td>
+        <td><span class="tag remove">VERIFY DELETE</span> If only old client parser path uses it, remove path not just file.</td>
+      </tr>
+      <tr>
+        <td><code>server/dist</code>, <code>app/.svelte-kit</code></td>
+        <td>Generated build output appears in raw LOC if not filtered.</td>
+        <td><span class="tag keep">IGNORE</span> Do not include in source bloat decisions.</td>
+      </tr>
+    </tbody>
+  </table>
+</main>
+</body>
+</html>

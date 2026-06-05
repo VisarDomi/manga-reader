@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>04 Bloat Candidates</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<main>
+  <h1>04 Bloat Candidates</h1>
+  <p class="subtitle">
+    Ranked by confidence. "Bloat" here means complexity that may not own enough
+    value to justify its code/data/runtime cost.
+  </p>
+
+  <nav>
+    <a href="index.html">Index</a>
+    <a href="03-edge-case-ledger.html">Previous: Edge Cases</a>
+    <a href="05-restructure-options.html">Next: Options</a>
+  </nav>
+
+  <h2>Candidate Ranking</h2>
+  <table>
+    <thead><tr><th>Rank</th><th>Candidate</th><th>Evidence</th><th>Likely simplification</th><th>Risk</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>1</td>
+        <td>All-eager chapter page-map metadata jobs</td>
+        <td>Comix has ~2.86M queued <code>cache-chapter-page-map</code> jobs; Mangadot has ~185k. This is the largest non-source bloat source.</td>
+        <td>Replace "cache everything eventually" with "cache newest/favorites/search-observed plus reader-near-window demand."</td>
+        <td>Cold first-open cost can return for obscure entries unless foreground priority is excellent.</td>
+      </tr>
+      <tr>
+        <td>2</td>
+        <td><code>CacheService.ts</code> as mega-owner</td>
+        <td>1,940 LOC, 77 timer/async hits, owns jobs, filter catalog, store policy, foreground waits, data parsing, covers.</td>
+        <td>Split by resource: <code>MangaDataCache</code>, <code>ChapterImageMetadataCache</code>, <code>FilterCatalogCache</code>, <code>StoreSelectionPolicy</code>, sharing one durable queue.</td>
+        <td>Wrong split can add code. The split must move policy out, not wrap existing methods.</td>
+      </tr>
+      <tr>
+        <td>3</td>
+        <td><code>ReaderState</code> + <code>Reader.svelte</code> coupled ownership</td>
+        <td>3,182 LOC total. Model and DOM both participate in projection, rebase, measurements, image scheduling, diagnostics.</td>
+        <td>Define one ReaderProjectionOwner contract: state computes projection, component only applies one returned DOM command.</td>
+        <td>Reader is fragile. Rewrite in tiny proofed steps, not broad replacement.</td>
+      </tr>
+      <tr>
+        <td>4</td>
+        <td>Provider behavior outside provider capability layer</td>
+        <td>Provider sources are only 806 LOC while runtime fallbacks and byte policy live in generic server services.</td>
+        <td>Move provider-specific runtime strategy to typed provider capabilities consumed by generic services.</td>
+        <td>Can become over-abstracted if only two providers exist. Keep capability surface small.</td>
+      </tr>
+      <tr>
+        <td>5</td>
+        <td>Frontend bundled provider JS</td>
+        <td><code>app/src/lib/services/bundled/comix.js</code> and <code>mangadotnet.js</code> total 885 LOC.</td>
+        <td>Verify usage; if stale, delete the files and any path that imports provider parsing on frontend.</td>
+        <td>May be used by old client-side API parsing. Must prove with <code>rg</code> before deleting.</td>
+      </tr>
+      <tr>
+        <td>6</td>
+        <td>Restore logic embedded in app-wide state hub</td>
+        <td><code>AppState</code> owns restore shell, root replay, provider filters, search pagination, session persistence.</td>
+        <td>Extract <code>RestoreCoordinator</code> with typed layer-prepare commands. AppState wires domains but does not implement restore policy.</td>
+        <td>May add files but reduce total policy complexity. Success metric should be fewer restore branches in AppState.</td>
+      </tr>
+      <tr>
+        <td>7</td>
+        <td>Cover/image diagnostics distributed across UI and services</td>
+        <td>Current logs are useful, but cover summaries dominate the window.</td>
+        <td>Centralize diagnostic level and aggregate windows; keep one summary per transition or route.</td>
+        <td>Too much compaction can hide rare image failures. Keep enough fields to reconstruct owner/source.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>What Not To Delete Blindly</h2>
+  <div class="grid">
+    <div class="card">
+      <h3>Reader bounded scroller</h3>
+      <p>It looks complex because the edge case is complex. The simplification target is ownership, not removing the physical window.</p>
+    </div>
+    <div class="card">
+      <h3>BrowserSession warm runtime</h3>
+      <p>The browser cost is real, but it replaced worse cold behavior and Cloudflare/signed API failures. Keep, but narrow provider policies.</p>
+    </div>
+    <div class="card">
+      <h3>Restore backing roots</h3>
+      <p>This fixed real swipe-back failures. Do not return to lazy hidden roots; instead make root preparation a smaller explicit contract.</p>
+    </div>
+    <div class="card">
+      <h3>Structured logs</h3>
+      <p>The logs are a development tool for this project. Remove spam, not evidence. Missing logs repeatedly caused wasted test opportunities.</p>
+    </div>
+  </div>
+
+  <h2>Likely Shoe-Horned Edge Cases</h2>
+  <table>
+    <thead><tr><th>Behavior</th><th>Why suspect</th><th>Decision prompt</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>Reader recommendations tail behaves like manga-detail recommendations.</td>
+        <td>It forced reader geometry/navigation to understand recommendation cards and return targets.</td>
+        <td>Is it worth keeping inside reader, or should "end of latest chapter" be a simple button/portal to manga detail recommendations?</td>
+      </tr>
+      <tr>
+        <td>Daily all-provider all-search crawl.</td>
+        <td>It is provider-expensive and fills queues massively.</td>
+        <td>Does the app need whole-catalog freshness, or only newest/search/favorites freshness?</td>
+      </tr>
+      <tr>
+        <td>Multiple retry/wait layers around cache foreground requests.</td>
+        <td>Some are needed, but several exist because foreground/background priority was historically weak.</td>
+        <td>After durable queue priority is trusted, can foreground waiters be reduced to "serve cache, subscribe to resource-ready"?</td>
+      </tr>
+      <tr>
+        <td>Frontend provider bundles.</td>
+        <td>Likely survived from old architecture where frontend parsed provider results.</td>
+        <td>Can the frontend be pure consumer of backend/provider-shaped API?</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Deletion Candidates Requiring Proof</h2>
+  <pre class="mono-block">rg -n "bundled/(comix|mangadotnet)|from './bundled|from '../services/bundled|provider.parse|parseSearchResponse" packages/app/src
+rg -n "appendNextChapter|prependPrevChapter|EDGE_LOAD_RETRY_DELAYS_MS|nextRetryWake|retryNextChapterNow" packages/app/src/lib/state/reader.svelte.ts packages/app/src/lib/components/Reader.svelte
+rg -n "RECONCILE_PAGE_BUDGET|cache-chapter-page-map|crawl-search-page|seed-newest|daily" packages/server/src/cache
+rg -n "setTimeout|setInterval|Promise.race|timeout" packages/app/src/lib/state/index.svelte.ts packages/server/src/cache/CacheService.ts packages/server/src/services/BrowserSession.ts</pre>
+
+  <div class="callout bad">
+    <strong>Main warning:</strong> the monorepo's bloat is partly the result of
+    correct bugs being fixed at the wrong ownership layer. If cleanup only adds
+    new "Owner" wrappers above current code, it will repeat that pattern.
+  </div>
+</main>
+</body>
+</html>
