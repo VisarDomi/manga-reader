@@ -589,11 +589,19 @@ export class CacheService {
     if (this.durableQueueReaperTimer) return;
     const run = () => {
       if (this.suspended) return;
-      const recovered = this.scheduler.recoverExpiredRunning();
+      const recovered = this.recoverExpiredDurableLeases('active-reaper');
       if (recovered > 0) this.drain();
     };
     run();
     this.durableQueueReaperTimer = setInterval(run, 60_000);
+  }
+
+  recoverExpiredDurableLeases(reason: string): number {
+    const recovered = this.scheduler.recoverExpiredRunning();
+    if (recovered > 0) {
+      console.log(`[cache] durable-lease-recovery provider=${this.provider.id} reason=${reason} recovered=${recovered}`);
+    }
+    return recovered;
   }
 
   private stopDurableQueueReaper(): void {

@@ -102,12 +102,18 @@ export class DurableJobScheduler {
   }
 
   recoverExpiredRunning(limit = 100): number {
-    const recovered = this.db.recoverExpiredRunningJobs(Date.now(), limit);
+    const now = Date.now();
+    const recovered = this.db.recoverExpiredRunningJobs(now, limit);
     if (recovered.length > 0) {
       const sample = recovered.slice(0, 5)
         .map(job => `${job.kind}:${job.resourceKey}:owner=${job.leaseOwner ?? 'none'}`)
         .join(',');
-      console.log(`[cache-scheduler] reaper-recovered-expired jobs=${recovered.length} sample=${sample}`);
+      const oldestLeaseUntil = recovered.reduce<number | null>((oldest, job) => {
+        if (job.leaseUntil == null) return oldest;
+        return oldest == null ? job.leaseUntil : Math.min(oldest, job.leaseUntil);
+      }, null);
+      const oldestAgeMs = oldestLeaseUntil == null ? 'unknown' : String(Math.max(0, now - oldestLeaseUntil));
+      console.log(`[cache-scheduler] reaper-recovered-expired jobs=${recovered.length} oldestAgeMs=${oldestAgeMs} sample=${sample}`);
     }
     return recovered.length;
   }

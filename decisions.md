@@ -509,6 +509,13 @@ Runtime enablement is persisted in
 suspends its cache workers and destroys its browser session without deleting
 the provider's cache data. At least one provider must remain enabled.
 
+Disabled providers still have durable cache state. They must not consume
+browser, byte, or data-cache work while disabled, but expired `running` leases
+in their SQLite queue must still be recovered during startup/disable handling.
+That recovery belongs to the provider cache owner and is logged as
+`durable-lease-recovery`; it makes stale durable work self-healing without
+requiring the user to re-enable the provider or restart repeatedly.
+
 Current provider ownership:
 
 - `comix` uses the original cache database and byte directory. It owns Comix

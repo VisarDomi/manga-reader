@@ -63,20 +63,35 @@ Open evidence questions to re-check before implementation:
 
 Before changing code, answer these with logs/SQLite/code:
 
-- [ ] Check current provider settings and prove enabled providers. Expected now:
+- [x] Check current provider settings and prove enabled providers. Expected now:
   only Comix enabled unless user changed settings.
-- [ ] Query both provider SQLite queues for stale `running` or expired leased
+- [x] Query both provider SQLite queues for stale `running` or expired leased
   jobs. Compare to first-report examples:
   `cache-chapter-page-map:jlnve:8793582` and
   `cache-manga-detail:18556`.
-- [ ] Verify durable reaper logs or DB state prove stale running jobs are
+- [x] Verify durable reaper logs or DB state prove stale running jobs are
   reclaimable without service restart.
-- [ ] Check if background page-map failures are still frequent and whether they
+- [x] Check if background page-map failures are still frequent and whether they
   share browser/runtime resources with foreground work.
 - [ ] Check foreground cache wait logs for typed outcomes; no swallowed waits.
-- [ ] Check current browser surface logs for runtime health, pages, renderers,
+- [x] Check current browser surface logs for runtime health, pages, renderers,
   CPU, RSS.
-- [ ] Summarize: fixed, partially fixed, still open, or obsolete.
+- [x] Summarize: fixed, partially fixed, still open, or obsolete.
+
+Phase 0 summary from 2026-06-05 12:18 verification:
+
+- Fixed: Comix active worker recovery runs on startup (`recovered-running
+  worker=cache-service:comix jobs=1`) and current Comix `running` work had a
+  fresh lease.
+- Fixed in this batch: disabled-provider expired leases are recovered without
+  starting provider work. Mangadot `cache-manga-detail:18556` moved from stale
+  `running` to `retry` while logs still showed
+  `provider-disabled provider=mangadotnet action=skip-start`.
+- Still open: background Comix `cache-chapter-page-map` work produces provider
+  404/timeout failures through the same BrowserSession runtime lane as cache
+  work, so foreground/background arbitration still needs Phase 2 audit.
+- Still open: no recent foreground cache waits occurred in the verification
+  window, so typed foreground wait behavior remains to verify on a user flow.
 
 Useful commands:
 
@@ -98,15 +113,15 @@ cat /home/visar/.local/state/manga-reader/provider-runtime.json
 
 Goal: restart should not be the primary recovery mechanism.
 
-- [ ] If stale `running` jobs still exist, fix the reaper/claimer so expired
+- [x] If stale `running` jobs still exist, fix the reaper/claimer so expired
   leases are recovered regardless of provider enabled state, suspended state,
   or current job-kind filters.
-- [ ] Make durable recovery decisions compact and visible:
+- [x] Make durable recovery decisions compact and visible:
   recovered count, oldest lease age, sample resource keys, provider id.
 - [ ] Classify persisted runtime/provider failures by provider runtime
   generation so stale runtime-drift errors do not remain authoritative after
   browser/runtime recovery.
-- [ ] Ensure disabled providers do not consume browser/cache/byte work, but
+- [x] Ensure disabled providers do not consume browser/cache/byte work, but
   their stale durable rows are still observable and recoverable when needed.
 
 Do not:

@@ -94,6 +94,7 @@ export class ProviderCoordinator {
       if (!this.isEnabled(owner.provider.id)) {
         this.setRuntimeState(owner.provider.id, 'disabled', 'startup-disabled');
         console.log(`[providerCoordinator] provider-disabled provider=${owner.provider.id} action=skip-start`);
+        owner.cache.recoverExpiredDurableLeases('provider-disabled-startup');
         owner.cache.suspend();
         owner.byteCache.suspend();
         continue;
@@ -128,6 +129,7 @@ export class ProviderCoordinator {
     this.enabledProviderIds.delete(id);
     this.saveEnabledProviderIds();
     this.setRuntimeState(id, 'stopping', 'disabled');
+    owner.cache.recoverExpiredDurableLeases('provider-disabled');
     owner.cache.suspend();
     owner.byteCache.suspend();
     await owner.browserSession.destroy();
