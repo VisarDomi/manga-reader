@@ -21,6 +21,7 @@
 
     const imageUrl = $derived(api.coverProxyUrl(mangaId, variant, sourceUrl));
     let mountedAt = 0;
+    let requestStartedAt = 0;
     let failedUrl = $state<string | null>(null);
     const showImage = $derived(imageUrl.length > 0 && failedUrl !== imageUrl);
 
@@ -31,7 +32,8 @@
 
     function emit(phase: 'mount' | 'load' | 'error' | 'missing', img?: HTMLImageElement) {
         void img;
-        recordCoverImagePerf(appState.log.emit, source, phase, !!imageUrl, Math.round(performance.now() - mountedAt));
+        const startedAt = phase === 'load' || phase === 'error' ? requestStartedAt : mountedAt;
+        recordCoverImagePerf(appState.log.emit, source, phase, !!imageUrl, Math.round(performance.now() - startedAt));
     }
 
     function handleError() {
@@ -41,7 +43,13 @@
 
     $effect(() => {
         mountedAt = performance.now();
+        requestStartedAt = mountedAt;
         emit(imageUrl ? 'mount' : 'missing');
+    });
+
+    $effect(() => {
+        if (!showImage) return;
+        requestStartedAt = performance.now();
     });
 </script>
 

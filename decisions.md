@@ -2213,6 +2213,29 @@ The chapter-image readiness contract was verified on 2026-05-09 with
 row as `not-ready`, promoted the foreground image job, then cached and served
 `source=runtime-http pages=15 targetCount=15 status=ready`.
 
+Cover and thumbnail timing logs must measure the owned request, not the
+lifetime of the component that eventually displays it. A 2026-06-05 audit found
+backend cover-cache hits serving local bytes in roughly single-digit
+milliseconds while frontend thumbnail summaries reported multi-second averages
+because lazy/offscreen images were timed from component mount. The frontend
+therefore measures cover load/error duration from the current image URL
+assignment. Large component-lifetime delay is a visibility/lazy-rendering
+observation; it is not proof that the local byte cache is slow.
+
+Root restore owns search replay as a transaction. A search result arriving in
+logs is not sufficient proof that the root was restored: the result must be
+committed into `SearchState` under the same request generation. Search replay
+returns an explicit result (`committed`, `aborted`, `stale`, or `failed`), and
+the root restore owner only logs completion after `committed`. Aborted or stale
+replay remains visible as a failed restore transaction instead of logging
+`restore-root done` with zero results.
+
+Search-result cache reconciliation is an observation owned by the search
+generation that produced those cards. Timed reconcile work must not outlive the
+search/provider/root generation that scheduled it. If the generation changes
+before the timer fires, the reconcile is skipped and logged instead of issuing
+old observed foreground-shaped cache requests.
+
 ## BL. Skills Are The On-Demand Investigation Layer
 
 Long manga-reader sessions regularly compact around 230k-240k tokens of the

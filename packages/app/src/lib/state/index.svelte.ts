@@ -200,13 +200,20 @@ class AppState {
 
     private pauseBackgroundWork(reason = 'foreground-reader'): void {
         this.restore.cancel();
-        this.searchState.recover();
+        let searchAction: 'cancel' | 'defer' = 'cancel';
+        let searchReason = reason;
+        if (!this.rootRestoreRunning) {
+            this.searchState.recover();
+        } else {
+            searchAction = 'defer';
+            searchReason = 'root-restore-running';
+        }
         this.manga.pauseBackgroundWork();
         this.log.emit('foreground-work', {
             owner: 'search',
-            action: 'cancel',
+            action: searchAction,
             view: this.ui.viewMode,
-            reason,
+            reason: searchReason,
         });
     }
 
@@ -297,11 +304,15 @@ class AppState {
 
     private async replayRootSearch(pending: PendingRootRestore): Promise<void> {
         if (pending.targetId) this.restore.start(pending.targetId);
+        let result: 'committed' | 'aborted' | 'stale' | 'failed';
         if (pending.searchContext) {
             this.searchState.filters.restoreFromContext(pending.searchContext.filters);
-            await this.searchState.replayFromContext(pending.searchContext);
+            result = await this.searchState.replayFromContext(pending.searchContext);
         } else {
-            await this.searchState.search(this.searchState.inputQuery);
+            result = await this.searchState.search(this.searchState.inputQuery);
+        }
+        if (result !== 'committed') {
+            throw new Error(`root search replay ${result}`);
         }
         if (pending.targetId && this.restore.isActive) {
             await this.bgPaginateToTarget();

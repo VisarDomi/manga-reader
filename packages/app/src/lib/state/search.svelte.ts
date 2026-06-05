@@ -13,6 +13,7 @@ import { getProviderId } from '../services/provider.js';
 export { type LoadError as SearchError, loadErrorMessage as searchErrorMessage };
 
 type SearchMachineState = 'idle' | 'searching' | 'loading-page';
+type SearchRunResult = 'committed' | 'aborted' | 'stale' | 'failed';
 
 class SearchMachine {
     state = $state<SearchMachineState>('idle');
@@ -111,7 +112,7 @@ export class SearchState {
         this.resultsVersion++;
     }
 
-    async search(query: string) {
+    async search(query: string): Promise<SearchRunResult> {
         this.onNewSearch?.();
         this.filters.cancelDebounce();
         this.machine.enter('searching');
@@ -131,22 +132,24 @@ export class SearchState {
 
         try {
             const data = await api.searchManga(query, 1, ctx.filters, signal, false, requestId);
-            if (signal.aborted) return;
+            if (signal.aborted) return 'aborted';
             if (!this.isCurrentRequest(requestId)) {
                 this.emit('search-page-flow', this.searchFlowLog('stale', requestId, 1));
-                return;
+                return 'stale';
             }
             this.error = null;
             this.results = data.manga;
             this.resultsVersion++;
             this.hasMore = data.hasMore;
-            this.scheduleObservedReconcile(data.manga);
+            this.scheduleObservedReconcile(data.manga, this.requestSeq);
+            return 'committed';
         } catch (e) {
-            if (signal.aborted) return;
+            if (signal.aborted) return 'aborted';
             this.error = toLoadError(e);
             this.results = [];
             this.resultsVersion++;
             this.hasMore = false;
+            return 'failed';
         } finally {
             this.clearWatchdog();
             if (!signal.aborted) {
@@ -155,7 +158,7 @@ export class SearchState {
         }
     }
 
-    async replayFromContext(ctx: SearchContext) {
+    async replayFromContext(ctx: SearchContext): Promise<SearchRunResult> {
         const normalizedContext = this.contextForActiveProvider(ctx);
         this.onNewSearch?.();
         this.machine.enter('searching');
@@ -171,22 +174,24 @@ export class SearchState {
 
         try {
             const data = await api.searchManga(normalizedContext.query, 1, normalizedContext.filters, signal, false, requestId);
-            if (signal.aborted) return;
+            if (signal.aborted) return 'aborted';
             if (!this.isCurrentRequest(requestId)) {
                 this.emit('search-page-flow', this.searchFlowLog('stale', requestId, 1));
-                return;
+                return 'stale';
             }
             this.error = null;
             this.results = data.manga;
             this.resultsVersion++;
             this.hasMore = data.hasMore;
-            this.scheduleObservedReconcile(data.manga);
+            this.scheduleObservedReconcile(data.manga, this.requestSeq);
+            return 'committed';
         } catch (e) {
-            if (signal.aborted) return;
+            if (signal.aborted) return 'aborted';
             this.error = toLoadError(e);
             this.results = [];
             this.resultsVersion++;
             this.hasMore = false;
+            return 'failed';
         } finally {
             this.clearWatchdog();
             if (!signal.aborted) {
@@ -228,11 +233,11 @@ export class SearchState {
         this.results = [...this.results, ...deduped];
         this.resultsVersion++;
         this.hasMore = data.hasMore;
-        this.scheduleObservedReconcile(deduped);
+        this.scheduleObservedReconcile(deduped, this.requestSeq);
         return deduped;
     }
 
-    private scheduleObservedReconcile(manga: Manga[]): void {
+    private scheduleObservedReconcile(manga: Manga[], generation: number): void {
         const candidates = manga
             .filter(item => typeof item.latestChapter === 'number' && Number.isFinite(item.latestChapter) && item.latestChapter > 0)
             .slice(0, 20)
@@ -244,6 +249,16 @@ export class SearchState {
             });
         candidates.forEach((item, index) => {
             setTimeout(() => {
+                if (generation !== this.requestSeq) {
+                    this.emit('cache-reconcile-skip', {
+                        mangaId: item.id,
+                        observedLatestChapter: item.latestChapter!,
+                        source: 'search-result',
+                        priority: 'observed',
+                        reason: 'search-generation-changed',
+                    });
+                    return;
+                }
                 void api.reconcileMangaCache(item.id, item.latestChapter!, 'search-result', 'observed');
             }, index * 25);
         });

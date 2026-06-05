@@ -23,6 +23,7 @@ export type LogEvent =
     | { event: 'cache-reconcile-request'; mangaId: string; observedLatestChapter: number; source: 'search-result' | 'manga-open'; priority: 'observed' | 'foreground' | 'interactive' }
     | { event: 'cache-reconcile-result'; mangaId: string; observedLatestChapter: number | null; cachedMax: number | null; source: 'search-result' | 'manga-open'; priority: 'observed' | 'foreground' | 'interactive'; status: string; action: string; reason: string }
     | { event: 'cache-reconcile-error'; mangaId: string; observedLatestChapter: number; source: 'search-result' | 'manga-open'; priority: 'observed' | 'foreground' | 'interactive'; error: string }
+    | { event: 'cache-reconcile-skip'; mangaId: string; observedLatestChapter: number; source: 'search-result'; priority: 'observed'; reason: 'search-generation-changed' }
     | { event: 'manga-card-snapshots-request'; providerId?: string; count: number; includeChapters: boolean }
     | { event: 'manga-card-snapshots-result'; providerId?: string; count: number; includeChapters: boolean; resultCount: number; mangaReady: number; chaptersReady: number; dtMs: number }
     | { event: 'manga-card-snapshots-error'; providerId?: string; count: number; includeChapters: boolean; dtMs: number; error: string }
