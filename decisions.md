@@ -516,6 +516,15 @@ That recovery belongs to the provider cache owner and is logged as
 `durable-lease-recovery`; it makes stale durable work self-healing without
 requiring the user to re-enable the provider or restart repeatedly.
 
+Provider data caching has explicit foreground and background lanes over one
+durable queue. Foreground lane claims `observed`, `foreground`, and
+`interactive` jobs. Background lane claims only `daily` and `background` jobs,
+and does not claim while user-visible work is runnable or while the provider
+runtime is unhealthy. This preserves one durable source of truth while stopping
+a slow background page-map request from occupying the only data-cache worker.
+BrowserSession still owns the provider runtime pages; CacheService owns which
+durable jobs are allowed to enter foreground or background lanes.
+
 Current provider ownership:
 
 - `comix` uses the original cache database and byte directory. It owns Comix

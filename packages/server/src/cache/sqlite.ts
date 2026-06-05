@@ -712,13 +712,18 @@ export class CacheDatabase {
     });
   }
 
-  claimNextJob(workerId: string, leaseMs: number, now = Date.now(), kinds?: string[], minPriority?: number): CacheJobRecord | null {
+  claimNextJob(workerId: string, leaseMs: number, now = Date.now(), kinds?: string[], minPriority?: number, maxPriority?: number): CacheJobRecord | null {
     return this.transaction(() => {
       const kindFilter = kinds && kinds.length > 0
         ? `AND kind IN (${kinds.map(() => '?').join(', ')})`
         : '';
       const priorityFilter = minPriority != null ? 'AND priority >= ?' : '';
-      const params = minPriority != null ? [...(kinds ?? []), minPriority] : (kinds ?? []);
+      const maxPriorityFilter = maxPriority != null ? 'AND priority <= ?' : '';
+      const params = [
+        ...(kinds ?? []),
+        ...(minPriority != null ? [minPriority] : []),
+        ...(maxPriority != null ? [maxPriority] : []),
+      ];
       const runnable = this.db.prepare(`
         SELECT id, kind, resource_key, priority, payload_json, status, run_after, attempts, max_attempts,
           lease_owner, lease_until, last_error, created_at, updated_at
@@ -727,6 +732,7 @@ export class CacheDatabase {
           AND run_after <= ?
         ${kindFilter}
         ${priorityFilter}
+        ${maxPriorityFilter}
         ORDER BY priority DESC, run_after ASC, created_at ASC
         LIMIT 1
       `).get(now, ...params) as CacheJobRow | undefined;
@@ -740,6 +746,7 @@ export class CacheDatabase {
           AND lease_until < ?
         ${kindFilter}
         ${priorityFilter}
+        ${maxPriorityFilter}
         ORDER BY priority DESC, lease_until ASC, created_at ASC
         LIMIT 1
       `).get(now, ...params) as CacheJobRow | undefined;

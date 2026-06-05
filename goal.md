@@ -133,12 +133,12 @@ Do not:
 
 Goal: visible user intent must not wait behind speculative background work.
 
-- [ ] Audit `CacheService`, `BrowserSession`, `ByteCacheService`, and provider
+- [x] Audit `CacheService`, `BrowserSession`, `ByteCacheService`, and provider
   runtime lanes for shared foreground/background resources.
-- [ ] Define explicit foreground request authority:
+- [x] Define explicit foreground request authority:
   serve cached data immediately when present; enqueue/promote refresh; subscribe
   to resource-ready only when the UI actually needs to wait.
-- [ ] Define explicit background crawler authority:
+- [x] Define explicit background crawler authority:
   can consume idle capacity; must yield when matching or higher-priority
   foreground work arrives; must not mark provider runtime unhealthy in a way
   that blocks foreground unless the provider is truly broken.
@@ -148,6 +148,21 @@ Goal: visible user intent must not wait behind speculative background work.
   reduces policy coupling:
   `MangaDataCache`, `ChapterImageMetadataCache`, `FilterCatalogCache`,
   `StoreSelectionPolicy`, all using one durable queue.
+
+Phase 2 batch from 2026-06-05:
+
+- Implemented explicit data-cache lanes inside `CacheService`: foreground
+  claims `observed`/`foreground`/`interactive`; background claims only
+  `daily`/`background`.
+- One durable queue remains the source of truth; lane-specific worker ids make
+  running work observable without adding separate queues.
+- Background does not claim while higher-priority work is runnable or while the
+  provider runtime is unhealthy. This addresses the proven coupling where a
+  slow background page-map job could occupy the single data worker even though
+  BrowserSession had separate browser lanes.
+- Still open: verify foreground cache waits on a user flow, and only split
+  BrowserSession/CacheService further if later logs prove more resource
+  coupling.
 
 Do not:
 

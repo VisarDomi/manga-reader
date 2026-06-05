@@ -48,8 +48,8 @@ export class DurableJobScheduler {
     return this.enqueueUnique(input);
   }
 
-  claimNext(workerId: string, leaseMs: number, kinds?: string[], minPriority?: number): CacheJobRecord | null {
-    const job = this.db.claimNextJob(workerId, leaseMs, Date.now(), kinds, minPriority);
+  claimNext(workerId: string, leaseMs: number, kinds?: string[], minPriority?: number, maxPriority?: number): CacheJobRecord | null {
+    const job = this.db.claimNextJob(workerId, leaseMs, Date.now(), kinds, minPriority, maxPriority);
     if (job && this.shouldLogRecord(job.kind, job.priority)) {
       console.log(`[cache-scheduler] claim id=${job.id} kind=${job.kind} resource=${job.resourceKey} priority=${job.priority} attempt=${job.attempts}/${job.maxAttempts}`);
     }

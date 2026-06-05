@@ -39,6 +39,7 @@ const FOREGROUND_CACHE_WAIT_MS = 25_000;
 type CacheJobKind = 'seed-newest' | 'crawl-search-page' | 'cache-manga-detail' | 'cache-chapters' | 'reconcile-chapters' | 'cache-chapter-page-map';
 export type CacheJobPriority = 'interactive' | 'foreground' | 'observed' | 'daily' | 'background';
 export type CacheReconcileSource = 'search-result' | 'manga-open' | 'manual-refresh';
+type DataCacheLane = 'foreground' | 'background';
 
 export interface CacheReconcileResult {
   status: 'fresh' | 'queued' | 'promoted' | 'warming' | 'ignored';
@@ -488,9 +489,9 @@ export class CacheService {
   private readonly scheduler: DurableJobScheduler;
   private readonly workerId: string;
   private suspended = false;
-  private active = false;
+  private readonly activeLanes = new Set<DataCacheLane>();
   private started = false;
-  private currentJob: CacheJob | null = null;
+  private readonly currentJobs = new Map<DataCacheLane, CacheJob>();
   private dailyRolloverTimer: ReturnType<typeof setTimeout> | null = null;
   private durableQueueReaperTimer: ReturnType<typeof setInterval> | null = null;
   private startupMaintenanceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -515,6 +516,8 @@ export class CacheService {
     if (this.started) return;
     this.started = true;
     this.scheduler.recoverWorker(this.workerId);
+    this.scheduler.recoverWorker(this.laneWorkerId('foreground'));
+    this.scheduler.recoverWorker(this.laneWorkerId('background'));
     this.startDurableQueueReaper();
     this.startupMaintenanceTimer = setTimeout(() => this.runStartupMaintenance(), 0);
   }
@@ -614,8 +617,9 @@ export class CacheService {
     return {
       started: this.started,
       providerId: this.provider.id,
-      active: this.active,
-      currentJob: this.currentJob,
+      active: this.activeLanes.size > 0,
+      activeLanes: [...this.activeLanes],
+      currentJobs: Object.fromEntries([...this.currentJobs.entries()]),
       durableJobs: this.scheduler.counts(),
       counts: this.db.counts(),
     };
@@ -1168,7 +1172,7 @@ export class CacheService {
 
   private enqueue(job: CacheJob): CacheJobEnqueueResult {
     if ((job.kind === 'cache-manga-detail' || job.kind === 'cache-chapters' || job.kind === 'reconcile-chapters') && job.mangaId) {
-      if (this.currentJob?.kind === job.kind && this.currentJob.mangaId === job.mangaId) return 'existing';
+      if (this.hasRunningJob(running => running.kind === job.kind && running.mangaId === job.mangaId)) return 'existing';
       if (job.kind === 'reconcile-chapters') {
         const fullJob = this.scheduler.jobsForResource('cache-chapters', job.mangaId)[0];
         if (fullJob) {
@@ -1191,9 +1195,9 @@ export class CacheService {
       }
     }
     if (job.kind === 'cache-chapter-page-map' && job.mangaId && job.chapterId) {
-      if (this.currentJob?.kind === 'cache-chapter-page-map'
-        && this.currentJob.mangaId === job.mangaId
-        && this.currentJob.chapterId === job.chapterId) return 'existing';
+      if (this.hasRunningJob(running => running.kind === 'cache-chapter-page-map'
+        && running.mangaId === job.mangaId
+        && running.chapterId === job.chapterId)) return 'existing';
     }
     const status = this.enqueueDurable(job);
     this.drain();
@@ -1229,7 +1233,16 @@ export class CacheService {
     });
   }
 
-  private nextJob() {
+  private nextJob(lane: DataCacheLane) {
+    if (lane === 'foreground') {
+      return this.scheduler.claimNext(
+        this.laneWorkerId(lane),
+        30 * 60 * 1000,
+        DATA_CACHE_JOB_KINDS,
+        CACHE_JOB_PRIORITY.observed,
+      );
+    }
+
     const runtimeAvailable = this.browserSession.canRunBackgroundRuntimeWork();
     if (!runtimeAvailable && !this.backgroundRuntimePaused) {
       this.backgroundRuntimePaused = true;
@@ -1238,8 +1251,15 @@ export class CacheService {
       this.backgroundRuntimePaused = false;
       console.log(`[cache] runtime-background-resumed provider=${this.provider.id}`);
     }
-    const minPriority = DATA_CACHE_BACKGROUND_ENABLED && runtimeAvailable ? undefined : CACHE_JOB_PRIORITY.foreground;
-    return this.scheduler.claimNext(this.workerId, 30 * 60 * 1000, DATA_CACHE_JOB_KINDS, minPriority);
+    if (!DATA_CACHE_BACKGROUND_ENABLED || !runtimeAvailable) return null;
+    if (this.scheduler.runnableCountAbove('daily') > 0) return null;
+    return this.scheduler.claimNext(
+      this.laneWorkerId(lane),
+      30 * 60 * 1000,
+      DATA_CACHE_JOB_KINDS,
+      undefined,
+      CACHE_JOB_PRIORITY.daily,
+    );
   }
 
   private hasForegroundChapterListWork(mangaId: string): boolean {
@@ -1249,7 +1269,7 @@ export class CacheService {
       && job.reason !== 'repair-missing-upload-dates'
       && (job.priority === 'interactive' || job.priority === 'foreground' || job.priority === 'observed')
       && (job.kind === 'reconcile-chapters' || (job.kind === 'cache-chapters' && job.force === true));
-    if (isUserVisibleRefresh(this.currentJob)) return true;
+    if (this.runningJobs().some(isUserVisibleRefresh)) return true;
     const chapterJobs = this.scheduler.jobsForResource('cache-chapters', mangaId);
     if (chapterJobs.some(record => isUserVisibleRefresh(this.recordToJob(record)))) return true;
     const reconcileJobs = this.scheduler.jobsForResource('reconcile-chapters', mangaId);
@@ -1257,14 +1277,14 @@ export class CacheService {
   }
 
   private hasChapterPageMapWork(mangaId: string, chapterId: string): boolean {
-    if (this.currentJob?.kind === 'cache-chapter-page-map'
-      && this.currentJob.mangaId === mangaId
-      && this.currentJob.chapterId === chapterId) return true;
+    if (this.hasRunningJob(job => job.kind === 'cache-chapter-page-map'
+      && job.mangaId === mangaId
+      && job.chapterId === chapterId)) return true;
     return this.scheduler.jobsForResource('cache-chapter-page-map', `${mangaId}:${chapterId}`).length > 0;
   }
 
   private hasMangaDetailWork(mangaId: string): boolean {
-    if (this.currentJob?.kind === 'cache-manga-detail' && this.currentJob.mangaId === mangaId) return true;
+    if (this.hasRunningJob(job => job.kind === 'cache-manga-detail' && job.mangaId === mangaId)) return true;
     return this.scheduler.jobsForResource('cache-manga-detail', mangaId).length > 0;
   }
 
@@ -1273,7 +1293,7 @@ export class CacheService {
   }
 
   hasHigherPriorityDataWork(): boolean {
-    if (this.currentJob && CACHE_JOB_PRIORITY[this.currentJob.priority] > CACHE_JOB_PRIORITY.background) {
+    if (this.runningJobs().some(job => CACHE_JOB_PRIORITY[job.priority] > CACHE_JOB_PRIORITY.background)) {
       return true;
     }
     return this.scheduler.runnableCountAbove('background') > 0;
@@ -1284,39 +1304,45 @@ export class CacheService {
   }
 
   private drain(): void {
+    this.drainLane('foreground');
+    this.drainLane('background');
+  }
+
+  private drainLane(lane: DataCacheLane): void {
     if (this.suspended) return;
-    if (this.active) return;
-    this.active = true;
+    if (this.activeLanes.has(lane)) return;
+    this.activeLanes.add(lane);
     let loopFailed = false;
-    void this.runLoop()
+    void this.runLoop(lane)
       .catch(error => {
         loopFailed = true;
-        console.error(`[cache] worker-loop-error provider=${this.provider.id} job=${this.currentJob?.kind ?? 'none'} manga=${this.currentJob?.mangaId ?? 'none'} ${conciseError((error as Error)?.message ?? String(error))}`);
+        const current = this.currentJobs.get(lane);
+        console.error(`[cache] worker-loop-error provider=${this.provider.id} lane=${lane} job=${current?.kind ?? 'none'} manga=${current?.mangaId ?? 'none'} ${conciseError((error as Error)?.message ?? String(error))}`);
       })
       .finally(() => {
-        this.active = false;
-        this.currentJob = null;
-        if (loopFailed) setTimeout(() => this.drain(), 1000);
+        this.activeLanes.delete(lane);
+        this.currentJobs.delete(lane);
+        if (loopFailed) setTimeout(() => this.drainLane(lane), 1000);
       });
   }
 
-  private async runLoop(): Promise<void> {
+  private async runLoop(lane: DataCacheLane): Promise<void> {
     while (true) {
       if (this.suspended) return;
-      if (this.browserSession.hasCriticalScrambledPageWork()) {
-        setTimeout(() => this.drain(), 250);
+      if (lane === 'background' && this.browserSession.hasCriticalScrambledPageWork()) {
+        setTimeout(() => this.drainLane('background'), 250);
         return;
       }
-      const record = this.nextJob();
+      const record = this.nextJob(lane);
       if (!record) return;
       const job = this.recordToJob(record);
-      this.currentJob = job;
+      this.currentJobs.set(lane, job);
       const start = Date.now();
       const queueAgeMs = Math.max(0, start - record.createdAt);
       const requestWaitMs = job.requestedAt ? Math.max(0, start - job.requestedAt) : 'unknown';
       const verboseLifecycle = this.shouldLogJobLifecycle(job);
       if (verboseLifecycle) {
-        console.log(`[cache] job-start provider=${this.provider.id} id=${record.id} kind=${job.kind} manga=${job.mangaId ?? 'none'} priority=${job.priority} reason=${job.reason} queueAgeMs=${queueAgeMs} requestWaitMs=${requestWaitMs} attempt=${record.attempts}/${record.maxAttempts}`);
+        console.log(`[cache] job-start provider=${this.provider.id} lane=${lane} id=${record.id} kind=${job.kind} manga=${job.mangaId ?? 'none'} priority=${job.priority} reason=${job.reason} queueAgeMs=${queueAgeMs} requestWaitMs=${requestWaitMs} attempt=${record.attempts}/${record.maxAttempts}`);
       }
       try {
         if (job.kind === 'seed-newest') await this.seedNewest(job);
@@ -1329,20 +1355,34 @@ export class CacheService {
         this.notifyJobResource(job);
         const runMs = Date.now() - start;
         if (verboseLifecycle || runMs >= SLOW_BACKGROUND_JOB_MS) {
-          console.log(`[cache] job-done provider=${this.provider.id} id=${record.id} kind=${job.kind} manga=${job.mangaId ?? 'none'} priority=${job.priority} reason=${job.reason} queueAgeMs=${queueAgeMs} requestWaitMs=${requestWaitMs} runMs=${runMs}`);
+          console.log(`[cache] job-done provider=${this.provider.id} lane=${lane} id=${record.id} kind=${job.kind} manga=${job.mangaId ?? 'none'} priority=${job.priority} reason=${job.reason} queueAgeMs=${queueAgeMs} requestWaitMs=${requestWaitMs} runMs=${runMs}`);
         }
       } catch (e) {
         if (e instanceof CacheJobYield) {
           this.scheduler.yield(record, e.message);
-          console.log(`[cache] job-yield provider=${this.provider.id} id=${record.id} kind=${job.kind} manga=${job.mangaId ?? 'none'} priority=${job.priority} reason=${job.reason} queueAgeMs=${queueAgeMs} requestWaitMs=${requestWaitMs} runMs=${Date.now() - start} ${e.message}`);
+          console.log(`[cache] job-yield provider=${this.provider.id} lane=${lane} id=${record.id} kind=${job.kind} manga=${job.mangaId ?? 'none'} priority=${job.priority} reason=${job.reason} queueAgeMs=${queueAgeMs} requestWaitMs=${requestWaitMs} runMs=${Date.now() - start} ${e.message}`);
           continue;
         }
         const msg = conciseError((e as Error)?.message ?? String(e));
         this.scheduler.retry(record, msg, this.retryDelayMs(record.attempts));
         this.notifyJobResource(job);
         this.logJobFailure(job, record.id, queueAgeMs, requestWaitMs, Date.now() - start, msg);
+      } finally {
+        if (this.currentJobs.get(lane) === job) this.currentJobs.delete(lane);
       }
     }
+  }
+
+  private laneWorkerId(lane: DataCacheLane): string {
+    return `${this.workerId}:${lane}`;
+  }
+
+  private runningJobs(): CacheJob[] {
+    return [...this.currentJobs.values()];
+  }
+
+  private hasRunningJob(matches: (job: CacheJob) => boolean): boolean {
+    return this.runningJobs().some(matches);
   }
 
   private notifyJobResource(job: CacheJob): void {
