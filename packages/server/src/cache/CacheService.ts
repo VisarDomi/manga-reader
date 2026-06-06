@@ -499,6 +499,24 @@ export class CacheService {
   private readonly backgroundFailures = new Map<string, BackgroundFailureSummary>();
   private readonly resourceWaiters = new Map<string, Set<() => void>>();
   private backgroundRuntimePaused = false;
+  private reconcileFreshStartedAt = Date.now();
+  private reconcileFreshLastLogAt = Date.now();
+  private reconcileFreshCount = 0;
+  private reconcileFreshSearch = 0;
+  private reconcileFreshMangaOpen = 0;
+  private reconcileFreshObserved = 0;
+  private reconcileFreshForeground = 0;
+  private reconcileFreshInteractive = 0;
+  private searchCrawlStartedAt = Date.now();
+  private searchCrawlLastLogAt = Date.now();
+  private searchCrawlPages = 0;
+  private searchCrawlFetched = 0;
+  private searchCrawlQueuedManga = 0;
+  private searchCrawlCovers = 0;
+  private searchCrawlQueuedCovers = 0;
+  private searchCrawlFetchMs = 0;
+  private searchCrawlFirstPage: number | null = null;
+  private searchCrawlLastPage: number | null = null;
 
   constructor(
     private readonly browserSession: BrowserSession,
@@ -1011,7 +1029,7 @@ export class CacheService {
     }
 
     if (cachedMax != null && cachedMax >= observed) {
-      console.log(`[cache] reconcile provider=${this.provider.id} decision manga=${mangaId} source=${source} priority=${normalizedPriority} cachedMax=${cachedMax} observed=${observed} action=none status=fresh reason=cached-up-to-date`);
+      this.recordFreshReconcile(source, normalizedPriority);
       return { status: 'fresh', mangaId, cachedMax, observedLatestChapter: observed, action: 'none', reason: 'cached-up-to-date' };
     }
 
@@ -1030,6 +1048,26 @@ export class CacheService {
   warmManga(mangaId: string, reason = 'cache-miss', priority: CacheJobPriority = 'interactive'): void {
     this.enqueue({ kind: 'cache-manga-detail', priority, mangaId, reason });
     this.enqueue({ kind: 'cache-chapters', priority, mangaId, reason });
+  }
+
+  private recordFreshReconcile(source: CacheReconcileSource, priority: CacheJobPriority): void {
+    this.reconcileFreshCount++;
+    if (source === 'search-result') this.reconcileFreshSearch++;
+    else this.reconcileFreshMangaOpen++;
+    if (priority === 'observed') this.reconcileFreshObserved++;
+    else if (priority === 'foreground') this.reconcileFreshForeground++;
+    else if (priority === 'interactive') this.reconcileFreshInteractive++;
+    const now = Date.now();
+    if (this.reconcileFreshCount < 50 && now - this.reconcileFreshLastLogAt < 30_000) return;
+    console.log(`[cache] reconcile-fresh-summary provider=${this.provider.id} total=${this.reconcileFreshCount} search=${this.reconcileFreshSearch} mangaOpen=${this.reconcileFreshMangaOpen} observed=${this.reconcileFreshObserved} foreground=${this.reconcileFreshForeground} interactive=${this.reconcileFreshInteractive} windowMs=${now - this.reconcileFreshStartedAt}`);
+    this.reconcileFreshCount = 0;
+    this.reconcileFreshSearch = 0;
+    this.reconcileFreshMangaOpen = 0;
+    this.reconcileFreshObserved = 0;
+    this.reconcileFreshForeground = 0;
+    this.reconcileFreshInteractive = 0;
+    this.reconcileFreshStartedAt = now;
+    this.reconcileFreshLastLogAt = now;
   }
 
   observeImageStore(observation: Omit<ImageStoreObservation, 'source'>): void {
@@ -1578,7 +1616,44 @@ export class CacheService {
     const next = hasNext
       ? otherFrontierExists ? 'existing-frontier' : page + 1
       : 'none';
-    console.log(`[cache] search-crawl provider=${this.provider.id} page=${page}/${lastPage} date=${crawlDate} fetched=${items.length} queuedManga=${queued} covers=${coverDiscovered} queuedCovers=${coverQueued} next=${next} http=${status} fetchMs=${Date.now() - start}`);
+    this.recordSearchCrawlPage({
+      crawlDate,
+      page,
+      lastPage,
+      fetched: items.length,
+      queuedManga: queued,
+      covers: coverDiscovered,
+      queuedCovers: coverQueued,
+      next,
+      status,
+      fetchMs: Date.now() - start,
+      done: !hasNext,
+    });
+  }
+
+  private recordSearchCrawlPage(event: { crawlDate: string; page: number; lastPage: number; fetched: number; queuedManga: number; covers: number; queuedCovers: number; next: string | number; status: number; fetchMs: number; done: boolean }): void {
+    this.searchCrawlPages++;
+    this.searchCrawlFetched += event.fetched;
+    this.searchCrawlQueuedManga += event.queuedManga;
+    this.searchCrawlCovers += event.covers;
+    this.searchCrawlQueuedCovers += event.queuedCovers;
+    this.searchCrawlFetchMs += event.fetchMs;
+    this.searchCrawlFirstPage ??= event.page;
+    this.searchCrawlLastPage = event.page;
+    const now = Date.now();
+    if (!event.done && this.searchCrawlPages < 50 && now - this.searchCrawlLastLogAt < 30_000) return;
+    const avgFetchMs = this.searchCrawlPages > 0 ? Math.round(this.searchCrawlFetchMs / this.searchCrawlPages) : 0;
+    console.log(`[cache] search-crawl-summary provider=${this.provider.id} pages=${this.searchCrawlPages} range=${this.searchCrawlFirstPage ?? event.page}-${this.searchCrawlLastPage ?? event.page}/${event.lastPage} date=${event.crawlDate} fetched=${this.searchCrawlFetched} queuedManga=${this.searchCrawlQueuedManga} covers=${this.searchCrawlCovers} queuedCovers=${this.searchCrawlQueuedCovers} next=${event.next} http=${event.status} avgFetchMs=${avgFetchMs} windowMs=${now - this.searchCrawlStartedAt}`);
+    this.searchCrawlPages = 0;
+    this.searchCrawlFetched = 0;
+    this.searchCrawlQueuedManga = 0;
+    this.searchCrawlCovers = 0;
+    this.searchCrawlQueuedCovers = 0;
+    this.searchCrawlFetchMs = 0;
+    this.searchCrawlFirstPage = null;
+    this.searchCrawlLastPage = null;
+    this.searchCrawlStartedAt = now;
+    this.searchCrawlLastLogAt = now;
   }
 
   private async fetchSearchCrawlData(url: string, job: CacheJob): Promise<{ data: unknown; status: number }> {

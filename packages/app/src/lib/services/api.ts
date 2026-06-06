@@ -256,7 +256,8 @@ export async function reconcileMangaCache(
     action: string;
     reason: string;
 } | null> {
-    emit('cache-reconcile-request', { mangaId, observedLatestChapter, source, priority });
+    const verbose = source !== 'search-result' || priority !== 'observed';
+    if (verbose) emit('cache-reconcile-request', { mangaId, observedLatestChapter, source, priority });
     try {
         const result = await fetchJson<{
             status: string;
@@ -270,16 +271,19 @@ export async function reconcileMangaCache(
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ providerId: getProviderId(), observedLatestChapter, source, priority }),
         });
-        emit('cache-reconcile-result', {
-            mangaId,
-            observedLatestChapter: result.observedLatestChapter,
-            cachedMax: result.cachedMax,
-            source,
-            priority,
-            status: result.status,
-            action: result.action,
-            reason: result.reason,
-        });
+        const freshNoopObserved = source === 'search-result' && priority === 'observed' && result.status === 'fresh' && result.action === 'none';
+        if (!freshNoopObserved) {
+            emit('cache-reconcile-result', {
+                mangaId,
+                observedLatestChapter: result.observedLatestChapter,
+                cachedMax: result.cachedMax,
+                source,
+                priority,
+                status: result.status,
+                action: result.action,
+                reason: result.reason,
+            });
+        }
         return result;
     } catch (e) {
         if (signal?.aborted) return null;

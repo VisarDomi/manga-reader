@@ -693,6 +693,10 @@ export class CacheDatabase {
         return 'requeued';
       }
 
+      if (existing.status === 'failed' && input.retryFailedAfterMs !== undefined) {
+        return 'existing';
+      }
+
       if (input.priority > existing.priority) {
         this.db.prepare(`
           UPDATE cache_jobs

@@ -27,6 +27,13 @@ export class ByteCacheService {
   private summaryBytes = 0;
   private summarySkipped = 0;
   private backgroundPaused = false;
+  private coverServeStartedAt = Date.now();
+  private coverServeLastLogAt = Date.now();
+  private coverServeHits = 0;
+  private coverServeLinkedHits = 0;
+  private coverServeMissStore = 0;
+  private coverServeBytes = 0;
+  private coverServeMaxMs = 0;
 
   constructor(
     private readonly rootDir = BYTE_CACHE_DIR,
@@ -67,13 +74,14 @@ export class ByteCacheService {
 
   warmCover(mangaId: string, variant: MangaCoverVariant, sourceUrl: string, referer: string | undefined, priority: CacheJobPriorityName, reason: string): CacheJobEnqueueResult {
     this.db.upsertMangaCoverPending(mangaId, variant, sourceUrl);
+    const isForeground = priority === 'interactive' || priority === 'foreground';
     const status = this.scheduler.enqueueUnique({
       kind: BYTE_CACHE_JOB_KIND,
       resourceKey: `cover:${mangaId}:${variant}`,
       priority,
       payload: { sourceUrl, referer, reason, mangaId, variant },
-      maxAttempts: 5,
-      retryFailedAfterMs: priority === 'interactive' || priority === 'foreground' ? 0 : FAILED_BYTE_RETRY_MS,
+      maxAttempts: isForeground ? 3 : 1,
+      retryFailedAfterMs: isForeground ? 0 : FAILED_BYTE_RETRY_MS,
     });
     this.drain();
     return status;
@@ -97,7 +105,20 @@ export class ByteCacheService {
       res.set('Cache-Control', `public, max-age=${CACHE_MAX_AGE}`);
       if (owned.bytes != null) res.set('Content-Length', String(owned.bytes));
       await pipeline(fs.createReadStream(this.localPath(owned.localKey)), res);
-      console.log(`[coverCache] hit provider=${this.ownerId} manga=${mangaId} variant=${variant} bytes=${owned.bytes ?? 0} totalMs=${Date.now() - start}`);
+      this.recordCoverServe('hit', owned.bytes ?? 0, Date.now() - start);
+      return;
+    }
+
+    const cached = this.db.getByteCache(usableSourceUrl);
+    if (cached?.status === 'ready' && fs.existsSync(finalPath)) {
+      const start = Date.now();
+      const contentType = cached.contentType || 'application/octet-stream';
+      this.db.upsertMangaCoverReady(mangaId, variant, usableSourceUrl, localKey, contentType, cached.bytes ?? 0);
+      res.set('Content-Type', contentType);
+      res.set('Cache-Control', `public, max-age=${CACHE_MAX_AGE}`);
+      if (cached.bytes != null) res.set('Content-Length', String(cached.bytes));
+      await pipeline(fs.createReadStream(finalPath), res);
+      this.recordCoverServe('hit-linked', cached.bytes ?? 0, Date.now() - start);
       return;
     }
 
@@ -122,7 +143,7 @@ export class ByteCacheService {
       res.set('Content-Length', String(buffer.byteLength));
       res.send(buffer);
 
-      console.log(`[coverCache] miss-store ok provider=${this.ownerId} manga=${mangaId} variant=${variant} bytes=${buffer.byteLength} totalMs=${Date.now() - start}`);
+      this.recordCoverServe('miss-store', buffer.byteLength, Date.now() - start);
     } catch (e) {
       const message = conciseError((e as Error)?.message ?? String(e));
       this.db.upsertByteCacheFailed(sourceUrl, localKey, message);
@@ -225,13 +246,34 @@ export class ByteCacheService {
     this.summaryBytes += result.bytes;
     if (result.skipped) this.summarySkipped++;
     const now = Date.now();
-    if (this.summaryJobs < 100 && now - this.summaryLastLogAt < 30_000) return;
+    const allSkipped = this.summarySkipped === this.summaryJobs;
+    const jobThreshold = allSkipped ? 5000 : 100;
+    if (this.summaryJobs < jobThreshold && now - this.summaryLastLogAt < 30_000) return;
     console.log(`[byteCache] jobs-summary provider=${this.ownerId} jobs=${this.summaryJobs} skipped=${this.summarySkipped} bytes=${this.summaryBytes} windowMs=${now - this.summaryStartedAt}`);
     this.summaryJobs = 0;
     this.summaryBytes = 0;
     this.summarySkipped = 0;
     this.summaryStartedAt = now;
     this.summaryLastLogAt = now;
+  }
+
+  private recordCoverServe(kind: 'hit' | 'hit-linked' | 'miss-store', bytes: number, durationMs: number): void {
+    if (kind === 'hit') this.coverServeHits++;
+    else if (kind === 'hit-linked') this.coverServeLinkedHits++;
+    else this.coverServeMissStore++;
+    this.coverServeBytes += bytes;
+    this.coverServeMaxMs = Math.max(this.coverServeMaxMs, durationMs);
+    const total = this.coverServeHits + this.coverServeLinkedHits + this.coverServeMissStore;
+    const now = Date.now();
+    if (total < 100 && now - this.coverServeLastLogAt < 30_000) return;
+    console.log(`[coverCache] serve-summary provider=${this.ownerId} hits=${this.coverServeHits} linked=${this.coverServeLinkedHits} missStore=${this.coverServeMissStore} bytes=${this.coverServeBytes} maxMs=${Math.round(this.coverServeMaxMs)} windowMs=${now - this.coverServeStartedAt}`);
+    this.coverServeHits = 0;
+    this.coverServeLinkedHits = 0;
+    this.coverServeMissStore = 0;
+    this.coverServeBytes = 0;
+    this.coverServeMaxMs = 0;
+    this.coverServeStartedAt = now;
+    this.coverServeLastLogAt = now;
   }
 
   private writeAtomically(finalPath: string, buffer: Buffer): void {

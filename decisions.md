@@ -2250,6 +2250,26 @@ proxy-and-store attempt. The browser should not add another hidden batching
 policy with `loading=lazy` for manga cards. Lazy loading is still acceptable
 for unrelated remote content such as comment images.
 
+Favorites activation must not expose gray cards as a normal state. The
+favorites owner waits until the first visible cover image batch has either
+loaded or failed before marking the view loaded. This is intentionally a UI
+readiness contract, not a background warm contract: visible covers are part of
+the first useful favorites render.
+
+Cover cache misses from foreground image requests should not return a fast
+404 when a source URL is available. The foreground cover request owns the
+proxy-and-store attempt, writes the local byte cache, and serves the bytes in
+that same request. Background warm jobs can still fill missing covers, but they
+must not make the visible favorites path reveal placeholders when an immediate
+foreground fill is possible.
+
+Normal-path cache logs should be compact decision summaries, not per-card
+spam. Per-cover hits, linked hits, successful foreground miss-store events,
+fresh no-op search reconciles, daily search crawl pages, and all-skipped byte
+cache drains are summarized by owner. Failures, unavailable sources, queued or
+stale reconciliation, provider/runtime transitions, and foreground waits remain
+explicit because those are decision or error evidence.
+
 Search-result cache reconciliation is an observation owned by the search
 generation that produced those cards. Timed reconcile work must not outlive the
 search/provider/root generation that scheduled it. If the generation changes

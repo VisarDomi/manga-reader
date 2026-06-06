@@ -107,6 +107,7 @@ export class BrowserSession {
     private readonly runtimeApiInflight = new Map<string, Promise<unknown>>();
     private decoder: ScrambledPageDecoder | null = null;
     private surfaceLogTimer: NodeJS.Timeout | null = null;
+    private backgroundRuntimeIdleTimer: NodeJS.Timeout | null = null;
     private runtimeGeneration = 0;
 
     constructor(
@@ -196,7 +197,7 @@ export class BrowserSession {
             console.log(`[browserSession] runtime-http warm-skipped provider=${this.provider.id} reason=${reason} noProbeManga=1`);
             return;
         }
-        const lanes: RuntimeHttpLane[] = ['foreground', 'background'];
+        const lanes: RuntimeHttpLane[] = ['foreground'];
         const results = await Promise.allSettled(lanes.map(lane => this.ensureRuntimeHttpPage(probeMangaId, lane)));
         const failed = results.filter(result => result.status === 'rejected').length;
         if (failed > 0) {
@@ -611,6 +612,7 @@ export class BrowserSession {
     }
 
     private async ensureRuntimeHttpPage(mangaId: string, lane: RuntimeHttpLane): Promise<Page> {
+        if (lane === 'background') this.cancelBackgroundRuntimeIdleClose();
         const existing = this.runtimeHttpPages.get(lane);
         if (existing && !existing.isClosed() && this.runtimeHttpReady.get(lane) === true) return existing;
         if (!this.runtimeHttpInit.has(lane)) {
@@ -684,6 +686,7 @@ export class BrowserSession {
 
     private resetRuntimeHttpState(): void {
         this.runtimeGeneration++;
+        this.cancelBackgroundRuntimeIdleClose();
         this.runtimeHttpPages.clear();
         this.runtimeHttpReady.clear();
         this.runtimeHttpInit.clear();
@@ -821,10 +824,27 @@ export class BrowserSession {
         const next = previous.catch(() => undefined).then(work);
         const stored = next.finally(() => {
             if (this.runtimeLaneLocks.get(lane) === stored) this.runtimeLaneLocks.delete(lane);
+            if (lane === 'background') this.scheduleBackgroundRuntimeIdleClose();
         });
         stored.catch(() => undefined);
         this.runtimeLaneLocks.set(lane, stored);
         return next;
+    }
+
+    private scheduleBackgroundRuntimeIdleClose(): void {
+        this.cancelBackgroundRuntimeIdleClose();
+        this.backgroundRuntimeIdleTimer = setTimeout(() => {
+            this.backgroundRuntimeIdleTimer = null;
+            if (this.runtimeLaneLocks.has('background')) return;
+            void this.resetRuntimeHttpPage('background-runtime-idle', 'background');
+        }, 30_000);
+        this.backgroundRuntimeIdleTimer.unref?.();
+    }
+
+    private cancelBackgroundRuntimeIdleClose(): void {
+        if (!this.backgroundRuntimeIdleTimer) return;
+        clearTimeout(this.backgroundRuntimeIdleTimer);
+        this.backgroundRuntimeIdleTimer = null;
     }
 
     private runtimeRequestTimeoutMs(context: BrowserFetchContext = {}): number {
