@@ -205,6 +205,8 @@ export class FavoritesState {
                 const activeIds = new Set(this.ids);
                 const hydrated = snapshots.filter(snapshot => activeIds.has(snapshot.manga.id));
                 if (hydrated.length > 0) {
+                    const allReady = hydrated.length === activeIds.size
+                        && hydrated.every(snapshot => snapshot.mangaReady && snapshot.chaptersReady);
                     for (const result of hydrated) {
                         void db.updateFavoriteSnapshot(result.manga, providerId);
                         if (result.chapters) this.chapterStats.update(result.manga.id, result.manga.latestChapter ?? null, result.chapters);
@@ -224,6 +226,15 @@ export class FavoritesState {
                             });
                             return;
                         }
+                    }
+                    if (allReady) {
+                        this.log.emit('favorites-hydration', {
+                            phase: 'done',
+                            total: items.length,
+                            batchSize: items.length,
+                            dtMs: Math.round(performance.now() - startedAt),
+                        });
+                        return;
                     }
                 }
                 await this.delay(FavoritesState.REFRESH_POLL_MS);

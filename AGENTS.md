@@ -39,3 +39,7 @@ Monorepo (npm workspaces). Packages: `provider-types`, `extensions`, `server`, `
   restore layer debugging, or decision hygiene.
 - For Svelte 5 behavior, first read `~/Documents/memory/svelte5-pitfalls.md`; when it is unclear or may be stale, reference the official docs snapshot in `~/Documents/reference/svelte-5-docs/`.
 - `packages/extensions/providers/comix/business.md` holds provider-specific product rules.
+
+## notes
+
+- For the scrambler, do a lightweight test using the browser skill to test the idea instead of changing app code. if test is succesful, then you can change app and ask user to test the iphone pwa

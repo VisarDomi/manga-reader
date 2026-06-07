@@ -301,8 +301,9 @@ export class ScrambledPageDecoder {
     const currentUrl = page.url();
     const navigateStart = Date.now();
     let navigateMs = 0;
-    if (!currentUrl.startsWith(this.provider.baseUrl)) {
-      await page.goto(this.provider.runtimePageUrl(request.mangaId), { waitUntil: 'domcontentloaded', timeout: 30_000 });
+    const runtimeUrl = request.chapterUrl || this.provider.runtimePageUrl(request.mangaId);
+    if (this.normalizedPageUrl(currentUrl) !== this.normalizedPageUrl(runtimeUrl)) {
+      await page.goto(runtimeUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
       await page.waitForLoadState('networkidle', { timeout: 10_000 }).catch(error => {
         console.log(`[decoder] networkidle-timeout phase=decode manga=${request.mangaId} error=${this.errorMessage(error)}`);
       });
@@ -316,7 +317,7 @@ export class ScrambledPageDecoder {
     const decodeStart = Date.now();
     const sourceUrls = this.sourceCandidates(request, target.url);
     let canvasId = '';
-    let canvasMeta: { width: number; height: number; cssWidth: number; cssHeight: number };
+    let canvasMeta: { width: number; height: number; cssWidth: number; cssHeight: number; decoderSource: string };
     let sourceUrl = target.url;
     let lastError: unknown = null;
     for (let index = 0; index < sourceUrls.length; index += 1) {
@@ -328,7 +329,6 @@ export class ScrambledPageDecoder {
       const sourceStart = Date.now();
       try {
         canvasMeta = await page.evaluate(async ({ imageUrl, width, height, canvasId }) => {
-          const decode = await (globalThis as any).__mangaSecureDecode();
           const canvas = document.createElement('canvas');
           canvas.id = canvasId;
           canvas.width = width;
@@ -336,9 +336,16 @@ export class ScrambledPageDecoder {
           canvas.style.cssText = `position:fixed;left:0;top:0;width:${width}px;height:${height}px;z-index:2147483647;background:#000`;
           document.body.prepend(canvas);
           try {
-            await decode(imageUrl, canvas);
+            await (globalThis as any).__mangaSecureDecode(imageUrl, canvas);
+            await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
             const rect = canvas.getBoundingClientRect();
-            return { width: canvas.width, height: canvas.height, cssWidth: Math.round(rect.width), cssHeight: Math.round(rect.height) };
+            return {
+              width: canvas.width,
+              height: canvas.height,
+              cssWidth: Math.round(rect.width),
+              cssHeight: Math.round(rect.height),
+              decoderSource: String((globalThis as any).__mangaSecureDecodeSource ?? 'unknown'),
+            };
           } catch (error) {
             canvas.remove();
             throw error;
@@ -387,7 +394,7 @@ export class ScrambledPageDecoder {
     await page.evaluate(id => document.getElementById(id)?.remove(), canvasId).catch(error => {
       console.log(`[decoder] canvas-cleanup-failed manga=${request.mangaId} chapter=${request.chapterId} page=${request.pageIndex + 1} error=${this.errorMessage(error)}`);
     });
-    console.log(`[decoder] page-decoded policy=${request.policy ?? 'preload'} manga=${request.mangaId} chapter=${request.chapterId} page=${request.pageIndex + 1} bytes=${buffer.length} expected=${target.width}x${target.height} canvas=${canvasMeta!.width}x${canvasMeta!.height} css=${canvasMeta!.cssWidth}x${canvasMeta!.cssHeight} source=secure-module sourceHost=${this.hostFromUrl(sourceUrl)} sourceCandidates=${sourceUrls.length} waitMs=${waitMs} pageMs=${pageMs} warmupActive=${warmupActive} navigateMs=${navigateMs} moduleMs=${moduleMs} decodeMs=${decodeMs} screenshotMs=${screenshotMs} totalMs=${Date.now() - start}`);
+    console.log(`[decoder] page-decoded policy=${request.policy ?? 'preload'} manga=${request.mangaId} chapter=${request.chapterId} page=${request.pageIndex + 1} bytes=${buffer.length} expected=${target.width}x${target.height} canvas=${canvasMeta!.width}x${canvasMeta!.height} css=${canvasMeta!.cssWidth}x${canvasMeta!.cssHeight} source=secure-module decoder=${canvasMeta!.decoderSource} sourceHost=${this.hostFromUrl(sourceUrl)} sourceCandidates=${sourceUrls.length} waitMs=${waitMs} pageMs=${pageMs} warmupActive=${warmupActive} navigateMs=${navigateMs} moduleMs=${moduleMs} decodeMs=${decodeMs} screenshotMs=${screenshotMs} totalMs=${Date.now() - start}`);
     return { buffer, contentType: 'image/png', durationMs: Date.now() - start };
   }
 
@@ -426,24 +433,107 @@ export class ScrambledPageDecoder {
     return String(error).replace(/\s+/g, ' ').slice(0, 240);
   }
 
+  private normalizedPageUrl(value: string): string {
+    try {
+      const url = new URL(value);
+      url.hash = '';
+      return url.toString();
+    } catch {
+      return value;
+    }
+  }
+
   private async ensureSecureDecoderModule(page: Page): Promise<void> {
     if (this.moduleReady && !page.isClosed()) return;
     await page.evaluate(async () => {
       if (typeof (globalThis as any).__mangaSecureDecode === 'function') return;
-      (globalThis as any).__mangaSecureDecode = async () => {
-        if ((globalThis as any).__mangaSecureDecodeFn) return (globalThis as any).__mangaSecureDecodeFn;
-        const scripts = [...document.scripts].map(script => script.src).filter(Boolean);
-        const buildScript = scripts.find(src => src.includes('/assets/build/') && src.includes('/dist/'));
-        const baseUrl = buildScript
-          ? buildScript.replace(/\/[^/]+$/, '/')
-          : '/assets/build/35595e3de3c99889c1aa70/dist/';
-        const mod = await import(new URL('secure-tfu3ef-CDCmLh9b.js', baseUrl).toString());
-        const decode = mod?.t;
-        if (typeof decode !== 'function') throw new Error('Comix secure decoder unavailable');
-        (globalThis as any).__mangaSecureDecodeFn = decode;
-        return decode;
+      const collectSecureModuleUrls = async () => {
+        const urls = new Set<string>();
+        const add = (value: string | undefined | null) => {
+          if (!value) return;
+          try {
+            const url = new URL(value, location.href);
+            if (/\/secure-[^/]+\.js(?:$|\?)/.test(url.pathname + url.search)) {
+              url.hash = '';
+              urls.add(url.toString());
+            }
+          } catch {
+            // Ignore malformed provider-owned resource URLs.
+          }
+        };
+        for (const script of [...document.scripts]) add(script.src);
+        for (const link of [...document.querySelectorAll<HTMLLinkElement>('link[href]')]) add(link.href);
+        for (const entry of performance.getEntriesByType('resource')) add((entry as PerformanceResourceTiming).name);
+        const moduleScripts = [...document.scripts]
+          .map(script => script.src)
+          .filter(src => src.includes('/dist/') && src.endsWith('.js'));
+        for (const scriptUrl of moduleScripts) {
+          if (urls.size > 0) break;
+          try {
+            const text = await fetch(scriptUrl).then(response => response.ok ? response.text() : '');
+            for (const match of text.matchAll(/from\s*["']([^"']*secure-[^"']+\.js)["']/g)) {
+              add(new URL(match[1]!, scriptUrl).toString());
+            }
+          } catch {
+            // Best effort only; loaded resources are preferred.
+          }
+        }
+        return [...urls];
       };
-      await (globalThis as any).__mangaSecureDecode();
+      const callDecoder = async (
+        fn: (url: string, canvas: HTMLCanvasElement, signal: AbortSignal) => Promise<unknown> | unknown,
+        imageUrl: string,
+        canvas: HTMLCanvasElement,
+      ) => {
+        const controller = new AbortController();
+        try {
+          await fn(imageUrl, canvas, controller.signal);
+        } finally {
+          controller.abort();
+        }
+      };
+      (globalThis as any).__mangaSecureDecode = async (imageUrl: string, canvas: HTMLCanvasElement) => {
+        const cached = (globalThis as any).__mangaSecureDecodeFn;
+        if (typeof cached === 'function') {
+          await callDecoder(cached, imageUrl, canvas);
+          return;
+        }
+        const moduleUrls = await collectSecureModuleUrls();
+        const attempts: string[] = [];
+        for (const moduleUrl of moduleUrls) {
+          let mod: Record<string, unknown>;
+          try {
+            mod = await import(moduleUrl);
+          } catch (error) {
+            attempts.push(`${moduleUrl}:import:${error instanceof Error ? error.message : String(error)}`);
+            continue;
+          }
+          const exports = Object.entries(mod)
+            .filter(([, value]) => typeof value === 'function')
+            .sort((left, right) => {
+              const leftLength = (left[1] as Function).length;
+              const rightLength = (right[1] as Function).length;
+              if ((leftLength >= 3) !== (rightLength >= 3)) return leftLength >= 3 ? -1 : 1;
+              return rightLength - leftLength;
+            });
+          for (const [exportName, value] of exports) {
+            if (typeof value !== 'function') continue;
+            try {
+              await callDecoder(
+                value as (url: string, canvas: HTMLCanvasElement, signal: AbortSignal) => Promise<unknown> | unknown,
+                imageUrl,
+                canvas,
+              );
+              (globalThis as any).__mangaSecureDecodeFn = value;
+              (globalThis as any).__mangaSecureDecodeSource = `${moduleUrl}#${exportName}`;
+              return;
+            } catch (error) {
+              attempts.push(`${moduleUrl}#${exportName}:${error instanceof Error ? error.message : String(error)}`);
+            }
+          }
+        }
+        throw new Error(`Comix secure decoder unavailable candidates=${moduleUrls.length} attempts=${attempts.slice(0, 8).join(' | ')}`);
+      };
     });
     this.moduleReady = true;
   }

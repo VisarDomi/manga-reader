@@ -151,7 +151,11 @@ export class ReaderMemoryManager {
             mounted++;
             this.retiredAtByKey.delete(job.key);
             const img = wrapper.querySelector('img');
-            if (!img || img.src) continue;
+            if (!img) continue;
+            const shouldPromoteLoadingImage = job.policy === 'critical'
+                && this.loadingKeys.has(job.key)
+                && this.loadingPolicyByKey.get(job.key) !== 'critical';
+            if (img.src && !shouldPromoteLoadingImage) continue;
             const existingSource = this.imageSources.get(job.key);
             if (existingSource) {
                 img.src = existingSource;
@@ -237,6 +241,12 @@ export class ReaderMemoryManager {
         if (this.imageSources.has(key)) return;
         if (this.loadingKeys.has(key)) {
             if (policy !== 'critical' || this.loadingPolicyByKey.get(key) === 'critical') return;
+            this.emit('reader-image-promote', {
+                key,
+                from: 'preload',
+                to: 'critical',
+                pending: this.loadingKeys.size,
+            });
             this.loadingControllersByKey.get(key)?.abort();
         }
         this.retiredAtByKey.delete(key);
