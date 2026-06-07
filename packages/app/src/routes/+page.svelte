@@ -40,6 +40,7 @@
     const mountManga = $derived(appState.ui.isMounted(View.MANGA, backView));
     const mountReader = $derived(appState.ui.isMounted(View.READER, backView));
     const mountChapterComments = $derived(appState.ui.isMounted(View.CHAPTER_COMMENTS, backView));
+    const mountChapterCommentsSurface = $derived(inReader || showingChapterComments || mountChapterComments);
 </script>
 
 <div
@@ -119,7 +120,7 @@
     class:swipe-animating={inChapterComments && swipeAnimating || forwardSwipeAnimating}
     style="{isForwardSwiping || forwardSwipeAnimating ? 'transform:translateX(var(--forward-swipe-progress, 100%))' : inChapterComments && isSwiping ? 'transform:translateX(var(--swipe-progress, 0%))' : ''}"
 >
-    {#if mountChapterComments}
+    {#if mountChapterCommentsSurface}
         <ChapterCommentsView />
     {/if}
 </div>

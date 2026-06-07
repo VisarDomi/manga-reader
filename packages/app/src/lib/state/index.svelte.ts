@@ -117,7 +117,10 @@ class AppState {
             favorites: this.favorites.items.length,
             activeMangaId: this.manga.activeManga?.id ?? null,
             activeChapters: this.manga.chapters.length,
-            activeComments: this.manga.comments.length,
+            activeComments:
+                this.ui.viewMode === View.READER || this.ui.viewMode === View.CHAPTER_COMMENTS || this.ui.isForwardSwiping
+                    ? this.reader.chapterComments.length
+                    : this.manga.comments.length,
             readerChapters: this.reader.loadedChapters.length,
             readerPages: this.reader.loadedChapters.reduce((sum, chapter) => sum + chapter.pages.length, 0),
         }));
