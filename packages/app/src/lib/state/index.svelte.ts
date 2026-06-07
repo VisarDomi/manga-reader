@@ -747,6 +747,7 @@ class AppState {
             this.groupFilter.setProvider(this.activeProviderId);
             this.searchState.filters.setProvider(this.activeProviderId);
             await this.progress.init();
+            this.favorites.queueStartupRefresh();
 
             const restored = await this.restoreSession(this.bootSnapshot);
             if (!restored) {

@@ -986,6 +986,11 @@ export class CacheService {
     this.enqueue({ kind: 'cache-chapters', priority: 'interactive', mangaId, force: true, reason });
   }
 
+  refreshMangaNonDestructive(mangaId: string, reason = 'frontend-refresh', priority: CacheJobPriority = 'observed'): void {
+    this.enqueue({ kind: 'cache-manga-detail', priority, mangaId, force: true, reason });
+    this.enqueue({ kind: 'cache-chapters', priority, mangaId, force: true, reason });
+  }
+
   private enqueueChapterUploadDateRepairs(): void {
     const stale = this.db.listChapterListsMissingUploadDates();
     let queued = 0;

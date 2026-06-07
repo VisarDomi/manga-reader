@@ -178,7 +178,13 @@ export async function searchManga(query: string, page = 1, filters?: SearchFilte
     return { manga: result.items, hasMore: result.hasMore };
 }
 
-export async function fetchMangaCardSnapshots(fallbacks: Manga[], signal?: AbortSignal, includeChapters = false, providerId = getProviderId()): Promise<MangaCardSnapshot[]> {
+export async function fetchMangaCardSnapshots(
+    fallbacks: Manga[],
+    signal?: AbortSignal,
+    includeChapters = false,
+    providerId = getProviderId(),
+    refresh: { enabled: boolean; reason: string } = { enabled: false, reason: 'card-snapshot-refresh' },
+): Promise<MangaCardSnapshot[]> {
     if (fallbacks.length === 0) return [];
     const startedAt = performance.now();
     emit('manga-card-snapshots-request', { providerId, count: fallbacks.length, includeChapters });
@@ -190,7 +196,7 @@ export async function fetchMangaCardSnapshots(fallbacks: Manga[], signal?: Abort
             signal,
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ providerId, items: fallbacks, includeChapters }),
+            body: JSON.stringify({ providerId, items: fallbacks, includeChapters, refresh: refresh.enabled, refreshReason: refresh.reason }),
         });
     } catch (e) {
         emit('manga-card-snapshots-error', {

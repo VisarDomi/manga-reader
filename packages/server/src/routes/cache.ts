@@ -141,7 +141,16 @@ export function createCacheRouter(coordinator: ProviderCoordinator | null): Rout
       return;
     }
     const includeChapters = body.includeChapters === true;
+    const refresh = body.refresh === true;
+    const refreshReason = typeof body.refreshReason === 'string' && body.refreshReason.length > 0
+      ? body.refreshReason.slice(0, 80)
+      : 'card-snapshot-refresh';
     const result = owner.cache.getMangaCardSnapshots(ids, { includeChapters });
+    if (refresh) {
+      for (const id of ids) {
+        owner.cache.refreshMangaNonDestructive(id, refreshReason, 'observed');
+      }
+    }
     owner.cache.warmMangaCardCovers(
       result.map(item => item.manga).filter(Boolean),
       'card-snapshot',
@@ -150,7 +159,7 @@ export function createCacheRouter(coordinator: ProviderCoordinator | null): Rout
     if (fallbackItems.length > 0) {
       owner.cache.warmMangaCardCovers(fallbackItems, 'card-fallback', 'observed');
     }
-    console.log(`[cacheRoute] manga-card-snapshots ids=${ids.length} fallbackItems=${fallbackItems.length} unique=${new Set(ids).size} includeChapters=${includeChapters} mangaReady=${result.filter(item => item.mangaReady).length} chaptersReady=${result.filter(item => item.chaptersReady).length} totalMs=${Date.now() - startedAt}`);
+    console.log(`[cacheRoute] manga-card-snapshots ids=${ids.length} fallbackItems=${fallbackItems.length} unique=${new Set(ids).size} includeChapters=${includeChapters} refresh=${refresh} mangaReady=${result.filter(item => item.mangaReady).length} chaptersReady=${result.filter(item => item.chaptersReady).length} totalMs=${Date.now() - startedAt}`);
     res.json({
       status: 'ok',
       result: {

@@ -15,6 +15,9 @@ export class FavoritesState {
     private loaded = false;
     private loadedProviderId: string | null = null;
     private static readonly FIRST_VISIBLE_COVER_COUNT = 12;
+    private static readonly REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
+    private static readonly REFRESH_POLL_MS = 5000;
+    private static readonly REFRESH_POLL_ATTEMPTS = 24;
 
     private toast: ToastState;
     private log: LogService;
@@ -90,7 +93,10 @@ export class FavoritesState {
 
     async prepareRoot() {
         const providerId = getProviderId();
-        if (this.loaded && this.loadedProviderId === providerId) return;
+        if (this.loaded && this.loadedProviderId === providerId) {
+            this.queueRefreshFromVisibleFavorites('activate');
+            return;
+        }
         const startedAt = performance.now();
         this.log.emit('favorites-activation', { phase: 'start', loaded: this.loaded, items: this.items.length, dtMs: 0 });
         this.isLoading = true;
@@ -105,6 +111,7 @@ export class FavoritesState {
             this.log.emit('favorites-activation', { phase: 'done', loaded: this.loaded, items: this.items.length, dtMs: Math.round(performance.now() - startedAt) });
             void coverPrep.allReady;
             void this.refreshFavoriteSnapshots(this.items, generation, providerId);
+            this.queueRefreshFromVisibleFavorites('activate');
         } catch (e) {
             this.log.emit('favorites-activation', {
                 phase: 'failed',
@@ -234,6 +241,86 @@ export class FavoritesState {
                     error: String((e as Error)?.message ?? e),
                 });
             });
+    }
+
+    queueStartupRefresh(): void {
+        const providerId = getProviderId();
+        void (async () => {
+            const rows = await db.getAllFavoriteRows(providerId);
+            const items = rows.map(row => this.placeholder(row.id, row.snapshot));
+            this.queueFavoriteRefresh(items, providerId, 'app-start', true);
+        })().catch(e => {
+            this.log.emit('favorites-hydration-failed', {
+                total: 0,
+                dtMs: 0,
+                error: String((e as Error)?.message ?? e),
+            });
+        });
+    }
+
+    private queueRefreshFromVisibleFavorites(reason: 'activate'): void {
+        this.queueFavoriteRefresh([...this.items], this.loadedProviderId ?? getProviderId(), reason, false);
+    }
+
+    private queueFavoriteRefresh(items: Manga[], providerId: string, reason: 'app-start' | 'activate', force: boolean): void {
+        if (items.length === 0) return;
+        const key = `manga:favorites:lastRefresh:${providerId}`;
+        const now = Date.now();
+        const last = Number(localStorage.getItem(key) ?? 0);
+        const due = force || !Number.isFinite(last) || now - last >= FavoritesState.REFRESH_INTERVAL_MS;
+        if (!due) return;
+        localStorage.setItem(key, String(now));
+        void this.refreshFavoriteSnapshotsUntilSettled(items, providerId, `favorites-${reason}`);
+    }
+
+    private async refreshFavoriteSnapshotsUntilSettled(items: Manga[], providerId: string, reason: string): Promise<void> {
+        const startedAt = performance.now();
+        try {
+            let previousSignature = this.favoriteSnapshotSignature(this.items);
+            for (let attempt = 0; attempt < FavoritesState.REFRESH_POLL_ATTEMPTS; attempt++) {
+                const snapshots = await api.fetchMangaCardSnapshots(items, undefined, true, providerId, {
+                    enabled: attempt === 0,
+                    reason,
+                });
+                if (providerId !== getProviderId()) return;
+                const activeIds = new Set(this.ids);
+                const hydrated = snapshots.filter(snapshot => activeIds.has(snapshot.manga.id));
+                if (hydrated.length > 0) {
+                    for (const result of hydrated) {
+                        void db.updateFavoriteSnapshot(result.manga, providerId);
+                        if (result.chapters) this.chapterStats.update(result.manga.id, result.manga.latestChapter ?? null, result.chapters);
+                    }
+                    const byId = new Map(hydrated.map(item => [item.manga.id, item.manga]));
+                    this.items = this.items.map(item => byId.get(item.id) ?? item);
+                    const nextSignature = this.favoriteSnapshotSignature(this.items);
+                    if (attempt > 0 && nextSignature !== previousSignature) {
+                        this.log.emit('favorites-hydration', {
+                            phase: 'done',
+                            total: items.length,
+                            batchSize: items.length,
+                            dtMs: Math.round(performance.now() - startedAt),
+                        });
+                        return;
+                    }
+                    previousSignature = nextSignature;
+                }
+                await this.delay(FavoritesState.REFRESH_POLL_MS);
+            }
+        } catch (e) {
+            this.log.emit('favorites-hydration-failed', {
+                total: items.length,
+                dtMs: Math.round(performance.now() - startedAt),
+                error: String((e as Error)?.message ?? e),
+            });
+        }
+    }
+
+    private favoriteSnapshotSignature(items: Manga[]): string {
+        return items.map(item => `${item.id}:${item.latestChapter ?? ''}:${item.cover ?? ''}:${item.title}`).join('|');
+    }
+
+    private delay(ms: number): Promise<void> {
+        return new Promise(resolve => setTimeout(resolve, ms));
     }
 
     private prepareCoverImages(items: Manga[], providerId: string, visibleCount: number): { visibleReady: Promise<void>; allReady: Promise<void> } {

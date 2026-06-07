@@ -15,12 +15,32 @@ import type { ProviderCoordinator } from './services/ProviderCoordinator.js';
 import type { Request, Response } from 'express';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const STARTUP_ASSET_RE = /^\/($|index\.html$|_app\/|manifest\.json$|sw\.js$|apple-touch-icon\.png$|favicon|providers\/)/;
+const STARTUP_ASSET_SLOW_MS = 1000;
+
+function startupAssetLogger(req: Request, res: Response, next: () => void): void {
+    if (!STARTUP_ASSET_RE.test(req.path)) {
+        next();
+        return;
+    }
+
+    const startedAt = Date.now();
+    res.on('finish', () => {
+        const totalMs = Date.now() - startedAt;
+        const isShell = req.path === '/' || req.path === '/index.html';
+        const shouldLog = isShell || res.statusCode >= 400 || totalMs >= STARTUP_ASSET_SLOW_MS;
+        if (!shouldLog) return;
+        console.log(`[asset] startup path=${req.path} status=${res.statusCode} ms=${totalMs} bytes=${res.getHeader('Content-Length') ?? 'unknown'} ua=${String(req.headers['user-agent'] ?? '').slice(0, 90)}`);
+    });
+    next();
+}
 
 export function createApp(
     coordinator: ProviderCoordinator | null,
 ): express.Express {
     const app = express();
     app.use(express.json());
+    app.use(startupAssetLogger);
 
     const providersDir = path.join(__dirname, '..', '..', 'extensions', 'dist');
     if (fs.existsSync(providersDir)) {
