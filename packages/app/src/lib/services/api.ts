@@ -190,13 +190,19 @@ export async function fetchMangaCardSnapshots(
     emit('manga-card-snapshots-request', { providerId, count: fallbacks.length, includeChapters });
     const provider = getProvider();
     const fallbackById = new Map(fallbacks.map(manga => [manga.id, manga]));
+    const cardItems = fallbacks.map(manga => ({
+        id: manga.id,
+        title: manga.title,
+        cover: manga.cover,
+        latestChapter: manga.latestChapter ?? null,
+    }));
     let data: unknown;
     try {
         data = await fetchJson<unknown>('/api/cache/manga/cards', {
             signal,
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ providerId, items: fallbacks, includeChapters, refresh: refresh.enabled, refreshReason: refresh.reason }),
+            body: JSON.stringify({ providerId, items: cardItems, includeChapters, refresh: refresh.enabled, refreshReason: refresh.reason }),
         });
     } catch (e) {
         emit('manga-card-snapshots-error', {

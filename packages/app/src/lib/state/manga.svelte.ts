@@ -11,6 +11,7 @@ import type { GroupFilterState } from './groupFilter.svelte.js';
 import type { ChapterStatsState } from './chapterStats.svelte.js';
 import type { ProgressState } from './progress.svelte.js';
 import { type LoadError, toLoadError } from './errors.js';
+import { Msg } from '../messages.js';
 
 type MangaScrollTarget = {
     kind: 'chapter';
@@ -665,6 +666,8 @@ export class MangaState {
             return;
         }
         const queued = this.commitMangaContent(entryKey, { isUpdatingChapters: true });
+        if (!queued) return;
+        this.toast.show(Msg.CHAPTERS_UPDATING);
         this.emit('chapter-list-refresh', { mangaId: manga.id, phase: 'queued', previousCount: queued?.chapters.length ?? 0 });
         try {
             let refreshed = await api.fetchChapterListWithCacheInfo(manga.id);

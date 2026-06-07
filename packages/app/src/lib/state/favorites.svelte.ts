@@ -14,8 +14,8 @@ export class FavoritesState {
     private hydrationGeneration = 0;
     private loaded = false;
     private loadedProviderId: string | null = null;
+    private activeRefreshKey: string | null = null;
     private static readonly FIRST_VISIBLE_COVER_COUNT = 12;
-    private static readonly REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
     private static readonly REFRESH_POLL_MS = 5000;
     private static readonly REFRESH_POLL_ATTEMPTS = 24;
 
@@ -52,6 +52,7 @@ export class FavoritesState {
         this.hydrationGeneration++;
         this.loaded = false;
         this.loadedProviderId = null;
+        this.activeRefreshKey = null;
         this.ids = [];
         this.items = [];
         this.isLoading = false;
@@ -94,7 +95,7 @@ export class FavoritesState {
     async prepareRoot() {
         const providerId = getProviderId();
         if (this.loaded && this.loadedProviderId === providerId) {
-            this.queueRefreshFromVisibleFavorites('activate');
+            this.queueRefreshFromVisibleFavorites();
             return;
         }
         const startedAt = performance.now();
@@ -103,15 +104,13 @@ export class FavoritesState {
         try {
             const loaded = await this.loadFavoriteRows(providerId);
             if (!loaded || providerId !== getProviderId()) return;
-            const generation = this.hydrationGeneration;
-            const coverPrep = this.prepareCoverImages(this.items, providerId, FavoritesState.FIRST_VISIBLE_COVER_COUNT);
-            await coverPrep.visibleReady;
-            if (providerId !== getProviderId()) return;
             this.loaded = true;
+            this.isLoading = false;
             this.log.emit('favorites-activation', { phase: 'done', loaded: this.loaded, items: this.items.length, dtMs: Math.round(performance.now() - startedAt) });
+            const coverPrep = this.prepareCoverImages(this.items, providerId, FavoritesState.FIRST_VISIBLE_COVER_COUNT);
+            void coverPrep.visibleReady;
             void coverPrep.allReady;
-            void this.refreshFavoriteSnapshots(this.items, generation, providerId);
-            this.queueRefreshFromVisibleFavorites('activate');
+            this.queueRefreshFromVisibleFavorites();
         } catch (e) {
             this.log.emit('favorites-activation', {
                 phase: 'failed',
@@ -153,75 +152,6 @@ export class FavoritesState {
         return true;
     }
 
-    private async refreshFavoriteSnapshots(items: Manga[], generation: number, providerId: string): Promise<void> {
-        if (items.length === 0) return;
-        const startedAt = performance.now();
-        const fallbacks = [...items];
-        this.log.emit('favorites-hydration', {
-            phase: 'start',
-            total: items.length,
-            batchSize: items.length,
-            dtMs: 0,
-        });
-
-        const batchStartedAt = performance.now();
-        const count = await this.repairCardSnapshots(fallbacks, generation, providerId);
-        if (count == null) {
-            this.log.emit('favorites-hydration', {
-                phase: 'cancelled',
-                total: items.length,
-                batchSize: items.length,
-                batchIndex: 0,
-                count: 0,
-                dtMs: Math.round(performance.now() - startedAt),
-            });
-            return;
-        }
-        this.log.emit('favorites-hydration', {
-            phase: 'batch',
-            total: items.length,
-            batchSize: items.length,
-            batchIndex: 0,
-            count,
-            dtMs: Math.round(performance.now() - batchStartedAt),
-        });
-
-        this.log.emit('favorites-hydration', {
-            phase: 'done',
-            total: items.length,
-            batchSize: items.length,
-            dtMs: Math.round(performance.now() - startedAt),
-        });
-    }
-
-    private async repairCardSnapshots(fallbacks: Manga[], generation: number, providerId: string): Promise<number | null> {
-        if (generation !== this.hydrationGeneration || providerId !== this.loadedProviderId || providerId !== getProviderId()) return null;
-        const startedAt = performance.now();
-        let snapshots: api.MangaCardSnapshot[] = [];
-        try {
-            snapshots = await api.fetchMangaCardSnapshots(fallbacks, undefined, true, providerId);
-        } catch (e) {
-            this.log.emit('favorites-hydration-failed', {
-                total: fallbacks.length,
-                dtMs: Math.round(performance.now() - startedAt),
-                error: String((e as Error)?.message ?? e),
-            });
-            return 0;
-        }
-        if (generation !== this.hydrationGeneration || providerId !== this.loadedProviderId || providerId !== getProviderId()) return null;
-
-        const activeIds = new Set(this.ids);
-        const hydrated = snapshots.filter(snapshot => activeIds.has(snapshot.manga.id));
-        if (hydrated.length === 0) return 0;
-
-        for (const result of hydrated) {
-            void db.updateFavoriteSnapshot(result.manga, providerId);
-            if (!result.chapters) continue;
-            this.chapterStats.update(result.manga.id, result.manga.latestChapter ?? null, result.chapters);
-        }
-        return hydrated.length;
-    }
-
     refreshChapterStats(): void {
         const generation = this.hydrationGeneration;
         const providerId = this.loadedProviderId ?? getProviderId();
@@ -244,33 +174,22 @@ export class FavoritesState {
     }
 
     queueStartupRefresh(): void {
-        const providerId = getProviderId();
-        void (async () => {
-            const rows = await db.getAllFavoriteRows(providerId);
-            const items = rows.map(row => this.placeholder(row.id, row.snapshot));
-            this.queueFavoriteRefresh(items, providerId, 'app-start', true);
-        })().catch(e => {
-            this.log.emit('favorites-hydration-failed', {
-                total: 0,
-                dtMs: 0,
-                error: String((e as Error)?.message ?? e),
-            });
-        });
+        // Favorites refresh is intentionally tied to activation after cached rows mount.
     }
 
-    private queueRefreshFromVisibleFavorites(reason: 'activate'): void {
-        this.queueFavoriteRefresh([...this.items], this.loadedProviderId ?? getProviderId(), reason, false);
+    private queueRefreshFromVisibleFavorites(): void {
+        this.queueFavoriteRefresh([...this.items], this.loadedProviderId ?? getProviderId(), 'activation');
     }
 
-    private queueFavoriteRefresh(items: Manga[], providerId: string, reason: 'app-start' | 'activate', force: boolean): void {
+    private queueFavoriteRefresh(items: Manga[], providerId: string, reason: 'activation'): void {
         if (items.length === 0) return;
-        const key = `manga:favorites:lastRefresh:${providerId}`;
-        const now = Date.now();
-        const last = Number(localStorage.getItem(key) ?? 0);
-        const due = force || !Number.isFinite(last) || now - last >= FavoritesState.REFRESH_INTERVAL_MS;
-        if (!due) return;
-        localStorage.setItem(key, String(now));
-        void this.refreshFavoriteSnapshotsUntilSettled(items, providerId, `favorites-${reason}`);
+        const key = `${providerId}:${reason}`;
+        if (this.activeRefreshKey === key) return;
+        this.activeRefreshKey = key;
+        void this.refreshFavoriteSnapshotsUntilSettled(items, providerId, `favorites-${reason}`)
+            .finally(() => {
+                if (this.activeRefreshKey === key) this.activeRefreshKey = null;
+            });
     }
 
     private async refreshFavoriteSnapshotsUntilSettled(items: Manga[], providerId: string, reason: string): Promise<void> {
@@ -291,18 +210,21 @@ export class FavoritesState {
                         if (result.chapters) this.chapterStats.update(result.manga.id, result.manga.latestChapter ?? null, result.chapters);
                     }
                     const byId = new Map(hydrated.map(item => [item.manga.id, item.manga]));
-                    this.items = this.items.map(item => byId.get(item.id) ?? item);
-                    const nextSignature = this.favoriteSnapshotSignature(this.items);
-                    if (attempt > 0 && nextSignature !== previousSignature) {
-                        this.log.emit('favorites-hydration', {
-                            phase: 'done',
-                            total: items.length,
-                            batchSize: items.length,
-                            dtMs: Math.round(performance.now() - startedAt),
-                        });
-                        return;
+                    const nextItems = this.items.map(item => byId.get(item.id) ?? item);
+                    const nextSignature = this.favoriteSnapshotSignature(nextItems);
+                    if (nextSignature !== previousSignature) {
+                        this.items = nextItems;
+                        previousSignature = nextSignature;
+                        if (attempt > 0) {
+                            this.log.emit('favorites-hydration', {
+                                phase: 'done',
+                                total: items.length,
+                                batchSize: items.length,
+                                dtMs: Math.round(performance.now() - startedAt),
+                            });
+                            return;
+                        }
                     }
-                    previousSignature = nextSignature;
                 }
                 await this.delay(FavoritesState.REFRESH_POLL_MS);
             }

@@ -7,6 +7,7 @@ export const Msg = {
     BACK_ONLINE: 'Back online',
     NO_CONNECTION: 'No connection',
     SESSION_RESTORED: 'Session restored',
+    CHAPTERS_UPDATING: 'Loading more chapters...',
     SOLVING_CLOUDFLARE: 'Solving Cloudflare...',
     SCROLL_TO_LAST: 'Tap to scroll to last position',
     FAVORITE_FAILED: 'Failed to update favorites',

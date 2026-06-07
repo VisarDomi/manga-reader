@@ -12,6 +12,7 @@ import type { RuntimeByteResult } from '../providers/types.js';
 const BYTE_CACHE_WORKER_ID = 'byte-cache-service';
 const BYTE_CACHE_JOB_KIND = 'cache-byte';
 const FAILED_BYTE_RETRY_MS = 60 * 60 * 1000;
+const BYTE_CACHE_STARTUP_BACKGROUND_GRACE_MS = 60_000;
 
 export class ByteCacheService {
   private readonly db: CacheDatabase;
@@ -27,6 +28,9 @@ export class ByteCacheService {
   private summaryBytes = 0;
   private summarySkipped = 0;
   private backgroundPaused = false;
+  private backgroundStartupPaused = false;
+  private backgroundAllowedAt = 0;
+  private backgroundResumeTimer: ReturnType<typeof setTimeout> | null = null;
   private coverServeStartedAt = Date.now();
   private coverServeLastLogAt = Date.now();
   private coverServeHits = 0;
@@ -61,12 +65,19 @@ export class ByteCacheService {
   suspend(): void {
     this.suspended = true;
     this.started = false;
+    if (this.backgroundResumeTimer) {
+      clearTimeout(this.backgroundResumeTimer);
+      this.backgroundResumeTimer = null;
+    }
+    this.backgroundStartupPaused = false;
   }
 
   start(): void {
     this.suspended = false;
     if (this.started) return;
     this.started = true;
+    this.backgroundAllowedAt = Date.now() + BYTE_CACHE_STARTUP_BACKGROUND_GRACE_MS;
+    this.backgroundStartupPaused = false;
     this.scheduler.recoverWorker(BYTE_CACHE_WORKER_ID);
     this.drain();
     console.log(`[byteCache] start provider=${this.ownerId}`);
@@ -220,7 +231,8 @@ export class ByteCacheService {
         this.backgroundPaused = false;
         console.log(`[byteCache] background-resumed provider=${this.ownerId}`);
       }
-      const minPriority = runtimeAvailable ? undefined : CACHE_JOB_PRIORITY.foreground;
+      const startupBackgroundReady = this.canRunStartupBackgroundWork();
+      const minPriority = runtimeAvailable && startupBackgroundReady ? undefined : CACHE_JOB_PRIORITY.foreground;
       const record = this.scheduler.claimNext(BYTE_CACHE_WORKER_ID, 10 * 60 * 1000, [BYTE_CACHE_JOB_KIND], minPriority);
       if (!record) return;
       const payload = payloadObject(record.payload);
@@ -239,6 +251,29 @@ export class ByteCacheService {
         this.scheduler.retry(record, message, this.retryDelayMs(record.attempts));
       }
     }
+  }
+
+  private canRunStartupBackgroundWork(): boolean {
+    const remainingMs = this.backgroundAllowedAt - Date.now();
+    if (remainingMs <= 0) {
+      if (this.backgroundStartupPaused) {
+        this.backgroundStartupPaused = false;
+        console.log(`[byteCache] startup-background-resumed provider=${this.ownerId}`);
+      }
+      return true;
+    }
+    if (!this.backgroundStartupPaused) {
+      this.backgroundStartupPaused = true;
+      console.log(`[byteCache] startup-background-paused provider=${this.ownerId} reason=foreground-startup-grace delayMs=${remainingMs}`);
+    }
+    if (!this.backgroundResumeTimer) {
+      this.backgroundResumeTimer = setTimeout(() => {
+        this.backgroundResumeTimer = null;
+        this.drain();
+      }, remainingMs);
+      this.backgroundResumeTimer.unref?.();
+    }
+    return false;
   }
 
   private recordSummary(result: { bytes: number; durationMs: number; skipped: boolean }): void {

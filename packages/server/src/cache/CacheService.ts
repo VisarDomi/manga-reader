@@ -35,6 +35,7 @@ const SLOW_BACKGROUND_JOB_MS = 5_000;
 const BACKGROUND_FAILURE_SUMMARY_MS = 30_000;
 const FILTER_CATALOG_TTL_MS = 24 * 60 * 60 * 1000;
 const FOREGROUND_CACHE_WAIT_MS = 25_000;
+const DATA_CACHE_STARTUP_BACKGROUND_GRACE_MS = 60_000;
 
 type CacheJobKind = 'seed-newest' | 'crawl-search-page' | 'cache-manga-detail' | 'cache-chapters' | 'reconcile-chapters' | 'cache-chapter-page-map';
 export type CacheJobPriority = 'interactive' | 'foreground' | 'observed' | 'daily' | 'background';
@@ -495,6 +496,9 @@ export class CacheService {
   private dailyRolloverTimer: ReturnType<typeof setTimeout> | null = null;
   private durableQueueReaperTimer: ReturnType<typeof setInterval> | null = null;
   private startupMaintenanceTimer: ReturnType<typeof setTimeout> | null = null;
+  private backgroundStartupResumeTimer: ReturnType<typeof setTimeout> | null = null;
+  private backgroundAllowedAt = 0;
+  private backgroundStartupPaused = false;
   private storeRanking: StoreRanking | null = null;
   private readonly backgroundFailures = new Map<string, BackgroundFailureSummary>();
   private readonly resourceWaiters = new Map<string, Set<() => void>>();
@@ -536,6 +540,8 @@ export class CacheService {
     this.scheduler.recoverWorker(this.workerId);
     this.scheduler.recoverWorker(this.laneWorkerId('foreground'));
     this.scheduler.recoverWorker(this.laneWorkerId('background'));
+    this.backgroundAllowedAt = Date.now() + DATA_CACHE_STARTUP_BACKGROUND_GRACE_MS;
+    this.backgroundStartupPaused = false;
     this.startDurableQueueReaper();
     this.startupMaintenanceTimer = setTimeout(() => this.runStartupMaintenance(), 0);
   }
@@ -604,6 +610,11 @@ export class CacheService {
       clearTimeout(this.dailyRolloverTimer);
       this.dailyRolloverTimer = null;
     }
+    if (this.backgroundStartupResumeTimer) {
+      clearTimeout(this.backgroundStartupResumeTimer);
+      this.backgroundStartupResumeTimer = null;
+    }
+    this.backgroundStartupPaused = false;
   }
 
   private startDurableQueueReaper(): void {
@@ -1295,6 +1306,7 @@ export class CacheService {
       console.log(`[cache] runtime-background-resumed provider=${this.provider.id}`);
     }
     if (!DATA_CACHE_BACKGROUND_ENABLED || !runtimeAvailable) return null;
+    if (!this.canRunStartupBackgroundWork()) return null;
     if (this.scheduler.runnableCountAbove('daily') > 0) return null;
     return this.scheduler.claimNext(
       this.laneWorkerId(lane),
@@ -1367,6 +1379,29 @@ export class CacheService {
         this.currentJobs.delete(lane);
         if (loopFailed) setTimeout(() => this.drainLane(lane), 1000);
       });
+  }
+
+  private canRunStartupBackgroundWork(): boolean {
+    const remainingMs = this.backgroundAllowedAt - Date.now();
+    if (remainingMs <= 0) {
+      if (this.backgroundStartupPaused) {
+        this.backgroundStartupPaused = false;
+        console.log(`[cache] startup-background-resumed provider=${this.provider.id}`);
+      }
+      return true;
+    }
+    if (!this.backgroundStartupPaused) {
+      this.backgroundStartupPaused = true;
+      console.log(`[cache] startup-background-paused provider=${this.provider.id} reason=foreground-startup-grace delayMs=${remainingMs}`);
+    }
+    if (!this.backgroundStartupResumeTimer) {
+      this.backgroundStartupResumeTimer = setTimeout(() => {
+        this.backgroundStartupResumeTimer = null;
+        this.drainLane('background');
+      }, remainingMs);
+      this.backgroundStartupResumeTimer.unref?.();
+    }
+    return false;
   }
 
   private async runLoop(lane: DataCacheLane): Promise<void> {
