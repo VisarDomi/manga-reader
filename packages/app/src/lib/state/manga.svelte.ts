@@ -47,7 +47,7 @@ let entrySeq = 0;
 function createEntry(manga: Manga): MangaEntry {
     return {
         key: `${manga.id}-${++entrySeq}`,
-        manga,
+        manga: hideRecommendations(manga),
         chapters: [],
         comments: [],
         commentsCount: 0,
@@ -322,115 +322,6 @@ export class MangaState {
         this.refreshChapterStats(entry.key);
     }
 
-    private async consumeChapterStream(entry: MangaEntry, options?: { readyAfterFirstPage?: boolean }): Promise<void> {
-        const all: ChapterMeta[] = [];
-        const seen = new Set<string>();
-        let pageCount = 0;
-        const mangaId = entry.manga.id;
-        const readyAfterFirstPage = options?.readyAfterFirstPage === true;
-        let readyResolved = false;
-        let resolveReady: (() => void) | null = null;
-        let rejectReady: ((e: unknown) => void) | null = null;
-        const ready = new Promise<void>((resolve, reject) => {
-            resolveReady = resolve;
-            rejectReady = reject;
-        });
-
-        const markReady = (): void => {
-            if (readyResolved) return;
-            readyResolved = true;
-            resolveReady?.();
-        };
-
-        const commitChapters = (phase: 'chapters-page' | 'chapters-done'): void => {
-            const current = this.updateEntry(entry.key, currentEntry => {
-                currentEntry.chapters = [...all];
-            });
-            if (current) {
-                this.emit('manga-entry-state', {
-                    mangaId,
-                    phase,
-                    recommendations: current.manga.recommendations?.length ?? 0,
-                    chapters: current.chapters.length,
-                    comments: current.comments.length,
-                });
-            }
-        };
-
-        const run = async (): Promise<void> => {
-            try {
-                for await (const page of api.fetchChapterList(mangaId)) {
-                    pageCount++;
-                    this.emit('chapters-page', {
-                        mangaId,
-                        page: page.pagination.currentPage,
-                        items: page.items.length,
-                        uploadedTimes: page.items.filter(ch => ch.uploadedAt != null).length,
-                        ...(pageCount === 1 ? {
-                            lastPage: page.pagination.lastPage,
-                            total: page.pagination.total,
-                        } : {}),
-                    });
-                    for (const ch of page.items) {
-                        if (seen.has(ch.id)) continue;
-                        seen.add(ch.id);
-                        all.push(ch);
-                    }
-                    if (pageCount === 1) {
-                        commitChapters('chapters-page');
-                        markReady();
-                    }
-                }
-                commitChapters('chapters-done');
-                this.emit('chapters-done', {
-                    mangaId,
-                    pages: pageCount,
-                    total: all.length,
-                    uploadedTimes: all.filter(ch => ch.uploadedAt != null).length,
-                });
-                markReady();
-            } catch (e) {
-                const error = String((e as Error)?.message ?? e);
-                this.emit('chapters-stream-error', { mangaId, afterFirstPage: pageCount > 0, error });
-                if (!readyResolved) {
-                    readyResolved = true;
-                    rejectReady?.(e);
-                }
-                throw e;
-            }
-        };
-
-        const done = run();
-        if (!readyAfterFirstPage) {
-            await done;
-            return;
-        }
-
-        void done.catch(() => {});
-        await ready;
-    }
-
-    private async loadMangaDetail(entry: MangaEntry): Promise<void> {
-        const manga = entry.manga;
-        const start = performance.now();
-        this.emit('manga-detail-start', { mangaId: manga.id });
-        const detail = await api.fetchMangaDetail(manga);
-        const current = this.updateEntry(entry.key, currentEntry => {
-            currentEntry.manga = detail;
-        });
-        if (current) {
-            this.emit('manga-entry-state', {
-                mangaId: current.manga.id,
-                phase: 'detail-applied',
-                recommendations: current.manga.recommendations?.length ?? 0,
-                chapters: current.chapters.length,
-                comments: current.comments.length,
-            });
-            this.queueMangaComments(current);
-        }
-        this.emit('manga-detail-done', { mangaId: manga.id, ms: Math.round(performance.now() - start) });
-    }
-
     private emitEntryState(entry: MangaEntry, phase: 'detail-applied' | 'recommendations-applied' | 'chapters-page' | 'chapters-done' | 'comments-done'): void {
         this.emit('manga-entry-state', {
             mangaId: entry.manga.id,
@@ -484,68 +375,83 @@ export class MangaState {
         const mangaId = entry.manga.id;
         this.emit('manga-detail-start', { mangaId });
         this.emit('manga-chapters-start', { mangaId });
+        let opened = false;
+        let detailDone = false;
 
-        const detailPeekPromise = api.peekMangaDetailCache(entry.manga);
-        const chapterPeekPromise = api.peekChapterListCache(mangaId);
+        const emitOpenDone = (): void => {
+            if (opened) return;
+            opened = true;
+            this.emit('manga-open-done', { mangaId, ms: Math.round(performance.now() - start) });
+        };
+
+        const emitDetailDone = (): void => {
+            if (detailDone) return;
+            detailDone = true;
+            this.emit('manga-detail-done', { mangaId, ms: Math.round(performance.now() - start) });
+        };
+
+        const commitChapters = (chapterPeek: api.ChapterListCachePeek): boolean => {
+            if (chapterPeek.status !== 'hit' || !chapterPeek.page) return false;
+            const currentLatest = this.entryFor(entry.key)?.manga.latestChapter ?? entry.manga.latestChapter;
+            if (chapterPeek.page.items.length === 0 && typeof currentLatest === 'number' && currentLatest > 0) {
+                this.emit('chapter-list-refresh', {
+                    mangaId,
+                    phase: 'queued',
+                    previousCount: this.entryFor(entry.key)?.chapters.length ?? 0,
+                });
+                return false;
+            }
+            const committed = this.commitMangaContent(entry.key, {
+                chapters: chapterPeek.page.items,
+                isLoading: false,
+                isUpdatingChapters: chapterPeek.updating === true,
+                error: null,
+            });
+            if (!committed) return false;
+            this.emitChapterListResult(mangaId, chapterPeek.page);
+            this.emitEntryState(committed, 'chapters-done');
+            emitOpenDone();
+            return true;
+        };
+
+        const commitDetail = (manga: Manga): boolean => {
+            const committed = this.commitMangaContent(entry.key, {
+                manga: hideRecommendations(manga),
+                isLoading: false,
+                error: null,
+            });
+            if (!committed) return false;
+            this.emitEntryState(committed, 'detail-applied');
+            emitOpenDone();
+            return true;
+        };
+
+        const commitRecommendations = (manga: Manga): void => {
+            queueMicrotask(() => {
+                const committed = this.commitMangaContent(entry.key, { manga });
+                if (!committed) return;
+                this.emitEntryState(committed, 'recommendations-applied');
+                emitDetailDone();
+                this.queueMangaComments(committed);
+            });
+        };
 
         try {
-            const [detailPeek, chapterPeek] = await Promise.all([detailPeekPromise, chapterPeekPromise]);
-            if (detailPeek.status === 'hit' && detailPeek.manga && chapterPeek.status === 'hit' && chapterPeek.page) {
-                const committed = this.commitMangaContent(entry.key, {
-                    manga: detailPeek.manga,
-                    chapters: chapterPeek.page.items,
-                    isLoading: false,
-                    isUpdatingChapters: chapterPeek.updating === true,
-                    error: null,
-                });
-                if (!committed) return false;
-                this.emitEntryState(committed, 'detail-applied');
-                this.emitChapterListResult(mangaId, chapterPeek.page);
-                this.emitEntryState(committed, 'chapters-done');
-                this.emit('manga-detail-done', { mangaId, ms: Math.round(performance.now() - start) });
-                this.emit('manga-open-done', { mangaId, ms: Math.round(performance.now() - start) });
-                this.queueMangaComments(committed);
-                return true;
-            }
-
+            const detailPeek = await api.peekMangaDetailCache(entry.manga);
             const detailResult = detailPeek.status === 'hit' && detailPeek.manga
                 ? { manga: detailPeek.manga, attempts: 0 }
                 : await api.fetchMangaDetailWithCacheInfo(entry.manga);
-            const detailWithoutRecommendations = hideRecommendations(detailResult.manga);
-            let chapterPage = chapterPeek.status === 'hit' ? chapterPeek.page : undefined;
-
-            if (chapterPage) {
-                const committed = this.commitMangaContent(entry.key, {
-                    manga: detailWithoutRecommendations,
-                    chapters: chapterPage.items,
-                    isLoading: false,
-                    isUpdatingChapters: chapterPeek.updating === true,
-                    error: null,
-                });
-                if (!committed) return false;
-                this.emitEntryState(committed, 'detail-applied');
-                this.emitChapterListResult(mangaId, chapterPage);
-                this.emitEntryState(committed, 'chapters-done');
-            } else {
-                const detailCommitted = this.commitMangaContent(entry.key, {
-                    manga: detailWithoutRecommendations,
-                    isLoading: false,
-                    isUpdatingChapters: true,
-                    error: null,
-                });
-                if (!detailCommitted) return false;
-                this.emitEntryState(detailCommitted, 'detail-applied');
-                return true;
+            if (!commitDetail(detailResult.manga)) {
+                return false;
             }
 
-            const withRecommendations = this.commitMangaContent(entry.key, { manga: detailResult.manga });
-            if (withRecommendations) {
-                this.emitEntryState(withRecommendations, 'recommendations-applied');
-                this.emit('manga-detail-done', { mangaId, ms: Math.round(performance.now() - start) });
-                this.emit('manga-open-done', { mangaId, ms: Math.round(performance.now() - start) });
-                this.queueMangaComments(withRecommendations);
+            const chapterPeek = await api.peekChapterListCache(mangaId);
+            if (!commitChapters(chapterPeek)) {
+                this.commitMangaContent(entry.key, { isUpdatingChapters: true });
             }
-            return !!withRecommendations;
+
+            commitRecommendations(detailResult.manga);
+            return true;
         } catch (e) {
             const current = this.commitMangaContent(entry.key, {
                 isLoading: false,
@@ -724,7 +630,8 @@ export class MangaState {
 
         try {
             const loaded = await this.loadMangaContent(entry, start);
-            if (loaded) void this.reconcileAfterForegroundRead(entry.key, manga);
+            const committed = this.entryFor(entry.key);
+            if (loaded && committed) void this.reconcileAfterForegroundRead(entry.key, committed.manga);
         } catch (e) {
             const current = this.entryFor(entry.key);
             if (current) {
@@ -751,31 +658,29 @@ export class MangaState {
         const restored = [...stack, manga].map(item => createEntry(item));
         this.entries = restored;
 
-        const previous = restored.slice(0, -1);
-        for (const entry of previous) {
-            void this.restoreEntry(entry);
-        }
-
         const active = restored[restored.length - 1];
         this.applyScrollRestores(restored, scrollSnapshots);
-        return active ? this.restoreEntry(active, { readyAfterFirstPage: true }) : false;
+        if (!active) return false;
+        const ok = await this.restoreEntry(active, { readyAfterFirstPage: true });
+        for (const entry of restored.slice(0, -1)) {
+            void this.restoreEntry(entry);
+        }
+        return ok;
     }
 
-    restoreMangaShell(manga: Manga, scrollSnapshots?: MangaScrollSnapshot[]): boolean {
+    async restoreMangaShell(manga: Manga, scrollSnapshots?: MangaScrollSnapshot[]): Promise<boolean> {
         const stack = $state.snapshot(this.navigationStack);
         const restored = [...stack, manga].map(item => createEntry(item));
         this.entries = restored;
 
-        const previous = restored.slice(0, -1);
-        for (const entry of previous) {
-            void this.restoreEntry(entry);
-        }
-
         const active = restored[restored.length - 1];
         if (!active) return false;
         this.applyScrollRestores(restored, scrollSnapshots);
-        void this.restoreEntry(active, { readyAfterFirstPage: true });
-        return true;
+        const ok = await this.restoreEntry(active, { readyAfterFirstPage: true });
+        for (const entry of restored.slice(0, -1)) {
+            void this.restoreEntry(entry);
+        }
+        return ok;
     }
 
     consumeScrollRestore(entryKey: string): void {
@@ -789,10 +694,6 @@ export class MangaState {
         const stack = $state.snapshot(this.navigationStack);
         const restored = [...stack, $state.snapshot(manga)].map(item => createEntry(item));
         this.entries = restored;
-        const previous = restored.slice(0, -1);
-        for (const entry of previous) {
-            void this.restoreEntry(entry);
-        }
         this.applyScrollRestores(restored, scrollSnapshots);
 
         const active = restored[restored.length - 1];
@@ -813,7 +714,11 @@ export class MangaState {
 
         try {
             void targetChapterId;
-            return await this.loadMangaContent(active, start);
+            const ok = await this.loadMangaContent(active, start);
+            for (const entry of restored.slice(0, -1)) {
+                void this.restoreEntry(entry);
+            }
+            return ok;
         } catch (e) {
             const current = this.entryFor(active.key);
             if (current) {
@@ -821,40 +726,6 @@ export class MangaState {
                 this.replaceEntry(current);
             }
             return false;
-        }
-    }
-
-    private async fetchReaderChapterIndex(mangaId: string, targetChapterId: string | null): Promise<ChapterMeta[]> {
-        const all: ChapterMeta[] = [];
-        const seen = new Set<string>();
-        let page = await api.fetchChapterListPage(mangaId, 1);
-        let currentPage = page.pagination.currentPage || 1;
-        let lastPage = page.pagination.lastPage || 1;
-
-        while (true) {
-            this.emit('chapters-page', {
-                mangaId,
-                page: page.pagination.currentPage,
-                items: page.items.length,
-                uploadedTimes: page.items.filter(ch => ch.uploadedAt != null).length,
-                ...(currentPage === 1 ? {
-                    lastPage: page.pagination.lastPage,
-                    total: page.pagination.total,
-                } : {}),
-            });
-            for (const ch of page.items) {
-                if (seen.has(ch.id)) continue;
-                seen.add(ch.id);
-                all.push(ch);
-            }
-
-            if (!targetChapterId || seen.has(targetChapterId) || currentPage >= lastPage) {
-                return all;
-            }
-
-            currentPage++;
-            page = await api.fetchChapterListPage(mangaId, currentPage);
-            lastPage = page.pagination.lastPage || lastPage;
         }
     }
 
@@ -875,7 +746,8 @@ export class MangaState {
         try {
             void options;
             const loaded = await this.loadMangaContent(entry, start);
-            if (loaded) void this.reconcileAfterForegroundRead(entry.key, entry.manga);
+            const committed = this.entryFor(entry.key);
+            if (loaded && committed) void this.reconcileAfterForegroundRead(entry.key, committed.manga);
             return loaded;
         } catch (e) {
             const current = this.entryFor(entry.key);

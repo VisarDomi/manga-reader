@@ -642,16 +642,19 @@ export class CacheService {
     this.durableQueueReaperTimer = null;
   }
 
-  status(): Record<string, unknown> {
-    return {
+  status(options: { full?: boolean } = {}): Record<string, unknown> {
+    const status: Record<string, unknown> = {
       started: this.started,
       providerId: this.provider.id,
       active: this.activeLanes.size > 0,
       activeLanes: [...this.activeLanes],
       currentJobs: Object.fromEntries([...this.currentJobs.entries()]),
-      durableJobs: this.scheduler.counts(),
-      counts: this.db.counts(),
     };
+    if (options.full) {
+      status.durableJobs = this.scheduler.counts();
+      status.counts = this.db.counts();
+    }
+    return status;
   }
 
   async getFilterCatalog(): Promise<{ filters: FilterDefinition; source: 'cache' | 'upstream'; ageMs: number }> {
@@ -1120,11 +1123,11 @@ export class CacheService {
       ? ranking.winnerHost
       : null;
     const canonical = canonicalHost ? byHost.get(canonicalHost) : null;
-    const exploit = winner != null && Math.random() < STORE_EXPLOIT_RATE;
-    const firstHost = canonicalHost && canonical
-      ? canonicalHost
-      : exploit
-        ? winner
+    const exploit = winner != null && (policy === 'critical' || Math.random() < STORE_EXPLOIT_RATE);
+    const firstHost = exploit
+      ? winner
+      : canonicalHost && canonical
+        ? canonicalHost
         : shuffled([...byHost.keys()])[0] ?? winner;
     if (!firstHost) {
       console.log(`[cache] image-store-order policy=${policy} mode=fallback canonical=${canonicalHost ?? 'none'} winner=${ranking.winnerHost ?? 'none'} first=none total=${candidates.length} image=${imageLogKey(imageUrl)}`);
@@ -1407,7 +1410,7 @@ export class CacheService {
   private async runLoop(lane: DataCacheLane): Promise<void> {
     while (true) {
       if (this.suspended) return;
-      if (lane === 'background' && this.browserSession.hasCriticalScrambledPageWork()) {
+      if (lane === 'background' && this.browserSession.hasScrambledPageWork()) {
         setTimeout(() => this.drainLane('background'), 250);
         return;
       }

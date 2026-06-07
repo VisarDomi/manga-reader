@@ -54,6 +54,17 @@ type ReaderWindowFrame = {
     slots: LoadedChapter[];
 };
 
+type ChapterCommentsLoadMode = 'open' | 'prefetch';
+
+type ChapterCommentsMemoryEntry = {
+    comments: MangaComment[];
+    count: number;
+    stats: MangaCommentStats;
+    loading: boolean;
+    loaded: boolean;
+    error: string | null;
+};
+
 export interface ReaderTitleContext {
     chapterNumber: number;
     groupName: string;
@@ -98,8 +109,8 @@ export class ReaderState {
     private mangaEntryKey: string | null = null;
     private chapterList: ChapterMeta[] = [];
     private loadEpoch = 0;
-    private commentsEpoch = 0;
-    private commentsAbort: AbortController | null = null;
+    private chapterCommentsById = new Map<string, ChapterCommentsMemoryEntry>();
+    private chapterCommentsAbortById = new Map<string, AbortController>();
     private nextRetryWake: (() => void) | null = null;
     private windowEpoch = 0;
     private windowFetches = new Set<string>();
@@ -230,6 +241,7 @@ export class ReaderState {
         this.terminalTailHeight = 0;
         this.chapterDataById.clear();
         this.windowHydrates.clear();
+        this.resetChapterCommentsMemory();
         this.pendingMangaScrollTargetChapterId = null;
         this.scrollActivity = 'settled';
         this.nextRetryWake = null;
@@ -306,6 +318,7 @@ export class ReaderState {
         this.terminalTailHeight = 0;
         this.chapterDataById.clear();
         this.windowHydrates.clear();
+        this.resetChapterCommentsMemory();
         this.pendingMangaScrollTargetChapterId = null;
         this.scrollActivity = 'settled';
         this.nextRetryWake = null;
@@ -626,15 +639,12 @@ export class ReaderState {
             groupName: chapter.groupName,
         };
         this.chapterCommentsContext = context;
-        this.chapterComments = [];
-        this.chapterCommentsCount = 0;
-        this.chapterCommentsStats = { ...EMPTY_COMMENT_STATS };
-        this.chapterCommentsError = null;
+        this.applyChapterCommentsState(chapter.id);
         this.log.emit('chapter-comments-open', { mangaId: manga.id, chapterId: chapter.id, chapterNumber: chapter.number });
         if (pushView && this.ui.viewMode !== View.CHAPTER_COMMENTS) {
             this.ui.pushView(View.CHAPTER_COMMENTS);
         }
-        void this.loadChapterComments(manga, chapter);
+        this.ensureChapterCommentsLoaded(manga, chapter, 'open');
         return true;
     }
 
@@ -655,25 +665,15 @@ export class ReaderState {
 
     cancelPreparedChapterComments(): void {
         if (this.ui.viewMode === View.CHAPTER_COMMENTS) return;
-        this.commentsEpoch++;
-        this.commentsAbort?.abort();
-        this.commentsAbort = null;
-        this.chapterComments = [];
-        this.chapterCommentsCount = 0;
-        this.chapterCommentsStats = { ...EMPTY_COMMENT_STATS };
-        this.isChapterCommentsLoading = false;
-        this.chapterCommentsError = null;
         this.log.emit('chapter-comments-close', {
             mangaId: this.chapterCommentsContext?.mangaId ?? this.activeMangaId,
             chapterId: this.chapterCommentsContext?.chapterId ?? null,
         });
         this.chapterCommentsContext = null;
+        this.applyChapterCommentsState(null);
     }
 
     closeChapterComments(): void {
-        this.commentsEpoch++;
-        this.commentsAbort?.abort();
-        this.commentsAbort = null;
         this.log.emit('chapter-comments-close', {
             mangaId: this.chapterCommentsContext?.mangaId ?? this.activeMangaId,
             chapterId: this.chapterCommentsContext?.chapterId ?? null,
@@ -681,42 +681,137 @@ export class ReaderState {
         this.ui.popView();
     }
 
-    private async loadChapterComments(manga: Manga, chapter: ChapterMeta): Promise<void> {
-        const epoch = ++this.commentsEpoch;
-        this.commentsAbort?.abort();
+    prefetchVisibleChapterComments(source: 'visible-images' | 'window'): void {
+        const manga = this.manga.activeManga;
+        const chapter = this.currentChapterMeta;
+        if (!manga || !chapter) return;
+        this.ensureChapterCommentsLoaded(manga, chapter, 'prefetch', source);
+    }
+
+    private ensureChapterCommentsLoaded(manga: Manga, chapter: ChapterMeta, mode: ChapterCommentsLoadMode, source = mode): void {
+        const existing = this.chapterCommentsById.get(chapter.id);
+        if (existing && (existing.loading || existing.loaded || existing.error)) {
+            if (this.chapterCommentsContext?.chapterId === chapter.id) {
+                this.applyChapterCommentsState(chapter.id);
+            }
+            return;
+        }
+
+        const next: ChapterCommentsMemoryEntry = {
+            comments: existing?.comments ?? [],
+            count: existing?.count ?? 0,
+            stats: existing?.stats ?? { ...EMPTY_COMMENT_STATS },
+            loading: true,
+            loaded: false,
+            error: null,
+        };
+        this.chapterCommentsById.set(chapter.id, next);
+        if (this.chapterCommentsContext?.chapterId === chapter.id) {
+            this.applyChapterCommentsState(chapter.id);
+        }
+        void this.loadChapterComments(manga, chapter, mode, source);
+    }
+
+    private async loadChapterComments(manga: Manga, chapter: ChapterMeta, mode: ChapterCommentsLoadMode, source: string): Promise<void> {
         const controller = new AbortController();
-        this.commentsAbort = controller;
-        this.isChapterCommentsLoading = true;
-        this.chapterCommentsError = null;
+        this.chapterCommentsAbortById.set(chapter.id, controller);
         const start = performance.now();
         this.log.emit('chapter-comments-start', { mangaId: manga.id, chapterId: chapter.id, chapterNumber: chapter.number });
 
         try {
             const result = await api.fetchChapterComments(manga.id, chapter, controller.signal);
-            if (this.commentsEpoch !== epoch || controller.signal.aborted) return;
+            if (controller.signal.aborted || this.chapterCommentsAbortById.get(chapter.id) !== controller) return;
             const commitStart = performance.now();
-            this.chapterComments = result.comments;
-            this.chapterCommentsCount = result.count;
-            this.chapterCommentsStats = result.stats;
+            this.chapterCommentsById.set(chapter.id, {
+                comments: result.comments,
+                count: result.count,
+                stats: result.stats,
+                loading: false,
+                loaded: true,
+                error: null,
+            });
+            if (this.chapterCommentsContext?.chapterId === chapter.id) {
+                this.applyChapterCommentsState(chapter.id);
+            }
             this.log.emit('chapter-comments-commit', {
                 mangaId: manga.id,
                 chapterId: chapter.id,
                 chapterNumber: chapter.number,
-                mode: 'immediate',
+                mode,
                 comments: result.comments.length,
                 commitMs: Math.round(performance.now() - commitStart),
             });
         } catch (e) {
-            if (controller.signal.aborted || this.commentsEpoch !== epoch) return;
+            if (controller.signal.aborted || this.chapterCommentsAbortById.get(chapter.id) !== controller) return;
             const message = String((e as Error)?.message ?? e);
-            this.chapterCommentsError = message;
+            this.chapterCommentsById.set(chapter.id, {
+                comments: [],
+                count: 0,
+                stats: { ...EMPTY_COMMENT_STATS },
+                loading: false,
+                loaded: false,
+                error: message,
+            });
+            if (this.chapterCommentsContext?.chapterId === chapter.id) {
+                this.applyChapterCommentsState(chapter.id);
+            }
             this.log.emit('chapter-comments-error', { mangaId: manga.id, chapterId: chapter.id, chapterNumber: chapter.number, error: message });
         } finally {
-            if (this.commentsEpoch === epoch && !controller.signal.aborted) {
-                this.isChapterCommentsLoading = false;
+            if (this.chapterCommentsAbortById.get(chapter.id) === controller) {
+                this.chapterCommentsAbortById.delete(chapter.id);
+            }
+            const current = this.chapterCommentsById.get(chapter.id);
+            if (current?.loading) {
+                this.chapterCommentsById.set(chapter.id, { ...current, loading: false });
+            }
+            if (!controller.signal.aborted) {
+                if (this.chapterCommentsContext?.chapterId === chapter.id) {
+                    this.applyChapterCommentsState(chapter.id);
+                }
                 this.log.emit('chapter-comments-done', { mangaId: manga.id, chapterId: chapter.id, chapterNumber: chapter.number, ms: Math.round(performance.now() - start) });
             }
         }
+    }
+
+    private applyChapterCommentsState(chapterId: string | null): void {
+        const entry = chapterId ? this.chapterCommentsById.get(chapterId) : null;
+        this.chapterComments = entry?.comments ?? [];
+        this.chapterCommentsCount = entry?.count ?? 0;
+        this.chapterCommentsStats = entry?.stats ?? { ...EMPTY_COMMENT_STATS };
+        this.isChapterCommentsLoading = entry?.loading ?? false;
+        this.chapterCommentsError = entry?.error ?? null;
+    }
+
+    private pruneChapterComments(loadedChapterIds: Set<string>): void {
+        for (const [chapterId, controller] of this.chapterCommentsAbortById) {
+            if (!loadedChapterIds.has(chapterId)) {
+                controller.abort();
+                this.chapterCommentsAbortById.delete(chapterId);
+            }
+        }
+        for (const chapterId of this.chapterCommentsById.keys()) {
+            if (!loadedChapterIds.has(chapterId)) {
+                this.chapterCommentsById.delete(chapterId);
+            }
+        }
+        if (this.chapterCommentsContext && !loadedChapterIds.has(this.chapterCommentsContext.chapterId)) {
+            this.chapterCommentsContext = null;
+            this.applyChapterCommentsState(null);
+        } else if (this.chapterCommentsContext) {
+            this.applyChapterCommentsState(this.chapterCommentsContext.chapterId);
+        }
+    }
+
+    private resetChapterCommentsMemory(): void {
+        for (const controller of this.chapterCommentsAbortById.values()) controller.abort();
+        this.chapterCommentsAbortById.clear();
+        this.chapterCommentsById.clear();
+        this.chapterComments = [];
+        this.chapterCommentsCount = 0;
+        this.chapterCommentsStats = { ...EMPTY_COMMENT_STATS };
+        this.isChapterCommentsLoading = false;
+        this.chapterCommentsError = null;
+        this.chapterCommentsContext = null;
     }
 
     closeReader() {
@@ -739,9 +834,7 @@ export class ReaderState {
         this.terminalTailHeight = 0;
         this.chapterDataById.clear();
         this.scrollActivity = 'settled';
-        this.commentsEpoch++;
-        this.commentsAbort?.abort();
-        this.commentsAbort = null;
+        this.resetChapterCommentsMemory();
         this.nextRetryWake = null;
         const mangaId = this.activeMangaId;
         const chapterId = this.currentChapterId;
@@ -997,6 +1090,7 @@ export class ReaderState {
         this.physicalWindowStart = physicalWindowStart;
         this.virtualTotalHeight = physicalHeight;
         this.loadedChapters = renderSlots;
+        this.pruneChapterComments(new Set(renderSlots.map(slot => slot.id)));
         this.readerWindowFrameSignature = frameSignature;
         this.readerWindowFrameEpoch++;
         this.readerWindowFrame = {

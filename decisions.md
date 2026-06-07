@@ -1906,14 +1906,51 @@ Provider JS bundles are served with `Cache-Control: no-cache` so updates take ef
 
 iOS Safari requires HTTPS for PWA installation (Add to Home Screen). The server uses mkcert certificates. The manga-reader and gallery-reader backends crash without certs (no HTTP fallback).
 
-The app also ships a minimal service worker for iOS 18 PWA installability. It
-claims clients and has a no-op `fetch` listener, but it does not cache
-requests and does not make the app offline-capable. Avoid adding service-worker
-cache policy unless offline mode becomes an explicit product decision.
+The app ships a service worker for iOS PWA installability and shell ownership.
+It precaches the built SvelteKit shell, immutable chunks, manifest, icons, and
+app shell files. API/data requests are network-only and must not be intercepted
+or cached by the service worker. Shell caching exists so static app startup is
+not coupled to cache/browser/decoder health after the shell has been installed;
+it is not a general offline data mode.
 
-## D10. Server Runs Under xvfb-run
+## D10. Services Are Split by Runtime Ownership
 
-The manga-reader systemd service is wrapped in `xvfb-run` because Playwright/CloakBrowser needs a display for Cloudflare solving. Never kill the process directly or restart with nohup — always use `systemctl --user restart manga-reader`.
+The app is systemd-managed and must be restarted through the repo scripts or
+`systemctl --user`, not ad hoc process commands. The public service and the
+worker service now have separate ownership:
+
+- `manga-reader.service` is the public HTTPS/static/API facade on port `11555`.
+  It serves the PWA shell, local health/cert/log endpoints, cheap provider and
+  status reads, and proxies worker-owned API calls over a private Unix socket.
+  It does not run Xvfb, Playwright, cache crawling, or decoder work.
+- `manga-reader-worker.service` runs under Xvfb and owns provider runtime
+  browser pages, SQLite cache ingestion, byte cache work, durable job leases,
+  and scrambled-page decoding.
+
+The split is a Node process-ownership decision, not a language rewrite. The app
+stays in Node because Playwright/CloakBrowser is central to provider runtime
+access, but browser/cache/decoder work must not share the public shell-serving
+event loop.
+
+Process communication uses private HTTP over the Unix socket
+`~/.local/state/manga-reader/worker.sock`. This keeps current request/response
+and streaming semantics without exposing an internal LAN port or adding a
+WebSocket dependency. The socket is transport, not product state.
+
+Cheap public status/provider reads do not call into a busy worker event loop.
+The worker writes a compact status snapshot to state; the public API reads that
+snapshot locally for default `/api/cache/status` and `GET /api/providers`.
+Explicit diagnostic `/api/cache/status?full=true` reads SQLite from the public
+process and includes full counts, but it is not on the normal app path.
+
+Verified split timings after the `2026-06-07 23:09:19 CEST` restart:
+
+- default `/api/cache/status?providerId=comix`: `18ms`, `7ms`, `6ms`
+- diagnostic `full=true`: `315ms`, `372ms`, `301ms`
+- browser proof: DOM `484ms`, service worker ready `636ms`,
+  frontend `boot-ready` `153ms`
+- shell chunks and provider bundle were served in `1-7ms` after the shell
+  response
 
 ## D11. Reader Image Candidate Logs Are Frontend-Owned
 

@@ -170,6 +170,7 @@
                 }
             }
             const imagePerf = scheduleVirtualImages(root);
+            appState.reader.prefetchVisibleChapterComments('visible-images');
             const imagesMs = imagePerf?.totalMs ?? performance.now() - tickStart;
             logReaderSurfaceSnapshot('after-images', root);
             const totalMs = performance.now() - startedAt;

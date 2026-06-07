@@ -468,21 +468,23 @@ class AppState {
 
     private hydrateRestoredManga(snapshot: SessionSnapshot, viewStack: ViewMode[]): void {
         if (!snapshot.activeManga) return;
-        const ok = this.manga.restoreMangaShell(snapshot.activeManga, snapshot.mangaScrolls ?? (snapshot.mangaScroll ? [snapshot.mangaScroll] : []));
-        if (!ok) {
-            this.manga.setNavigationStack([]);
-            const fallback = viewStack[viewStack.length - 1] ?? View.LIST;
-            const fallbackStack = viewStack.slice(0, -1);
-            this.ui.setViewDirect(fallback, fallbackStack);
-            this.ui.mountRestoreLayers(fallback, fallbackStack, 'fallback');
-            this.scheduleRootRestoreKind(this.rootKindFor(fallback, fallbackStack), snapshot.searchContext, snapshot.targetMangaId ?? null, 'manga-fallback');
+        void (async () => {
+            const ok = await this.manga.restoreMangaShell(snapshot.activeManga!, snapshot.mangaScrolls ?? (snapshot.mangaScroll ? [snapshot.mangaScroll] : []));
+            if (!ok) {
+                this.manga.setNavigationStack([]);
+                const fallback = viewStack[viewStack.length - 1] ?? View.LIST;
+                const fallbackStack = viewStack.slice(0, -1);
+                this.ui.setViewDirect(fallback, fallbackStack);
+                this.ui.mountRestoreLayers(fallback, fallbackStack, 'fallback');
+                this.scheduleRootRestoreKind(this.rootKindFor(fallback, fallbackStack), snapshot.searchContext, snapshot.targetMangaId ?? null, 'manga-fallback');
+                this.persistSession();
+                this.log.emit('restore-fallback', { view: 'manga', reason: 'manga-shell-failed' });
+                return;
+            }
+            this.ui.mountRestoreLayers(snapshot.viewMode, viewStack, 'backing');
+            this.scheduleRootRestore(snapshot, viewStack, 'manga-restored');
             this.persistSession();
-            this.log.emit('restore-fallback', { view: 'manga', reason: 'manga-shell-failed' });
-            return;
-        }
-        this.ui.mountRestoreLayers(snapshot.viewMode, viewStack, 'backing');
-        this.scheduleRootRestore(snapshot, viewStack, 'manga-restored');
-        this.persistSession();
+        })();
     }
 
     private hydrateRestoredReader(snapshot: SessionSnapshot, readerStack: ViewMode[]): void {

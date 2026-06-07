@@ -42,4 +42,8 @@ Monorepo (npm workspaces). Packages: `provider-types`, `extensions`, `server`, `
 
 ## notes
 
-- For the scrambler, do a lightweight test using the browser skill to test the idea instead of changing app code. if test is succesful, then you can change app and ask user to test the iphone pwa
+- For the scrambler, do a lightweight test using the same browser context as the cache service does to test the idea instead of changing app code. if test is succesful, then you can change app and ask user to test the iphone pwa
+- the app has a philosophy: serve cached info and images then send async refresh requests to the backend and poll on it to update the stale data on the frontend.
+- we have cached in backend SQLite: thumbnails, covers, manga metadata, manga chapter lists, reader chapter image metadata/store candidates, provider filters, and image-store observations.
+- we have cached in frontend IndexedDB: progress and favorite IDs with only tiny card snapshots, not full manga metadata.
+- when you restart the service and don't see frontend logs because user still hasn't restarted the app yet, tell the user you're waiting for 30s before the next log check. if second check shows that user still hasn't restarted the app yet, use the skill to verify the fix.

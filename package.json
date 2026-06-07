@@ -19,15 +19,15 @@
     "build:frontend": "npm run build -w @manga-reader/app",
     "build:backend": "npm run build -w @manga-reader/extensions && npm run build -w @manga-reader/server",
     "start": "npm run start:all",
-    "start:all": "npm run build && systemctl --user start manga-reader.service",
+    "start:all": "npm run build && systemctl --user start manga-reader-worker.service && systemctl --user start manga-reader.service",
     "restart": "npm run restart:all",
-    "restart:all": "npm run build && systemctl --user restart manga-reader.service",
+    "restart:all": "npm run build && systemctl --user restart manga-reader-worker.service && systemctl --user restart manga-reader.service",
     "stop": "npm run stop:all",
-    "stop:all": "systemctl --user stop manga-reader.service",
+    "stop:all": "systemctl --user stop manga-reader.service manga-reader-worker.service",
     "logs": "npm run logs:all",
-    "logs:all": "journalctl --user -u manga-reader.service -f",
+    "logs:all": "journalctl --user -u manga-reader.service -u manga-reader-worker.service -f",
     "status": "npm run status:all",
-    "status:all": "systemctl --user status manga-reader.service --no-pager"
+    "status:all": "systemctl --user status manga-reader.service manga-reader-worker.service --no-pager"
   },
   "devDependencies": {
     "vitest": "4.1.4"

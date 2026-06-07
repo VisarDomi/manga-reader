@@ -84,7 +84,7 @@ export function createCacheRouter(coordinator: ProviderCoordinator | null): Rout
     }
     const requested = coordinator.get(providerIdFromRequest(req));
     if (requested) {
-      res.json(requested.cache.status());
+      res.json(requested.cache.status({ full: req.query.full === 'true' }));
       return;
     }
     res.json({ providers: coordinator.list() });

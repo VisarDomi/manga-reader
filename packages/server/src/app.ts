@@ -11,12 +11,16 @@ import { createCacheRouter } from './routes/cache.js';
 import createSearchRouter from './routes/search.js';
 import logRouter from './routes/log.js';
 import providerFiltersRouter from './routes/providerFilters.js';
+import { createSocketProxy } from './routes/socketProxy.js';
+import workerStatusSnapshotRouter from './routes/workerStatusSnapshot.js';
 import type { ProviderCoordinator } from './services/ProviderCoordinator.js';
 import type { Request, Response } from 'express';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const PROCESS_STARTED_AT = Date.now();
 const STARTUP_ASSET_RE = /^\/($|index\.html$|_app\/|manifest\.json$|sw\.js$|apple-touch-icon\.png$|favicon|providers\/)/;
 const STARTUP_ASSET_SLOW_MS = 1000;
+const STARTUP_ASSET_VERBOSE_MS = 5 * 60_000;
 
 function startupAssetLogger(req: Request, res: Response, next: () => void): void {
     if (!STARTUP_ASSET_RE.test(req.path)) {
@@ -28,7 +32,8 @@ function startupAssetLogger(req: Request, res: Response, next: () => void): void
     res.on('finish', () => {
         const totalMs = Date.now() - startedAt;
         const isShell = req.path === '/' || req.path === '/index.html';
-        const shouldLog = isShell || res.statusCode >= 400 || totalMs >= STARTUP_ASSET_SLOW_MS;
+        const isStartupWindow = Date.now() - PROCESS_STARTED_AT < STARTUP_ASSET_VERBOSE_MS;
+        const shouldLog = isShell || res.statusCode >= 400 || totalMs >= STARTUP_ASSET_SLOW_MS || isStartupWindow;
         if (!shouldLog) return;
         console.log(`[asset] startup path=${req.path} status=${res.statusCode} ms=${totalMs} bytes=${res.getHeader('Content-Length') ?? 'unknown'} ua=${String(req.headers['user-agent'] ?? '').slice(0, 90)}`);
     });
@@ -37,10 +42,21 @@ function startupAssetLogger(req: Request, res: Response, next: () => void): void
 
 export function createApp(
     coordinator: ProviderCoordinator | null,
+    options: { apiSocketPath?: string } = {},
 ): express.Express {
     const app = express();
-    app.use(express.json());
     app.use(startupAssetLogger);
+
+    if (!coordinator && options.apiSocketPath) {
+        app.use('/api/log', express.json());
+        app.use('/api', healthRouter);
+        app.use('/api', certRouter);
+        app.use('/api', logRouter);
+        app.use('/api', workerStatusSnapshotRouter());
+        app.use('/api', createSocketProxy(options.apiSocketPath));
+    } else {
+        app.use(express.json());
+    }
 
     const providersDir = path.join(__dirname, '..', '..', 'extensions', 'dist');
     if (fs.existsSync(providersDir)) {
@@ -58,13 +74,15 @@ export function createApp(
         }));
     }
 
-    app.use('/api', healthRouter);
-    app.use('/api', certRouter);
-    app.use('/api', createCacheRouter(coordinator));
-    app.use('/api', createSearchRouter(coordinator));
-    app.use('/api', createCommentsRouter(coordinator));
-    app.use('/api', providerFiltersRouter(coordinator));
-    app.use('/api', logRouter);
+    if (coordinator) {
+        app.use('/api', healthRouter);
+        app.use('/api', certRouter);
+        app.use('/api', createCacheRouter(coordinator));
+        app.use('/api', createSearchRouter(coordinator));
+        app.use('/api', createCommentsRouter(coordinator));
+        app.use('/api', providerFiltersRouter(coordinator));
+        app.use('/api', logRouter);
+    }
 
     app.get(/^\/(?!api).*/, (_req: Request, res: Response) => {
         const indexPath = path.join(FRONTEND_BUILD_DIR, 'index.html');

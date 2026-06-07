@@ -8,6 +8,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const PORT = parseInt(process.env.PORT || '11555', 10);
 export const SSL_DIR = process.env.SSL_DIR || path.join(os.homedir(), '.local/share/mkcert/pwa');
 export const STATE_DIR = process.env.STATE_DIR || path.join(os.homedir(), '.local', 'state', 'manga-reader');
+export const WORKER_SOCKET_PATH = process.env.WORKER_SOCKET_PATH || path.join(STATE_DIR, 'worker.sock');
 export const FRONTEND_BUILD_DIR = process.env.FRONTEND_BUILD_DIR || path.join(__dirname, '..', '..', 'app', 'build');
 export const CACHE_MAX_AGE = parseInt(process.env.CACHE_MAX_AGE || '86400', 10);
 export const PROXY_TIMEOUT = parseInt(process.env.PROXY_TIMEOUT || '10000', 10);
@@ -19,6 +20,13 @@ export const ROOT_CA_PATH = process.env.ROOT_CA_PATH || path.join(os.homedir(), 
 export const STORE_HOSTS_PATH = process.env.STORE_HOSTS_PATH || path.join(STATE_DIR, 'store-hosts.json');
 export const CACHE_DB_PATH = process.env.CACHE_DB_PATH || path.join(STATE_DIR, 'cache.sqlite');
 export const BYTE_CACHE_DIR = process.env.BYTE_CACHE_DIR || path.join(STATE_DIR, 'bytes');
+
+export type ServerRole = 'monolith' | 'api' | 'worker';
+
+export function serverRoleFromEnv(value = process.env.MANGA_SERVER_ROLE): ServerRole {
+  if (value === 'api' || value === 'worker' || value === 'monolith') return value;
+  return 'monolith';
+}
 
 export function validateConfig(): void {
   if (isNaN(PORT) || PORT < 1 || PORT > 65535) {

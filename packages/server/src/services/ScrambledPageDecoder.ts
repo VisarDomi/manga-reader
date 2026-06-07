@@ -67,11 +67,14 @@ export class ScrambledPageDecoder {
   private cacheBytes = 0;
   private running = false;
   private runningPolicy: ScrambledPageDecodePolicy | null = null;
+  private runningJob: DecodeJob | null = null;
   private moduleReady = false;
   private warmPromise: Promise<void> | null = null;
   private nextJobId = 1;
   private cdpSession: CDPSession | null = null;
   private preemptRunningPreload = false;
+  private preemptClosePromise: Promise<void> | null = null;
+  private readonly preemptedJobIds = new Set<number>();
 
   constructor(
     private readonly context: BrowserContext,
@@ -98,13 +101,27 @@ export class ScrambledPageDecoder {
       if (policy === 'critical' && existing.policy !== 'critical') {
         existing.policy = 'critical';
         existing.request.policy = 'critical';
-        if (this.runningPolicy === 'preload') this.preemptRunningPreload = true;
+        this.preemptRunningPreloadDecode('queued-critical');
         this.sortJobs();
       }
       console.log(`[decoder] request cache=pending policy=${policy} ownerPolicy=${existing.policy} manga=${request.mangaId} chapter=${request.chapterId} page=${request.pageIndex + 1} queueDepth=${this.jobs.length}`);
       return new Promise((resolve, reject) => {
         existing.resolve = this.joinResolvers(existing.resolve, resolve);
         existing.reject = this.joinRejectors(existing.reject, reject);
+      });
+    }
+
+    const runningJob = this.runningJob?.cacheKey === cacheKey ? this.runningJob : null;
+    if (runningJob) {
+      if (policy === 'critical' && runningJob.policy !== 'critical') {
+        runningJob.policy = 'critical';
+        runningJob.request.policy = 'critical';
+        this.preemptRunningPreloadDecode('running-critical');
+      }
+      console.log(`[decoder] request cache=running policy=${policy} ownerPolicy=${runningJob.policy} manga=${request.mangaId} chapter=${request.chapterId} page=${request.pageIndex + 1} queueDepth=${this.jobs.length}`);
+      return new Promise((resolve, reject) => {
+        runningJob.resolve = this.joinResolvers(runningJob.resolve, resolve);
+        runningJob.reject = this.joinRejectors(runningJob.reject, reject);
       });
     }
 
@@ -120,7 +137,7 @@ export class ScrambledPageDecoder {
       };
       this.jobs.push(job);
       this.pendingByKey.set(cacheKey, job);
-      if (policy === 'critical' && this.runningPolicy === 'preload') this.preemptRunningPreload = true;
+      if (policy === 'critical') this.preemptRunningPreloadDecode('new-critical');
       this.sortJobs();
       console.log(`[decoder] request cache=miss policy=${policy} manga=${request.mangaId} chapter=${request.chapterId} page=${request.pageIndex + 1} queueDepth=${this.jobs.length}`);
       this.pump();
@@ -153,6 +170,10 @@ export class ScrambledPageDecoder {
     return this.runningPolicy === 'critical' || this.jobs.some(job => job.policy === 'critical');
   }
 
+  hasWork(): boolean {
+    return this.running || this.jobs.length > 0;
+  }
+
   async destroy(): Promise<void> {
     const page = this.page;
     this.page = null;
@@ -179,6 +200,7 @@ export class ScrambledPageDecoder {
       this.pendingByKey.delete(job.cacheKey);
       const waitMs = Date.now() - job.queuedAt;
       this.runningPolicy = job.policy;
+      this.runningJob = job;
       console.log(`[decoder] start policy=${job.policy} manga=${job.request.mangaId} chapter=${job.request.chapterId} page=${job.request.pageIndex + 1} waitMs=${waitMs} queueDepth=${this.jobs.length}`);
       try {
         const cached = this.cache.get(job.cacheKey);
@@ -191,7 +213,7 @@ export class ScrambledPageDecoder {
         this.putCache(job.cacheKey, result);
         job.resolve(result);
       } catch (error) {
-        if (error instanceof DecodePreempted) {
+        if (error instanceof DecodePreempted || this.isPreemptedDecodeError(job, error)) {
           this.preemptRunningPreload = false;
           job.queuedAt = Date.now();
           this.jobs.push(job);
@@ -203,6 +225,8 @@ export class ScrambledPageDecoder {
         }
       } finally {
         this.runningPolicy = null;
+        if (this.runningJob === job) this.runningJob = null;
+        if (!this.jobs.some(item => item.id === job.id)) this.preemptedJobIds.delete(job.id);
       }
     }
     this.running = false;
@@ -272,10 +296,41 @@ export class ScrambledPageDecoder {
   }
 
   private async ensurePage(): Promise<Page> {
+    if (this.preemptClosePromise) await this.preemptClosePromise.catch(() => {});
     if (this.page && !this.page.isClosed()) return this.page;
     this.page = await this.context.newPage();
     this.cdpSession = null;
     return this.page;
+  }
+
+  private preemptRunningPreloadDecode(reason: string): void {
+    if (this.runningPolicy !== 'preload') return;
+    this.preemptRunningPreload = true;
+    if (this.runningJob) this.preemptedJobIds.add(this.runningJob.id);
+    const page = this.page;
+    if (!page || page.isClosed() || this.preemptClosePromise) return;
+    this.page = null;
+    this.cdpSession = null;
+    this.moduleReady = false;
+    console.log(`[decoder] preload-revoked reason=${reason} queuedCritical=${this.jobs.some(job => job.policy === 'critical')}`);
+    this.preemptClosePromise = page.close()
+      .catch(error => {
+        console.log(`[decoder] preload-revoke-close-failed reason=${reason} error=${this.errorMessage(error)}`);
+      })
+      .finally(() => {
+        this.preemptClosePromise = null;
+      });
+  }
+
+  private isPreemptedDecodeError(job: DecodeJob, error: unknown): boolean {
+    if (!this.preemptedJobIds.has(job.id)) return false;
+    const msg = this.errorMessage(error);
+    const preempted = msg.includes('Target page, context or browser has been closed')
+      || msg.includes('Page closed')
+      || msg.includes('Target closed')
+      || msg.includes('Execution context was destroyed');
+    if (preempted) this.preemptedJobIds.delete(job.id);
+    return preempted;
   }
 
   private async ensureCdpSession(page: Page): Promise<CDPSession> {

@@ -8,6 +8,7 @@ import { BrowserSession } from './BrowserSession.js';
 import { CommentsService } from './CommentsService.js';
 import { listServerProviders, getServerMangaProvider } from '../providers/registry.js';
 import type { ServerMangaProvider } from '../providers/types.js';
+import type { ServerRole } from '../config.js';
 
 export interface ProviderRuntimeOwner {
   provider: ServerMangaProvider;
@@ -35,13 +36,19 @@ interface ProviderRuntimeSettings {
 
 type ProviderRuntimeState = 'disabled' | 'warming' | 'ready' | 'degraded' | 'stopping';
 
+interface ProviderCoordinatorOptions {
+  role?: ServerRole;
+}
+
 export class ProviderCoordinator {
   private readonly owners = new Map<string, ProviderRuntimeOwner>();
   private readonly enabledProviderIds: Set<string>;
   private readonly runtimeStates = new Map<string, ProviderRuntimeState>();
   private readonly settingsPath = path.join(STATE_DIR, 'provider-runtime.json');
+  private readonly role: ServerRole;
 
-  constructor() {
+  constructor(options: ProviderCoordinatorOptions = {}) {
+    this.role = options.role ?? 'monolith';
     this.enabledProviderIds = new Set(this.loadEnabledProviderIds());
     for (const provider of listServerProviders()) {
       const db = new CacheDatabase(this.dbPath(provider.id));
@@ -91,6 +98,7 @@ export class ProviderCoordinator {
   }
 
   async start(): Promise<void> {
+    console.log(`[providerCoordinator] start role=${this.role} providers=${this.owners.size}`);
     for (const owner of this.owners.values()) {
       if (!this.isEnabled(owner.provider.id)) {
         this.setRuntimeState(owner.provider.id, 'disabled', 'startup-disabled');
@@ -98,6 +106,14 @@ export class ProviderCoordinator {
         owner.cache.recoverExpiredDurableLeases('provider-disabled-startup');
         owner.cache.suspend();
         owner.byteCache.suspend();
+        continue;
+      }
+      if (this.role === 'api') {
+        owner.cache.recoverExpiredDurableLeases('api-startup');
+        owner.cache.suspend();
+        owner.byteCache.suspend();
+        this.setRuntimeState(owner.provider.id, 'ready', 'api-cache-read-only');
+        console.log(`[providerCoordinator] provider-api-ready provider=${owner.provider.id} action=skip-worker-start`);
         continue;
       }
       void this.startOwner(owner, 'startup');

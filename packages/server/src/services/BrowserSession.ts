@@ -578,6 +578,10 @@ export class BrowserSession {
         return this.decoder?.hasCriticalWork() ?? false;
     }
 
+    hasScrambledPageWork(): boolean {
+        return this.decoder?.hasWork() ?? false;
+    }
+
     warmScrambledPageDecoder(mangaId: string): void {
         if (!this.decoder || !this._ready) return;
         this.decoder.warm(mangaId);

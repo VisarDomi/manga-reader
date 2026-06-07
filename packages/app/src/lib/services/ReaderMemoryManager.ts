@@ -9,6 +9,10 @@ import { getProviderId } from '$lib/services/provider.js';
 
 const IMAGE_STORE_SESSION_ID = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
 type ImageLoadPolicy = 'critical' | 'preload';
+const IMAGE_CANDIDATE_TIMEOUT_MS: Record<ImageLoadPolicy, number> = {
+    critical: 2_500,
+    preload: 5_000,
+};
 
 export class ReaderMemoryManager {
     private imageSources = new Map<string, string>();
@@ -264,6 +268,7 @@ export class ReaderMemoryManager {
             : candidates;
         const candidateList = selectedCandidates.length > 0 ? selectedCandidates : [url];
         let index = 0;
+        let candidateTimeout: ReturnType<typeof setTimeout> | null = null;
 
         const finish = () => {
             this.abortController?.signal.removeEventListener('abort', abortLoad);
@@ -274,6 +279,10 @@ export class ReaderMemoryManager {
             }
         };
         const clearHandlers = () => {
+            if (candidateTimeout) {
+                clearTimeout(candidateTimeout);
+                candidateTimeout = null;
+            }
             img.onload = null;
             img.onerror = null;
         };
@@ -298,6 +307,27 @@ export class ReaderMemoryManager {
             const candidateUrl = candidateList[candidateIndex];
             const startedAt = performance.now();
             const host = this.hostFromCandidate(candidateUrl);
+            const failCandidate = (error: string) => {
+                if (signal.aborted) return;
+                const totalMs = Math.round(performance.now() - startedAt);
+                this.emit('reader-image-decode-failed', {
+                    key,
+                    index: candidateIndex,
+                    total: candidateList.length,
+                    totalMs,
+                    host,
+                    bytes: 0,
+                    type: 'native-image',
+                    policy,
+                    naturalWidth: img.naturalWidth,
+                    naturalHeight: img.naturalHeight,
+                });
+                this.recordImageCandidate(url, candidateUrl, key, candidateIndex, candidateList.length, 0, false, totalMs, policy, error);
+                clearHandlers();
+                img.removeAttribute('src');
+                index++;
+                tryNext();
+            };
             img.onload = () => {
                 if (signal.aborted) return;
                 const totalMs = Math.round(performance.now() - startedAt);
@@ -313,24 +343,11 @@ export class ReaderMemoryManager {
                 finish();
             };
             img.onerror = () => {
-                if (signal.aborted) return;
-                const totalMs = Math.round(performance.now() - startedAt);
-                this.emit('reader-image-decode-failed', {
-                    key,
-                    index: candidateIndex,
-                    total: candidateList.length,
-                    totalMs,
-                    host,
-                    bytes: 0,
-                    type: 'native-image',
-                    policy,
-                    naturalWidth: img.naturalWidth,
-                    naturalHeight: img.naturalHeight,
-                });
-                this.recordImageCandidate(url, candidateUrl, key, candidateIndex, candidateList.length, 0, false, totalMs, policy, 'Image failed');
-                index++;
-                tryNext();
+                failCandidate('Image failed');
             };
+            candidateTimeout = setTimeout(() => {
+                failCandidate('Image candidate timed out');
+            }, IMAGE_CANDIDATE_TIMEOUT_MS[policy]);
             img.src = candidateUrl;
         };
         loadController.signal.addEventListener('abort', () => {
