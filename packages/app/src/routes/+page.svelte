@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { onMount, setContext } from 'svelte';
+    import { onDestroy, onMount, setContext } from 'svelte';
     import { appState } from '$lib/state/index.svelte.js';
     import { View } from '$lib/logic.js';
     import { initAppDimensions } from '$lib/state/appDimensions.js';
@@ -11,6 +11,7 @@
     import ChapterCommentsView from '$lib/views/ChapterCommentsView.svelte';
     import Toast from '$lib/components/Toast.svelte';
     import { swipeBack } from '$lib/actions/swipeBack.js';
+    import type { ViewMode } from '$lib/types.js';
 
     let readerRoot = $state<HTMLElement | null>(null);
     setContext('readerRoot', () => readerRoot);
@@ -42,6 +43,10 @@
     const mountReader = $derived(appState.ui.isMounted(View.READER, backView));
     const mountChapterComments = $derived(appState.ui.isMounted(View.CHAPTER_COMMENTS, backView));
     const mountChapterCommentsSurface = $derived(inReader || showingChapterComments || mountChapterComments);
+    const documentScrollViews = new Set<ViewMode>([View.LIST, View.FAVORITES, View.PROVIDERS, View.MANGA, View.CHAPTER_COMMENTS]);
+    const documentScrollPositions = new Map<ViewMode, number>();
+    let activeDocumentScrollView: ViewMode | null = null;
+    let restoreDocumentScrollRaf: number | null = null;
     const useDocumentScroll = $derived(
         !isSwiping
         && !swipeAnimating
@@ -50,15 +55,69 @@
         && (viewMode === View.LIST || viewMode === View.FAVORITES || viewMode === View.PROVIDERS || viewMode === View.MANGA || viewMode === View.CHAPTER_COMMENTS)
     );
 
+    function documentScrollTop(): number {
+        if (typeof window === 'undefined') return 0;
+        return window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0;
+    }
+
+    function viewElement(mode: ViewMode): HTMLElement | null {
+        if (typeof document === 'undefined') return null;
+        switch (mode) {
+            case View.LIST:
+                return document.getElementById('view-list');
+            case View.FAVORITES:
+                return document.getElementById('view-favorites');
+            case View.PROVIDERS:
+                return document.getElementById('view-providers');
+            case View.MANGA:
+                return document.getElementById('view-manga');
+            case View.CHAPTER_COMMENTS:
+                return document.getElementById('view-chapter-comments');
+            default:
+                return null;
+        }
+    }
+
+    function rememberDocumentScroll(mode: ViewMode | null) {
+        if (!mode || !documentScrollViews.has(mode)) return;
+        const scrollTop = documentScrollTop();
+        documentScrollPositions.set(mode, scrollTop);
+        const el = viewElement(mode);
+        if (el) el.scrollTop = scrollTop;
+    }
+
+    function restoreDocumentScroll(mode: ViewMode | null) {
+        if (!mode || !documentScrollViews.has(mode)) return;
+        if (restoreDocumentScrollRaf != null) cancelAnimationFrame(restoreDocumentScrollRaf);
+        restoreDocumentScrollRaf = requestAnimationFrame(() => {
+            restoreDocumentScrollRaf = null;
+            const el = viewElement(mode);
+            const target = documentScrollPositions.get(mode) ?? el?.scrollTop ?? 0;
+            window.scrollTo(0, Math.max(0, target));
+        });
+    }
+
+    $effect.pre(() => {
+        if (typeof document === 'undefined') return;
+        const nextDocumentScrollView = useDocumentScroll ? viewMode : null;
+        if (activeDocumentScrollView !== nextDocumentScrollView) {
+            rememberDocumentScroll(activeDocumentScrollView);
+            activeDocumentScrollView = nextDocumentScrollView;
+        }
+    });
+
     $effect(() => {
         if (typeof document === 'undefined') return;
+        const nextDocumentScrollView = useDocumentScroll ? viewMode : null;
         document.documentElement.classList.toggle('document-scroll-root', useDocumentScroll);
         document.body.classList.toggle('document-scroll-root', useDocumentScroll);
+        if (nextDocumentScrollView) restoreDocumentScroll(nextDocumentScrollView);
+    });
 
-        return () => {
-            document.documentElement.classList.remove('document-scroll-root');
-            document.body.classList.remove('document-scroll-root');
-        };
+    onDestroy(() => {
+        if (restoreDocumentScrollRaf != null) cancelAnimationFrame(restoreDocumentScrollRaf);
+        document.documentElement.classList.remove('document-scroll-root');
+        document.body.classList.remove('document-scroll-root');
     });
 </script>
 

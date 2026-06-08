@@ -1,62 +1,53 @@
-# Goal: Native Safari Scroll Overhaul
+# Goal: Fix Native Document Scroll Back-Stack Position Leaks
 
 ## Context
 
-iOS 27 standalone PWA remains broken after reinstall. Safari works correctly
-for Search/Favorites/Providers after those root views started using native
-document scrolling instead of fixed nested scrollers.
+Pass 1 moved Search/Favorites/Providers/Manga detail/Chapter comments toward
+native document scrolling for Safari iOS 27 browser chrome behavior. User
+validated that the main behavior works except Reader, but found two scroll
+ownership leaks:
 
-The goal is to reuse that behavior through a shared scroll owner, not through
-ad hoc `window.scrollY` patches. Reader is intentionally excluded from the
-first pass because it owns bounded physical scrolling, rebases, image
-scheduling, progress, restore, and recommendation tail geometry.
+- Reader -> Manga detail swipe-back: during the peek, Manga detail is at the
+  correct saved position, but after the swipe commits, it jumps to top.
+- Manga detail -> Search root swipe-back: during peek, Search is still at top,
+  but after commit it scrolls to the target manga. The commit-time handoff is
+  better; the peek-time backing layer is still not owned correctly.
 
-## Pass 1: Shared Scroll Root + Lower-Risk Views
+These are not Reader migration tasks. They are back-stack/document-scroll
+ownership bugs caused by moving foreground surfaces to document scroll while
+backing layers still carry element scroll state.
 
-Stop after this pass and ask user to test Safari before touching Reader.
+## Checklist
 
-- [x] Create this checklist-style `goal.md` so compaction can resume safely.
-- [x] Add a small `ScrollRoot` adapter that supports element scrollers and the
-  document/window scroller.
-- [x] Enable document-scroll shell mode for Manga detail and Chapter comments
-  when they are the active foreground view and no swipe animation is active.
-- [x] Migrate Manga detail scroll reads/writes to `ScrollRoot`.
-  - [x] Active manga detail saves scroll through `ScrollRoot`.
-  - [x] Manga detail pixel restore writes through `ScrollRoot`.
-  - [x] Reader-recommendation scroll target writes through `ScrollRoot`.
-  - [x] Chapter history scroll in `ChapterList.svelte` writes through
-    `ScrollRoot`.
-  - [x] CSS makes only the active manga detail layer document-flow; hidden and
-    swipe-back layers stay layered.
-- [x] Migrate Chapter comments to document scroll.
-  - [x] Shell document-scroll class is enabled.
-  - [x] Surface CSS does not fight document scrolling.
-  - [x] Swipe-back is owned by the view layer that gets transformed, not the
-    inner comments content.
-- [x] Run type/build checks.
-- [x] Restart with repo command.
-- [x] Check logs from the new service start.
-- [x] Stop and report Pass 1 ready for Safari testing.
+- [x] Commit and push the validated Pass 1 checkpoint.
+- [x] Check logs from the latest service start and user test for `view-pop`,
+  `manga-scroll-save`, `manga-scroll-restore`, search restore/list scroll, and
+  swipe state.
+- [x] Trace current code ownership for scroll snapshots:
+  - [x] Manga detail scroll persistence.
+  - [x] Search/list visible target or scroll persistence.
+  - [x] `useDocumentScroll` toggling during swipe start/finish.
+  - [x] `view-layer.document-scroll` interaction with hidden/back layers.
+- [x] Fix Reader -> Manga commit jump:
+  - [x] Preserve the backing Manga detail scroll when document-scroll toggles
+    off during swipe and back on after commit.
+  - [x] Ensure commit does not reset document scroll to zero when Manga becomes
+    foreground.
+  - [x] Use `$effect.pre` for the capture side of scroll ownership handoff,
+    because normal `$effect` runs after DOM/class changes.
+- [ ] Fix Manga -> Search peek already-at-top:
+  - [x] Identify whether Search root saves scroll as target-id only or pixel
+    scroll.
+  - [ ] Restore Search root position before/during peek, not only after it
+    becomes foreground.
+- [x] Build/restart with repo command.
+- [x] User Safari validation: better after commit-time handoff, but still
+  broken during swipe peek.
+- [ ] Decide next architecture for swipe-time document-scroll ownership.
 
-## Break Point
+## Constraints
 
-Do not start Reader migration until user validates Pass 1 in Safari.
-
-## Pass 2: Reader Migration
-
-- [ ] Move Reader to the same scroll-root abstraction only after Pass 1 is
-  validated.
-- [ ] Preserve bounded physical window behavior.
-- [ ] Preserve native `scrollend + 100ms` rebase policy.
-- [ ] Preserve image scheduling, visible image priority, page tracking,
-  progress writes, restore, and recommendation tail.
-- [ ] Verify reader logs before asking for phone testing.
-
-## Decisions To Move To decisions.md When Done
-
-- Native Safari document scrolling is the target for iOS 27 browser chrome
-  behavior.
-- Standalone PWA viewport/safe-area behavior is treated as degraded until iOS
-  changes; avoid deep PWA-only hacks unless Safari also breaks.
-- Scroll migration must happen through an owned root abstraction, not by
-  sprinkling document/window special cases through view code.
+- Do not start Reader document-scroll migration in this batch.
+- Do not add timer gates. Preserve ownership: the active/backing surface that
+  owns scroll state must provide the scroll position before it is revealed.
+- Keep root Search and Favorites exclusive.
