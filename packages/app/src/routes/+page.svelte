@@ -41,11 +41,30 @@
     const mountReader = $derived(appState.ui.isMounted(View.READER, backView));
     const mountChapterComments = $derived(appState.ui.isMounted(View.CHAPTER_COMMENTS, backView));
     const mountChapterCommentsSurface = $derived(inReader || showingChapterComments || mountChapterComments);
+    const useDocumentScroll = $derived(
+        !isSwiping
+        && !swipeAnimating
+        && !isForwardSwiping
+        && !forwardSwipeAnimating
+        && (viewMode === View.LIST || viewMode === View.FAVORITES || viewMode === View.PROVIDERS)
+    );
+
+    $effect(() => {
+        if (typeof document === 'undefined') return;
+        document.documentElement.classList.toggle('document-scroll-root', useDocumentScroll);
+        document.body.classList.toggle('document-scroll-root', useDocumentScroll);
+
+        return () => {
+            document.documentElement.classList.remove('document-scroll-root');
+            document.body.classList.remove('document-scroll-root');
+        };
+    });
 </script>
 
 <div
     id="view-list"
     class="view-layer"
+    class:document-scroll={viewMode === View.LIST && useDocumentScroll}
     class:view-hidden={viewMode !== View.LIST && backView !== View.LIST}
     class:swipe-back={backView === View.LIST}
     class:swipe-animating={backView === View.LIST && swipeAnimating}
@@ -58,6 +77,7 @@
 <div
     id="view-favorites"
     class="view-layer"
+    class:document-scroll={viewMode === View.FAVORITES && useDocumentScroll}
     class:view-hidden={viewMode !== View.FAVORITES && backView !== View.FAVORITES}
     class:swipe-back={backView === View.FAVORITES}
     class:swipe-animating={backView === View.FAVORITES && swipeAnimating}
@@ -72,6 +92,7 @@
 <div
     id="view-providers"
     class="view-layer"
+    class:document-scroll={viewMode === View.PROVIDERS && useDocumentScroll}
     class:view-hidden={viewMode !== View.PROVIDERS && backView !== View.PROVIDERS}
     class:swipe-back={backView === View.PROVIDERS}
     class:swipe-animating={backView === View.PROVIDERS && swipeAnimating}
@@ -137,6 +158,13 @@
     max-width: 100%;
     -webkit-overflow-scrolling: touch;
     background: #000;
+}
+
+.view-layer.document-scroll {
+    position: relative;
+    inset: auto;
+    min-height: 100dvh;
+    overflow: visible;
 }
 
 .view-layer.view-hidden {

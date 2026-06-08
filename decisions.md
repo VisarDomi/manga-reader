@@ -1894,6 +1894,20 @@ backend asks the provider-resolved Comix runtime HTTP client for
 full page URLs and dimensions. DOM extraction is not a normal cache path and
 must not be treated as a reader-ready source.
 
+For Comix scrambled pages, the provider must preserve the runtime page URL
+contract exactly. The Comix reader receives `pages.baseUrl + item.url` and, for
+items marked scrambled, passes that same `/i.../*.webp` URL into the site's
+secure canvas decoder. The app must not rewrite scrambled URLs to `/si/...`.
+That rewrite was verified on 2026-06-08 to produce syntactically valid decoded
+PNGs that were still visually scrambled.
+
+Chapter-image schema versions are provider-owned readiness contracts. Comix
+schema `3` means the page-map uses the verified runtime URL contract above.
+Older Comix schema `2` rows are invalid and must be refetched instead of served
+as ready cache hits. Mangadot keeps its own schema independently; cache
+readiness must compare against the active provider's declared
+`chapterImageSchemaVersion`, not a global magic number.
+
 ## D7. Cloudflare Cookie Domain Inheritance
 
 Cloudflare sets cf_clearance on the parent domain (`.comix.to`), covering all subdomains. The cookie cache looks up by exact domain first, then tries the parent — so a request to `static.comix.to` finds cookies cached under `comix.to`.
@@ -2209,10 +2223,12 @@ provider-resolved browser runtime boundary.
 Chapter-image cache readiness is a completeness contract:
 
 - status must be `ready`
-- source must be `runtime-http`
+- source must match the provider-owned runtime source
+- schema version must match the active provider's declared chapter-image schema
 - `targetCount` must be positive
 - `pages.length` must equal `targetCount`
 - every page must have a populated image URL
+- every page must explicitly state whether it is scrambled
 
 Rows that are encrypted, empty, partial, DOM-observed, or otherwise incomplete
 may exist as diagnostics, but the cache route must answer `warming` instead of

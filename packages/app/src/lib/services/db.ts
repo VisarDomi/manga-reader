@@ -110,6 +110,10 @@ export interface FavoriteIdRow {
     snapshot?: FavoriteSnapshot;
 }
 
+export interface FavoriteBackupRow extends FavoriteIdRow {
+    providerId: string;
+}
+
 function favoriteId(entry: unknown): string {
     if (!entry || typeof entry !== 'object') return '';
     const record = entry as Record<string, unknown>;
@@ -158,6 +162,50 @@ export async function getAllFavoriteRows(providerId = 'comix'): Promise<Favorite
             resolve(rows);
         };
         req.onerror = () => { logger('getAllFavoriteRows', String(req.error)); resolve([]); };
+    });
+}
+
+export async function getFavoriteBackupRows(): Promise<FavoriteBackupRow[]> {
+    const db = await openDB();
+    return new Promise((resolve) => {
+        const tx = db.transaction('favorites', 'readonly');
+        const req = tx.objectStore('favorites').getAll();
+        req.onsuccess = () => {
+            const seen = new Set<string>();
+            const rows: FavoriteBackupRow[] = [];
+            for (const entry of req.result as FavoriteEntry[]) {
+                const providerId = favoriteProviderId(entry);
+                const id = favoriteId(entry);
+                const key = favoriteKey(providerId, id);
+                if (!id || seen.has(key)) continue;
+                seen.add(key);
+                rows.push({ providerId, id, snapshot: favoriteSnapshot(entry) });
+            }
+            resolve(rows.sort((a, b) => `${a.providerId}:${a.id}`.localeCompare(`${b.providerId}:${b.id}`)));
+        };
+        req.onerror = () => { logger('getFavoriteBackupRows', String(req.error)); resolve([]); };
+    });
+}
+
+export async function replaceFavoriteBackupRows(rows: FavoriteBackupRow[]): Promise<void> {
+    const db = await openDB();
+    return new Promise((resolve) => {
+        const tx = db.transaction('favorites', 'readwrite');
+        const store = tx.objectStore('favorites');
+        store.clear();
+        for (const row of rows) {
+            if (!row.providerId || !row.id) continue;
+            store.put({
+                id: favoriteKey(row.providerId, row.id),
+                providerId: row.providerId,
+                mangaId: row.id,
+                title: row.snapshot?.title ?? row.id,
+                cover: row.snapshot?.cover ?? '',
+                latestChapter: row.snapshot?.latestChapter ?? null,
+            } satisfies FavoriteEntry);
+        }
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => { logger('replaceFavoriteBackupRows', String(tx.error)); resolve(); };
     });
 }
 

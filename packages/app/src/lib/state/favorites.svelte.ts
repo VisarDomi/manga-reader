@@ -7,6 +7,12 @@ import type { ChapterStatsState } from './chapterStats.svelte.js';
 import type { ToastState } from './toast.svelte.js';
 import { getProviderId } from '../services/provider.js';
 
+export interface FavoritesBackupSummary {
+    savedAt?: string;
+    rows: db.FavoriteBackupRow[];
+    providerCounts: { providerId: string; count: number }[];
+}
+
 export class FavoritesState {
     items = $state<Manga[]>([]);
     ids = $state<string[]>([]);
@@ -90,6 +96,65 @@ export class FavoritesState {
 
     async activate() {
         await this.prepareRoot();
+    }
+
+    async localBackupSummary(): Promise<FavoritesBackupSummary> {
+        const rows = await db.getFavoriteBackupRows();
+        const summary = this.backupSummary(rows);
+        this.log.emit('favorites-backup', {
+            action: 'preview',
+            localCount: rows.length,
+            providers: summary.providerCounts.map(item => `${item.providerId}:${item.count}`).join(','),
+        });
+        return summary;
+    }
+
+    async serverBackupSummary(): Promise<FavoritesBackupSummary | null> {
+        const backup = await api.fetchFavoritesBackup();
+        if (!backup) return null;
+        return this.backupSummary(backup.favorites, backup.savedAt);
+    }
+
+    async backupToServer(): Promise<FavoritesBackupSummary> {
+        try {
+            const rows = await db.getFavoriteBackupRows();
+            const backup = await api.saveFavoritesBackup(rows);
+            const summary = this.backupSummary(backup.favorites, backup.savedAt);
+            this.log.emit('favorites-backup', {
+                action: 'save',
+                localCount: rows.length,
+                remoteCount: backup.favorites.length,
+                providers: summary.providerCounts.map(item => `${item.providerId}:${item.count}`).join(','),
+            });
+            this.toast.show(`Backed up ${backup.favorites.length} favorites`);
+            return summary;
+        } catch (e) {
+            this.log.emit('favorites-backup', { action: 'failed', error: String((e as Error)?.message ?? e) });
+            this.toast.show('Favorites backup failed');
+            throw e;
+        }
+    }
+
+    async restoreFromServer(): Promise<FavoritesBackupSummary> {
+        try {
+            const backup = await api.fetchFavoritesBackup();
+            if (!backup) throw new Error('No favorites backup found');
+            await db.replaceFavoriteBackupRows(backup.favorites);
+            this.loaded = false;
+            this.loadedProviderId = null;
+            await this.loadFavoriteRows(getProviderId());
+            this.log.emit('favorites-backup', {
+                action: 'restore',
+                remoteCount: backup.favorites.length,
+                providers: this.backupSummary(backup.favorites).providerCounts.map(item => `${item.providerId}:${item.count}`).join(','),
+            });
+            this.toast.show(`Restored ${backup.favorites.length} favorites`);
+            return this.backupSummary(backup.favorites, backup.savedAt);
+        } catch (e) {
+            this.log.emit('favorites-backup', { action: 'failed', error: String((e as Error)?.message ?? e) });
+            this.toast.show('Favorites restore failed');
+            throw e;
+        }
     }
 
     async prepareRoot() {
@@ -250,6 +315,20 @@ export class FavoritesState {
 
     private favoriteSnapshotSignature(items: Manga[]): string {
         return items.map(item => `${item.id}:${item.latestChapter ?? ''}:${item.cover ?? ''}:${item.title}`).join('|');
+    }
+
+    private backupSummary(rows: db.FavoriteBackupRow[], savedAt?: string): FavoritesBackupSummary {
+        const counts = new Map<string, number>();
+        for (const row of rows) {
+            counts.set(row.providerId, (counts.get(row.providerId) ?? 0) + 1);
+        }
+        return {
+            savedAt,
+            rows,
+            providerCounts: [...counts.entries()]
+                .map(([providerId, count]) => ({ providerId, count }))
+                .sort((a, b) => a.providerId.localeCompare(b.providerId)),
+        };
     }
 
     private delay(ms: number): Promise<void> {

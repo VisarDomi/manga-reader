@@ -10,6 +10,7 @@ import { createCommentsRouter } from './routes/comments.js';
 import { createCacheRouter } from './routes/cache.js';
 import createSearchRouter from './routes/search.js';
 import logRouter from './routes/log.js';
+import favoritesBackupRouter from './routes/favoritesBackup.js';
 import providerFiltersRouter from './routes/providerFilters.js';
 import { createSocketProxy } from './routes/socketProxy.js';
 import workerStatusSnapshotRouter from './routes/workerStatusSnapshot.js';
@@ -49,9 +50,11 @@ export function createApp(
 
     if (!coordinator && options.apiSocketPath) {
         app.use('/api/log', express.json());
+        app.use('/api/favorites-backup', express.json());
         app.use('/api', healthRouter);
         app.use('/api', certRouter);
         app.use('/api', logRouter);
+        app.use('/api', favoritesBackupRouter);
         app.use('/api', workerStatusSnapshotRouter());
         app.use('/api', createSocketProxy(options.apiSocketPath));
     } else {
@@ -82,6 +85,7 @@ export function createApp(
         app.use('/api', createCommentsRouter(coordinator));
         app.use('/api', providerFiltersRouter(coordinator));
         app.use('/api', logRouter);
+        app.use('/api', favoritesBackupRouter);
     }
 
     app.get(/^\/(?!api).*/, (_req: Request, res: Response) => {

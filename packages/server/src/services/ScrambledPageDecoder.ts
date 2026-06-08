@@ -333,6 +333,12 @@ export class ScrambledPageDecoder {
     return preempted;
   }
 
+  private isCurrentJobPreemptedError(error: unknown): boolean {
+    const job = this.runningJob;
+    if (!job) return false;
+    return this.isPreemptedDecodeError(job, error);
+  }
+
   private async ensureCdpSession(page: Page): Promise<CDPSession> {
     if (this.cdpSession && !page.isClosed()) return this.cdpSession;
     this.cdpSession = await page.context().newCDPSession(page);
@@ -406,12 +412,18 @@ export class ScrambledPageDecoder {
             throw error;
           }
         }, { imageUrl: sourceUrl, width: target.width, height: target.height, canvasId });
+        if (this.runningJob && this.preemptedJobIds.has(this.runningJob.id)) {
+          throw new DecodePreempted();
+        }
         if (index > 0) {
           console.log(`[decoder] source-recovered policy=${request.policy ?? 'preload'} manga=${request.mangaId} chapter=${request.chapterId} page=${request.pageIndex + 1} host=${this.hostFromUrl(sourceUrl)} index=${index + 1}/${sourceUrls.length} ms=${Date.now() - sourceStart}`);
         }
         lastError = null;
         break;
       } catch (error) {
+        if (error instanceof DecodePreempted || this.isCurrentJobPreemptedError(error)) {
+          throw new DecodePreempted();
+        }
         lastError = error;
         console.log(`[decoder] source-failed policy=${request.policy ?? 'preload'} manga=${request.mangaId} chapter=${request.chapterId} page=${request.pageIndex + 1} host=${this.hostFromUrl(sourceUrl)} index=${index + 1}/${sourceUrls.length} ms=${Date.now() - sourceStart} error=${this.errorMessage(error)}`);
       }

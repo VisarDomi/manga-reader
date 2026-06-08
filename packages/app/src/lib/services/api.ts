@@ -1,6 +1,7 @@
 import { fetchJson, ApiError, ApiErrKind } from './fetchJson.js';
 import { getProvider, getProviderId } from './provider.js';
 import type { Manga, ChapterMeta, ChapterPage, MangaComment, MangaCommentStats } from '../types.js';
+import type { FavoriteBackupRow } from './db.js';
 import type { SearchFilters, ChapterListPage } from '@manga-reader/provider-types';
 import type { LogEmit } from './LogService.js';
 
@@ -119,6 +120,12 @@ export interface MangaCardSnapshot {
     chapters: ChapterMeta[] | null;
     mangaReady: boolean;
     chaptersReady: boolean;
+}
+
+export interface FavoritesBackupPayload {
+    version: 1;
+    savedAt: string;
+    favorites: FavoriteBackupRow[];
 }
 
 interface RawMangaCardSnapshot {
@@ -253,6 +260,21 @@ export async function fetchMangaCardSnapshots(
         dtMs: Math.round(performance.now() - startedAt),
     });
     return snapshots;
+}
+
+export async function saveFavoritesBackup(favorites: FavoriteBackupRow[]): Promise<FavoritesBackupPayload> {
+    return fetchJson<FavoritesBackupPayload>('/api/favorites-backup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ version: 1, favorites }),
+    });
+}
+
+export async function fetchFavoritesBackup(): Promise<FavoritesBackupPayload | null> {
+    const res = await fetch('/api/favorites-backup', { cache: 'no-store' });
+    if (res.status === 404) return null;
+    if (!res.ok) throw new ApiError(ApiErrKind.HTTP, res.status);
+    return await res.json() as FavoritesBackupPayload;
 }
 
 export async function reconcileMangaCache(

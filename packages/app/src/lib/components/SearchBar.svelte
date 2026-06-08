@@ -2,6 +2,7 @@
     import { appState } from '$lib/state/index.svelte.js';
     import { View } from '$lib/logic.js';
     import FilterPanel from './FilterPanel.svelte';
+    import { version } from '$app/environment';
 
     interface Props {
         favoritesMode?: boolean;
@@ -58,6 +59,8 @@
             >Filtered ({gf.count})</button>
         {/if}
     </div>
+
+    <div class="debug-version">build {version}</div>
 
     {#if showGroupFilter}
         <div class="group-filter-panel">
@@ -118,6 +121,13 @@
     display: flex;
     flex-direction: column;
     gap: 10px;
+}
+
+.debug-version {
+    color: #777;
+    font-size: 11px;
+    line-height: 1;
+    text-align: right;
 }
 
 .input-container {

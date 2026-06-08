@@ -127,6 +127,7 @@ export type LogEvent =
     | { event: 'unhandled-rejection'; message: string; stack: string }
     | { event: 'db-error'; op: string; error: string }
     | { event: 'favorites-toggle-failed'; message: string }
+    | { event: 'favorites-backup'; action: 'preview' | 'save' | 'restore' | 'failed'; localCount?: number; remoteCount?: number; providers?: string; error?: string }
     | { event: 'favorites-activation'; phase: 'start' | 'done' | 'failed'; loaded: boolean; items: number; dtMs: number; error?: string }
     | { event: 'favorites-rows-loaded'; rows: number; snapshots: number; items: number; dtMs: number }
     | { event: 'manga-list-lifecycle'; source: 'search' | 'favorites' | 'recommendations'; phase: 'mount' | 'update' | 'unmount'; total: number; trackVisible: boolean; updateCount: number; dtMs: number }

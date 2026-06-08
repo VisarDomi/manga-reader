@@ -224,6 +224,7 @@ export const mangadotnetServerProvider: ServerMangaProvider = {
   domain: DOMAIN,
   baseUrl: BASE_URL,
   runtimeImageSource: 'mangadotnet-api',
+  chapterImageSchemaVersion: 2,
   imageDelivery: 'direct',
   byteFetchMode: 'runtime',
   searchPageSize: SEARCH_PAGE_SIZE,

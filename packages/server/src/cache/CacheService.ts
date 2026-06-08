@@ -308,7 +308,7 @@ function resultRecord(data: unknown): Record<string, unknown> {
   return result && typeof result === 'object' ? result as Record<string, unknown> : {};
 }
 
-function chapterImageReadiness(data: unknown): { ready: boolean; pages: number; targetCount: number | null; source: string; schemaVersion: number | null; scrambleKnown: number } {
+function chapterImageReadiness(data: unknown, requiredSchemaVersion: number): { ready: boolean; pages: number; targetCount: number | null; source: string; schemaVersion: number | null; scrambleKnown: number } {
   const pages = resultPages(data);
   const result = data && typeof data === 'object'
     ? (data as Record<string, unknown>).result
@@ -324,7 +324,7 @@ function chapterImageReadiness(data: unknown): { ready: boolean; pages: number; 
   const populated = pages.filter(page => pageImageUrl(page)).length;
   const scrambleKnown = pages.filter(page => page && typeof page === 'object' && typeof (page as Record<string, unknown>).scramble === 'boolean').length;
   const ready = (source === 'runtime-http' || source.endsWith('-api'))
-    && schemaVersion === 2
+    && schemaVersion === requiredSchemaVersion
     && targetCount !== null
     && targetCount > 0
     && pages.length === targetCount
@@ -549,9 +549,9 @@ export class CacheService {
   private runStartupMaintenance(): void {
     this.startupMaintenanceTimer = null;
     if (this.suspended) return;
-    const staleChapterImages = this.db.deleteStaleChapterImageSchemaRows();
+    const staleChapterImages = this.db.deleteStaleChapterImageSchemaRows(this.provider.chapterImageSchemaVersion);
     if (staleChapterImages > 0) {
-      console.log(`[cache] chapter-image-schema-invalidated provider=${this.provider.id} rows=${staleChapterImages} requiredSchema=2 reason=scramble-metadata`);
+      console.log(`[cache] chapter-image-schema-invalidated provider=${this.provider.id} rows=${staleChapterImages} requiredSchema=${this.provider.chapterImageSchemaVersion} reason=provider-page-url-contract`);
     }
     if (this.provider.id === 'mangadotnet') {
       const purged = this.db.deleteNonNumericResourceJobsByReason('favorite-card-cache-miss', ['cache-manga-detail', 'cache-chapters']);
@@ -766,7 +766,7 @@ export class CacheService {
   getChapterImages(mangaId: string, chapterId: string, context: { chapterNumber?: number; chapterUrl?: string } = {}): unknown | null {
     const cached = this.db.getChapterImages(mangaId, chapterId);
     if (!cached) return null;
-    const readiness = chapterImageReadiness(cached.data);
+    const readiness = chapterImageReadiness(cached.data, this.provider.chapterImageSchemaVersion);
     if (cached.status !== 'ready' || !readiness.ready) {
       console.log(`[cache] chapter-images not-ready provider=${this.provider.id} manga=${mangaId} chapter=${chapterId} status=${cached.status} pages=${readiness.pages} targetCount=${readiness.targetCount ?? 'unknown'} source=${readiness.source} schema=${readiness.schemaVersion ?? 'unknown'} scrambleKnown=${readiness.scrambleKnown}`);
       return null;
@@ -833,7 +833,7 @@ export class CacheService {
       res.status(202).json({ status: 'warming', mangaId, chapterId, pageIndex });
       return;
     }
-    const readiness = chapterImageReadiness(cached.data);
+    const readiness = chapterImageReadiness(cached.data, this.provider.chapterImageSchemaVersion);
     if (cached.status !== 'ready' || !readiness.ready) {
       res.status(202).json({ status: 'warming', mangaId, chapterId, pageIndex });
       return;
@@ -904,7 +904,7 @@ export class CacheService {
       this.warmChapterImages(mangaId, chapterId, options.chapterNumber, options.chapterUrl, 'decode-cache-miss', 'interactive');
       return null;
     }
-    const readiness = chapterImageReadiness(cached.data);
+    const readiness = chapterImageReadiness(cached.data, this.provider.chapterImageSchemaVersion);
     if (cached.status !== 'ready' || !readiness.ready) return null;
 
     const pages = resultPages(cached.data)
@@ -2022,7 +2022,7 @@ export class CacheService {
       reason: job.reason,
     });
     const pages = resultPages(result.data);
-    const readiness = chapterImageReadiness(result.data);
+    const readiness = chapterImageReadiness(result.data, this.provider.chapterImageSchemaVersion);
     const scrambled = pages.filter(page => page && typeof page === 'object' && (page as Record<string, unknown>).scramble === true).length;
     if (scrambled > 0) this.browserSession.warmScrambledPageDecoder(mangaId);
     for (const page of pages) {

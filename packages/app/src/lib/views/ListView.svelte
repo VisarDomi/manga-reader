@@ -30,7 +30,7 @@
 
     {#if hasMore}
         <div class="sentinel" use:sentinel={{
-            getRoot: () => document.getElementById('view-list'),
+            getRoot: () => document.documentElement.classList.contains('document-scroll-root') ? null : document.getElementById('view-list'),
             rootMargin: SENTINEL_ROOT_MARGIN,
             onIntersect: () => { appState.searchState.loadNextPage(); },
             disabled: isLoading,

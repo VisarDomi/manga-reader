@@ -15,7 +15,6 @@ export function sentinel(node: HTMLElement, params: SentinelParams) {
         observer?.disconnect();
         firedSinceCreate = false;
         const root = params.getRoot();
-        if (!root) return;
         observer = new IntersectionObserver(
             (entries) => {
                 for (const entry of entries) {
@@ -34,9 +33,19 @@ export function sentinel(node: HTMLElement, params: SentinelParams) {
         requestAnimationFrame(() => {
             if (!observer || params.disabled || firedSinceCreate) return;
             const root = params.getRoot();
-            if (!root || !node.isConnected) return;
+            if (!node.isConnected) return;
 
-            const rootRect = root.getBoundingClientRect();
+            const rootRect = root?.getBoundingClientRect() ?? {
+                top: 0,
+                left: 0,
+                right: window.innerWidth,
+                bottom: window.innerHeight,
+                width: window.innerWidth,
+                height: window.innerHeight,
+                x: 0,
+                y: 0,
+                toJSON: () => ({}),
+            };
             const nodeRect = node.getBoundingClientRect();
             const parts = params.rootMargin.trim().split(/\s+/);
             const bottomMarginStr = parts.length >= 3 ? parts[2] : parts[0];

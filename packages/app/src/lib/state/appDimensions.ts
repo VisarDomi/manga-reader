@@ -1,14 +1,22 @@
-const isClient = typeof screen !== 'undefined';
-export const appDimensions = { width: isClient ? screen.width : 390, height: isClient ? screen.height : 844 };
+const isClient = typeof window !== 'undefined';
+export const appDimensions = { width: isClient ? window.innerWidth : 390, height: isClient ? window.innerHeight : 844 };
+
+function currentViewport() {
+	const viewport = window.visualViewport;
+	return {
+		width: Math.round(viewport?.width ?? window.innerWidth),
+		height: Math.round(viewport?.height ?? window.innerHeight)
+	};
+}
 
 function update() {
-	appDimensions.width = screen.width;
-	appDimensions.height = screen.height;
-	document.documentElement.style.setProperty('--app-width', screen.width + 'px');
-	document.documentElement.style.setProperty('--app-height', screen.height + 'px');
+	const viewport = currentViewport();
+	appDimensions.width = viewport.width;
+	appDimensions.height = viewport.height;
 }
 
 export function initAppDimensions() {
 	update();
 	window.addEventListener('resize', update);
+	window.visualViewport?.addEventListener('resize', update);
 }

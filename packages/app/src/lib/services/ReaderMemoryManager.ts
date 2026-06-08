@@ -307,6 +307,7 @@ export class ReaderMemoryManager {
             const candidateUrl = candidateList[candidateIndex];
             const startedAt = performance.now();
             const host = this.hostFromCandidate(candidateUrl);
+            const localDecoded = this.isLocalDecodedCandidate(candidateUrl);
             const failCandidate = (error: string) => {
                 if (signal.aborted) return;
                 const totalMs = Math.round(performance.now() - startedAt);
@@ -345,9 +346,11 @@ export class ReaderMemoryManager {
             img.onerror = () => {
                 failCandidate('Image failed');
             };
-            candidateTimeout = setTimeout(() => {
-                failCandidate('Image candidate timed out');
-            }, IMAGE_CANDIDATE_TIMEOUT_MS[policy]);
+            if (!localDecoded) {
+                candidateTimeout = setTimeout(() => {
+                    failCandidate('Image candidate timed out');
+                }, IMAGE_CANDIDATE_TIMEOUT_MS[policy]);
+            }
             img.src = candidateUrl;
         };
         loadController.signal.addEventListener('abort', () => {
@@ -372,7 +375,7 @@ export class ReaderMemoryManager {
         policy: ImageLoadPolicy,
         error?: string,
     ): void {
-        const localDecoded = candidateUrl.startsWith('/api/cache/');
+        const localDecoded = this.isLocalDecodedCandidate(candidateUrl);
         const host = this.hostFromCandidate(candidateUrl);
         this.emit('reader-image-candidate', { key, index, total, ok, status, totalMs, host, sessionId: IMAGE_STORE_SESSION_ID, policy, error });
         if (localDecoded) return;
@@ -391,11 +394,20 @@ export class ReaderMemoryManager {
     }
 
     private hostFromCandidate(candidateUrl: string): string {
-        if (candidateUrl.startsWith('/api/cache/')) return 'local-decoder';
+        if (this.isLocalDecodedCandidate(candidateUrl)) return 'local-decoder';
         try {
             return new URL(candidateUrl, globalThis.location?.origin).hostname;
         } catch {
             return 'invalid';
+        }
+    }
+
+    private isLocalDecodedCandidate(candidateUrl: string): boolean {
+        try {
+            const url = new URL(candidateUrl, globalThis.location?.origin ?? 'https://local.invalid');
+            return url.pathname.startsWith('/api/cache/') && url.pathname.endsWith('/decoded');
+        } catch {
+            return candidateUrl.startsWith('/api/cache/') && candidateUrl.includes('/decoded');
         }
     }
 

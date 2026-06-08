@@ -32,6 +32,7 @@ export interface ServerMangaProvider {
   readonly domain: string;
   readonly baseUrl: string;
   readonly runtimeImageSource: string;
+  readonly chapterImageSchemaVersion: number;
   readonly imageDelivery: 'store-candidates' | 'direct';
   readonly byteFetchMode?: 'proxy' | 'runtime';
   readonly searchPageSize: number;
