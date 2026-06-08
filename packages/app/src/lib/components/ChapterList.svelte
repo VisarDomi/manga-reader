@@ -4,6 +4,7 @@
     import type { ChapterMeta } from '$lib/types.js';
     import type { MangaEntry } from '$lib/state/manga.svelte.js';
     import type { ProgressData } from '$lib/state/progress.svelte.js';
+    import { documentScrollRoot, elementScrollRoot, pageOffsetTop } from '$lib/services/ScrollRoot.js';
     import FilterChip from './FilterChip.svelte';
 
     let { entry }: { entry: MangaEntry } = $props();
@@ -32,10 +33,14 @@
             return;
         }
         const row = el as HTMLElement;
+        const activeEntry = appState.manga.entries.at(-1)?.key === entry.key;
+        const root = activeEntry && document.documentElement.classList.contains('document-scroll-root')
+            ? documentScrollRoot()
+            : elementScrollRoot(container);
         const desiredScrollTop = target.ratio == null
-            ? row.offsetTop + row.offsetHeight / 2 - container.clientHeight / 2
-            : row.offsetTop - target.ratio * container.clientHeight;
-        container.scrollTop = Math.max(0, desiredScrollTop);
+            ? pageOffsetTop(row, root) + row.offsetHeight / 2 - root.clientHeight() / 2
+            : pageOffsetTop(row, root) - target.ratio * root.clientHeight();
+        root.setScrollTop(Math.max(0, desiredScrollTop));
         if (target.source === 'history') {
             appState.log.emit('manga-history-scroll', {
                 action: 'applied',

@@ -10,6 +10,7 @@
     import ReaderView from '$lib/views/ReaderView.svelte';
     import ChapterCommentsView from '$lib/views/ChapterCommentsView.svelte';
     import Toast from '$lib/components/Toast.svelte';
+    import { swipeBack } from '$lib/actions/swipeBack.js';
 
     let readerRoot = $state<HTMLElement | null>(null);
     setContext('readerRoot', () => readerRoot);
@@ -46,7 +47,7 @@
         && !swipeAnimating
         && !isForwardSwiping
         && !forwardSwipeAnimating
-        && (viewMode === View.LIST || viewMode === View.FAVORITES || viewMode === View.PROVIDERS)
+        && (viewMode === View.LIST || viewMode === View.FAVORITES || viewMode === View.PROVIDERS || viewMode === View.MANGA || viewMode === View.CHAPTER_COMMENTS)
     );
 
     $effect(() => {
@@ -107,6 +108,7 @@
 <div
     id="view-manga"
     class="view-layer"
+    class:document-scroll={viewMode === View.MANGA && useDocumentScroll}
     class:view-hidden={viewMode !== View.MANGA && backView !== View.MANGA}
     class:swipe-back={backView === View.MANGA}
     class:swipe-animating={backView === View.MANGA && swipeAnimating}
@@ -136,10 +138,12 @@
 <div
     id="view-chapter-comments"
     class="view-layer"
+    class:document-scroll={viewMode === View.CHAPTER_COMMENTS && useDocumentScroll}
     class:view-hidden={!showingChapterComments}
     class:swipe-active={inChapterComments && isSwiping || isForwardSwiping || forwardSwipeAnimating}
     class:swipe-animating={inChapterComments && swipeAnimating || forwardSwipeAnimating}
     style="{isForwardSwiping || forwardSwipeAnimating ? 'transform:translateX(var(--forward-swipe-progress, 100%))' : inChapterComments && isSwiping ? 'transform:translateX(var(--swipe-progress, 0%))' : ''}"
+    use:swipeBack={{ onClose: () => appState.reader.closeChapterComments(), ui: appState.ui }}
 >
     {#if mountChapterCommentsSurface}
         <ChapterCommentsView />

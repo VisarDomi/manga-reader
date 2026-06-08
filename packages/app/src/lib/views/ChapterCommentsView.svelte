@@ -1,6 +1,5 @@
 <script lang="ts">
     import { appState } from '$lib/state/index.svelte.js';
-    import { swipeBack } from '$lib/actions/swipeBack.js';
     import CommentsSection from '$lib/components/CommentsSection.svelte';
 
     const reader = appState.reader;
@@ -10,12 +9,9 @@
     const isLoading = $derived(reader.isChapterCommentsLoading);
     const error = $derived(reader.chapterCommentsError);
 
-    function handleClose() {
-        reader.closeChapterComments();
-    }
 </script>
 
-<div class="chapter-comments-view" use:swipeBack={{ onClose: handleClose, ui: appState.ui }}>
+<div class="chapter-comments-view">
     <header class="chapter-comments-header">
         <p>{context?.mangaTitle ?? 'Manga'}</p>
         <h1>Chapter {context?.chapterNumber ?? ''} Comments</h1>
