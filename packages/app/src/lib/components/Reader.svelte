@@ -697,6 +697,7 @@
         if (!currentRoot) return;
         lastPageTrackAt = now;
         pageTracker.handleScroll(currentRoot, memory.pageDataMap, [appState.reader.layoutChapterId, appState.reader.currentChapterId], (visible) => {
+            visible.rootScrollTop = readerScroll.getScrollTop();
             appState.reader.trackVisiblePage(visible.chapterId, visible.pageIndex, visible.scrollOffset, visible.rootScrollTop, 'scroll', visible);
         });
     }
@@ -1063,7 +1064,10 @@
         if (root) logVisualSnapshot(root, 'close', true);
         const visible = root ? pageTracker.findVisible(root, memory.pageDataMap, [appState.reader.layoutChapterId, appState.reader.currentChapterId]) : null;
         appState.reader.logCloseSnapshot(visible);
-        if (visible) appState.reader.trackVisiblePage(visible.chapterId, visible.pageIndex, visible.scrollOffset, visible.rootScrollTop, 'close', visible);
+        if (visible) {
+            visible.rootScrollTop = readerScroll.getScrollTop();
+            appState.reader.trackVisiblePage(visible.chapterId, visible.pageIndex, visible.scrollOffset, visible.rootScrollTop, 'close', visible);
+        }
         onClose();
     }
 

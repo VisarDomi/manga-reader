@@ -9,9 +9,10 @@ interface ProgressEntry {
     pageCount?: number;
     scrollOffset?: number;
     rootScrollTop?: number;
+    physicalWindowStart?: number;
 }
 
-export type ProgressData = { chapterId: string; chapterNumber: number; pageIndex?: number; pageCount?: number; scrollOffset?: number; rootScrollTop?: number };
+export type ProgressData = { chapterId: string; chapterNumber: number; pageIndex?: number; pageCount?: number; scrollOffset?: number; rootScrollTop?: number; physicalWindowStart?: number };
 
 type DbLogger = (op: string, error: string) => void;
 let logger: DbLogger = () => {};
@@ -57,6 +58,7 @@ export async function getProgress(mangaSlug: string): Promise<ProgressData | nul
             if (entry.pageCount != null) data.pageCount = entry.pageCount;
             if (entry.scrollOffset != null) data.scrollOffset = entry.scrollOffset;
             if (entry.rootScrollTop != null) data.rootScrollTop = entry.rootScrollTop;
+            if (entry.physicalWindowStart != null) data.physicalWindowStart = entry.physicalWindowStart;
             resolve(data);
         };
         req.onerror = () => { logger('getProgress', String(req.error)); resolve(null); };
@@ -86,6 +88,7 @@ export async function getAllProgress(): Promise<Record<string, ProgressData>> {
                 if (entry.pageCount != null) data.pageCount = entry.pageCount;
                 if (entry.scrollOffset != null) data.scrollOffset = entry.scrollOffset;
                 if (entry.rootScrollTop != null) data.rootScrollTop = entry.rootScrollTop;
+                if (entry.physicalWindowStart != null) data.physicalWindowStart = entry.physicalWindowStart;
                 map[entry.mangaSlug] = data;
             }
             resolve(map);

@@ -261,13 +261,8 @@ export class ReaderState {
         const saved = this.progress.get(manga.id);
         const hasRestore = !!(saved && saved.chapterId === chapter.id && (saved.pageIndex != null || saved.rootScrollTop != null));
         if (hasRestore) {
-            if (saved!.rootScrollTop != null) {
-                this.pendingRootScroll = saved!.rootScrollTop;
-                this.pendingPageRestore = null;
-            } else {
-                this.pendingPageRestore = { pageIndex: saved!.pageIndex!, scrollOffset: saved!.scrollOffset ?? 0 };
-                this.pendingRootScroll = null;
-            }
+            this.pendingPageRestore = { pageIndex: saved!.pageIndex ?? 0, scrollOffset: 0 };
+            this.pendingRootScroll = null;
         } else {
             this.pendingPageRestore = null;
             this.pendingRootScroll = null;
@@ -343,10 +338,10 @@ export class ReaderState {
         this.chapterList = [...filtered].sort((a, b) => a.number - b.number);
 
         if (saved.rootScrollTop != null) {
-            this.pendingRootScroll = saved.rootScrollTop;
-            this.pendingPageRestore = null;
+            this.pendingPageRestore = { pageIndex: saved.pageIndex ?? 0, scrollOffset: 0 };
+            this.pendingRootScroll = null;
         } else if (saved.pageIndex != null) {
-            this.pendingPageRestore = { pageIndex: saved.pageIndex, scrollOffset: saved.scrollOffset ?? 0 };
+            this.pendingPageRestore = { pageIndex: saved.pageIndex, scrollOffset: 0 };
             this.pendingRootScroll = null;
         } else {
             this.pendingPageRestore = null;
