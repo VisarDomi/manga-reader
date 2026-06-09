@@ -43,7 +43,7 @@
     const mountReader = $derived(appState.ui.isMounted(View.READER, backView));
     const mountChapterComments = $derived(appState.ui.isMounted(View.CHAPTER_COMMENTS, backView));
     const mountChapterCommentsSurface = $derived(inReader || showingChapterComments || mountChapterComments);
-    const documentScrollViews = new Set<ViewMode>([View.LIST, View.FAVORITES, View.PROVIDERS, View.MANGA, View.CHAPTER_COMMENTS]);
+    const documentScrollViews = new Set<ViewMode>([View.LIST, View.FAVORITES, View.PROVIDERS, View.MANGA, View.CHAPTER_COMMENTS, View.READER]);
     const documentScrollPositions = new Map<ViewMode, number>();
     let activeDocumentScrollView: ViewMode | null = null;
     let restoreDocumentScrollRaf: number | null = null;
@@ -52,7 +52,7 @@
         && !swipeAnimating
         && !isForwardSwiping
         && !forwardSwipeAnimating
-        && (viewMode === View.LIST || viewMode === View.FAVORITES || viewMode === View.PROVIDERS || viewMode === View.MANGA || viewMode === View.CHAPTER_COMMENTS)
+        && (viewMode === View.LIST || viewMode === View.FAVORITES || viewMode === View.PROVIDERS || viewMode === View.MANGA || viewMode === View.CHAPTER_COMMENTS || viewMode === View.READER)
     );
 
     function documentScrollTop(): number {
@@ -73,6 +73,8 @@
                 return document.getElementById('view-manga');
             case View.CHAPTER_COMMENTS:
                 return document.getElementById('view-chapter-comments');
+            case View.READER:
+                return document.getElementById('view-reader');
             default:
                 return null;
         }
@@ -82,8 +84,6 @@
         if (!mode || !documentScrollViews.has(mode)) return;
         const scrollTop = documentScrollTop();
         documentScrollPositions.set(mode, scrollTop);
-        const el = viewElement(mode);
-        if (el) el.scrollTop = scrollTop;
     }
 
     function restoreDocumentScroll(mode: ViewMode | null) {
@@ -111,7 +111,17 @@
         const nextDocumentScrollView = useDocumentScroll ? viewMode : null;
         document.documentElement.classList.toggle('document-scroll-root', useDocumentScroll);
         document.body.classList.toggle('document-scroll-root', useDocumentScroll);
-        if (nextDocumentScrollView) restoreDocumentScroll(nextDocumentScrollView);
+        if (nextDocumentScrollView) {
+            restoreDocumentScroll(nextDocumentScrollView);
+        } else {
+            for (const mode of documentScrollViews) {
+                const el = viewElement(mode);
+                const pos = documentScrollPositions.get(mode);
+                if (el && pos != null && !el.classList.contains('document-scroll')) {
+                    el.scrollTop = pos;
+                }
+            }
+        }
     });
 
     onDestroy(() => {
@@ -183,6 +193,7 @@
     bind:this={readerRoot}
     id="view-reader"
     class="view-layer"
+    class:document-scroll={viewMode === View.READER && useDocumentScroll}
     class:view-hidden={!inReader && backView !== View.READER}
     class:swipe-back={backView === View.READER}
     class:swipe-active={inReader && isSwiping}

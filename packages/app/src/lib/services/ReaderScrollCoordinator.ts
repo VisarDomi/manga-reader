@@ -1,3 +1,8 @@
+export type ScrollAccessor = {
+    getScrollTop(): number;
+    setScrollTop(value: number): void;
+};
+
 const USER_SCROLL_TOLERANCE_PX = 2;
 
 type PrependTransaction = {
@@ -36,14 +41,14 @@ export class ReaderScrollCoordinator {
     private prepend: PrependTransaction | null = null;
     private initialPosition: InitialPositionTransaction | null = null;
 
-    beginInitialPosition(root: HTMLElement): void {
+    beginInitialPosition(scrollTop: number): void {
         this.initialPosition = {
-            scrollTop: root.scrollTop,
+            scrollTop,
             invalidated: false,
         };
     }
 
-    beginPrepend(root: HTMLElement, anchor: HTMLElement | null): void {
+    beginPrepend(scrollTop: number, anchor: HTMLElement | null): void {
         if (!anchor) {
             this.prepend = null;
             return;
@@ -51,88 +56,90 @@ export class ReaderScrollCoordinator {
         this.prepend = {
             anchor,
             anchorTop: anchor.getBoundingClientRect().top,
-            scrollTop: root.scrollTop,
+            scrollTop,
             invalidated: false,
         };
     }
 
-    noteUserScroll(root: HTMLElement): void {
+    noteUserScroll(scrollTop: number): void {
         if (this.initialPosition) {
-            const delta = Math.abs(root.scrollTop - this.initialPosition.scrollTop);
+            const delta = Math.abs(scrollTop - this.initialPosition.scrollTop);
             if (delta > USER_SCROLL_TOLERANCE_PX) {
                 this.initialPosition.invalidated = true;
             }
         }
         if (!this.prepend) return;
-        const delta = Math.abs(root.scrollTop - this.prepend.scrollTop);
+        const delta = Math.abs(scrollTop - this.prepend.scrollTop);
         if (delta > USER_SCROLL_TOLERANCE_PX) {
             this.prepend.invalidated = true;
         }
     }
 
     commitInitialPosition(
-        root: HTMLElement,
+        scroll: ScrollAccessor,
         target: InitialPositionTarget,
         pages: NodeListOf<Element>,
         onWrite?: ProgrammaticScrollLogger,
     ): InitialPositionCommitResult {
-        const tx = this.initialPosition ?? { scrollTop: root.scrollTop, invalidated: false };
+        const tx = this.initialPosition ?? { scrollTop: scroll.getScrollTop(), invalidated: false };
         this.initialPosition = null;
 
-        const scrollDelta = Math.abs(root.scrollTop - tx.scrollTop);
+        const scrollTop = scroll.getScrollTop();
+        const scrollDelta = Math.abs(scrollTop - tx.scrollTop);
         const targetKind = target ? 'page' : 'top';
         if (tx.invalidated || scrollDelta > USER_SCROLL_TOLERANCE_PX) {
             return { action: 'cancelled', reason: 'user-scroll', delta: scrollDelta, target: targetKind };
         }
 
-        const from = root.scrollTop;
+        const from = scrollTop;
         if (targetKind === 'page' && target) {
             const page = pages[target.pageIndex];
             if (!page) {
-                const resetFrom = root.scrollTop;
-                root.scrollTop = 0;
-                onWrite?.({ source: 'initial-fallback', from: resetFrom, to: root.scrollTop });
-                return { action: 'fallback', reason: 'missing-page', pageIndex: target.pageIndex, from, to: root.scrollTop };
+                const resetFrom = scroll.getScrollTop();
+                scroll.setScrollTop(0);
+                onWrite?.({ source: 'initial-fallback', from: resetFrom, to: scroll.getScrollTop() });
+                return { action: 'fallback', reason: 'missing-page', pageIndex: target.pageIndex, from, to: scroll.getScrollTop() };
             }
 
-            const scrollIntoViewFrom = root.scrollTop;
+            const scrollIntoViewFrom = scroll.getScrollTop();
             page.scrollIntoView({ block: 'start' });
-            onWrite?.({ source: 'initial-restore-into-view', from: scrollIntoViewFrom, to: root.scrollTop });
-            const offsetFrom = root.scrollTop;
-            root.scrollTop += target.scrollOffset;
-            onWrite?.({ source: 'initial-restore-offset', from: offsetFrom, to: root.scrollTop });
+            onWrite?.({ source: 'initial-restore-into-view', from: scrollIntoViewFrom, to: scroll.getScrollTop() });
+            const offsetFrom = scroll.getScrollTop();
+            scroll.setScrollTop(offsetFrom + target.scrollOffset);
+            onWrite?.({ source: 'initial-restore-offset', from: offsetFrom, to: scroll.getScrollTop() });
             return {
                 action: 'restored',
                 target: 'page',
                 pageIndex: target.pageIndex,
                 scrollOffset: target.scrollOffset,
                 from,
-                to: root.scrollTop,
+                to: scroll.getScrollTop(),
             };
         }
 
-        const resetFrom = root.scrollTop;
-        root.scrollTop = 0;
-        onWrite?.({ source: 'initial-reset', from: resetFrom, to: root.scrollTop });
-        return { action: 'reset', target: 'top', from, to: root.scrollTop };
+        const resetFrom = scroll.getScrollTop();
+        scroll.setScrollTop(0);
+        onWrite?.({ source: 'initial-reset', from: resetFrom, to: scroll.getScrollTop() });
+        return { action: 'reset', target: 'top', from, to: scroll.getScrollTop() };
     }
 
-    commitPrepend(root: HTMLElement, onWrite?: ProgrammaticScrollLogger): PrependCommitResult {
+    commitPrepend(scroll: ScrollAccessor, onWrite?: ProgrammaticScrollLogger): PrependCommitResult {
         const tx = this.prepend;
         this.prepend = null;
 
         if (!tx) return { action: 'none', reason: 'no-transaction' };
         if (!tx.anchor.isConnected) return { action: 'none', reason: 'anchor-detached' };
 
-        const userDelta = root.scrollTop - tx.scrollTop;
+        const scrollTop = scroll.getScrollTop();
+        const userDelta = scrollTop - tx.scrollTop;
         const targetTop = tx.anchorTop - userDelta;
         const anchorTop = tx.anchor.getBoundingClientRect().top;
         const diff = anchorTop - targetTop;
         if (Math.abs(diff) <= 1) return { action: 'none', reason: 'no-adjustment' };
 
-        const from = root.scrollTop;
-        root.scrollTop += diff;
-        onWrite?.({ source: 'prepend-adjust', from, to: root.scrollTop });
+        const from = scrollTop;
+        scroll.setScrollTop(scrollTop + diff);
+        onWrite?.({ source: 'prepend-adjust', from, to: scroll.getScrollTop() });
         return { action: 'adjusted', diff, userDelta, anchorTop, targetTop };
     }
 

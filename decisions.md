@@ -2350,3 +2350,40 @@ checkpoint verification. Concept-only skills are not sufficient for this repo.
 
 This split exists so weaker or lower-context agents can load the one relevant
 workflow instead of carrying every manga lesson in base context.
+
+## Reader Document-Scroll Port
+
+The reader was the last surface still using element scroll (`overflow-y: auto` on
+`#view-reader`). All other surfaces (search, favorites, providers, manga detail,
+chapter comments) already use native document scrolling.
+
+**Implementation (2026-06-09):**
+
+- `Reader.svelte` uses a `readerScroll` helper that checks whether
+  `#view-reader` has `class:document-scroll`. When true, scroll read/write
+  delegates to `window.scrollY` / `window.scrollTo()`; when false, it falls back
+  to `root.scrollTop`. Same pattern for `clientHeight`, `clientWidth`,
+  `scrollHeight`, and `viewportRect`.
+- `ReaderScrollCoordinator` was refactored to `ScrollAccessor` interface
+  (`getScrollTop`/`setScrollTop`), removing direct `root.scrollTop` access.
+- Scroll and `scrollend` event listeners move from the root element to `window`
+  when document-scroll is active. Touch/pointer listeners remain on the element
+  for swipe gestures.
+- `handleScroll` is guarded: it only processes scroll events when `viewMode` is
+  `READER` or `CHAPTER_COMMENTS`, preventing background scrolls from driving
+  reader planner work.
+- `+page.svelte`: `View.READER` added to `documentScrollViews` and
+  `useDocumentScroll` derivation. `#view-reader` div gets `class:document-scroll`
+  when reader is foreground and not swiping.
+- `rememberDocumentScroll` no longer sets `el.scrollTop` (a no-op when element
+  has `overflow: visible`). Instead, the `$effect` branch restores element
+  scrollTop from `documentScrollPositions` when `useDocumentScroll` is false, for
+  all document-scroll views. This is the first step toward fixing the
+  peek-back scroll ownership bugs.
+
+**Known deferred bugs:**
+- Reader -> Manga swipe-back: commit-time scroll jump (partially addressed by
+  element scrollTop restore in `$effect`).
+- Manga -> Search swipe-back: peek at top (element scrollTop not restored during
+  peek).
+- General: element scrollTop can't be set while element has `overflow: visible`.
