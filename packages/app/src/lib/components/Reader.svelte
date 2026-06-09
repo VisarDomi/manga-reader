@@ -1,6 +1,7 @@
 <script lang="ts">
     import { tick, getContext } from 'svelte';
     import { appState } from '$lib/state/index.svelte.js';
+    import { View } from '$lib/logic.js';
     import { loadErrorMessage } from '$lib/state/errors.js';
     import { swipeBack } from '$lib/actions/swipeBack.js';
     import { swipeForward } from '$lib/actions/swipeForward.js';
