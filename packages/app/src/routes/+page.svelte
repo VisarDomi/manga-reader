@@ -118,7 +118,16 @@
                 const el = viewElement(mode);
                 const pos = documentScrollPositions.get(mode);
                 if (el && pos != null && !el.classList.contains('document-scroll')) {
-                    el.scrollTop = pos;
+                    if (mode === View.MANGA) {
+                        const layers = el.querySelectorAll<HTMLElement>('.manga-entry-layer:not(.view-hidden)');
+                        for (const layer of layers) {
+                            if (!layer.classList.contains('document-scroll')) {
+                                layer.scrollTop = pos;
+                            }
+                        }
+                    } else {
+                        el.scrollTop = pos;
+                    }
                 }
             }
         }
