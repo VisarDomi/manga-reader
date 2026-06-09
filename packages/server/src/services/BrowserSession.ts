@@ -618,7 +618,10 @@ export class BrowserSession {
     private async ensureRuntimeHttpPage(mangaId: string, lane: RuntimeHttpLane): Promise<Page> {
         if (lane === 'background') this.cancelBackgroundRuntimeIdleClose();
         const existing = this.runtimeHttpPages.get(lane);
-        if (existing && !existing.isClosed() && this.runtimeHttpReady.get(lane) === true) return existing;
+        if (existing && !existing.isClosed() && this.runtimeHttpReady.get(lane) === true) {
+            void this.unfreezePage(existing);
+            return existing;
+        }
         if (!this.runtimeHttpInit.has(lane)) {
             const init = this.createRuntimeHttpPage(mangaId, lane).finally(() => {
                 this.runtimeHttpInit.delete(lane);
@@ -829,6 +832,7 @@ export class BrowserSession {
         const stored = next.finally(() => {
             if (this.runtimeLaneLocks.get(lane) === stored) this.runtimeLaneLocks.delete(lane);
             if (lane === 'background') this.scheduleBackgroundRuntimeIdleClose();
+            void this.freezeLanePage(lane);
         });
         stored.catch(() => undefined);
         this.runtimeLaneLocks.set(lane, stored);
@@ -849,6 +853,25 @@ export class BrowserSession {
         if (!this.backgroundRuntimeIdleTimer) return;
         clearTimeout(this.backgroundRuntimeIdleTimer);
         this.backgroundRuntimeIdleTimer = null;
+    }
+
+    private async freezeLanePage(lane: RuntimeHttpLane): Promise<void> {
+        const page = this.runtimeHttpPages.get(lane);
+        if (!page || page.isClosed()) return;
+        try {
+            const cdp = await this.context!.newCDPSession(page);
+            await cdp.send('Page.setWebLifecycleState', { state: 'frozen' });
+            await cdp.detach();
+        } catch { /* CDP freeze not supported in this browser */ }
+    }
+
+    private async unfreezePage(page: Page): Promise<void> {
+        if (page.isClosed()) return;
+        try {
+            const cdp = await this.context!.newCDPSession(page);
+            await cdp.send('Page.setWebLifecycleState', { state: 'active' });
+            await cdp.detach();
+        } catch { /* CDP unfreeze not supported */ }
     }
 
     private runtimeRequestTimeoutMs(context: BrowserFetchContext = {}): number {

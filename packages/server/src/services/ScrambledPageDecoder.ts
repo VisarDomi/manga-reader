@@ -60,6 +60,7 @@ export class ScrambledPageDecodeSourceExhausted extends Error {
 export class ScrambledPageDecoder {
   private static readonly MAX_MEMORY_CACHE_BYTES = 96 * 1024 * 1024;
   private static readonly MAX_QUEUE_DEPTH = 30;
+  private static readonly DECODER_PAGE_IDLE_MS = 30_000;
 
   private page: Page | null = null;
   private jobs: DecodeJob[] = [];
@@ -76,6 +77,7 @@ export class ScrambledPageDecoder {
   private preemptRunningPreload = false;
   private preemptClosePromise: Promise<void> | null = null;
   private readonly preemptedJobIds = new Set<number>();
+  private idleTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     private readonly context: BrowserContext,
@@ -157,6 +159,12 @@ export class ScrambledPageDecoder {
       return;
     }
     if (this.warmPromise) return;
+    if (this.page && !this.page.isClosed() && this.page.url() === 'about:blank') {
+      console.log(`[decoder] warm-skipped manga=${mangaId} reason=page-idled`);
+      return;
+    }
+    this.clearIdleTimer();
+    this.unfreezePage();
 
     const start = Date.now();
     this.warmPromise = this.warmNow(mangaId)
@@ -169,6 +177,7 @@ export class ScrambledPageDecoder {
       })
       .finally(() => {
         this.warmPromise = null;
+        if (!this.running && this.jobs.length === 0) this.scheduleIdlePage();
       });
   }
 
@@ -181,6 +190,7 @@ export class ScrambledPageDecoder {
   }
 
   async destroy(): Promise<void> {
+    this.clearIdleTimer();
     const page = this.page;
     const cdp = this.cdpSession;
     this.page = null;
@@ -198,7 +208,49 @@ export class ScrambledPageDecoder {
   private pump(): void {
     if (this.running) return;
     this.running = true;
+    this.clearIdleTimer();
+    this.unfreezePage();
     void this.runQueue();
+  }
+
+  private scheduleIdlePage(): void {
+    this.clearIdleTimer();
+    this.idleTimer = setTimeout(() => {
+      this.idleTimer = null;
+      void this.idlePage();
+    }, ScrambledPageDecoder.DECODER_PAGE_IDLE_MS);
+    this.idleTimer.unref?.();
+  }
+
+  private clearIdleTimer(): void {
+    if (this.idleTimer) {
+      clearTimeout(this.idleTimer);
+      this.idleTimer = null;
+    }
+  }
+
+  private unfreezePage(): void {
+    const page = this.page;
+    if (!page || page.isClosed()) return;
+    this.ensureCdpSession(page).then(cdp =>
+      cdp.send('Page.setWebLifecycleState', { state: 'active' })
+    ).catch(() => {});
+  }
+
+  private async idlePage(): Promise<void> {
+    const page = this.page;
+    if (!page || page.isClosed()) return;
+    if (this.jobs.length > 0 || this.running) return;
+    console.log(`[decoder] idle-page-freeze reason=queue-empty`);
+    try {
+      const cdp = await this.context.newCDPSession(page);
+      await cdp.send('Page.setWebLifecycleState', { state: 'frozen' });
+      await cdp.detach();
+    } catch {
+      // Fallback: navigate away
+      await page.goto('about:blank', { waitUntil: 'domcontentloaded' }).catch(() => {});
+      this.moduleReady = false;
+    }
   }
 
   private async runQueue(): Promise<void> {
@@ -238,7 +290,11 @@ export class ScrambledPageDecoder {
       }
     }
     this.running = false;
-    if (this.jobs.length > 0) this.pump();
+    if (this.jobs.length > 0) {
+      this.pump();
+    } else {
+      this.scheduleIdlePage();
+    }
   }
 
   private sortJobs(): void {
