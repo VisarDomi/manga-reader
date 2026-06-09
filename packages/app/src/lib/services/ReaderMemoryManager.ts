@@ -299,6 +299,20 @@ export class ReaderMemoryManager {
                     error: 'all image candidates failed',
                     pending: this.loadingKeys.size,
                 });
+                this.emit('reader-image-lifecycle', {
+                    key,
+                    ok: false,
+                    policy,
+                    candidateIndex: candidateList.length,
+                    candidateTotal: candidateList.length,
+                    host: 'exhausted',
+                    naturalWidth: 0,
+                    naturalHeight: 0,
+                    displayWidth: 0,
+                    displayHeight: 0,
+                    totalMs: Math.round(tFail - t0),
+                    error: 'all candidates failed',
+                });
                 this.onLoadFailure?.(key);
                 return;
             }
@@ -339,6 +353,19 @@ export class ReaderMemoryManager {
                     totalMs: Math.round(performance.now() - t0),
                     naturalWidth: img.naturalWidth,
                     naturalHeight: img.naturalHeight,
+                });
+                this.emit('reader-image-lifecycle', {
+                    key,
+                    ok: true,
+                    policy,
+                    candidateIndex,
+                    candidateTotal: candidateList.length,
+                    host,
+                    naturalWidth: img.naturalWidth,
+                    naturalHeight: img.naturalHeight,
+                    displayWidth: Math.round(img.offsetWidth),
+                    displayHeight: Math.round(img.offsetHeight),
+                    totalMs,
                 });
                 clearHandlers();
                 finish();

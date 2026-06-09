@@ -330,6 +330,7 @@
         let visibleNaturalPixels = 0;
         let visibleSections = 0;
         const sectionRanges: string[] = [];
+        const visibleImagesDetail: Array<{ key: string; l: number; nw: number; nh: number; dw: number; dh: number; host: string }> = [];
 
         for (const section of root.querySelectorAll<HTMLElement>('.reader-chapter')) {
             const rect = section.getBoundingClientRect();
@@ -355,10 +356,27 @@
             const img = page.querySelector('img');
             if (!img) continue;
             visibleImages++;
-            if (img.complete && img.naturalWidth > 0 && img.naturalHeight > 0) {
+            const loaded = img.complete && img.naturalWidth > 0 && img.naturalHeight > 0;
+            if (loaded) {
                 visibleLoadedImages++;
                 visibleNaturalPixels += img.naturalWidth * img.naturalHeight;
             }
+            let host = '';
+            try {
+                const src = img.getAttribute('src') ?? img.src;
+                if (src) host = new URL(src, location.origin).host;
+            } catch { /* noop */ }
+            const pageKey = page.dataset.pageKey ?? '';
+            visibleImagesDetail.push({
+                key: pageKey,
+                l: loaded ? 1 : 0,
+                nw: img.naturalWidth,
+                nh: img.naturalHeight,
+                dw: Math.round(img.offsetWidth),
+                dh: Math.round(img.offsetHeight),
+                host,
+            });
+            if (visibleImagesDetail.length >= 12) break;
         }
 
         const rootStyle = getComputedStyle(root);
@@ -385,6 +403,7 @@
             visibleSections,
             frameEpoch: appState.reader.windowFrameEpoch,
             sectionRanges: sectionRanges.join('|'),
+            visibleImagesDetail: visibleImagesDetail.map(d => `${d.key}|${d.l}|${d.nw}x${d.nh}|${d.dw}x${d.dh}|${d.host}`).join(','),
             transformActive: rootStyle.transform !== 'none' || root.style.transform !== '',
             rootClasses: root.className.toString(),
         });
@@ -1258,6 +1277,7 @@
                             {@const aspectRatio = page.width && page.height ? `${page.width}/${page.height}` : '2/3'}
                             <div
                                 class="reader-page"
+                                data-page-key="{chapter.id}-{i}"
                                 use:registerPageImage={() => ({ memory, chapterId: chapter.id, pageIndex: i, url: page.url, candidates: page.candidates, criticalCandidates: page.criticalCandidates })}
                                 style="aspect-ratio:{aspectRatio}"
                             >

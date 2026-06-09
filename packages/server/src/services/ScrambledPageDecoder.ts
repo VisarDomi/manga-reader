@@ -59,6 +59,7 @@ export class ScrambledPageDecodeSourceExhausted extends Error {
 
 export class ScrambledPageDecoder {
   private static readonly MAX_MEMORY_CACHE_BYTES = 96 * 1024 * 1024;
+  private static readonly MAX_QUEUE_DEPTH = 30;
 
   private page: Page | null = null;
   private jobs: DecodeJob[] = [];
@@ -126,6 +127,11 @@ export class ScrambledPageDecoder {
     }
 
     return new Promise((resolve, reject) => {
+      if (this.jobs.length >= ScrambledPageDecoder.MAX_QUEUE_DEPTH) {
+        console.log(`[decoder] request queue=full policy=${policy} manga=${request.mangaId} chapter=${request.chapterId} page=${request.pageIndex + 1} queueDepth=${this.jobs.length}`);
+        reject(new Error(`Scrambled decode queue full (depth=${this.jobs.length}, max=${ScrambledPageDecoder.MAX_QUEUE_DEPTH})`));
+        return;
+      }
       const job: DecodeJob = {
         id: this.nextJobId++,
         cacheKey,
@@ -176,6 +182,7 @@ export class ScrambledPageDecoder {
 
   async destroy(): Promise<void> {
     const page = this.page;
+    const cdp = this.cdpSession;
     this.page = null;
     this.cdpSession = null;
     this.moduleReady = false;
@@ -184,6 +191,7 @@ export class ScrambledPageDecoder {
     this.pendingByKey.clear();
     this.cache.clear();
     this.cacheBytes = 0;
+    if (cdp) await cdp.detach().catch(() => {});
     if (page && !page.isClosed()) await page.close().catch(() => {});
   }
 
@@ -298,6 +306,11 @@ export class ScrambledPageDecoder {
   private async ensurePage(): Promise<Page> {
     if (this.preemptClosePromise) await this.preemptClosePromise.catch(() => {});
     if (this.page && !this.page.isClosed()) return this.page;
+    const old = this.page;
+    this.page = null;
+    if (old && !old.isClosed()) {
+      await old.close().catch(() => {});
+    }
     this.page = await this.context.newPage();
     this.cdpSession = null;
     return this.page;
