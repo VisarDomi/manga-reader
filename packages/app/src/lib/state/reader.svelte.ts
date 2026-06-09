@@ -97,6 +97,7 @@ export class ReaderState {
     isLoadingPrev = $state(false);
     nextChapterRetryAvailable = $state(false);
     pendingPageRestore = $state<{ pageIndex: number; scrollOffset: number } | null>(null);
+    pendingRootScroll = $state<number | null>(null);
     chapterComments = $state<MangaComment[]>([]);
     chapterCommentsCount = $state(0);
     chapterCommentsStats = $state<MangaCommentStats>({ ...EMPTY_COMMENT_STATS });
@@ -258,11 +259,18 @@ export class ReaderState {
         this.chapterList = [...this.manga.filteredChapters].sort((a, b) => a.number - b.number);
 
         const saved = this.progress.get(manga.id);
-        const hasRestore = !!(saved && saved.chapterId === chapter.id && saved.pageIndex != null);
+        const hasRestore = !!(saved && saved.chapterId === chapter.id && (saved.pageIndex != null || saved.rootScrollTop != null));
         if (hasRestore) {
-            this.pendingPageRestore = { pageIndex: saved!.pageIndex!, scrollOffset: saved!.scrollOffset ?? 0 };
+            if (saved!.rootScrollTop != null) {
+                this.pendingRootScroll = saved!.rootScrollTop;
+                this.pendingPageRestore = null;
+            } else {
+                this.pendingPageRestore = { pageIndex: saved!.pageIndex!, scrollOffset: saved!.scrollOffset ?? 0 };
+                this.pendingRootScroll = null;
+            }
         } else {
             this.pendingPageRestore = null;
+            this.pendingRootScroll = null;
         }
 
         this.log.emit('reader-open', { mangaId: manga.id, chapterId: chapter.id, chapterNumber: chapter.number, hasRestore });
@@ -334,10 +342,15 @@ export class ReaderState {
         this.nextChapterRetryAvailable = false;
         this.chapterList = [...filtered].sort((a, b) => a.number - b.number);
 
-        if (saved.pageIndex != null) {
+        if (saved.rootScrollTop != null) {
+            this.pendingRootScroll = saved.rootScrollTop;
+            this.pendingPageRestore = null;
+        } else if (saved.pageIndex != null) {
             this.pendingPageRestore = { pageIndex: saved.pageIndex, scrollOffset: saved.scrollOffset ?? 0 };
+            this.pendingRootScroll = null;
         } else {
             this.pendingPageRestore = null;
+            this.pendingRootScroll = null;
         }
 
         this.log.emit('reader-open', { mangaId: manga.id, chapterId: chapter.id, chapterNumber: chapter.number, hasRestore: true });
@@ -364,8 +377,8 @@ export class ReaderState {
         }
     }
 
-    trackVisiblePage(chapterId: string, pageIndex: number, scrollOffset: number, source: 'scroll' | 'close' = 'scroll', snapshot?: VisiblePageSnapshot): void {
-        this.pageTracker.track(chapterId, pageIndex, scrollOffset);
+    trackVisiblePage(chapterId: string, pageIndex: number, scrollOffset: number, rootScrollTop: number, source: 'scroll' | 'close' = 'scroll', snapshot?: VisiblePageSnapshot): void {
+        this.pageTracker.track(chapterId, pageIndex, scrollOffset, rootScrollTop);
         if (chapterId !== this.currentChapterId) {
             const prevChapterId = this.currentChapterId;
             this.currentChapterId = chapterId;
@@ -447,14 +460,14 @@ export class ReaderState {
     }
 
     private scheduleProgressSync(chapterId: string): void {
-        this.pageTracker.scheduleSync(chapterId, (cId, pageIndex, scrollOffset) => {
+        this.pageTracker.scheduleSync(chapterId, (cId, pageIndex, scrollOffset, rootScrollTop) => {
             const manga = this.manga.activeManga;
             if (!manga) return;
             const ch = this.chapterList.find(c => c.id === cId);
             if (ch) {
                 const loaded = this.chapterDataById.get(cId) ?? this.loadedChapters.find(lc => lc.id === cId);
                 const pageCount = loaded?.pages.length;
-                this.saveProgress('scheduled', manga.id, { chapterId: cId, chapterNumber: ch.number, pageIndex, pageCount, scrollOffset });
+                this.saveProgress('scheduled', manga.id, { chapterId: cId, chapterNumber: ch.number, pageIndex, pageCount, scrollOffset, rootScrollTop });
             }
         });
     }
@@ -462,12 +475,12 @@ export class ReaderState {
     flushProgress(): void {
         const mangaId = this.activeMangaId;
         if (!mangaId) return;
-        this.pageTracker.flush((chapterId, pageIndex, scrollOffset) => {
+        this.pageTracker.flush((chapterId, pageIndex, scrollOffset, rootScrollTop) => {
             const ch = this.chapterList.find(c => c.id === chapterId);
             if (ch) {
                 const loaded = this.chapterDataById.get(chapterId) ?? this.loadedChapters.find(lc => lc.id === chapterId);
                 const pageCount = loaded?.pages.length;
-                this.saveProgress('scheduled', mangaId, { chapterId, chapterNumber: ch.number, pageIndex, pageCount, scrollOffset });
+                this.saveProgress('scheduled', mangaId, { chapterId, chapterNumber: ch.number, pageIndex, pageCount, scrollOffset, rootScrollTop });
             }
         });
     }
@@ -489,8 +502,13 @@ export class ReaderState {
         return this.pendingPageRestore;
     }
 
+    get rootScrollRestoreTarget(): number | null {
+        return this.pendingRootScroll;
+    }
+
     clearPageRestore(): void {
         this.pendingPageRestore = null;
+        this.pendingRootScroll = null;
     }
 
     clearHistorySync(): void {
@@ -854,13 +872,13 @@ export class ReaderState {
         const backMangaId = this.manga.activeManga?.id ?? null;
         const backEntryKey = this.manga.activeEntryKey;
 
-        this.pageTracker.flush((flushChapterId, pageIndex, scrollOffset) => {
+        this.pageTracker.flush((flushChapterId, pageIndex, scrollOffset, rootScrollTop) => {
             if (!mangaId) return;
             const ch = this.chapterList.find(c => c.id === flushChapterId);
             if (ch) {
                 const loaded = this.chapterDataById.get(flushChapterId) ?? this.loadedChapters.find(lc => lc.id === flushChapterId);
                 const pageCount = loaded?.pages.length;
-                this.saveProgress('close', mangaId, { chapterId: flushChapterId, chapterNumber: ch.number, pageIndex, pageCount, scrollOffset });
+                this.saveProgress('close', mangaId, { chapterId: flushChapterId, chapterNumber: ch.number, pageIndex, pageCount, scrollOffset, rootScrollTop });
             }
         });
         this.commitMangaScrollTarget();

@@ -697,7 +697,7 @@
         if (!currentRoot) return;
         lastPageTrackAt = now;
         pageTracker.handleScroll(currentRoot, memory.pageDataMap, [appState.reader.layoutChapterId, appState.reader.currentChapterId], (visible) => {
-            appState.reader.trackVisiblePage(visible.chapterId, visible.pageIndex, visible.scrollOffset, 'scroll', visible);
+            appState.reader.trackVisiblePage(visible.chapterId, visible.pageIndex, visible.scrollOffset, visible.rootScrollTop, 'scroll', visible);
         });
     }
 
@@ -880,7 +880,7 @@
 
     function scrollToCurrentChapterAnchor(root: HTMLElement) {
         const currentId = appState.reader.layoutChapterId;
-        if (!currentId || appState.reader.pageRestoreTarget) return;
+        if (!currentId) return;
         const from = readerScroll.getScrollTop();
         const target = appState.reader.chapterScrollTop(currentId, readerScroll.clientWidth()) ?? 0;
         readerScroll.setScrollTop(target);
@@ -921,7 +921,29 @@
         appState.reader.primeViewportLayout(readerScroll.clientWidth(), readerScroll.clientHeight());
         scrollCoordinator.beginInitialPosition(readerScroll.getScrollTop());
 
+        const rootScrollTarget = appState.reader.rootScrollRestoreTarget;
         const restore = appState.reader.pageRestoreTarget;
+        if (rootScrollTarget != null) {
+            const from = readerScroll.getScrollTop();
+            reconcileReaderWindow('initial', rootScrollTarget);
+            await tick();
+            readerScroll.setScrollTop(rootScrollTarget);
+            appState.reader.adoptPhysicalScrollTop(readerScroll.getScrollTop(), 'initial-restore-into-view');
+            domProjectionEpoch = appState.reader.projectionEpoch;
+            scrollCoordinator.cancelInitialPosition();
+            appState.log.emit('reader-restore-scroll', {
+                action: 'restored',
+                target: 'scroll-top',
+                scrollTop: Math.round(rootScrollTarget),
+                from: Math.round(from),
+                to: Math.round(readerScroll.getScrollTop()),
+            });
+            requestAnimationFrame(() => {
+                appState.reader.clearPageRestore();
+            });
+            return;
+        }
+
         if (!restore) {
             const from = readerScroll.getScrollTop();
             const currentId = appState.reader.layoutChapterId;
@@ -947,6 +969,7 @@
         const restoreTop = restoredPageScrollTop(root, restore);
         scrollCoordinator.cancelInitialPosition();
         if (restoreTop == null) {
+            appState.reader.clearPageRestore();
             const currentId = appState.reader.layoutChapterId;
             const logicalTarget = currentId ? appState.reader.logicalChapterScrollTop(currentId, readerScroll.clientWidth()) ?? 0 : 0;
             const target = appState.reader.physicalTargetForLogical(logicalTarget, readerScroll.clientHeight());
@@ -1040,7 +1063,7 @@
         if (root) logVisualSnapshot(root, 'close', true);
         const visible = root ? pageTracker.findVisible(root, memory.pageDataMap, [appState.reader.layoutChapterId, appState.reader.currentChapterId]) : null;
         appState.reader.logCloseSnapshot(visible);
-        if (visible) appState.reader.trackVisiblePage(visible.chapterId, visible.pageIndex, visible.scrollOffset, 'close', visible);
+        if (visible) appState.reader.trackVisiblePage(visible.chapterId, visible.pageIndex, visible.scrollOffset, visible.rootScrollTop, 'close', visible);
         onClose();
     }
 

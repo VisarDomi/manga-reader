@@ -14,7 +14,7 @@ export type VisiblePageSnapshot = {
 };
 
 export class PageTracker {
-    private lastVisible: { chapterId: string; pageIndex: number; scrollOffset: number } | null = null;
+    private lastVisible: { chapterId: string; pageIndex: number; scrollOffset: number; rootScrollTop: number } | null = null;
     private syncTimer: ReturnType<typeof setTimeout> | undefined;
     private scrollTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -22,24 +22,24 @@ export class PageTracker {
         return this.lastVisible;
     }
 
-    track(chapterId: string, pageIndex: number, scrollOffset: number): void {
-        this.lastVisible = { chapterId, pageIndex, scrollOffset };
+    track(chapterId: string, pageIndex: number, scrollOffset: number, rootScrollTop?: number): void {
+        this.lastVisible = { chapterId, pageIndex, scrollOffset, rootScrollTop: rootScrollTop ?? 0 };
     }
 
-    scheduleSync(chapterId: string, callback: (chapterId: string, pageIndex: number | undefined, scrollOffset: number | undefined) => void): void {
+    scheduleSync(chapterId: string, callback: (chapterId: string, pageIndex: number | undefined, scrollOffset: number | undefined, rootScrollTop: number | undefined) => void): void {
         clearTimeout(this.syncTimer);
         this.syncTimer = setTimeout(() => {
             if (this.lastVisible?.chapterId === chapterId) {
-                callback(chapterId, this.lastVisible.pageIndex, this.lastVisible.scrollOffset);
+                callback(chapterId, this.lastVisible.pageIndex, this.lastVisible.scrollOffset, this.lastVisible.rootScrollTop);
             } else {
-                callback(chapterId, undefined, undefined);
+                callback(chapterId, undefined, undefined, undefined);
             }
         }, HISTORY_SYNC_MS);
     }
 
-    flush(callback: (chapterId: string, pageIndex: number, scrollOffset: number) => void): void {
+    flush(callback: (chapterId: string, pageIndex: number, scrollOffset: number, rootScrollTop: number) => void): void {
         if (this.lastVisible) {
-            callback(this.lastVisible.chapterId, this.lastVisible.pageIndex, this.lastVisible.scrollOffset);
+            callback(this.lastVisible.chapterId, this.lastVisible.pageIndex, this.lastVisible.scrollOffset, this.lastVisible.rootScrollTop);
         }
     }
 
