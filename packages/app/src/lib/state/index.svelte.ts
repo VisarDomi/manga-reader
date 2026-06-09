@@ -884,6 +884,8 @@ class AppState {
     private handleVisibilityChange(visible: boolean) {
         if (!visible) {
             if (this.status === 'READY') {
+                this.reader.flushProgress();
+                this.persistSession();
                 this.backgroundedAt = Date.now();
                 this.status = 'BACKGROUND';
                 watchdog.stop();

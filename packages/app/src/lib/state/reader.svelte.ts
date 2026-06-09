@@ -459,6 +459,19 @@ export class ReaderState {
         });
     }
 
+    flushProgress(): void {
+        const mangaId = this.activeMangaId;
+        if (!mangaId) return;
+        this.pageTracker.flush((chapterId, pageIndex, scrollOffset) => {
+            const ch = this.chapterList.find(c => c.id === chapterId);
+            if (ch) {
+                const loaded = this.chapterDataById.get(chapterId) ?? this.loadedChapters.find(lc => lc.id === chapterId);
+                const pageCount = loaded?.pages.length;
+                this.saveProgress('scheduled', mangaId, { chapterId, chapterNumber: ch.number, pageIndex, pageCount, scrollOffset });
+            }
+        });
+    }
+
     private saveProgress(source: 'open' | 'scheduled' | 'close', mangaId: string, data: ProgressData): void {
         db.setProgress(mangaId, data);
         this.progress.update(mangaId, data);
