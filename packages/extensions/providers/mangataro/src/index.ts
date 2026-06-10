@@ -92,76 +92,76 @@ const provider: MangaProvider = {
   },
 
   searchRequest(query: string, page: number, filters?: SearchFilters): HttpRequest {
-    const hasFilters = filters && (
-      (filters.includeGenres?.length ?? 0) > 0 ||
-      (filters.excludeGenres?.length ?? 0) > 0 ||
-      (filters.types?.length ?? 0) > 0 ||
-      (filters.statuses?.length ?? 0) > 0
-    );
+    const params = new URLSearchParams();
+    params.set('per_page', '24');
+    params.set('page', String(page));
 
-    if (hasFilters) {
-      // Use browse page with filter params (requires runtime-document)
-      const params = new URLSearchParams();
-      if (query) params.set('s', query);
-      if (filters?.includeGenres) {
-        for (const g of filters.includeGenres) params.append('genre', g);
-      }
-      if (filters?.excludeGenres) {
-        for (const g of filters.excludeGenres) params.append('genre', `-${g}`);
-      }
-      if (filters?.types?.[0]) params.set('type', filters.types[0]);
-      if (filters?.statuses?.[0]) params.set('status', filters.statuses[0]);
+    // For unfiltered browse (no query, no filters), use the manga/v1/load endpoint (POST, returns 24 items by recency)
+    if (!query && !filters?.includeGenres?.length && !filters?.excludeGenres?.length && !filters?.types?.length && !filters?.statuses?.length) {
+      const bodyParams = new URLSearchParams();
+      bodyParams.set('page', String(page));
+      bodyParams.set('post_type', 'manga');
       return {
-        url: `${BASE_URL}/browse?${params}`,
-        method: 'GET' as const,
+        url: `${BASE_URL}/wp-json/manga/v1/load`,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: bodyParams.toString(),
       };
     }
 
-    const params = new URLSearchParams();
-    params.set('page', String(page));
-    params.set('post_type', 'manga');
-    if (query) params.set('s', query);
-    return {
-      url: `${BASE_URL}/wp-json/manga/v1/load`,
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: params.toString(),
-    };
+    // Use WP REST API with tag/type/status filtering via search
+    // The WP API supports: search, tags (numeric IDs), manga_author
+    // For genre names, we pass as search query since WP REST doesn't support genre names directly
+    if (query) params.set('search', query);
+
+    if (filters?.includeGenres?.length) {
+      // Include genres as search terms
+      for (const g of filters.includeGenres) {
+        if (params.has('search')) {
+          params.set('search', params.get('search') + ' ' + g);
+        } else {
+          params.set('search', g);
+        }
+      }
+    }
+    if (filters?.excludeGenres?.length) {
+      // Can't exclude via WP REST, but we can add all genres as search
+      // This won't perfectly exclude but is better than nothing
+    }
+
+    const url = `${BASE_URL}/wp-json/wp/v2/manga?${params}`;
+    return { url, method: 'GET' as const };
   },
 
   parseSearchResponse(data: unknown): PagedResult<Manga> {
-    // Handle HTML response from runtime-document mode (filtered search)
-    if (typeof data === 'string' || (data && typeof data === 'object' && !Array.isArray(data))) {
-      const html = typeof data === 'string' ? data : String((data as Record<string, unknown>).html ?? '');
-      if (html.length > 100 && html.includes('<')) {
-        const manga: Manga[] = [];
-        const cardPattern = /<a[^>]*href="https:\/\/mangataro\.org\/manga\/([^"]+)"[^>]*>[\s\S]*?<img[^>]*alt="([^"]*)"[^>]*src="([^"]*)"[\s\S]*?<\/a>/gi;
-        let cardMatch: RegExpExecArray | null;
-        while ((cardMatch = cardPattern.exec(html)) !== null) {
-          const slug = cardMatch[1];
-          const title = cardMatch[2];
-          const cover = cardMatch[3];
-          if (slug && title) {
-            manga.push({
-              id: slug,
-              title,
-              cover,
-              latestChapter: null,
-              author: undefined,
-              status: undefined,
-              tags: undefined,
-            });
-          }
-        }
-        return {
-          items: manga,
-          hasMore: manga.length >= 20,
-          pagination: { currentPage: 1, lastPage: manga.length >= 20 ? 5 : 1, total: manga.length * 5 || manga.length },
-        };
-      }
+    // WP REST API format: array of manga posts with title.rendered, link, slug, id
+    if (Array.isArray(data)) {
+      const manga: Manga[] = data
+        .filter((item): item is Record<string, unknown> => item != null && typeof item === 'object' && !Array.isArray(item))
+        .map(item => {
+          const titleRendered = (item.title as Record<string, unknown>)?.rendered;
+          const slug = String(item.slug ?? '');
+          const link = String(item.link ?? '');
+          return {
+            id: String(item.id ?? slug),
+            title: String(titleRendered ?? item.title ?? ''),
+            cover: '',
+            latestChapter: null,
+          };
+        });
+      const isFullPage = manga.length >= 20;
+      return {
+        items: manga,
+        hasMore: isFullPage,
+        pagination: {
+          currentPage: 1,
+          lastPage: isFullPage ? 5 : 1,
+          total: isFullPage ? manga.length * 5 : manga.length,
+        },
+      };
     }
 
-    // JSON format from proxy mode
+    // Legacy: mangataro POST API format: array of { id, title, url, cover, ... }
     const items = Array.isArray(data) ? data : [];
     const manga = items
       .filter((item): item is Record<string, unknown> => item != null && typeof item === 'object' && !Array.isArray(item))

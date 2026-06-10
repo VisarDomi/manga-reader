@@ -79,50 +79,42 @@ var a = {
 		a = e;
 	},
 	searchRequest(t, n, r) {
-		if (r && ((r.includeGenres?.length ?? 0) > 0 || (r.excludeGenres?.length ?? 0) > 0 || (r.types?.length ?? 0) > 0 || (r.statuses?.length ?? 0) > 0)) {
-			let n = new URLSearchParams();
-			if (t && n.set("s", t), r?.includeGenres) for (let e of r.includeGenres) n.append("genre", e);
-			if (r?.excludeGenres) for (let e of r.excludeGenres) n.append("genre", `-${e}`);
-			return r?.types?.[0] && n.set("type", r.types[0]), r?.statuses?.[0] && n.set("status", r.statuses[0]), {
-				url: `${e}/browse?${n}`,
-				method: "GET"
+		let i = new URLSearchParams();
+		if (i.set("per_page", "24"), i.set("page", String(n)), !t && !r?.includeGenres?.length && !r?.excludeGenres?.length && !r?.types?.length && !r?.statuses?.length) {
+			let t = new URLSearchParams();
+			return t.set("page", String(n)), t.set("post_type", "manga"), {
+				url: `${e}/wp-json/manga/v1/load`,
+				method: "POST",
+				headers: { "Content-Type": "application/x-www-form-urlencoded" },
+				body: t.toString()
 			};
 		}
-		let i = new URLSearchParams();
-		return i.set("page", String(n)), i.set("post_type", "manga"), t && i.set("s", t), {
-			url: `${e}/wp-json/manga/v1/load`,
-			method: "POST",
-			headers: { "Content-Type": "application/x-www-form-urlencoded" },
-			body: i.toString()
+		if (t && i.set("search", t), r?.includeGenres?.length) for (let e of r.includeGenres) i.has("search") ? i.set("search", i.get("search") + " " + e) : i.set("search", e);
+		return r?.excludeGenres?.length, {
+			url: `${e}/wp-json/wp/v2/manga?${i}`,
+			method: "GET"
 		};
 	},
 	parseSearchResponse(e) {
-		if (typeof e == "string" || e && typeof e == "object" && !Array.isArray(e)) {
-			let t = typeof e == "string" ? e : String(e.html ?? "");
-			if (t.length > 100 && t.includes("<")) {
-				let e = [], n = /<a[^>]*href="https:\/\/mangataro\.org\/manga\/([^"]+)"[^>]*>[\s\S]*?<img[^>]*alt="([^"]*)"[^>]*src="([^"]*)"[\s\S]*?<\/a>/gi, r;
-				for (; (r = n.exec(t)) !== null;) {
-					let t = r[1], n = r[2], i = r[3];
-					t && n && e.push({
-						id: t,
-						title: n,
-						cover: i,
-						latestChapter: null,
-						author: void 0,
-						status: void 0,
-						tags: void 0
-					});
-				}
-				return {
-					items: e,
-					hasMore: e.length >= 20,
-					pagination: {
-						currentPage: 1,
-						lastPage: e.length >= 20 ? 5 : 1,
-						total: e.length * 5 || e.length
-					}
+		if (Array.isArray(e)) {
+			let t = e.filter((e) => typeof e == "object" && !!e && !Array.isArray(e)).map((e) => {
+				let t = e.title?.rendered, n = String(e.slug ?? "");
+				return String(e.link ?? ""), {
+					id: String(e.id ?? n),
+					title: String(t ?? e.title ?? ""),
+					cover: "",
+					latestChapter: null
 				};
-			}
+			}), n = t.length >= 20;
+			return {
+				items: t,
+				hasMore: n,
+				pagination: {
+					currentPage: 1,
+					lastPage: n ? 5 : 1,
+					total: n ? t.length * 5 : t.length
+				}
+			};
 		}
 		let t = (Array.isArray(e) ? e : []).filter((e) => typeof e == "object" && !!e && !Array.isArray(e)).map(i), n = t.length, r = n >= 20;
 		return {

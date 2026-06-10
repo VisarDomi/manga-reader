@@ -267,10 +267,7 @@ export const mangataroServerProvider: ServerMangaProvider = {
     return `${BASE_URL}/wp-json/wp/v2/manga?per_page=${limit}&page=${page}&_embed=wp:featuredmedia`;
   },
 
-  searchTransport(url: string) {
-    const u = new URL(url, BASE_URL);
-    const isBrowsePage = u.pathname === '/browse' || u.searchParams.has('genre');
-    if (isBrowsePage) return { mode: 'runtime-document' as const, runtimePath: url };
+  searchTransport(_url: string) {
     return { mode: 'proxy' as const };
   },
 
