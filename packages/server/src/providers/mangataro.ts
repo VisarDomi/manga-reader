@@ -141,8 +141,8 @@ export const mangataroServerProvider: ServerMangaProvider = {
   },
 
   mangaDetailPath(mangaId: string): string {
-    // Use WP REST API which accepts numeric ID
-    return `/wp-json/wp/v2/manga/${encodeURIComponent(mangaId)}`;
+    // Use WP REST API which accepts numeric ID; _embed includes featured media URLs
+    return `/wp-json/wp/v2/manga/${encodeURIComponent(mangaId)}?_embed=wp:featuredmedia`;
   },
 
   mangaRecommendationsPath(_mangaId: string): string {
@@ -154,10 +154,11 @@ export const mangataroServerProvider: ServerMangaProvider = {
     const titleRendered = String(asRecord(manga.title)?.rendered ?? '');
     const contentRendered = String(asRecord(manga.content)?.rendered ?? '');
     const description = contentRendered.replace(/<[^>]*>/g, '').trim() || '';
-    const links = asRecord(manga._links);
-    const featured = Array.isArray(links?.['wp:featuredmedia']) ? links['wp:featuredmedia'][0] : undefined;
-    const coverHref = asRecord(featured)?.href ?? '';
-    const featuredId = Number(manga.featured_media ?? 0);
+
+    // Extract cover from _embedded featured media (source_url) or fallback to _links
+    const embedded = asRecord(manga._embedded);
+    const featuredMedia = Array.isArray(embedded?.['wp:featuredmedia']) ? embedded['wp:featuredmedia'][0] : undefined;
+    const coverUrl = String((featuredMedia as Record<string, unknown>)?.source_url ?? '');
 
     // Extract tags from class_list (tag-adventure -> adventure)
     const classList = Array.isArray(manga.class_list) ? manga.class_list as string[] : [];
@@ -180,7 +181,7 @@ export const mangataroServerProvider: ServerMangaProvider = {
         id: String(manga.id ?? ''),
         slug: String(manga.slug ?? ''),
         title: titleRendered,
-        cover: absoluteUrl(String(coverHref)),
+        cover: absoluteUrl(coverUrl),
         description,
         tags,
         genres: tags,
