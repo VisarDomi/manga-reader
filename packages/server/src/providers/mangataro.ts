@@ -218,6 +218,51 @@ export const mangataroServerProvider: ServerMangaProvider = {
     };
   },
 
+  async fetchRuntimeChapterImages(page: Page, chapterUrl: string, timeoutMs?: number): Promise<RuntimeChapterImages> {
+    const navTimeout = timeoutMs ?? 45_000;
+    await page.goto(chapterUrl, { waitUntil: 'domcontentloaded', timeout: navTimeout });
+    await page.waitForTimeout(3000);
+    // Scroll through the page to trigger lazy loading
+    await page.evaluate(async () => {
+      const distance = 800;
+      const delay = 200;
+      const totalHeight = document.body.scrollHeight || 10000;
+      let scrolled = 0;
+      while (scrolled < totalHeight) {
+        window.scrollBy(0, distance);
+        scrolled += distance;
+        await new Promise(r => setTimeout(r, delay));
+      }
+      window.scrollTo(0, 0);
+    });
+    await page.waitForTimeout(2000);
+
+    const urls = await page.evaluate(() => {
+      const seen = new Set<string>();
+      const imgs = document.querySelectorAll<HTMLImageElement>('img.comic-image, img[src*="mangataro.yachts"], img[data-src*="mangataro.yachts"]');
+      imgs.forEach(img => {
+        const src = img.src || img.getAttribute('data-src') || '';
+        if (src && src.includes('mangataro.yachts') && src.endsWith('.webp')) {
+          seen.add(src);
+        }
+      });
+      return Array.from(seen);
+    });
+
+    const pages = urls.map(url => ({
+      url,
+      width: 0,
+      height: 0,
+      scramble: false,
+    }));
+    return {
+      source: this.runtimeImageSource,
+      targetCount: pages.length,
+      schemaVersion: this.chapterImageSchemaVersion,
+      pages,
+    };
+  },
+
   newestSearchUrl(page: number, limit: number): string {
     return `${BASE_URL}/wp-json/wp/v2/manga?per_page=${limit}&page=${page}&_embed=wp:featuredmedia`;
   },

@@ -539,6 +539,41 @@ export class BrowserSession {
 
     private async fetchChapterDetailViaRuntimeHttp(mangaId: string, chapterId: string, chapterNumber?: number, chapterUrl?: string, context: BrowserFetchContext = {}): Promise<unknown> {
         const t0 = Date.now();
+
+        // Provider-specific runtime chapter image extraction
+        if (this.provider.fetchRuntimeChapterImages) {
+            const navPage = await this.context!.newPage();
+            try {
+                const url = this.provider.absoluteUrl(this.provider.chapterImagesPath(chapterId));
+                const timeoutMs = this.runtimeRequestTimeoutMs(context) ?? this.provider.runtimePageTimeoutMs ?? 45_000;
+                const normalized = await this.provider.fetchRuntimeChapterImages(navPage, url, timeoutMs);
+                const data = {
+                    status: 'ok',
+                    result: {
+                        source: normalized.source,
+                        schemaVersion: normalized.schemaVersion,
+                        targetCount: normalized.targetCount,
+                        chapterNumber,
+                        chapterUrl,
+                        pages: normalized.pages,
+                    },
+                };
+                if (normalized.pages.length === 0 || normalized.pages.length !== normalized.targetCount) {
+                    if (shouldLogFetchContext(context)) {
+                        console.log(`[browserSession] chapter ${mangaId}/${chapterId} page-load ${browserFetchContextLog(context)} source=${normalized.source}-incomplete pages=${normalized.pages.length} targetCount=${normalized.targetCount} ${Date.now() - t0}ms`);
+                    }
+                    throw new Error(`Runtime HTTP returned incomplete chapter images for ${mangaId}/${chapterId}: pages=${normalized.pages.length} targetCount=${normalized.targetCount}`);
+                }
+                const scrambled = normalized.pages.filter(page => page.scramble).length;
+                if (shouldLogFetchContext(context)) {
+                    console.log(`[browserSession] chapter ${mangaId}/${chapterId} page-load ${browserFetchContextLog(context)} source=${normalized.source} schema=${normalized.schemaVersion} pages=${normalized.pages.length} targetCount=${normalized.targetCount} scrambled=${scrambled} ${Date.now() - t0}ms`);
+                }
+                return data;
+            } finally {
+                await navPage.close().catch(() => {});
+            }
+        }
+
         const detail = await this.runtimeHttpGet<Record<string, unknown>>(mangaId, this.provider.chapterImagesPath(chapterId), undefined, context);
         const normalized = this.provider.normalizeChapterImages(detail);
         const data = {

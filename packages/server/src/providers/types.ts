@@ -53,6 +53,7 @@ export interface ServerMangaProvider {
   chapterListParams(page: number, pageSize: number): Record<string, unknown>;
   chapterImagesPath(chapterId: string): string;
   normalizeChapterImages(detail: Record<string, unknown>): RuntimeChapterImages;
+  fetchRuntimeChapterImages?(page: Page, chapterUrl: string, timeoutMs?: number): Promise<RuntimeChapterImages>;
   newestSearchUrl(page: number, limit: number): string;
   searchTransport(url: string): ProviderSearchTransport;
   runtimeRequestTimeoutMs?(context: ProviderRuntimeRequestContext): number | undefined;
