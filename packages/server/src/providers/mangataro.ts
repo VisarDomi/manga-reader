@@ -355,9 +355,30 @@ export const mangataroServerProvider: ServerMangaProvider = {
   },
 
   async getFilterCatalog(): Promise<{ filters: FilterDefinition; source: 'cache' | 'upstream'; ageMs: number }> {
+    const started = Date.now();
+    const genres: FilterDefinition['genres'] = [];
+    try {
+      const response = await fetch(`${BASE_URL}/wp-json/wp/v2/tags?per_page=100&orderby=count&order=desc`, {
+        headers: { 'User-Agent': 'Mozilla/5.0 manga-reader mangataro-filter-catalog' },
+      });
+      if (response.ok) {
+        const tags = await response.json() as Array<{ id: number; name: string; count: number }>;
+        for (const tag of tags) {
+          if (tag.name && tag.name.length > 0) {
+            genres.push({
+              id: String(tag.id),
+              name: tag.name,
+              group: 'genre',
+            });
+          }
+        }
+      }
+    } catch (e) {
+      console.log(`[provider:mangataro] filters refresh failed genres=0 error=${(e as Error)?.message ?? e}`);
+    }
     return {
       filters: {
-        genres: [],
+        genres,
         types: [
           { id: 'Manga', name: 'Manga' },
           { id: 'Manhwa', name: 'Manhwa' },
@@ -371,8 +392,8 @@ export const mangataroServerProvider: ServerMangaProvider = {
           { id: 'Hiatus', name: 'Hiatus' },
         ],
       },
-      source: 'cache',
-      ageMs: 0,
+      source: 'upstream',
+      ageMs: Date.now() - started,
     };
   },
 };

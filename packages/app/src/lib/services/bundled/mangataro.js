@@ -89,8 +89,10 @@ var a = {
 				body: t.toString()
 			};
 		}
-		if (t && i.set("search", t), r?.includeGenres?.length) for (let e of r.includeGenres) i.has("search") ? i.set("search", i.get("search") + " " + e) : i.set("search", e);
-		return r?.excludeGenres?.length, {
+		if (t && i.set("search", t), r?.includeGenres?.length) for (let e of r.includeGenres) i.append("tags", e);
+		if (r?.types?.length) for (let e of r.types) i.append("manga_type", e.toLowerCase());
+		if (r?.statuses?.length) for (let e of r.statuses) i.append("status", e.toLowerCase());
+		return {
 			url: `${e}/wp-json/wp/v2/manga?${i}`,
 			method: "GET"
 		};

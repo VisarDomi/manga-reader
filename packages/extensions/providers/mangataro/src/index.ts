@@ -96,7 +96,7 @@ const provider: MangaProvider = {
     params.set('per_page', '24');
     params.set('page', String(page));
 
-    // For unfiltered browse (no query, no filters), use the manga/v1/load endpoint (POST, returns 24 items by recency)
+    // For unfiltered browse (no query, no filters), use the manga/v1/load endpoint (POST, returns by recency)
     if (!query && !filters?.includeGenres?.length && !filters?.excludeGenres?.length && !filters?.types?.length && !filters?.statuses?.length) {
       const bodyParams = new URLSearchParams();
       bodyParams.set('page', String(page));
@@ -109,24 +109,23 @@ const provider: MangaProvider = {
       };
     }
 
-    // Use WP REST API with tag/type/status filtering via search
-    // The WP API supports: search, tags (numeric IDs), manga_author
-    // For genre names, we pass as search query since WP REST doesn't support genre names directly
+    // Use WP REST API which supports tag filtering via numeric IDs: /wp/v2/manga?tags=29
     if (query) params.set('search', query);
-
     if (filters?.includeGenres?.length) {
-      // Include genres as search terms
-      for (const g of filters.includeGenres) {
-        if (params.has('search')) {
-          params.set('search', params.get('search') + ' ' + g);
-        } else {
-          params.set('search', g);
-        }
+      // Include genres using numeric WP tag IDs
+      for (const id of filters.includeGenres) {
+        params.append('tags', id);
       }
     }
-    if (filters?.excludeGenres?.length) {
-      // Can't exclude via WP REST, but we can add all genres as search
-      // This won't perfectly exclude but is better than nothing
+    if (filters?.types?.length) {
+      for (const t of filters.types) {
+        params.append('manga_type', t.toLowerCase());
+      }
+    }
+    if (filters?.statuses?.length) {
+      for (const s of filters.statuses) {
+        params.append('status', s.toLowerCase());
+      }
     }
 
     const url = `${BASE_URL}/wp-json/wp/v2/manga?${params}`;
