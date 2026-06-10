@@ -157,6 +157,22 @@ export const mangataroServerProvider: ServerMangaProvider = {
     const links = asRecord(manga._links);
     const featured = Array.isArray(links?.['wp:featuredmedia']) ? links['wp:featuredmedia'][0] : undefined;
     const coverHref = asRecord(featured)?.href ?? '';
+    const featuredId = Number(manga.featured_media ?? 0);
+
+    // Extract tags from class_list (tag-adventure -> adventure)
+    const classList = Array.isArray(manga.class_list) ? manga.class_list as string[] : [];
+    const tags = classList
+      .filter((c: string) => c.startsWith('tag-'))
+      .map((c: string) => c.replace('tag-', ''))
+      .filter(Boolean);
+
+    // Extract type from class_list (type-manga -> manga)
+    const typeEntry = classList.find((c: string) => c.startsWith('type-'));
+    const type = typeEntry ? typeEntry.replace('type-', '') : undefined;
+
+    // Extract author from class_list (manga_author-name)
+    const authorEntry = classList.find((c: string) => c.startsWith('manga_author-'));
+    const author = authorEntry ? authorEntry.replace('manga_author-', '') : undefined;
 
     return {
       status: 'ok',
@@ -166,6 +182,10 @@ export const mangataroServerProvider: ServerMangaProvider = {
         title: titleRendered,
         cover: absoluteUrl(String(coverHref)),
         description,
+        tags,
+        genres: tags,
+        type,
+        author,
       },
     };
   },
