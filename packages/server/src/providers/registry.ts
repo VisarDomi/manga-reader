@@ -1,10 +1,12 @@
 import { comixServerProvider } from './comix.js';
 import { mangadotnetServerProvider } from './mangadotnet.js';
+import { mangataroServerProvider } from './mangataro.js';
 import type { ServerMangaProvider } from './types.js';
 
 const providers = new Map<string, ServerMangaProvider>([
   [comixServerProvider.id, comixServerProvider],
   [mangadotnetServerProvider.id, mangadotnetServerProvider],
+  [mangataroServerProvider.id, mangataroServerProvider],
 ]);
 
 export function listServerProviders(): ServerMangaProvider[] {

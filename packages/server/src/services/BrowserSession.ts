@@ -653,6 +653,7 @@ export class BrowserSession {
             this.runtimeHttpPages.set(lane, page);
             this.runtimeHttpReady.set(lane, true);
             this.runtimeHttpHealthy = true;
+            void this.freezeLanePage(lane);
             console.log(`[browserSession] runtime-http ready provider=${this.provider.id} lane=${lane} generation=${this.runtimeGeneration} manga=${mangaId} ${Date.now() - start}ms`);
         } catch (error) {
             if (this.runtimeHttpPages.get(lane) === page) {
@@ -666,6 +667,7 @@ export class BrowserSession {
                     console.log(`[browserSession] runtime-http init-page-close failed manga=${mangaId}: ${(closeError as Error)?.message ?? closeError}`);
                 });
             } else {
+                await page.goto('about:blank', { waitUntil: 'domcontentloaded', timeout: 10_000 }).catch(() => {});
                 console.log(`[browserSession] runtime-http init-page-kept provider=${this.provider.id} lane=${lane} manga=${mangaId} reason=last-context-page`);
             }
             this.runtimeHttpHealthy = false;
@@ -862,7 +864,10 @@ export class BrowserSession {
             const cdp = await this.context!.newCDPSession(page);
             await cdp.send('Page.setWebLifecycleState', { state: 'frozen' });
             await cdp.detach();
-        } catch { /* CDP freeze not supported in this browser */ }
+            console.log(`[browserSession] runtime-http freeze lane=${lane} provider=${this.provider.id}`);
+        } catch (e) {
+            console.log(`[browserSession] runtime-http freeze-failed lane=${lane} provider=${this.provider.id}: ${(e as Error)?.message ?? e}`);
+        }
     }
 
     private async unfreezePage(page: Page): Promise<void> {
