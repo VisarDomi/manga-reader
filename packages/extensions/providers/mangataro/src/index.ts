@@ -156,20 +156,27 @@ const provider: MangaProvider = {
 
   parseChapterListResponse(data: unknown): ChapterListPage {
     const root = (data as Record<string, unknown>) ?? {};
-    const items = Array.isArray(root.chapters) ? root.chapters : [];
-    const chapters: ChapterMeta[] = items
+    // Handle both raw API format { chapters: [...] } and server-enveloped { result: { items: [...] } }
+    const rawItems = Array.isArray(root.chapters)
+      ? root.chapters
+      : Array.isArray((root.result as Record<string, unknown>)?.items)
+        ? (root.result as Record<string, unknown>).items as Record<string, unknown>[]
+        : [];
+    const chapters: ChapterMeta[] = rawItems
       .filter((item): item is Record<string, unknown> => item != null && typeof item === 'object' && !Array.isArray(item))
       .map(item => {
-        const id = firstString(item.id);
-        const number = parseFloat(String(item.chapter ?? '0'));
+        const rawId = firstString(item.id);
+        const number = parseFloat(String(item.chapter ?? item.number ?? '0'));
         const url = firstString(item.url);
         const groupName = firstString(item.group_name) || 'Unknown';
-        const uploadedAt = numeric(item.date_added);
-        // Encode slug from url into chapter id so server can reconstruct fetch URL
-        const slug = url ? url.replace(/https?:\/\/[^\/]+\/read\//, '').replace(/\/ch\d+-.*$/, '') : '';
-        const compoundId = slug ? `${slug}:${number}:${id}` : id;
+        const uploadedAt = numeric(item.date_added ?? item.uploadedAt);
+        // Use existing compound id if already in slug:num:id format
+        const id = rawId && rawId.split(':').length >= 3 ? rawId : (() => {
+          const slug = url.replace(/https?:\/\/[^\/]+\/read\//, '').replace(/\/ch\d+-.*$/, '');
+          return slug && number ? `${slug}:${number}:${rawId}` : rawId;
+        })();
         return {
-          id: compoundId,
+          id,
           number,
           groupId: firstString(item.group_id) || undefined,
           groupName,

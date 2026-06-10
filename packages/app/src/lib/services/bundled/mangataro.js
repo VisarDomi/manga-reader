@@ -114,10 +114,13 @@ var a = {
 		return { url: `${e}/auth/manga-chapters?manga_id=${encodeURIComponent(t)}&offset=0&limit=500&order=DESC` };
 	},
 	parseChapterListResponse(e) {
-		let n = e ?? {}, i = (Array.isArray(n.chapters) ? n.chapters : []).filter((e) => typeof e == "object" && !!e && !Array.isArray(e)).map((e) => {
-			let n = t(e.id), i = parseFloat(String(e.chapter ?? "0")), a = t(e.url), o = t(e.group_name) || "Unknown", s = r(e.date_added), c = a ? a.replace(/https?:\/\/[^\/]+\/read\//, "").replace(/\/ch\d+-.*$/, "") : "";
+		let n = e ?? {}, i = (Array.isArray(n.chapters) ? n.chapters : Array.isArray(n.result?.items) ? n.result.items : []).filter((e) => typeof e == "object" && !!e && !Array.isArray(e)).map((e) => {
+			let n = t(e.id), i = parseFloat(String(e.chapter ?? e.number ?? "0")), a = t(e.url), o = t(e.group_name) || "Unknown", s = r(e.date_added ?? e.uploadedAt);
 			return {
-				id: c ? `${c}:${i}:${n}` : n,
+				id: n && n.split(":").length >= 3 ? n : (() => {
+					let e = a.replace(/https?:\/\/[^\/]+\/read\//, "").replace(/\/ch\d+-.*$/, "");
+					return e && i ? `${e}:${i}:${n}` : n;
+				})(),
 				number: i,
 				groupId: t(e.group_id) || void 0,
 				groupName: o,

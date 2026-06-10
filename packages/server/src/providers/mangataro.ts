@@ -46,6 +46,7 @@ export const mangataroServerProvider: ServerMangaProvider = {
   chapterImageSchemaVersion: 1,
   imageDelivery: 'direct',
   byteFetchMode: 'proxy',
+  commentsFetchMode: 'proxy',
   searchPageSize: SEARCH_PAGE_SIZE,
 
   async resolveRuntimeHttpClient(page: Page, probeMangaId: string, owner: string): Promise<void> {
@@ -159,13 +160,11 @@ export const mangataroServerProvider: ServerMangaProvider = {
     return {
       status: 'ok',
       result: {
-        manga: {
-          id: String(manga.id ?? ''),
-          slug: String(manga.slug ?? ''),
-          title: titleRendered,
-          cover: absoluteUrl(String(coverHref)),
-          description,
-        },
+        id: String(manga.id ?? ''),
+        slug: String(manga.slug ?? ''),
+        title: titleRendered,
+        cover: absoluteUrl(String(coverHref)),
+        description,
       },
     };
   },
@@ -285,24 +284,40 @@ export const mangataroServerProvider: ServerMangaProvider = {
     return `${BASE_URL}/read/${chapterId}`;
   },
 
-  commentsLookupUrl(_pageIdentifier: string, _pageUrl: string): string {
-    return '';
+  commentsLookupUrl(pageIdentifier: string, _pageUrl: string): string {
+    return `${BASE_URL}/wp-json/wp/v2/comments?post=${encodeURIComponent(pageIdentifier)}&per_page=50`;
   },
 
-  commentsPageUrl(_threadId: number): string {
-    return '';
+  commentsPageUrl(threadId: number): string {
+    return `${BASE_URL}/wp-json/wp/v2/comments/${threadId}`;
   },
 
-  commentTreeUrl(_commentId: number): string {
-    return '';
+  commentTreeUrl(commentId: number): string {
+    return `${BASE_URL}/wp-json/wp/v2/comments/${commentId}`;
   },
 
-  mangaCommentIdentifier(_numericMangaId: number): string {
-    return '';
+  mangaCommentIdentifier(numericMangaId: number): string {
+    return String(numericMangaId);
   },
 
-  chapterCommentIdentifier(_numericMangaId: number, _chapterNumber: number): string {
-    return '';
+  chapterCommentIdentifier(numericMangaId: number, _chapterNumber: number): string {
+    return String(numericMangaId);
+  },
+
+  mangaCommentCountUrl(_numericMangaId: number, _pageUrl: string): string | null {
+    return null;
+  },
+
+  mangaCommentsUrl(numericMangaId: number, _pageUrl: string): string | null {
+    return `${BASE_URL}/wp-json/wp/v2/comments?post=${numericMangaId}&per_page=50`;
+  },
+
+  chapterCommentCountUrl(_chapterId: string, _chapterNumber: number, _pageUrl: string): string | null {
+    return null;
+  },
+
+  chapterCommentsUrl(_chapterId: string, _chapterNumber: number, _pageUrl: string): string | null {
+    return null;
   },
 
   absoluteUrl(url: string): string {
