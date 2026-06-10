@@ -47,6 +47,7 @@ export const mangataroServerProvider: ServerMangaProvider = {
   imageDelivery: 'direct',
   byteFetchMode: 'proxy',
   commentsFetchMode: 'proxy',
+  runtimeProbeMangaId: '684584',
   searchPageSize: SEARCH_PAGE_SIZE,
 
   async resolveRuntimeHttpClient(page: Page, probeMangaId: string, owner: string): Promise<void> {
@@ -135,8 +136,8 @@ export const mangataroServerProvider: ServerMangaProvider = {
     console.log(`[provider:mangataro] browser-fetch-resolver ${owner} ${probeMangaId} cached=${resolved.cached ? 'yes' : 'no'} ${Date.now() - start}ms`);
   },
 
-  runtimePageUrl(mangaId: string): string {
-    return `${BASE_URL}/manga/${mangaId}`;
+  runtimePageUrl(_mangaId: string): string {
+    return `${BASE_URL}/`;
   },
 
   mangaDetailPath(mangaId: string): string {
@@ -266,7 +267,10 @@ export const mangataroServerProvider: ServerMangaProvider = {
     return `${BASE_URL}/wp-json/wp/v2/manga?per_page=${limit}&page=${page}&_embed=wp:featuredmedia`;
   },
 
-  searchTransport(_url: string) {
+  searchTransport(url: string) {
+    const u = new URL(url, BASE_URL);
+    const isBrowsePage = u.pathname === '/browse' || u.searchParams.has('genre');
+    if (isBrowsePage) return { mode: 'runtime-document' as const, runtimePath: url };
     return { mode: 'proxy' as const };
   },
 

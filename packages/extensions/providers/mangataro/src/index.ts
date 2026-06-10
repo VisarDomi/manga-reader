@@ -91,7 +91,32 @@ const provider: MangaProvider = {
     activeFilters = filters;
   },
 
-  searchRequest(query: string, page: number, _filters?: SearchFilters): HttpRequest {
+  searchRequest(query: string, page: number, filters?: SearchFilters): HttpRequest {
+    const hasFilters = filters && (
+      (filters.includeGenres?.length ?? 0) > 0 ||
+      (filters.excludeGenres?.length ?? 0) > 0 ||
+      (filters.types?.length ?? 0) > 0 ||
+      (filters.statuses?.length ?? 0) > 0
+    );
+
+    if (hasFilters) {
+      // Use browse page with filter params (requires runtime-document)
+      const params = new URLSearchParams();
+      if (query) params.set('s', query);
+      if (filters?.includeGenres) {
+        for (const g of filters.includeGenres) params.append('genre', g);
+      }
+      if (filters?.excludeGenres) {
+        for (const g of filters.excludeGenres) params.append('genre', `-${g}`);
+      }
+      if (filters?.types?.[0]) params.set('type', filters.types[0]);
+      if (filters?.statuses?.[0]) params.set('status', filters.statuses[0]);
+      return {
+        url: `${BASE_URL}/browse?${params}`,
+        method: 'GET' as const,
+      };
+    }
+
     const params = new URLSearchParams();
     params.set('page', String(page));
     params.set('post_type', 'manga');
@@ -105,18 +130,52 @@ const provider: MangaProvider = {
   },
 
   parseSearchResponse(data: unknown): PagedResult<Manga> {
+    // Handle HTML response from runtime-document mode (filtered search)
+    if (typeof data === 'string' || (data && typeof data === 'object' && !Array.isArray(data))) {
+      const html = typeof data === 'string' ? data : String((data as Record<string, unknown>).html ?? '');
+      if (html.length > 100 && html.includes('<')) {
+        const manga: Manga[] = [];
+        const cardPattern = /<a[^>]*href="https:\/\/mangataro\.org\/manga\/([^"]+)"[^>]*>[\s\S]*?<img[^>]*alt="([^"]*)"[^>]*src="([^"]*)"[\s\S]*?<\/a>/gi;
+        let cardMatch: RegExpExecArray | null;
+        while ((cardMatch = cardPattern.exec(html)) !== null) {
+          const slug = cardMatch[1];
+          const title = cardMatch[2];
+          const cover = cardMatch[3];
+          if (slug && title) {
+            manga.push({
+              id: slug,
+              title,
+              cover,
+              latestChapter: null,
+              author: undefined,
+              status: undefined,
+              tags: undefined,
+            });
+          }
+        }
+        return {
+          items: manga,
+          hasMore: manga.length >= 20,
+          pagination: { currentPage: 1, lastPage: manga.length >= 20 ? 5 : 1, total: manga.length * 5 || manga.length },
+        };
+      }
+    }
+
+    // JSON format from proxy mode
     const items = Array.isArray(data) ? data : [];
     const manga = items
       .filter((item): item is Record<string, unknown> => item != null && typeof item === 'object' && !Array.isArray(item))
       .map(parseMangaItem);
 
+    const count = manga.length;
+    const isFullPage = count >= 20;
     return {
       items: manga,
-      hasMore: manga.length >= 24,
+      hasMore: isFullPage,
       pagination: {
         currentPage: 1,
-        lastPage: 1,
-        total: manga.length,
+        lastPage: isFullPage ? 5 : 1,
+        total: isFullPage ? count * 5 : count,
       },
     };
   },
@@ -207,6 +266,31 @@ const provider: MangaProvider = {
   },
 
   parseChapterImagesResponse(data: unknown): ChapterPage[] {
+    // Handle server-enveloped format { status: 'ok', result: { pages: [...] } }
+    if (data && typeof data === 'object') {
+      const d = data as Record<string, unknown>;
+      const result = (d.result ?? d) as Record<string, unknown>;
+      if (Array.isArray(result.pages)) {
+        return result.pages.map((p: unknown) => {
+          const page = p as Record<string, unknown>;
+          const url = String(page.url ?? '');
+          const candidates = Array.isArray(page.candidates)
+            ? page.candidates.filter((c): c is string => typeof c === 'string')
+            : url ? [url] : [];
+          return {
+            url,
+            candidates,
+            criticalCandidates: Array.isArray(page.criticalCandidates)
+              ? page.criticalCandidates.filter((c): c is string => typeof c === 'string')
+              : candidates,
+            width: Number(page.width ?? 0),
+            height: Number(page.height ?? 0),
+            scramble: page.scramble === true,
+          };
+        });
+      }
+    }
+    // Fallback: parse raw HTML string
     const html = typeof data === 'string' ? data : String(data ?? '');
     const urls = new Set<string>();
     const pattern = /https:\/\/mangataro\.yachts\/storage\/chapters\/[a-f0-9]+\/\d+\.webp/g;
