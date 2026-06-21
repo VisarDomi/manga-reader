@@ -47,13 +47,13 @@ if (info) {
 
         // Title: "11 Looking for the Villainess's Contract Husband"
         const seriesTitle = document.title.split(' – ')[0] || slug;
-        document.title = `${chapter} ${seriesTitle}`;
 
         // Wipe
         document.open();
         document.close();
 
         // Styles
+        document.title = `${chapter} ${seriesTitle}`;
         const style = document.createElement('style');
         style.textContent = cssContent;
         document.head.appendChild(style);
