@@ -16,56 +16,61 @@ function waitFor(selector: string): Promise<Element> {
     return promise;
 }
 
+function navBar(slug: string, chapter: number): HTMLDivElement {
+    const bar = document.createElement('div');
+    bar.className = 'hs-chapter-bar';
+    if (chapter > 1) {
+        const a = document.createElement('a');
+        a.className = 'hs-chapter-nav';
+        a.href = `/series/${slug}/chapter-${chapter - 1}`;
+        a.textContent = '← Prev';
+        bar.appendChild(a);
+    }
+    const next = document.createElement('a');
+    next.className = 'hs-chapter-nav';
+    next.href = `/series/${slug}/chapter-${chapter + 1}`;
+    next.textContent = 'Next →';
+    bar.appendChild(next);
+    return bar;
+}
+
 const info = CHAPTER_RE.exec(window.location.pathname);
 if (info) {
     const slug = info[1];
     const chapter = parseInt(info[2]);
 
     void waitFor('.r-page-img').then(() => {
+        // Scrape image srcs
+        const srcs = Array.from(document.querySelectorAll('.r-page-img'))
+            .map(img => (img as HTMLImageElement).src)
+            .filter(Boolean);
+
+        // Title: "11 Looking for the Villainess's Contract Husband"
+        const seriesTitle = document.title.split(' – ')[0] || slug;
+        document.title = `${chapter} ${seriesTitle}`;
+
+        // Wipe
+        document.open();
+        document.close();
+
+        // Styles
         const style = document.createElement('style');
         style.textContent = cssContent;
         document.head.appendChild(style);
 
-        const keep = new Set<Element>();
-        const targets = new Set<Element>();
-        for (const sel of ['.r-strip', 'app-comment-section']) {
-            const target = document.querySelector(sel);
-            if (target) targets.add(target);
-            let el: Element | null = target;
-            while (el && el !== document.documentElement) {
-                keep.add(el);
-                el = el.parentElement;
-            }
+        // Build
+        const wrap = document.createElement('div');
+        wrap.className = 'hs-reader-body';
+        wrap.appendChild(navBar(slug, chapter));
+        for (const src of srcs) {
+            const img = document.createElement('img');
+            img.className = 'hs-reader-img';
+            img.loading = 'lazy';
+            img.src = src;
+            wrap.appendChild(img);
         }
-        function prune(node: Element) {
-            for (const child of Array.from(node.children)) {
-                if (!keep.has(child)) {
-                    (child as HTMLElement).style.display = 'none';
-                } else if (!targets.has(child)) {
-                    prune(child);
-                }
-            }
-        }
-        prune(document.body);
-
-        const strip = document.querySelector<HTMLElement>('.r-strip');
-        if (strip) {
-            strip.addEventListener('click', (e: MouseEvent) => {
-                const rect = strip.getBoundingClientRect();
-                const y = e.clientY - rect.top;
-                const x = e.clientX - rect.left;
-                const navHeight = 60;
-                const isLeft = x < rect.width / 2;
-                if (y < navHeight) {
-                    window.location.href = isLeft
-                        ? `/series/${slug}/chapter-${chapter - 1}`
-                        : `/series/${slug}/chapter-${chapter + 1}`;
-                } else if (y > rect.height - navHeight) {
-                    window.location.href = isLeft
-                        ? `/series/${slug}/chapter-${chapter - 1}`
-                        : `/series/${slug}/chapter-${chapter + 1}`;
-                }
-            });
-        }
+        wrap.appendChild(navBar(slug, chapter));
+        document.body.appendChild(wrap);
+        window.scrollTo(0, 0);
     });
 }
