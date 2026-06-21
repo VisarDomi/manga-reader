@@ -10,6 +10,7 @@
 - Stale tag — prior edit in same session advanced the file. Warning: "Recovered from a stale file hash".
 - Batching edits across multiple files in one call — first edit succeeds, rest get stale hash. Each successful edit invalidates all prior tags.
 - Edit with both "Recovered from stale file hash" AND "line X never displayed" in the same response — some SWAPs in the batch may silently not apply while others do. The response looks successful but the file is unchanged for those lines.
+- `SWAP` replacing lines inside a nested block but omitting closing braces from the range — the replacement body restates only the "interesting" lines and drops the structural `}` or `);` that the range included. Auto-repair may fix brace balance but silently drops unrelated lines. **When in doubt, use `write` to rewrite the whole file instead of fragile multi-line SWAPs.**
 
 ## Passes
 
@@ -21,4 +22,5 @@
 - When inserting code before a closing brace, use `INS.PRE N:` targeting the brace line instead of `SWAP` that swallows it. The brace stays untouched, nothing gets lost.
 - Multi-file refactors: read → edit → verify each file one at a time. Never batch edits on different files in one call.
 
+- For multi-line structural changes (adding/removing functions, reordering blocks), prefer `write` over `SWAP` — it's safer and avoids brace-balance issues.
 - After any edit that produced a warning (stale hash, auto-repair, delimiter-balance), verify with `search` that the intended content actually landed in the file before moving on.
