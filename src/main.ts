@@ -2,18 +2,16 @@ import cssContent from './css/style.css?inline';
 
 const CHAPTER_RE = /^\/series\/([^/]+)\/chapter-(\d+)/;
 
-function waitFor(selector: string): Promise<Element> {
-    const { promise, resolve } = Promise.withResolvers<Element>();
-    function check(): boolean {
-        const el = document.querySelector(selector);
-        if (el) { resolve(el); return true; }
-        return false;
-    }
-    if (!check()) {
-        const obs = new MutationObserver(() => { if (check()) obs.disconnect(); });
-        obs.observe(document.documentElement!, { childList: true, subtree: true });
-    }
-    return promise;
+interface ChapterImage {
+    url: string;
+    order: number;
+    width: number;
+    height: number;
+}
+
+interface ChapterData {
+    images: ChapterImage[];
+    series: { title: string };
 }
 
 function navBar(slug: string, chapter: number): HTMLDivElement {
@@ -39,38 +37,45 @@ if (info) {
     const slug = info[1];
     const chapter = parseInt(info[2]);
 
-    void waitFor('.r-page-img').then(() => {
-        // Scrape image srcs
-        const srcs = Array.from(document.querySelectorAll('.r-page-img'))
-            .map(img => (img as HTMLImageElement).src)
-            .filter(Boolean);
+    void fetch(`https://vapi.ezmanga.org/api/v1/series/${slug}/chapters/chapter-${chapter}`)
+        .then(r => r.json() as Promise<ChapterData>)
+        .then(data => {
+            const seriesTitle = data.series.title;
 
-        // Title: "11 Looking for the Villainess's Contract Husband"
-        const seriesTitle = document.title.split(' – ')[0] || slug;
+            document.open();
+            document.close();
 
-        // Wipe
-        document.open();
-        document.close();
+            document.title = `${chapter} ${seriesTitle}`;
+            const style = document.createElement('style');
+            style.textContent = cssContent;
+            document.head.appendChild(style);
 
-        // Styles
-        document.title = `${chapter} ${seriesTitle}`;
-        const style = document.createElement('style');
-        style.textContent = cssContent;
-        document.head.appendChild(style);
+            const wrap = document.createElement('div');
+            wrap.className = 'hs-reader-body';
+            wrap.appendChild(navBar(slug, chapter));
+            for (let i = 0; i < data.images.length; i++) {
+                const img = document.createElement('img');
+                const imgData = data.images[i];
+                img.id = '#' + (i + 1);
+                img.className = 'hs-reader-img';
+                img.style.aspectRatio = imgData.width + '/' + imgData.height;
+                img.loading = 'lazy';
+                img.src = imgData.url;
+                wrap.appendChild(img);
+            }
+            wrap.appendChild(navBar(slug, chapter));
+            document.body.appendChild(wrap);
 
-        // Build
-        const wrap = document.createElement('div');
-        wrap.className = 'hs-reader-body';
-        wrap.appendChild(navBar(slug, chapter));
-        for (const src of srcs) {
-            const img = document.createElement('img');
-            img.className = 'hs-reader-img';
-            img.loading = 'lazy';
-            img.src = src;
-            wrap.appendChild(img);
-        }
-        wrap.appendChild(navBar(slug, chapter));
-        document.body.appendChild(wrap);
-        window.scrollTo(0, 0);
-    });
+            const restoreImg = document.getElementById(location.hash) as HTMLImageElement;
+            if (restoreImg) {
+                window.scrollTo(0, restoreImg.offsetTop - window.innerHeight / 2);
+            }
+
+            window.addEventListener('scrollend', () => {
+                setTimeout(() => {
+                    const saveImg = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2 + 1) as HTMLImageElement;
+                    history.replaceState(null, '', saveImg.id);
+                }, 100);
+            });
+        });
 }
