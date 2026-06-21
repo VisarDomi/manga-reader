@@ -32,6 +32,13 @@ function navBar(slug: string, chapter: number): HTMLDivElement {
     return bar;
 }
 
+document.open();
+document.close();
+const style = document.createElement('style');
+style.textContent = cssContent;
+document.head.appendChild(style);
+const wrap = document.createElement('div');
+wrap.className = 'hs-reader-body';
 const info = CHAPTER_RE.exec(window.location.pathname);
 if (info) {
     const slug = info[1];
@@ -41,17 +48,8 @@ if (info) {
         .then(r => r.json() as Promise<ChapterData>)
         .then(data => {
             const seriesTitle = data.series.title;
-
-            document.open();
-            document.close();
-
             document.title = `${chapter} ${seriesTitle}`;
-            const style = document.createElement('style');
-            style.textContent = cssContent;
-            document.head.appendChild(style);
 
-            const wrap = document.createElement('div');
-            wrap.className = 'hs-reader-body';
             wrap.appendChild(navBar(slug, chapter));
             for (let i = 0; i < data.images.length; i++) {
                 const img = document.createElement('img');
@@ -73,8 +71,8 @@ if (info) {
 
             window.addEventListener('scrollend', () => {
                 setTimeout(() => {
-                    const saveImg = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2 + 1) as HTMLImageElement;
-                    history.replaceState(null, '', saveImg.id);
+                    const img = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2 + 1) as HTMLImageElement;
+                    history.replaceState(null, '', img.id);
                 }, 100);
             });
         });
