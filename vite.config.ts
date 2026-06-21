@@ -16,7 +16,7 @@ export default defineConfig({
             userscript: {
                 name: `${pkg.name} v${pkg.version}`,
                 namespace: "https://github.com/VisarDomi",
-                description: "Hitomi gallery browser",
+                description: "ezmanga reader takeover",
                 match: ["https://ezmanga.org/*"],
                 "run-at": "document-start",
             },
