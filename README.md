@@ -1,4 +1,4 @@
-# Gallery-reader
+# Manga-reader
 A userscript used for tampermonkey on pc and userscript on ios.
 
 ## What?
