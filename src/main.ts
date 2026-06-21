@@ -7,7 +7,7 @@ function scrape(): Promise<{ srcs: string[]; comments: Element; styles: Element[
 
     function check(): boolean {
         const imgs = document.querySelectorAll('.r-page-img');
-        const comments = document.querySelector('.r-comments-section');
+        const comments = document.querySelector('app-comment-section');
         if (imgs.length > 0 && comments) {
             resolve({
                 srcs: Array.from(imgs).map(i => (i as HTMLImageElement).src).filter(Boolean),
@@ -50,13 +50,13 @@ if (info) {
                 const a = document.createElement('a');
                 a.className = 'hs-chapter-nav';
                 a.href = `/series/${slug}/chapter-${chapter - 1}`;
-                a.textContent = '← Prev chapter';
+                a.textContent = '← Prev';
                 bar.appendChild(a);
             }
             const next = document.createElement('a');
             next.className = 'hs-chapter-nav';
             next.href = `/series/${slug}/chapter-${chapter + 1}`;
-            next.textContent = 'Next chapter →';
+            next.textContent = 'Next →';
             bar.appendChild(next);
             return bar;
         }

@@ -12,6 +12,5 @@ Native navigation is cumbersome.
 
 ## Sites supported
 ```
-https://hitomi.la
-https://imhentai.xxx
+https://ezmanga.org
 ```

@@ -1,5 +1,4 @@
 Start a new session by reading the .md files in tools, they are hard-fought lesson.
-Ignore debug.ts until user requests you to do so.
 
 How to use this repo:
 
