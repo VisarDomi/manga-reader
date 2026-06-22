@@ -63,7 +63,7 @@ export async function open(slug: string, chapter: number): Promise<void> {
     });
 
     const commentsContainer = document.createElement('div');
-    document.body.appendChild(commentsContainer);
+    wrapper.appendChild(commentsContainer);
 
     try {
         const comments = await fetchComments(data.id);
