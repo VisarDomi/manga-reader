@@ -37,3 +37,91 @@ body {
 .hs-chapter-nav:hover {
     background: #2a2a4e;
 }
+
+.hs-comments-section {
+    padding: 18px 16px max(24px, env(safe-area-inset-bottom));
+    border-top: 1px solid #222;
+}
+
+.hs-comments-heading {
+    margin: 0 0 12px;
+    color: #f5f5f5;
+}
+
+.hs-comments-error {
+    padding: 14px 0;
+    color: #888;
+}
+
+.hs-comments-list {
+    display: grid;
+    gap: 10px;
+}
+
+.hs-comment {
+    padding: 10px 0;
+    border-bottom: 1px solid #202020;
+    max-width: 100%;
+    overflow-x: hidden;
+}
+
+.hs-comment-main {
+    display: grid;
+    grid-template-columns: 32px minmax(0, 1fr);
+    gap: 10px;
+}
+
+.hs-comment-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    overflow: hidden;
+    background: #262626;
+    display: grid;
+    place-items: center;
+    color: #aaa;
+    font-weight: 700;
+}
+
+.hs-comment-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.hs-comment-body {
+    min-width: 0;
+    max-width: 100%;
+}
+
+.hs-comment-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+    color: #777;
+}
+
+.hs-comment-author {
+    color: #ddd;
+    font-weight: 700;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+.hs-comment-content {
+    margin-top: 5px;
+    color: #cfcfcf;
+    line-height: 1.45;
+    white-space: pre-line;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    max-width: 100%;
+}
+
+.hs-comment-replies {
+    margin-top: 8px;
+    display: grid;
+    gap: 8px;
+}
