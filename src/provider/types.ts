@@ -10,7 +10,7 @@ export interface ChapterImage {
 }
 
 export interface ChapterData {
-    id: number;
+    id?: number;
     slug: string;
     number: number;
     title: string | null;
@@ -22,6 +22,8 @@ export interface ChapterData {
     requiresPurchase: boolean;
     series: { title: string };
     images: ChapterImage[];
+    prevUrl: string | null;
+    nextUrl: string;
 }
 
 export interface EzComment {
@@ -71,6 +73,6 @@ export interface Provider {
     init(): Promise<void>;
 
     fetchChapter(slug: string, chapter: number): Promise<ChapterData>;
-    fetchComments(chapterId: number): Promise<MangaComment[]>;
+    fetchComments(data: ChapterData): Promise<MangaComment[]>;
     seriesUrl(slug: string): string;
 }

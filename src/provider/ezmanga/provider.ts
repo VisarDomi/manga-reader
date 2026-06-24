@@ -22,11 +22,15 @@ export const provider: Provider = {
         if (!res.ok) throw new Error(`Chapter not found: ${res.status}`);
         const data = await res.json() as ChapterData;
         if (!data.isFree || data.requiresPurchase) throw new Error('Chapter is paid');
-        return data;
+
+        const prev = chapter > 1 ? `https://ezmanga.org/series/${slug}/chapter-${chapter - 1}` : null;
+        const next = `https://ezmanga.org/series/${slug}/chapter-${chapter + 1}`;
+
+        return { ...data, prevUrl: prev, nextUrl: next };
     },
 
-    async fetchComments(chapterId: number): Promise<MangaComment[]> {
-        const rootResponse = await fetch(`${API_BASE}/chapters/${chapterId}/comments`);
+    async fetchComments(data: ChapterData): Promise<MangaComment[]> {
+        const rootResponse = await fetch(`${API_BASE}/chapters/${data.id!}/comments`);
         if (!rootResponse.ok) throw new Error(`Comments fetch failed: ${rootResponse.status}`);
         const rootData = await rootResponse.json() as CommentsResponse;
 

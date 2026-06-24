@@ -1,20 +1,21 @@
 import { cleanDocument } from '../ui/shell';
 import { renderComments } from '../ui/comments';
 import { fetchChapter, fetchComments, seriesUrl } from '../provider';
+import type { ChapterData } from '../provider';
 
-function navBar(slug: string, chapter: number): HTMLDivElement {
+function navBar(data: ChapterData): HTMLDivElement {
     const bar = document.createElement('div');
     bar.className = 'hs-chapter-bar';
-    if (chapter > 1) {
+    if (data.prevUrl) {
         const a = document.createElement('a');
         a.className = 'hs-chapter-nav';
-        a.href = `/series/${slug}/chapter-${chapter - 1}`;
+        a.href = data.prevUrl;
         a.textContent = '← Prev';
         bar.appendChild(a);
     }
     const next = document.createElement('a');
     next.className = 'hs-chapter-nav';
-    next.href = `/series/${slug}/chapter-${chapter + 1}`;
+    next.href = data.nextUrl;
     next.textContent = 'Next →';
     bar.appendChild(next);
     return bar;
@@ -23,7 +24,7 @@ function navBar(slug: string, chapter: number): HTMLDivElement {
 export async function open(slug: string, chapter: number): Promise<void> {
     cleanDocument();
 
-    let data;
+    let data: ChapterData;
     try {
         data = await fetchChapter(slug, chapter);
     } catch {
@@ -36,20 +37,22 @@ export async function open(slug: string, chapter: number): Promise<void> {
     const wrapper = document.createElement('div');
     wrapper.className = 'hs-reader-body';
 
-    wrapper.appendChild(navBar(slug, data.number));
+    wrapper.appendChild(navBar(data));
 
     for (let i = 0; i < data.images.length; i++) {
         const img = document.createElement('img');
         const imgData = data.images[i];
         img.id = `#${i}`;
         img.className = 'hs-reader-img';
-        img.style.aspectRatio = imgData.width + '/' + imgData.height;
+        if (imgData.width && imgData.height) {
+            img.style.aspectRatio = imgData.width + '/' + imgData.height;
+        }
         img.loading = 'lazy';
         img.src = imgData.url;
         wrapper.appendChild(img);
     }
 
-    wrapper.appendChild(navBar(slug, data.number));
+    wrapper.appendChild(navBar(data));
     document.body.appendChild(wrapper);
 
     const restoreImg = document.getElementById(location.hash) as HTMLImageElement | null;
@@ -66,7 +69,7 @@ export async function open(slug: string, chapter: number): Promise<void> {
     wrapper.appendChild(commentsContainer);
 
     try {
-        const comments = await fetchComments(data.id);
+        const comments = await fetchComments(data);
         renderComments(commentsContainer, comments);
     } catch {
         renderComments(commentsContainer, []);
