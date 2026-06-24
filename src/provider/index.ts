@@ -3,13 +3,15 @@ export type { Provider, RouteMatch, ChapterData, ChapterImage, MangaComment } fr
 
 import type { Provider } from './types';
 import { provider as ezmanga } from './ezmanga/provider';
+import { provider as qiscans } from './qiscans/provider';
 
-export const providers = { ezmanga } as const;
+export const providers = { ezmanga, qiscans } as const;
 
 let p: Provider;
 
 export function selectProvider(hostname: string): void {
     if (hostname.includes('ezmanga.org')) p = providers.ezmanga;
+    else if (hostname.includes('qimanga.com')) p = providers.qiscans;
     else throw Error('Unable to select provider');
 }
 
