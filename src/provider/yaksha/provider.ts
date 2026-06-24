@@ -20,7 +20,7 @@ export const provider: Provider = {
     async fetchChapter(slug: string, chapter: number): Promise<ChapterData> {
         const url = chapterUrl(slug, chapter);
         const res = await fetch(url);
-        if (!res.ok) throw new Error(`Chapter not found: ${res.status}`);
+        if (res.redirected || !res.ok) throw new Error('Chapter not found');
         const html = await res.text();
 
         // Scrape image URLs (attribute order varies: src may appear before or after class)
