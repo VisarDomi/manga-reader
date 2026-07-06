@@ -1,21 +1,24 @@
 import css from '../style.css?inline';
 import {ChapterData, fetchChapter, seriesUrl} from '../provider';
 
+const prevSVG = '<svg viewBox="0 0 24 24"><path d="M15 19l-7-7 7-7"/></svg>';
+const nextSVG = '<svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg>';
+
 function navBar(data: ChapterData): HTMLDivElement {
     const bar = document.createElement('div');
-    bar.className = 'hs-chapter-bar';
+    bar.id = 'mr-nav';
     if (data.prevUrl) {
         const prev = document.createElement('a');
-        prev.className = 'hs-chapter-nav';
+        prev.className = 'asura-btn';
         prev.href = data.prevUrl;
-        prev.textContent = '← Prev';
+        prev.innerHTML = `${prevSVG}<span style="line-height:1">Prev</span>`;
         bar.appendChild(prev);
     }
     if (data.nextUrl) {
         const next = document.createElement('a');
-        next.className = 'hs-chapter-nav';
+        next.className = 'asura-btn';
         next.href = data.nextUrl;
-        next.textContent = 'Next →';
+        next.innerHTML = `<span style="line-height:1">Next</span>${nextSVG}`;
         bar.appendChild(next);
     }
     return bar;

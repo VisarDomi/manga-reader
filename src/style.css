@@ -15,27 +15,44 @@ body {
     height: auto;
 }
 
-.hs-chapter-bar {
+#mr-nav {
+    display: flex !important;
+    padding: 32px 16px !important;
+    justify-content: center;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    box-sizing: border-box;
+}
+.asura-btn {
     display: flex;
-    gap: 8px;
-    padding: 0 16px;
-}
-
-.hs-chapter-nav {
     flex: 1;
-    text-align: center;
-    padding: 20px;
-    font-size: 1.5rem;
-    font-weight: bold;
-    color: #fff;
+    max-width: 160px;
+    padding: 14px 0;
+    background-color: rgb(145, 63, 226);
+    color: rgba(255, 255, 255, 0.9);
+    border-radius: 12px;
+    font-size: 16px;
+    font-weight: 500;
+    justify-content: center;
+    align-items: center;
+    gap: 6px;
+    border: none;
+    cursor: pointer;
     text-decoration: none;
-    background: #1a1a2e;
-    border: 2px solid #444;
-    border-radius: 8px;
 }
-
-.hs-chapter-nav:hover {
-    background: #2a2a4e;
+.asura-btn:active { transform: scale(0.98); }
+.asura-btn.disabled {
+    background-color: #333;
+    color: #777;
+    cursor: not-allowed;
+    pointer-events: none;
+    opacity: 0.5;
+}
+.asura-btn svg {
+    width: 20px; height: 20px; flex-shrink: 0;
+    fill: none; stroke: currentColor;
+    stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
 }
 
 .hs-comments-section {
