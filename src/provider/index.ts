@@ -1,10 +1,10 @@
 export { Handler } from './types';
 export type { Provider, RouteMatch, ChapterData, ChapterImage, MangaComment } from './types';
 
-import type { Provider, ChapterData } from './types';
-import { provider as ezmanga } from './ezmanga/provider';
-import { provider as qiscans } from './qiscans/provider';
-import { provider as yaksha } from './yaksha/provider';
+import type { Provider } from './types';
+import { ezmanga as ezmanga } from './ezmanga';
+import { qiscans as qiscans } from './qiscans';
+import { yaksha as yaksha } from './yaksha';
 
 export const providers = { ezmanga, qiscans, yaksha } as const;
 
@@ -23,5 +23,4 @@ export const providerName = () => p.name;
 
 export const matchRoute = (pathname: string, search: string, hash: string) => p.matchRoute(pathname, search, hash);
 export const fetchChapter = (slug: string, chapter: number) => p.fetchChapter(slug, chapter);
-export const fetchComments = (data: ChapterData) => p.fetchComments(data);
 export const seriesUrl = (slug: string) => p.seriesUrl(slug);

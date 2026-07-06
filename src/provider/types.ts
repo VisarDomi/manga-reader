@@ -73,6 +73,5 @@ export interface Provider {
     init(): Promise<void>;
 
     fetchChapter(slug: string, chapter: number): Promise<ChapterData>;
-    fetchComments(data: ChapterData): Promise<MangaComment[]>;
     seriesUrl(slug: string): string;
 }

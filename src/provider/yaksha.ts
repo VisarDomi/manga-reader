@@ -1,10 +1,10 @@
-import type { Provider, RouteMatch, ChapterData, ChapterImage, MangaComment } from '../types';
-import { Handler } from '../types';
+import type { Provider, RouteMatch, ChapterData, ChapterImage } from './types';
+import { Handler } from './types';
 
 const CHAPTER_RE = /^\/manga\/([^/]+)\/chapter-(\d+)/;
 const DOMAIN = 'yakshacomics.com';
 
-export const provider: Provider = {
+export const yaksha: Provider = {
     name: 'yaksha',
 
     matchRoute(pathname: string): RouteMatch | null {
@@ -65,22 +65,6 @@ export const provider: Provider = {
         };
     },
 
-    async fetchComments(data: ChapterData): Promise<MangaComment[]> {
-        const url = chapterUrl(data.slug, data.number);
-        const res = await fetch(url);
-        if (!res.ok) return [];
-        const html = await res.text();
-
-        // Find the comment list
-        const listStart = html.indexOf('<ol class="comment-list">');
-        if (listStart === -1) return [];
-        const listEnd = findMatchingClose(html, listStart, 'ol');
-        if (listEnd === -1) return [];
-        const listHtml = html.slice(listStart, listEnd);
-
-        return parseCommentList(listHtml);
-    },
-
     seriesUrl(slug: string): string {
         return `https://${DOMAIN}/manga/${slug}/`;
     },
@@ -134,104 +118,4 @@ async function getImageDimensions(url: string): Promise<{ width: number; height:
         // ignore
     }
     return null;
-}
-
-// ── WordPress comment scraping ──────────────────────────────────────────
-
-function findMatchingClose(html: string, openIdx: number, tag: string): number {
-    const openTag = `<${tag}`;
-    const closeTag = `</${tag}>`;
-    const tagEnd = html.indexOf('>', openIdx);
-    if (tagEnd === -1) return -1;
-
-    let depth = 1;
-    let pos = tagEnd + 1;
-    while (pos < html.length && depth > 0) {
-        const nextOpen = html.indexOf(openTag, pos);
-        const nextClose = html.indexOf(closeTag, pos);
-
-        if (nextClose === -1) return -1;
-        if (nextOpen !== -1 && nextOpen < nextClose && html[nextOpen + openTag.length] !== '/') {
-            depth++;
-            pos = nextOpen + openTag.length;
-        } else {
-            depth--;
-            if (depth === 0) return nextClose + closeTag.length;
-            pos = nextClose + closeTag.length;
-        }
-    }
-    return -1;
-}
-
-function parseCommentList(html: string): MangaComment[] {
-    const results: MangaComment[] = [];
-    parseCommentsRecursive(html, results);
-    return results;
-}
-
-function parseCommentsRecursive(html: string, parent: MangaComment[]): void {
-    const liRegex = /<li class="[^"]*comment[^"]*"[^>]*id="comment-(\d+)"[^>]*>/g;
-    let m;
-    while ((m = liRegex.exec(html)) !== null) {
-        const commentId = parseInt(m[1]);
-        const liStart = m.index;
-        const liEnd = findMatchingClose(html, liStart, 'li');
-        if (liEnd === -1) continue;
-        const liHtml = html.slice(liStart, liEnd);
-
-        const comment = parseSingleComment(liHtml, commentId);
-        if (!comment) continue;
-
-        // Find children <ol>
-        const childrenStart = liHtml.indexOf('<ol class="children">');
-        if (childrenStart !== -1) {
-            const childrenEnd = findMatchingClose(liHtml, childrenStart, 'ol');
-            if (childrenEnd !== -1) {
-                parseCommentsRecursive(liHtml.slice(childrenStart, childrenEnd), comment.replies);
-            }
-        }
-
-        parent.push(comment);
-    }
-}
-
-function parseSingleComment(html: string, id: number): MangaComment | null {
-    // Author
-    const fnMatch = /<b class="fn">([^<]+)<\/b>/.exec(html);
-    const author = fnMatch ? fnMatch[1].trim() : 'Anonymous';
-
-    // Avatar
-    const avatarMatch = /<img[^>]+class="[^"]*avatar[^"]*"[^>]+src="([^"]+)"/.exec(html);
-    const avatar = avatarMatch ? avatarMatch[1] : null;
-
-    // Date
-    const timeMatch = /<time[^>]+datetime="([^"]+)"/.exec(html);
-    const createdAt = timeMatch ? timeMatch[1] : new Date().toISOString();
-
-    // Content
-    const contentStart = html.indexOf('<div class="comment-content">');
-    let content = '';
-    if (contentStart !== -1) {
-        const contentEnd = html.indexOf('</div>', contentStart);
-        if (contentEnd !== -1) {
-            content = html.slice(contentStart, contentEnd).replace(/<[^>]*>/g, '').trim();
-        }
-    }
-    // Fallback to comment-body
-    if (!content) {
-        const bodyMatch = /<div class="comment-body">([\s\S]*?)<div class="reply"/.exec(html);
-        if (bodyMatch) {
-            content = bodyMatch[1].replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
-        }
-    }
-
-    return {
-        id,
-        author,
-        avatar,
-        content,
-        createdAt,
-        score: 0,
-        replies: [],
-    };
 }

@@ -1,28 +1,29 @@
-import { cleanDocument } from '../ui/shell';
-import { renderComments } from '../ui/comments';
-import { fetchChapter, fetchComments, seriesUrl } from '../provider';
+import { fetchChapter, seriesUrl } from '../provider';
 import type { ChapterData } from '../provider';
 
 function navBar(data: ChapterData): HTMLDivElement {
     const bar = document.createElement('div');
     bar.className = 'hs-chapter-bar';
     if (data.prevUrl) {
-        const a = document.createElement('a');
-        a.className = 'hs-chapter-nav';
-        a.href = data.prevUrl;
-        a.textContent = '← Prev';
-        bar.appendChild(a);
+        const prev = document.createElement('a');
+        prev.className = 'hs-chapter-nav';
+        prev.href = data.prevUrl;
+        prev.textContent = '← Prev';
+        bar.appendChild(prev);
     }
-    const next = document.createElement('a');
-    next.className = 'hs-chapter-nav';
-    next.href = data.nextUrl;
-    next.textContent = 'Next →';
-    bar.appendChild(next);
+    if (data.nextUrl) {
+        const next = document.createElement('a');
+        next.className = 'hs-chapter-nav';
+        next.href = data.nextUrl;
+        next.textContent = 'Next →';
+        bar.appendChild(next);
+    }
     return bar;
 }
 
 export async function open(slug: string, chapter: number): Promise<void> {
-    cleanDocument();
+    document.open();
+    document.close();
 
     let data: ChapterData;
     try {
@@ -64,14 +65,4 @@ export async function open(slug: string, chapter: number): Promise<void> {
             if (saveImg) history.replaceState(null, '', saveImg.id);
         }, 100);
     });
-
-    const commentsContainer = document.createElement('div');
-    wrapper.appendChild(commentsContainer);
-
-    try {
-        const comments = await fetchComments(data);
-        renderComments(commentsContainer, comments);
-    } catch {
-        renderComments(commentsContainer, []);
-    }
 }
