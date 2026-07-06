@@ -34,19 +34,20 @@ export const yaksha: Provider = {
 
         if (srcs.length === 0) throw new Error('Chapter not found');
 
-        // Fetch dimensions in parallel from binary headers
-        const dimResults = await Promise.all(srcs.map(getImageDimensions));
         const images: ChapterImage[] = srcs.map((src, i) => {
-            const dim = dimResults[i];
-            return { url: src, order: i, width: dim?.width ?? 0, height: dim?.height ?? 0 };
+            return { url: src, order: i, width: 0, height: 0 };
         });
 
         // Series title from breadcrumbs (scoped to breadcrumb block)
         const bcMatch = /<ol class="breadcrumb">[\s\S]*?<a[^>]*href="[^"]*\/manga\/[^/]+\/"[^>]*>([^<]+)<\/a>/.exec(html);
         const seriesTitle = bcMatch ? bcMatch[1].trim() : '';
 
-        const prev = chapter > 1 ? chapterUrl(slug, chapter - 1) : null;
-        const next = chapterUrl(slug, chapter + 1);
+        // Scrape actual prev/next links from the chapter page.
+        // HTML: <a href="..." class="btn prev_page">  (href comes before class)
+        const prevHref = /<a[^>]*href="([^"]+)"[^>]*class="[^"]*prev_page/.exec(html);
+        const nextHref = /<a[^>]*href="([^"]+)"[^>]*class="[^"]*next_page/.exec(html);
+        const prev = prevHref?.[1] ?? null;
+        const next = nextHref?.[1] ?? null;
 
         return {
             slug,
@@ -72,50 +73,4 @@ export const yaksha: Provider = {
 
 function chapterUrl(slug: string, chapter: number): string {
     return `https://${DOMAIN}/manga/${slug}/chapter-${chapter}/`;
-}
-
-// ── Image dimension parsing from binary headers ─────────────────────────
-
-async function getImageDimensions(url: string): Promise<{ width: number; height: number } | null> {
-    try {
-        const res = await fetch(url, { headers: { 'Range': 'bytes=0-2047' } });
-        const buffer = new Uint8Array(await res.arrayBuffer());
-
-        // JPEG: FF C0 / FF C2
-        for (let i = 0; i < buffer.length - 9; i++) {
-            if (buffer[i] === 0xFF && (buffer[i + 1] === 0xC0 || buffer[i + 1] === 0xC2)) {
-                return {
-                    width: (buffer[i + 7] << 8) | buffer[i + 8],
-                    height: (buffer[i + 5] << 8) | buffer[i + 6],
-                };
-            }
-        }
-
-        // PNG
-        if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47) {
-            return {
-                width: (buffer[16] << 24) | (buffer[17] << 16) | (buffer[18] << 8) | buffer[19],
-                height: (buffer[20] << 24) | (buffer[21] << 16) | (buffer[22] << 8) | buffer[23],
-            };
-        }
-
-        // WebP
-        if (buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46 &&
-            buffer[8] === 0x57 && buffer[9] === 0x45 && buffer[10] === 0x42 && buffer[11] === 0x50) {
-            const chunk = String.fromCharCode(buffer[12], buffer[13], buffer[14], buffer[15]);
-            if (chunk === 'VP8X') {
-                return {
-                    width: (buffer[24] | (buffer[25] << 8) | (buffer[26] << 16)) + 1,
-                    height: (buffer[27] | (buffer[28] << 8) | (buffer[29] << 16)) + 1,
-                };
-            }
-            if (chunk === 'VP8L' && buffer.length > 24) {
-                const bits = buffer[21] | (buffer[22] << 8) | (buffer[23] << 16) | (buffer[24] << 24);
-                return { width: (bits & 0x3FFF) + 1, height: ((bits >> 14) & 0x3FFF) + 1 };
-            }
-        }
-    } catch {
-        // ignore
-    }
-    return null;
 }

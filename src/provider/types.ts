@@ -23,7 +23,7 @@ export interface ChapterData {
     series: { title: string };
     images: ChapterImage[];
     prevUrl: string | null;
-    nextUrl: string;
+    nextUrl: string | null;
 }
 
 export interface EzComment {

@@ -20,13 +20,14 @@ export const ezmanga: Provider = {
     async fetchChapter(slug: string, chapter: number): Promise<ChapterData> {
         const res = await fetch(`${API_BASE}/series/${slug}/chapters/chapter-${chapter}`);
         if (!res.ok) throw new Error(`Chapter not found: ${res.status}`);
-        const data = await res.json() as ChapterData;
+        const data = await res.json() as ChapterData & { navigation: { prev: { slug: string } | null; next: { slug: string } | null } };
         if (!data.isFree || data.requiresPurchase) throw new Error('Chapter is paid');
 
-        const prev = chapter > 1 ? `https://ezmanga.org/series/${slug}/chapter-${chapter - 1}` : null;
-        const next = `https://ezmanga.org/series/${slug}/chapter-${chapter + 1}`;
-
-        return { ...data, prevUrl: prev, nextUrl: next };
+        return {
+            ...data,
+            prevUrl: data.navigation.prev ? `https://ezmanga.org/series/${slug}/${data.navigation.prev.slug}` : null,
+            nextUrl: data.navigation.next ? `https://ezmanga.org/series/${slug}/${data.navigation.next.slug}` : null,
+        };
     },
 
     seriesUrl(slug: string): string {

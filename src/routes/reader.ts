@@ -1,5 +1,5 @@
-import { fetchChapter, seriesUrl } from '../provider';
-import type { ChapterData } from '../provider';
+import css from '../style.css?inline';
+import {ChapterData, fetchChapter, seriesUrl} from '../provider';
 
 function navBar(data: ChapterData): HTMLDivElement {
     const bar = document.createElement('div');
@@ -24,6 +24,10 @@ function navBar(data: ChapterData): HTMLDivElement {
 export async function open(slug: string, chapter: number): Promise<void> {
     document.open();
     document.close();
+
+    const style = document.createElement('style');
+    style.textContent = css;
+    document.head.appendChild(style);
 
     let data: ChapterData;
     try {
