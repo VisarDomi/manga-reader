@@ -1,5 +1,5 @@
 export { Handler } from './types';
-export type { Provider, RouteMatch, ChapterData, ChapterImage, MangaComment } from './types';
+export type { Provider, RouteMatch, ChapterData, ChapterImage } from './types';
 
 import type { Provider } from './types';
 import { ezmanga as ezmanga } from './ezmanga';

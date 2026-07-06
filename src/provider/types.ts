@@ -26,46 +26,6 @@ export interface ChapterData {
     nextUrl: string | null;
 }
 
-export interface EzComment {
-    id: number;
-    content: string;
-    status: string;
-    isEdited: boolean;
-    upvotes: number;
-    downvotes: number;
-    score: number;
-    parentId: number | null;
-    replyCount: number;
-    author: {
-        id: string;
-        username: string;
-        displayName: string;
-        avatar: string;
-    };
-    userVote: null;
-    deletedAt: string | null;
-    createdAt: string;
-    updatedAt: string;
-}
-
-export interface CommentsResponse {
-    data: EzComment[];
-    totalItems: number;
-    totalPages: number;
-    current: number;
-    next: string | null;
-}
-
-export interface MangaComment {
-    id: number;
-    author: string;
-    avatar: string | null;
-    content: string;
-    createdAt: string;
-    score: number;
-    replies: MangaComment[];
-}
-
 export interface Provider {
     readonly name: string;
 
