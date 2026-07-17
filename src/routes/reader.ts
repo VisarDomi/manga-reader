@@ -9,8 +9,6 @@ import {
     getNextChapter
 } from '../provider';
 
-let _programmatic = false;
-
 function restoreScroll(wrap: HTMLDivElement, target: HTMLImageElement) {
     let cancelled = false;
     const cancel = () => { cancelled = true; };
@@ -26,14 +24,12 @@ function restoreScroll(wrap: HTMLDivElement, target: HTMLImageElement) {
         allLoaded = false;
         img.addEventListener('load', () => {
             if (cancelled) return;
-            _programmatic = true;
             window.scrollTo(0, img.offsetTop + img.offsetHeight - window.innerHeight / 2);
         }, { once: true });
         img.addEventListener('error', () => {}, { once: true });
     }
 
     if (allLoaded) {
-        _programmatic = true;
         window.scrollTo(0, target.offsetTop - window.innerHeight / 2);
     }
 }
@@ -124,8 +120,6 @@ export async function open(slug: string, chapterId: string): Promise<void> {
     // 4. Scroll handler: edge detection + URL update
     window.addEventListener('scrollend', () => {
         setTimeout(() => {
-            if (_programmatic) { _programmatic = false; return; }
-
             if (loading) return;
 
             const saveImg = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2 + 1) as HTMLImageElement;
