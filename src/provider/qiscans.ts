@@ -20,13 +20,14 @@ export const qiscans: Provider = {
     async fetchChapter(slug: string, chapter: string): Promise<ChapterData> {
         const res = await fetch(`${API_BASE}/series/${slug}/chapters/chapter-${chapter}`);
         if (!res.ok) throw new Error(`Chapter not found: ${res.status}`);
-        const data = await res.json() as ChapterData & { navigation: { prev: { slug: string } | null; next: { slug: string } | null } };
+        const data = await res.json() as Record<string, unknown>;
         if (!data.isFree || data.requiresPurchase) throw new Error('Chapter is paid');
+        const nav = (data as { navigation?: { prev?: { slug?: string } | null; next?: { slug?: string } | null } }).navigation;
 
         return {
-            ...data,
-            prevUrl: data.navigation.prev ? `https://qimanga.com/series/${slug}/${data.navigation.prev.slug}` : null,
-            nextUrl: data.navigation.next ? `https://qimanga.com/series/${slug}/${data.navigation.next.slug}` : null,
+            ...(data as unknown as ChapterData),
+            prevUrl: nav?.prev?.slug ? `https://qimanga.com/series/${slug}/${nav.prev.slug}` : null,
+            nextUrl: nav?.next?.slug ? `https://qimanga.com/series/${slug}/${nav.next.slug}` : null,
         };
     },
 
@@ -37,12 +38,8 @@ export const qiscans: Provider = {
         while (hasMore) {
             const res = await fetch(`${API_BASE}/series/${slug}/chapters?perPage=100&page=${page}`);
             if (!res.ok) throw new Error(`Chapter list failed: ${res.status}`);
-            const data = await res.json() as {
-                data: Array<{ slug: string; number: number }>;
-                totalPages: number;
-                next: number | null;
-            };
-            for (const item of data.data) {
+            const data = await res.json() as { data?: Array<{ slug: string; number: number }>; totalPages?: number; next?: number | null };
+            for (const item of data.data ?? []) {
                 chapters.push({ slug: item.slug, number: item.number });
             }
             hasMore = data.next != null;

@@ -9,12 +9,6 @@ import {
 
 // ── helpers ──────────────────────────────────────────────────────────
 
-function imgIdxFromHash(hash: string): number | null {
-    if (!hash || hash === '#') return null;
-    const n = parseInt(hash.replace(/^#/, ''), 10);
-    return Number.isNaN(n) ? null : n;
-}
-
 function chapterPath(chapterStr: string, imgIdx: number): string {
     const currentPath = window.location.pathname;
     if (currentPath.includes('/manga/')) {
@@ -59,24 +53,6 @@ function renderChapterImages(wrap: HTMLDivElement, data: ChapterData): void {
     }
 }
 
-// ── progress persistence ─────────────────────────────────────────────
-
-const PROGRESS_KEY = 'mr-progress';
-
-function saveProgress(slug: string, chapterStr: string, imgIdx: number): void {
-    try {
-        localStorage.setItem(PROGRESS_KEY, JSON.stringify({ slug, chapter: chapterStr, img: imgIdx }));
-    } catch { /* ignore */ }
-}
-
-function loadProgress(): { slug: string; chapter: string; img: number } | null {
-    try {
-        const raw = localStorage.getItem(PROGRESS_KEY);
-        if (!raw) return null;
-        return JSON.parse(raw);
-    } catch { return null; }
-}
-
 // ── main ─────────────────────────────────────────────────────────────
 
 export async function open(slug: string, chapterStr: string): Promise<void> {
@@ -108,22 +84,9 @@ export async function open(slug: string, chapterStr: string): Promise<void> {
     wrapper.appendChild(firstWrap);
 
     // 2. Restore scroll position
-    const imgIdx = imgIdxFromHash(location.hash);
-    if (imgIdx != null) {
-        const el = document.getElementById(`#${imgIdx}`) as HTMLImageElement | null;
-        if (el) {
-            window.scrollTo(0, el.offsetTop - window.innerHeight / 2);
-        }
-    } else {
-        // fallback to localStorage
-        const saved = loadProgress();
-        if (saved && saved.slug === slug && saved.chapter === chapterStr && saved.img != null) {
-            const el = document.getElementById(`#${saved.img}`) as HTMLImageElement | null;
-            if (el) {
-                window.scrollTo(0, el.offsetTop - window.innerHeight / 2);
-            }
-        }
-    }
+    const hash = location.hash;
+    const el = document.getElementById(hash) as HTMLImageElement;
+    if (el) window.scrollTo(0, el.offsetTop - window.innerHeight / 2);
 
     // 3. Async: fetch chapter list and start infinite loading
     let chapterList: ChapterMeta[] = [];
@@ -138,23 +101,14 @@ export async function open(slug: string, chapterStr: string): Promise<void> {
     window.addEventListener('scrollend', () => {
         setTimeout(() => {
             // Determine which image is at viewport center
-            const saveImg = document.elementFromPoint(
-                window.innerWidth / 2,
-                window.innerHeight / 2 + 1,
-            ) as HTMLImageElement | null;
-
-            if (saveImg) {
-                const imgIdx2 = imgIdxFromHash(saveImg.id);
-                if (imgIdx2 != null) {
-                    const chapterWrap = saveImg.closest('.hs-chapter') as HTMLDivElement | null;
-                    const imgChapter = chapterWrap?.dataset.chapter;
-                    saveProgress(slug, imgChapter || chapterStr, imgIdx2);
-                    if (imgChapter && !window.location.pathname.includes(`chapter-${imgChapter}`)) {
-                        history.replaceState(null, '', chapterPath(imgChapter, imgIdx2));
-                    } else {
-                        history.replaceState(null, '', `#${imgIdx2}`);
-                    }
-                }
+            const saveImg = document.elementFromPoint(window.innerWidth / 2,window.innerHeight / 2 + 1) as HTMLImageElement;
+            const chapterWrap = saveImg.closest('.hs-chapter') as HTMLDivElement;
+            const imgChapter = chapterWrap.dataset.chapter as string;
+            if (!window.location.pathname.includes(`chapter-${imgChapter}`)) {
+                // why is there parseInt!!
+                history.replaceState(null, '', chapterPath(imgChapter, parseInt(saveImg.id.slice(1), 10)));
+            } else {
+                history.replaceState(null, '', saveImg.id);
             }
 
             // Edge detection for next chapter
@@ -180,7 +134,7 @@ export async function open(slug: string, chapterStr: string): Promise<void> {
                     renderChapterImages(wrapEl, nextData);
                     wrapper.appendChild(wrapEl);
                 })
-                .catch(() => { /* silently skip failed chapters */ })
+                .catch(err => { console.warn('Failed to load next chapter:', err); })
                 .finally(() => { isLoadingNext = false; });
         }, 100);
     });
