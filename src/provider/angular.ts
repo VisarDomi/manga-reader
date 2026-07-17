@@ -8,7 +8,7 @@ export interface AngularConfig {
 }
 
 export function createAngularProvider({ name, apiBase, siteDomain }: AngularConfig): Provider {
-    const CHAPTER_RE = /^\/series\/([^/]+)\/(chapter-[\d.]+)/;
+    const CHAPTER_RE = /\/([^/]+)\/([^/]+)$/;
 
     return {
         name,

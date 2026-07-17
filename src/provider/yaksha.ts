@@ -1,7 +1,7 @@
 import type { Provider, RouteMatch, ChapterData, ChapterMeta, ChapterImage } from './types';
 import { Handler } from './types';
 
-const CHAPTER_RE = /^\/manga\/([^/]+)\/(chapter-[\d.]+)/;
+const CHAPTER_RE = /\/([^/]+)\/([^/]+)\/?$/;
 const DOMAIN = 'yakshacomics.com';
 
 export const yaksha: Provider = {

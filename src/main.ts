@@ -1,9 +1,7 @@
-import { matchRoute, selectProvider } from './provider';
+import { matchRoute } from './provider';
 import { open } from './routes/reader';
 
-const { pathname, hostname } = window.location;
-selectProvider(hostname);
-const match = matchRoute(pathname);
+const match = matchRoute();
 if (match) {
     void open(match.slug, match.chapter);
 }

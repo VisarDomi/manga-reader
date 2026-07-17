@@ -6,20 +6,18 @@ import { ezmanga as ezmanga } from './ezmanga';
 import { qiscans as qiscans } from './qiscans';
 import { yaksha as yaksha } from './yaksha';
 
-export const providers = { ezmanga, qiscans, yaksha } as const;
+const providers = { ezmanga, qiscans, yaksha } as const;
 
 let p: Provider;
 
-export function selectProvider(hostname: string): void {
+export const matchRoute = () => {
+    const { pathname, hostname } = window.location;
     if (hostname.includes('ezmanga.org')) p = providers.ezmanga;
     else if (hostname.includes('qimanga.com')) p = providers.qiscans;
     else if (hostname.includes('yakshacomics.com')) p = providers.yaksha;
     else throw Error('Unable to select provider');
+    return p.matchRoute(pathname);
 }
-
-export const providerName = () => p.name;
-
-export const matchRoute = (pathname: string) => p.matchRoute(pathname);
 export const fetchChapter = (slug: string, chapterId: string) => p.fetchChapter(slug, chapterId);
 export const fetchChapterList = (slug: string) => p.fetchChapterList(slug);
 export const readerUrl = (slug: string, chapterId: string, imgIdx?: string) => p.readerUrl(slug, chapterId, imgIdx);
