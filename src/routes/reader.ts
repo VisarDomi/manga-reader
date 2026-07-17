@@ -9,7 +9,7 @@ import {
 
 // ── helpers ──────────────────────────────────────────────────────────
 
-function chapterPath(chapterStr: string, imgIdx: number): string {
+function chapterPath(chapterStr: string, imgIdx: string): string {
     const currentPath = window.location.pathname;
     if (currentPath.includes('/manga/')) {
         const base = currentPath.replace(/\/chapter-[^/]+\/.*$/, '');
@@ -23,10 +23,8 @@ function chapterPath(chapterStr: string, imgIdx: number): string {
 
 /** Get the next chapter slug from the sorted metas */
 function nextChapterStr(metas: ChapterMeta[], current: string): string | null {
-    const sorted = [...metas].sort((a, b) => a.number - b.number);
-    const idx = sorted.findIndex(m => m.slug.replace(/^chapter-/, '') === current);
-    if (idx === -1 || idx === sorted.length - 1) return null;
-    return sorted[idx + 1].slug.replace(/^chapter-/, '');
+    const nextIdx = metas.get(current);
+    return metas[nextIdx];
 }
 
 // ── render helpers ───────────────────────────────────────────────────
@@ -89,43 +87,46 @@ export async function open(slug: string, chapterStr: string): Promise<void> {
     if (el) window.scrollTo(0, el.offsetTop - window.innerHeight / 2);
 
     // 3. Async: fetch chapter list and start infinite loading
-    let chapterList: ChapterMeta[] = [];
-    let isLoadingNext = false;
+    let chapterList: ChapterMeta[];
     let loadedChapters = new Set<string>([chapterStr]);
 
-    fetchChapterList(slug).then(list => {
-        chapterList = list;
-    }).catch(() => { /* chapter list is optional for infinite loading */ });
-
+    // TODO:i need a state machine for loading/error/success
+    /* TODO:add a div at the bottom of the document that says this is loading */
+    let isLoadingNext = true;
+    fetchChapterList(slug)
+        .then(list => {
+            chapterList = list;
+        })
+        .catch(err => { /* TODO:add a div at the bottom of the document that says this failed */ })
+        /* TODO:remove loading div */
+        .finally(() => { isLoadingNext = false; });
     // 4. Scroll handler: edge detection + progress save
     window.addEventListener('scrollend', () => {
         setTimeout(() => {
             // Determine which image is at viewport center
             const saveImg = document.elementFromPoint(window.innerWidth / 2,window.innerHeight / 2 + 1) as HTMLImageElement;
             const chapterWrap = saveImg.closest('.hs-chapter') as HTMLDivElement;
-            const imgChapter = chapterWrap.dataset.chapter as string;
-            if (!window.location.pathname.includes(`chapter-${imgChapter}`)) {
-                // why is there parseInt!!
-                history.replaceState(null, '', chapterPath(imgChapter, parseInt(saveImg.id.slice(1), 10)));
+            const chapter = chapterWrap.dataset.chapter as string;
+            if (!window.location.pathname.includes(`chapter-${chapter}`)) {
+                history.replaceState(null, '', chapterPath(chapter, saveImg.id.split("#")[1]));
             } else {
                 history.replaceState(null, '', saveImg.id);
             }
 
             // Edge detection for next chapter
-            if (isLoadingNext || chapterList.length === 0) return;
+            if (isLoadingNext) return;
 
-            const nearBottom = window.scrollY + window.innerHeight >=
-                document.documentElement.scrollHeight - window.innerHeight;
-
+            const nearBottom = window.scrollY + chapterWrap.clientHeight > document.documentElement.scrollHeight;
             if (!nearBottom) return;
 
             // Find the last loaded chapter
-            const lastWrap = wrapper.lastElementChild as HTMLDivElement | null;
-            if (!lastWrap?.dataset.chapter) return;
+            const lastWrap = wrapper.lastElementChild as HTMLDivElement;
+            if (!lastWrap.dataset.chapter) return;
 
             const nextStr = nextChapterStr(chapterList, lastWrap.dataset.chapter);
             if (!nextStr || loadedChapters.has(nextStr)) return;
 
+            /* TODO:add a div at the bottom of the document that says this is loading */
             isLoadingNext = true;
             fetchChapter(slug, nextStr)
                 .then(nextData => {
@@ -134,7 +135,8 @@ export async function open(slug: string, chapterStr: string): Promise<void> {
                     renderChapterImages(wrapEl, nextData);
                     wrapper.appendChild(wrapEl);
                 })
-                .catch(err => { console.warn('Failed to load next chapter:', err); })
+                .catch(err => { /* TODO:add a div at the bottom of the document that says this failed */ })
+                /* TODO:remove loading div */
                 .finally(() => { isLoadingNext = false; });
         }, 100);
     });

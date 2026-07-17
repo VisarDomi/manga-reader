@@ -26,6 +26,7 @@ export interface ChapterData {
     nextUrl: string | null;
 }
 
+/// wrong interface!!!
 export interface ChapterMeta {
     /** chapter slug — e.g. "chapter-42" or "chapter-1.7" */
     slug: string;
