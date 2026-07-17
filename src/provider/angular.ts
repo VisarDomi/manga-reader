@@ -8,7 +8,7 @@ export interface AngularConfig {
 }
 
 export function createAngularProvider({ name, apiBase, siteDomain }: AngularConfig): Provider {
-    const CHAPTER_RE = /^\/series\/([^/]+)\/chapter-([\d.]+)/;
+    const CHAPTER_RE = /^\/series\/([^/]+)\/(chapter-[\d.]+)/;
 
     return {
         name,
@@ -19,12 +19,10 @@ export function createAngularProvider({ name, apiBase, siteDomain }: AngularConf
             return { handler: Handler.Reader, slug: m[1], chapter: m[2] };
         },
 
-        async init(): Promise<void> {
-            // no-op
-        },
+        async init(): Promise<void> { /* no-op */ },
 
-        async fetchChapter(slug: string, chapter: string): Promise<ChapterData> {
-            const res = await fetch(`${apiBase}/series/${slug}/chapters/chapter-${chapter}`);
+        async fetchChapter(slug: string, chapterId: string): Promise<ChapterData> {
+            const res = await fetch(`${apiBase}/series/${slug}/chapters/${chapterId}`);
             if (!res.ok) throw new Error(`Chapter not found: ${res.status}`);
             const data = await res.json() as Record<string, unknown>;
             if (!data.isFree || data.requiresPurchase) throw new Error('Chapter is paid');
@@ -44,7 +42,7 @@ export function createAngularProvider({ name, apiBase, siteDomain }: AngularConf
             while (hasMore) {
                 const res = await fetch(`${apiBase}/series/${slug}/chapters?perPage=100&page=${page}`);
                 if (!res.ok) throw new Error(`Chapter list failed: ${res.status}`);
-                const data = await res.json() as { data?: Array<{ slug: string; number: number }>; totalPages?: number; next?: number | null };
+                const data = await res.json() as { data?: Array<{ slug: string }>; totalPages?: number; next?: number | null };
                 for (const item of data.data ?? []) {
                     chapters.push({ slug: item.slug });
                 }
@@ -52,6 +50,10 @@ export function createAngularProvider({ name, apiBase, siteDomain }: AngularConf
                 page++;
             }
             return chapters;
+        },
+
+        readerUrl(_slug: string, chapterId: string, imgIdx?: string): string {
+            return `https://${siteDomain}/series/${_slug}/${chapterId}${imgIdx ? `#${imgIdx}` : ''}`;
         },
 
         seriesUrl(slug: string): string {

@@ -19,9 +19,8 @@ export function selectProvider(hostname: string): void {
 
 export const providerName = () => p.name;
 
-// ── lazy forwarders ──────────────────────────────────────────────────
-
-export const matchRoute = (pathname: string, search: string, hash: string) => p.matchRoute(pathname, search, hash);
-export const fetchChapter = (slug: string, chapter: string) => p.fetchChapter(slug, chapter);
+export const matchRoute = (pathname: string) => p.matchRoute(pathname);
+export const fetchChapter = (slug: string, chapterId: string) => p.fetchChapter(slug, chapterId);
 export const fetchChapterList = (slug: string) => p.fetchChapterList(slug);
+export const readerUrl = (slug: string, chapterId: string, imgIdx?: string) => p.readerUrl(slug, chapterId, imgIdx);
 export const seriesUrl = (slug: string) => p.seriesUrl(slug);

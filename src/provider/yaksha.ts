@@ -1,7 +1,7 @@
 import type { Provider, RouteMatch, ChapterData, ChapterMeta, ChapterImage } from './types';
 import { Handler } from './types';
 
-const CHAPTER_RE = /^\/manga\/([^/]+)\/chapter-([\d.]+)/;
+const CHAPTER_RE = /^\/manga\/([^/]+)\/(chapter-[\d.]+)/;
 const DOMAIN = 'yakshacomics.com';
 
 export const yaksha: Provider = {
@@ -13,17 +13,14 @@ export const yaksha: Provider = {
         return { handler: Handler.Reader, slug: m[1], chapter: m[2] };
     },
 
-    async init(): Promise<void> {
-        // no-op
-    },
+    async init(): Promise<void> { /* no-op */ },
 
-    async fetchChapter(slug: string, chapter: string): Promise<ChapterData> {
-        const url = chapterUrl(slug, chapter);
+    async fetchChapter(slug: string, chapterId: string): Promise<ChapterData> {
+        const url = `https://${DOMAIN}/manga/${slug}/${chapterId}/`;
         const res = await fetch(url);
         if (res.redirected || !res.ok) throw new Error('Chapter not found');
         const html = await res.text();
 
-        // Scrape image URLs (attribute order varies: src may appear before or after class)
         const srcs: string[] = [];
         const imgTagRe = /<img\b[^>]*\bclass="wp-manga-chapter-img"[^>]*>/g;
         let tagMatch;
@@ -38,19 +35,15 @@ export const yaksha: Provider = {
             return { url: src, order: i, width: 0, height: 0 };
         });
 
-        // Series title from breadcrumbs (scoped to breadcrumb block)
         const bcMatch = /<ol class="breadcrumb">[\s\S]*?<a[^>]*href="[^"]*\/manga\/[^/]+\/"[^>]*>([^<]+)<\/a>/.exec(html);
         const seriesTitle = bcMatch ? bcMatch[1].trim() : '';
 
-        // Scrape actual prev/next links from the chapter page.
         const prevHref = /<a[^>]*href="([^"]+)"[^>]*class="[^"]*prev_page/.exec(html);
         const nextHref = /<a[^>]*href="([^"]+)"[^>]*class="[^"]*next_page/.exec(html);
-        const prev = prevHref?.[1] ?? null;
-        const next = nextHref?.[1] ?? null;
 
         return {
             slug,
-            number: parseFloat(chapter),
+            number: 0,
             title: null,
             content: null,
             cover: '',
@@ -60,8 +53,8 @@ export const yaksha: Provider = {
             requiresPurchase: false,
             series: { title: seriesTitle },
             images,
-            prevUrl: prev,
-            nextUrl: next,
+            prevUrl: prevHref?.[1] ?? null,
+            nextUrl: nextHref?.[1] ?? null,
         };
     },
 
@@ -71,7 +64,6 @@ export const yaksha: Provider = {
         if (!res.ok) throw new Error(`Manga page not found: ${res.status}`);
         const html = await res.text();
 
-        // Scrape chapters from the listing block
         const chapters: ChapterMeta[] = [];
         const liRe = /<li class="wp-manga-chapter[^"]*">[\s\S]*?<a href="([^"]+)">Chapter\s+([\d.]+)<\/a>/g;
         let m;
@@ -81,11 +73,11 @@ export const yaksha: Provider = {
         return chapters;
     },
 
+    readerUrl(_slug: string, chapterId: string, imgIdx?: string): string {
+        return `https://${DOMAIN}/manga/${_slug}/${chapterId}/${imgIdx ? `#${imgIdx}` : ''}`;
+    },
+
     seriesUrl(slug: string): string {
         return `https://${DOMAIN}/manga/${slug}/`;
     },
 };
-
-function chapterUrl(slug: string, chapter: string): string {
-    return `https://${DOMAIN}/manga/${slug}/chapter-${chapter}/`;
-}

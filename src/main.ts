@@ -1,13 +1,9 @@
-import { matchRoute, Handler, selectProvider } from './provider';
+import { matchRoute, selectProvider } from './provider';
 import { open } from './routes/reader';
 
-const { pathname, search, hash, hostname } = window.location;
+const { pathname, hostname } = window.location;
 selectProvider(hostname);
-const match = matchRoute(pathname, search, hash);
+const match = matchRoute(pathname);
 if (match) {
-    switch (match.handler) {
-        case Handler.Reader:
-            void open(match.slug, match.chapter);
-            break;
-    }
+    void open(match.slug, match.chapter);
 }

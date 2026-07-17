@@ -36,7 +36,8 @@ export interface Provider {
     matchRoute(pathname: string): RouteMatch | null;
     init(): Promise<void>;
 
-    fetchChapter(slug: string, chapter: string): Promise<ChapterData>;
+    fetchChapter(slug: string, chapterId: string): Promise<ChapterData>;
     fetchChapterList(slug: string): Promise<ChapterMeta[]>;
+    readerUrl(slug: string, chapterId: string, imgIdx?: string): string;
     seriesUrl(slug: string): string;
 }
