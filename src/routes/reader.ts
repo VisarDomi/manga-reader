@@ -9,24 +9,20 @@ import {
 
 // ── helpers ──────────────────────────────────────────────────────────
 
-function parseHash(hash: string): { chapterStr: string; imgIdx: number } | null {
+function imgIdxFromHash(hash: string): number | null {
     if (!hash || hash === '#') return null;
-    const raw = hash.replace(/^#/, '');
-    const colon = raw.lastIndexOf(':');
-    if (colon === -1) {
-        // legacy format: #<imgIdx>
-        const n = parseInt(raw, 10);
-        if (Number.isNaN(n)) return null;
-        return { chapterStr: '', imgIdx: n };
-    }
-    const chapterStr = raw.slice(0, colon);
-    const n = parseInt(raw.slice(colon + 1), 10);
-    if (Number.isNaN(n)) return null;
-    return { chapterStr, imgIdx: n };
+    const n = parseInt(hash.replace(/^#/, ''), 10);
+    return Number.isNaN(n) ? null : n;
 }
 
-function buildHash(chapterStr: string, imgIdx: number): string {
-    return `#${chapterStr}:${imgIdx}`;
+function chapterPath(chapterStr: string, imgIdx: number): string {
+    const currentPath = window.location.pathname;
+    if (currentPath.includes('/manga/')) {
+        const base = currentPath.replace(/\/chapter-[^/]+\/.*$/, '');
+        return `${base}/chapter-${chapterStr}/#${imgIdx}`;
+    }
+    const base = currentPath.replace(/\/chapter-[^/]+.*$/, '');
+    return `${base}/chapter-${chapterStr}#${imgIdx}`;
 }
 
 // ── chapter index helpers ────────────────────────────────────────────
@@ -52,7 +48,7 @@ function renderChapterImages(wrap: HTMLDivElement, data: ChapterData): void {
     for (let i = 0; i < data.images.length; i++) {
         const img = document.createElement('img');
         const imgData = data.images[i];
-        img.id = buildHash(data.slug.replace(/^chapter-/, ''), i);
+        img.id = `#${i}`;
         img.className = 'hs-reader-img';
         if (imgData.width && imgData.height) {
             img.style.aspectRatio = imgData.width + '/' + imgData.height;
@@ -111,17 +107,21 @@ export async function open(slug: string, chapterStr: string): Promise<void> {
     renderChapterImages(firstWrap, data);
     wrapper.appendChild(firstWrap);
 
-    // 2. Restore scroll position (hash takes priority, then localStorage)
-    const hashTarget = parseHash(location.hash) ?? (() => {
-        const saved = loadProgress();
-        if (!saved || saved.slug !== slug) return null;
-        return { chapterStr: saved.chapter, imgIdx: saved.img };
-    })();
-    if (hashTarget) {
-        const targetId = buildHash(hashTarget.chapterStr || chapterStr, hashTarget.imgIdx);
-        const el = document.getElementById(targetId) as HTMLImageElement | null;
+    // 2. Restore scroll position
+    const imgIdx = imgIdxFromHash(location.hash);
+    if (imgIdx != null) {
+        const el = document.getElementById(`#${imgIdx}`) as HTMLImageElement | null;
         if (el) {
             window.scrollTo(0, el.offsetTop - window.innerHeight / 2);
+        }
+    } else {
+        // fallback to localStorage
+        const saved = loadProgress();
+        if (saved && saved.slug === slug && saved.chapter === chapterStr && saved.img != null) {
+            const el = document.getElementById(`#${saved.img}`) as HTMLImageElement | null;
+            if (el) {
+                window.scrollTo(0, el.offsetTop - window.innerHeight / 2);
+            }
         }
     }
 
@@ -137,18 +137,23 @@ export async function open(slug: string, chapterStr: string): Promise<void> {
     // 4. Scroll handler: edge detection + progress save
     window.addEventListener('scrollend', () => {
         setTimeout(() => {
-            // Save current position to hash
+            // Determine which image is at viewport center
             const saveImg = document.elementFromPoint(
                 window.innerWidth / 2,
                 window.innerHeight / 2 + 1,
             ) as HTMLImageElement | null;
 
             if (saveImg) {
-                const hashParsed = parseHash(saveImg.id);
-                if (hashParsed) {
-                    const cStr = hashParsed.chapterStr || chapterStr;
-                    history.replaceState(null, '', buildHash(cStr, hashParsed.imgIdx));
-                    saveProgress(slug, cStr, hashParsed.imgIdx);
+                const imgIdx2 = imgIdxFromHash(saveImg.id);
+                if (imgIdx2 != null) {
+                    const chapterWrap = saveImg.closest('.hs-chapter') as HTMLDivElement | null;
+                    const imgChapter = chapterWrap?.dataset.chapter;
+                    saveProgress(slug, imgChapter || chapterStr, imgIdx2);
+                    if (imgChapter && !window.location.pathname.includes(`chapter-${imgChapter}`)) {
+                        history.replaceState(null, '', chapterPath(imgChapter, imgIdx2));
+                    } else {
+                        history.replaceState(null, '', `#${imgIdx2}`);
+                    }
                 }
             }
 
