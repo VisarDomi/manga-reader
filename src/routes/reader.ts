@@ -82,8 +82,8 @@ export async function open(slug: string, chapterId: string): Promise<void> {
 
     // 3. Async: fetch chapter list
     let chapterList: ChapterMeta[] = [];
-    const loaded = new Set<ChapterMeta>();
-    loaded.add({slug: chapterId});
+    const loaded = new Set<string>();
+    loaded.add(chapterId);
     let loading = true;
 
     wrapper.appendChild(createStatus('Loading chapters...', 'hs-loading'));
@@ -110,9 +110,9 @@ export async function open(slug: string, chapterId: string): Promise<void> {
             const lastWrap = wrapper.lastElementChild as HTMLDivElement;
             const lastChapter = lastWrap.dataset.chapter as string;
             const next = getNextChapter(chapterList, lastChapter);
-            if (!next || loaded.has(next)) return;
+            if (!next || loaded.has(next.slug)) return;
 
-            loaded.add(next);
+            loaded.add(next.slug);
             loading = true;
             wrapper.appendChild(createStatus('Loading next chapter...', 'hs-loading'));
             fetchChapter(slug, next.slug)
