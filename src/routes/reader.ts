@@ -16,10 +16,12 @@ function restoreScroll(wrap: HTMLDivElement, target: HTMLImageElement) {
 
     const images = Array.from(wrap.querySelectorAll('img'));
     const targetIdx = images.indexOf(target);
+    let allLoaded = true;
 
     for (let i = 0; i <= targetIdx; i++) {
         const img = images[i];
         if (img.complete && img.naturalHeight > 0) continue;
+        allLoaded = false;
         img.addEventListener('load', () => {
             if (cancelled) return;
             _programmatic = true;
@@ -28,8 +30,10 @@ function restoreScroll(wrap: HTMLDivElement, target: HTMLImageElement) {
         img.addEventListener('error', () => {}, { once: true });
     }
 
-    _programmatic = true;
-    window.scrollTo(0, target.offsetTop - window.innerHeight / 2);
+    if (allLoaded) {
+        _programmatic = true;
+        window.scrollTo(0, target.offsetTop - window.innerHeight / 2);
+    }
 }
 
 // ── render helpers ───────────────────────────────────────────────────
@@ -113,32 +117,33 @@ export async function open(slug: string, chapterId: string): Promise<void> {
 
     wrapper.appendChild(createStatus('Loading chapters...', 'hs-loading'));
     fetchChapterList(slug)
-        .then(list => { chapterList = list; })
-        .catch(() => { wrapper.appendChild(createStatus('Failed to load chapter list', 'hs-error')); })
+        .then(list => { console.log('[mr] chapter list:', list.length, 'chapters'); chapterList = list; })
+        .catch(err => { console.warn('[mr] chapter list failed:', err); wrapper.appendChild(createStatus('Failed to load chapter list', 'hs-error')); })
         .finally(() => { clearStatus(); loading = false; });
 
     // 4. Scroll handler: edge detection + URL update
     window.addEventListener('scrollend', () => {
         setTimeout(() => {
-            if (_programmatic) { _programmatic = false; return; }
+            if (_programmatic) { _programmatic = false; console.log('[mr] scrollend: programmatic, skip'); return; }
+
+            if (loading) { console.log('[mr] scrollend: loading, skip'); return; }
 
             const saveImg = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2 + 1) as HTMLImageElement;
             const chapterWrap = saveImg.closest('.hs-chapter') as HTMLDivElement;
             const visibleChapter = chapterWrap.dataset.chapter as string;
 
-            history.replaceState(null, '', readerUrl(slug, visibleChapter, saveImg.id.split("#")[1]));
-
-            // Edge detection for next chapter
-            if (loading) return;
+            history.replaceState(null, '', readerUrl(slug, visibleChapter, saveImg.id.split('#')[1]));
 
             const nearBottom = window.scrollY + chapterWrap.clientHeight > document.documentElement.scrollHeight;
-            if (!nearBottom) return;
+            if (!nearBottom) { console.log('[mr] scrollend: not near bottom, scrollY=' + Math.round(window.scrollY) + ' wrapH=' + chapterWrap.clientHeight + ' scrollH=' + document.documentElement.scrollHeight); return; }
 
             const lastWrap = wrapper.lastElementChild as HTMLDivElement;
             const lastChapter = lastWrap.dataset.chapter as string;
+            console.log('[mr] scrollend: lastChapter=' + lastChapter + ' listLen=' + chapterList.length);
             const next = getNextChapter(chapterList, lastChapter);
-            if (!next || loaded.has(next.slug)) return;
+            if (!next || loaded.has(next.slug)) { console.log('[mr] scrollend: next=' + (next ? next.slug : 'null') + ' loaded=' + (next ? loaded.has(next.slug) : 'n/a')); return; }
 
+            console.log('[mr] loading next:', next.slug);
             loaded.add(next.slug);
             loading = true;
             wrapper.appendChild(createStatus('Loading next chapter...', 'hs-loading'));

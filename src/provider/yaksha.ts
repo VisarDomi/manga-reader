@@ -65,7 +65,7 @@ export const yaksha: Provider = {
         const html = await res.text();
 
         const chapters: ChapterMeta[] = [];
-        const liRe = /<li class="wp-manga-chapter[^"]*">[\s\S]*?<a href="([^"]+)">[\s]*Chapter\s+([\d.]+)<\/a>/g;
+        const liRe = /<li class="wp-manga-chapter[^"]*">[\s\S]*?<a href="([^"]+)">[\s\S]*?Chapter\s+([\d.]+)\s*<\/a>/g;
         let m;
         while ((m = liRe.exec(html)) !== null) {
             chapters.push({ slug: `chapter-${m[2]}` });
