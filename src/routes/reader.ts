@@ -11,27 +11,23 @@ import {
 
 function restoreScroll(wrap: HTMLDivElement, target: HTMLImageElement) {
     let cancelled = false;
-    const cancel = () => { cancelled = true; };
-    window.addEventListener('scroll', cancel, { once: true });
+    window.addEventListener('scroll', () => { cancelled = true; }, { once: true });
 
     const images = Array.from(wrap.querySelectorAll('img'));
     const targetIdx = images.indexOf(target);
-    let allLoaded = true;
+    let ready = true;
 
     for (let i = 0; i <= targetIdx; i++) {
         const img = images[i];
         if (img.complete && img.naturalHeight > 0) continue;
-        allLoaded = false;
+        ready = false;
         img.addEventListener('load', () => {
             if (cancelled) return;
             window.scrollTo(0, img.offsetTop + img.offsetHeight - window.innerHeight / 2);
         }, { once: true });
-        img.addEventListener('error', () => {}, { once: true });
     }
 
-    if (allLoaded) {
-        window.scrollTo(0, target.offsetTop - window.innerHeight / 2);
-    }
+    if (ready) window.scrollTo(0, target.offsetTop - window.innerHeight / 2);
 }
 
 // ── render helpers ───────────────────────────────────────────────────
