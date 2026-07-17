@@ -6,6 +6,7 @@ import {
     fetchChapterList,
     readerUrl,
     seriesUrl,
+    getNextChapter
 } from '../provider';
 
 // ── render helpers ───────────────────────────────────────────────────
@@ -107,9 +108,7 @@ export async function open(slug: string, chapterId: string): Promise<void> {
 
             const lastWrap = wrapper.lastElementChild as HTMLDivElement;
             const lastChapter = lastWrap.dataset.chapter as string;
-
-            const idx = chapterList.findIndex(m => m.slug === lastChapter);
-            const next = chapterList[idx - 1];
+            const next = getNextChapter(chapterList, lastChapter);
             if (!next || loaded.has(next.slug)) return;
 
             loaded.add(next.slug);

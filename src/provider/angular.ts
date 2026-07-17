@@ -59,5 +59,10 @@ export function createAngularProvider({ name, apiBase, siteDomain }: AngularConf
         seriesUrl(slug: string): string {
             return `https://${siteDomain}/series/${slug}`;
         },
+
+        getNextChapter(chapterList: ChapterMeta[], lastChapter: string): ChapterMeta {
+            const idx = chapterList.findIndex(m => m.slug === lastChapter);
+            return chapterList[idx - 1];
+        },
     };
 }

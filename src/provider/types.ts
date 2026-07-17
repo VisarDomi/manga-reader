@@ -40,4 +40,5 @@ export interface Provider {
     fetchChapterList(slug: string): Promise<ChapterMeta[]>;
     readerUrl(slug: string, chapterId: string, imgIdx?: string): string;
     seriesUrl(slug: string): string;
+    getNextChapter(chapterList: ChapterMeta[], lastChapter: string): ChapterMeta;
 }
