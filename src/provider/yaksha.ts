@@ -1,7 +1,7 @@
-import type { Provider, RouteMatch, ChapterData, ChapterImage } from './types';
+import type { Provider, RouteMatch, ChapterData, ChapterMeta, ChapterImage } from './types';
 import { Handler } from './types';
 
-const CHAPTER_RE = /^\/manga\/([^/]+)\/chapter-(\d+)/;
+const CHAPTER_RE = /^\/manga\/([^/]+)\/chapter-([\d.]+)/;
 const DOMAIN = 'yakshacomics.com';
 
 export const yaksha: Provider = {
@@ -10,14 +10,14 @@ export const yaksha: Provider = {
     matchRoute(pathname: string): RouteMatch | null {
         const m = CHAPTER_RE.exec(pathname);
         if (!m) return null;
-        return { handler: Handler.Reader, slug: m[1], chapter: parseInt(m[2]) };
+        return { handler: Handler.Reader, slug: m[1], chapter: m[2] };
     },
 
     async init(): Promise<void> {
         // no-op
     },
 
-    async fetchChapter(slug: string, chapter: number): Promise<ChapterData> {
+    async fetchChapter(slug: string, chapter: string): Promise<ChapterData> {
         const url = chapterUrl(slug, chapter);
         const res = await fetch(url);
         if (res.redirected || !res.ok) throw new Error('Chapter not found');
@@ -43,7 +43,6 @@ export const yaksha: Provider = {
         const seriesTitle = bcMatch ? bcMatch[1].trim() : '';
 
         // Scrape actual prev/next links from the chapter page.
-        // HTML: <a href="..." class="btn prev_page">  (href comes before class)
         const prevHref = /<a[^>]*href="([^"]+)"[^>]*class="[^"]*prev_page/.exec(html);
         const nextHref = /<a[^>]*href="([^"]+)"[^>]*class="[^"]*next_page/.exec(html);
         const prev = prevHref?.[1] ?? null;
@@ -51,7 +50,7 @@ export const yaksha: Provider = {
 
         return {
             slug,
-            number: chapter,
+            number: parseFloat(chapter),
             title: null,
             content: null,
             cover: '',
@@ -66,11 +65,31 @@ export const yaksha: Provider = {
         };
     },
 
+    async fetchChapterList(slug: string): Promise<ChapterMeta[]> {
+        const url = `https://${DOMAIN}/manga/${slug}/`;
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`Manga page not found: ${res.status}`);
+        const html = await res.text();
+
+        // Scrape chapters from the listing block
+        const chapters: ChapterMeta[] = [];
+        const liRe = /<li class="wp-manga-chapter[^"]*">[\s\S]*?<a href="([^"]+)">Chapter\s+([\d.]+)<\/a>/g;
+        let m;
+        while ((m = liRe.exec(html)) !== null) {
+            chapters.push({
+                url: m[1],
+                number: parseFloat(m[2]),
+                slug: `chapter-${m[2]}`,
+            });
+        }
+        return chapters;
+    },
+
     seriesUrl(slug: string): string {
         return `https://${DOMAIN}/manga/${slug}/`;
     },
 };
 
-function chapterUrl(slug: string, chapter: number): string {
+function chapterUrl(slug: string, chapter: string): string {
     return `https://${DOMAIN}/manga/${slug}/chapter-${chapter}/`;
 }

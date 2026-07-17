@@ -1,5 +1,5 @@
 export { Handler } from './types';
-export type { Provider, RouteMatch, ChapterData, ChapterImage } from './types';
+export type { Provider, RouteMatch, ChapterData, ChapterImage, ChapterMeta } from './types';
 
 import type { Provider } from './types';
 import { ezmanga as ezmanga } from './ezmanga';
@@ -22,5 +22,6 @@ export const providerName = () => p.name;
 // ── lazy forwarders ──────────────────────────────────────────────────
 
 export const matchRoute = (pathname: string, search: string, hash: string) => p.matchRoute(pathname, search, hash);
-export const fetchChapter = (slug: string, chapter: number) => p.fetchChapter(slug, chapter);
+export const fetchChapter = (slug: string, chapter: string) => p.fetchChapter(slug, chapter);
+export const fetchChapterList = (slug: string) => p.fetchChapterList(slug);
 export const seriesUrl = (slug: string) => p.seriesUrl(slug);
