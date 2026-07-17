@@ -19,12 +19,15 @@ function chapterPath(chapterStr: string, imgIdx: string): string {
     return `${base}/chapter-${chapterStr}#${imgIdx}`;
 }
 
-// ── chapter index helpers ────────────────────────────────────────────
-
-/** Get the next chapter slug from the sorted metas */
-function nextChapterStr(metas: ChapterMeta[], current: string): string | null {
-    const nextIdx = metas.get(current);
-    return metas[nextIdx];
+/** Map each chapter to the next one, preserving API order. Keys are the raw number string (e.g. "7", "1.7"). */
+function buildNextMap(list: ChapterMeta[]): Map<string, string> {
+    const map = new Map<string, string>();
+    for (let i = 0; i < list.length - 1; i++) {
+        const a = list[i].slug.replace(/^chapter-/, '');
+        const b = list[i + 1].slug.replace(/^chapter-/, '');
+        map.set(a, b);
+    }
+    return map;
 }
 
 // ── render helpers ───────────────────────────────────────────────────
@@ -49,6 +52,19 @@ function renderChapterImages(wrap: HTMLDivElement, data: ChapterData): void {
         img.src = imgData.url;
         wrap.appendChild(img);
     }
+}
+
+// ── loading / error indicator ────────────────────────────────────────
+
+function createStatus(text: string, className: string): HTMLDivElement {
+    const div = document.createElement('div');
+    div.className = `hs-status ${className}`;
+    div.textContent = text;
+    return div;
+}
+
+function clearStatus(): void {
+    document.querySelector('.hs-status')?.remove();
 }
 
 // ── main ─────────────────────────────────────────────────────────────
@@ -87,28 +103,25 @@ export async function open(slug: string, chapterStr: string): Promise<void> {
     if (el) window.scrollTo(0, el.offsetTop - window.innerHeight / 2);
 
     // 3. Async: fetch chapter list and start infinite loading
-    let chapterList: ChapterMeta[];
+    let nextMap = new Map<string, string>();
     let loadedChapters = new Set<string>([chapterStr]);
 
-    // TODO:i need a state machine for loading/error/success
-    /* TODO:add a div at the bottom of the document that says this is loading */
     let isLoadingNext = true;
+    wrapper.appendChild(createStatus('Loading chapters...', 'hs-loading'));
     fetchChapterList(slug)
-        .then(list => {
-            chapterList = list;
-        })
-        .catch(err => { /* TODO:add a div at the bottom of the document that says this failed */ })
-        /* TODO:remove loading div */
-        .finally(() => { isLoadingNext = false; });
+        .then(list => { nextMap = buildNextMap(list); })
+        .catch(() => { wrapper.appendChild(createStatus('Failed to load chapter list', 'hs-error')); })
+        .finally(() => { clearStatus(); isLoadingNext = false; });
+
     // 4. Scroll handler: edge detection + progress save
     window.addEventListener('scrollend', () => {
         setTimeout(() => {
             // Determine which image is at viewport center
-            const saveImg = document.elementFromPoint(window.innerWidth / 2,window.innerHeight / 2 + 1) as HTMLImageElement;
+            const saveImg = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2 + 1) as HTMLImageElement;
             const chapterWrap = saveImg.closest('.hs-chapter') as HTMLDivElement;
             const chapter = chapterWrap.dataset.chapter as string;
             if (!window.location.pathname.includes(`chapter-${chapter}`)) {
-                history.replaceState(null, '', chapterPath(chapter, saveImg.id.split("#")[1]));
+                history.replaceState(null, '', chapterPath(chapter, saveImg.id.split('#')[1]));
             } else {
                 history.replaceState(null, '', saveImg.id);
             }
@@ -119,15 +132,12 @@ export async function open(slug: string, chapterStr: string): Promise<void> {
             const nearBottom = window.scrollY + chapterWrap.clientHeight > document.documentElement.scrollHeight;
             if (!nearBottom) return;
 
-            // Find the last loaded chapter
             const lastWrap = wrapper.lastElementChild as HTMLDivElement;
-            if (!lastWrap.dataset.chapter) return;
-
-            const nextStr = nextChapterStr(chapterList, lastWrap.dataset.chapter);
+            const nextStr = nextMap.get(lastWrap.dataset.chapter as string);
             if (!nextStr || loadedChapters.has(nextStr)) return;
 
-            /* TODO:add a div at the bottom of the document that says this is loading */
             isLoadingNext = true;
+            wrapper.appendChild(createStatus('Loading next chapter...', 'hs-loading'));
             fetchChapter(slug, nextStr)
                 .then(nextData => {
                     loadedChapters.add(nextStr);
@@ -135,9 +145,8 @@ export async function open(slug: string, chapterStr: string): Promise<void> {
                     renderChapterImages(wrapEl, nextData);
                     wrapper.appendChild(wrapEl);
                 })
-                .catch(err => { /* TODO:add a div at the bottom of the document that says this failed */ })
-                /* TODO:remove loading div */
-                .finally(() => { isLoadingNext = false; });
+                .catch(() => { wrapper.appendChild(createStatus('Failed to load chapter', 'hs-error')); })
+                .finally(() => { clearStatus(); isLoadingNext = false; });
         }, 100);
     });
 }

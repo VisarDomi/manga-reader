@@ -26,20 +26,14 @@ export interface ChapterData {
     nextUrl: string | null;
 }
 
-/// wrong interface!!!
 export interface ChapterMeta {
-    /** chapter slug — e.g. "chapter-42" or "chapter-1.7" */
     slug: string;
-    /** chapter number — float for sub-chapters (e.g. 1.7), integer otherwise */
-    number: number;
-    /** full URL to the chapter page (yaksha only) */
-    url?: string;
 }
 
 export interface Provider {
     readonly name: string;
 
-    matchRoute(pathname: string, search: string, hash: string): RouteMatch | null;
+    matchRoute(pathname: string): RouteMatch | null;
     init(): Promise<void>;
 
     fetchChapter(slug: string, chapter: string): Promise<ChapterData>;

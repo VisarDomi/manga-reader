@@ -18,3 +18,15 @@ body {
 .hs-chapter {
     margin-bottom: 24px;
 }
+
+.hs-status {
+    text-align: center;
+    padding: 20px;
+    font-size: 14px;
+}
+.hs-loading {
+    color: #888;
+}
+.hs-error {
+    color: #ff6b6b;
+}
