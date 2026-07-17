@@ -9,6 +9,29 @@ import {
     getNextChapter
 } from '../provider';
 
+function restoreScroll(wrap: HTMLDivElement, target: HTMLImageElement) {
+    let cancelled = false;
+    const cancel = () => { cancelled = true; };
+    window.addEventListener('scroll', cancel, { once: true });
+
+    const images = Array.from(wrap.querySelectorAll('img'));
+    const targetIdx = images.indexOf(target);
+
+    for (let i = 0; i <= targetIdx; i++) {
+        const img = images[i];
+        if (img.complete && img.naturalHeight > 0) continue;
+        img.addEventListener('load', () => {
+            if (cancelled) return;
+            _programmatic = true;
+            window.scrollTo(0, img.offsetTop + img.offsetHeight - window.innerHeight / 2);
+        }, { once: true });
+        img.addEventListener('error', () => {}, { once: true });
+    }
+
+    _programmatic = true;
+    window.scrollTo(0, target.offsetTop - window.innerHeight / 2);
+}
+
 // ── render helpers ───────────────────────────────────────────────────
 
 function createChapterWrapper(chapterId: string): HTMLDivElement {
@@ -48,6 +71,8 @@ function clearStatus(): void {
 
 // ── main ─────────────────────────────────────────────────────────────
 
+let _programmatic = false;
+
 export async function open(slug: string, chapterId: string): Promise<void> {
     document.open();
     document.close();
@@ -77,8 +102,8 @@ export async function open(slug: string, chapterId: string): Promise<void> {
 
     // 2. Restore scroll position
     const hash = location.hash;
-    const el = document.getElementById(hash) as HTMLImageElement;
-    if (el) window.scrollTo(0, el.offsetTop - window.innerHeight / 2);
+    const target = document.getElementById(hash) as HTMLImageElement | null;
+    if (target) restoreScroll(firstWrap, target);
 
     // 3. Async: fetch chapter list
     let chapterList: ChapterMeta[] = [];
@@ -95,6 +120,8 @@ export async function open(slug: string, chapterId: string): Promise<void> {
     // 4. Scroll handler: edge detection + URL update
     window.addEventListener('scrollend', () => {
         setTimeout(() => {
+            if (_programmatic) { _programmatic = false; return; }
+
             const saveImg = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2 + 1) as HTMLImageElement;
             const chapterWrap = saveImg.closest('.hs-chapter') as HTMLDivElement;
             const visibleChapter = chapterWrap.dataset.chapter as string;
