@@ -81,7 +81,8 @@ export const yaksha: Provider = {
         return `https://${DOMAIN}/manga/${slug}/`;
     },
 
-    getNextChapter(chapterList: ChapterMeta[], lastChapter: string): string {
-        return null;
+    getNextChapter(chapterList: ChapterMeta[], lastChapter: string): ChapterMeta {
+        const idx = chapterList.findIndex(m => m.slug === lastChapter);
+        return chapterList[idx - 1];
     },
 };
