@@ -1,0 +1,107 @@
+import type { Provider, RouteMatch, ChapterData, ChapterMeta, ChapterImage } from './types';
+import { Handler } from './types';
+
+const CHAPTER_RE = /^\/series\/([^/]+)\/(chapter-\d+)\/?$/;
+const DOMAIN = 'luacomic.org';
+
+export const lua: Provider = {
+    name: 'lua',
+
+    matchRoute(pathname: string): RouteMatch | null {
+        const m = CHAPTER_RE.exec(pathname);
+        if (!m) return null;
+        return { handler: Handler.Reader, slug: m[1], chapter: m[2] };
+    },
+
+    async init(): Promise<void> { /* no-op */ },
+
+    async fetchChapter(slug: string, chapterId: string): Promise<ChapterData> {
+        const url = `https://${DOMAIN}/series/${slug}/${chapterId}`;
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`Chapter not found: ${res.status}`);
+        const html = await res.text();
+
+        // Extract chapter images — <img> tags with media.luacomic.org/uploads/series/ in src
+        const srcs: string[] = [];
+        const imgRe = /<img\b[^>]*\bsrc="(https:\/\/media\.luacomic\.org\/file\/[^"]*\/uploads\/series\/[^"]+\.(?:webp|jpg|png)[^"]*)"[^>]*>/g;
+        let m;
+        while ((m = imgRe.exec(html)) !== null) {
+            srcs.push(m[1].trim().replace(/\s+/g, ''));
+        }
+
+        if (srcs.length === 0) throw new Error('No chapter images found');
+
+        const images: ChapterImage[] = srcs.map((src, i) => ({
+            url: src,
+            order: i,
+            width: 0,
+            height: 0,
+        }));
+
+        // Extract series title from <title> — format: "Series Title - Chapter N - Lua Comic"
+        const titleMatch = /<title>([^-]+?)\s*-\s*Chapter\s+\d+\s*-\s*Lua Comic<\/title>/i.exec(html);
+        const seriesTitle = titleMatch ? titleMatch[1].trim() : '';
+
+        // Extract prev/next — <a><button>...Previous/Next</button></a> structure
+        const prevMatch = /<a\b[^>]*href="(\/series\/[^/]+\/chapter-\d+)"[^>]*><button[^>]*>(?:(?!<\/button>)[\s\S])*?Previous/i.exec(html);
+        const nextMatch = /<a\b[^>]*href="(\/series\/[^/]+\/chapter-\d+)"[^>]*><button[^>]*>(?:(?!<\/button>)[\s\S])*?Next/i.exec(html);
+
+        return {
+            slug,
+            number: 0,
+            title: null,
+            content: null,
+            cover: '',
+            publishStatus: 'PUBLIC',
+            price: 0,
+            isFree: true,
+            requiresPurchase: false,
+            series: { title: seriesTitle },
+            images,
+            prevUrl: prevMatch ? `https://${DOMAIN}${prevMatch[1]}` : null,
+            nextUrl: nextMatch ? `https://${DOMAIN}${nextMatch[1]}` : null,
+        };
+    },
+
+    async fetchChapterList(slug: string): Promise<ChapterMeta[]> {
+        // Get series ID from the series API
+        const seriesRes = await fetch(`https://api.${DOMAIN}/series/${slug}`);
+        if (!seriesRes.ok) throw new Error(`Series not found: ${seriesRes.status}`);
+        const seriesData = await seriesRes.json() as { id: number };
+        const seriesId = seriesData.id;
+
+        const chapters: ChapterMeta[] = [];
+        let page = 1;
+        let hasMore = true;
+        while (hasMore) {
+            const res = await fetch(
+                `https://api.${DOMAIN}/chapter/query?page=${page}&perPage=100&order=desc&series_id=${seriesId}`
+            );
+            if (!res.ok) throw new Error(`Chapter list failed: ${res.status}`);
+            const data = await res.json() as {
+                meta: { total: number; last_page: number };
+                data: Array<{ chapter_slug: string }>;
+            };
+            for (const item of data.data) {
+                chapters.push({ slug: item.chapter_slug });
+            }
+            hasMore = page < data.meta.last_page;
+            page++;
+        }
+        return chapters;
+    },
+
+    readerUrl(_slug: string, chapterId: string, imgIdx?: string): string {
+        return `https://${DOMAIN}/series/${_slug}/${chapterId}${imgIdx ? `#${imgIdx}` : ''}`;
+    },
+
+    seriesUrl(slug: string): string {
+        return `https://${DOMAIN}/series/${slug}`;
+    },
+
+    getNextChapter(chapterList: ChapterMeta[], lastChapter: string): ChapterMeta {
+        const idx = chapterList.findIndex(m => m.slug === lastChapter);
+        return chapterList[idx - 1];
+    },
+};
+
