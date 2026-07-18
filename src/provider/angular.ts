@@ -1,17 +1,13 @@
-import type { Provider, RouteMatch, ChapterData, ChapterMeta } from './types';
+import type { Provider, RouteMatch, ChapterMeta } from './types';
 import { Handler } from './types';
+import { Site, SITE_CONFIG } from '../sites';
 
-export interface AngularConfig {
-    name: string;
-    apiBase: string;
-    siteDomain: string;
-}
-
-export function createAngularProvider({ name, apiBase, siteDomain }: AngularConfig): Provider {
+export function createAngularProvider(site: Site): Provider {
+    const { domain, apiBase } = SITE_CONFIG[site];
     const CHAPTER_RE = /\/([^/]+)\/([^/]+)$/;
 
     return {
-        name,
+        name: site,
 
         matchRoute(pathname: string): RouteMatch | null {
             const m = CHAPTER_RE.exec(pathname);
@@ -21,7 +17,7 @@ export function createAngularProvider({ name, apiBase, siteDomain }: AngularConf
 
         async init(): Promise<void> { /* no-op */ },
 
-        async fetchChapter(slug: string, chapterId: string): Promise<ChapterData> {
+        async fetchChapter(slug: string, chapterId: string): Promise<import('./types').ChapterData> {
             const res = await fetch(`${apiBase}/series/${slug}/chapters/${chapterId}`);
             if (!res.ok) throw new Error(`Chapter not found: ${res.status}`);
             const data = await res.json() as Record<string, unknown>;
@@ -29,9 +25,9 @@ export function createAngularProvider({ name, apiBase, siteDomain }: AngularConf
             const nav = (data as { navigation?: { prev?: { slug?: string } | null; next?: { slug?: string } | null } }).navigation;
 
             return {
-                ...(data as unknown as ChapterData),
-                prevUrl: nav?.prev?.slug ? `https://${siteDomain}/series/${slug}/${nav.prev.slug}` : null,
-                nextUrl: nav?.next?.slug ? `https://${siteDomain}/series/${slug}/${nav.next.slug}` : null,
+                ...(data as unknown as import('./types').ChapterData),
+                prevUrl: nav?.prev?.slug ? `https://${domain}/series/${slug}/${nav.prev.slug}` : null,
+                nextUrl: nav?.next?.slug ? `https://${domain}/series/${slug}/${nav.next.slug}` : null,
             };
         },
 
@@ -53,11 +49,11 @@ export function createAngularProvider({ name, apiBase, siteDomain }: AngularConf
         },
 
         readerUrl(_slug: string, chapterId: string, imgIdx?: string): string {
-            return `https://${siteDomain}/series/${_slug}/${chapterId}${imgIdx ? `#${imgIdx}` : ''}`;
+            return `https://${domain}/series/${_slug}/${chapterId}${imgIdx ? `#${imgIdx}` : ''}`;
         },
 
         seriesUrl(slug: string): string {
-            return `https://${siteDomain}/series/${slug}`;
+            return `https://${domain}/series/${slug}`;
         },
 
         getNextChapter(chapterList: ChapterMeta[], lastChapter: string): ChapterMeta {

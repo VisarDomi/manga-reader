@@ -1,11 +1,12 @@
 import type { Provider, RouteMatch, ChapterData, ChapterMeta, ChapterImage } from './types';
 import { Handler } from './types';
+import { Site, SITE_CONFIG } from '../sites';
 
-const DOMAIN = 'valirscans.org';
+const DOMAIN = SITE_CONFIG[Site.ValirScans].domain;
 const CHAPTER_RE = /^\/series\/comic\/([^/]+)\/chapter\/(\d+)/;
 
 export const valir: Provider = {
-    name: 'valir',
+    name: Site.ValirScans,
 
     matchRoute(pathname: string): RouteMatch | null {
         const m = CHAPTER_RE.exec(pathname);

@@ -1,9 +1,10 @@
 import type { Provider, RouteMatch, ChapterData, ChapterMeta, ChapterImage } from './types';
 import { Handler } from './types';
+import { Site, SITE_CONFIG } from '../sites';
 
 const CHAPTER_RE = /^\/comics\/([^/]+)\/chapter\/(\d+)/;
-const DOMAIN = 'asurascans.com';
-const API_BASE = 'https://api.asurascans.com/api';
+const DOMAIN = SITE_CONFIG[Site.AsuraScans].domain;
+const API_BASE = SITE_CONFIG[Site.AsuraScans].apiBase!;
 
 interface AsuraPage {
     url: string;
@@ -26,7 +27,7 @@ interface AsuraChapterResponse {
 }
 
 export const asura: Provider = {
-    name: 'asura',
+    name: Site.AsuraScans,
 
     matchRoute(pathname: string): RouteMatch | null {
         const m = CHAPTER_RE.exec(pathname);

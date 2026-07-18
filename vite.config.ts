@@ -1,6 +1,7 @@
 import { defineConfig } from "vite";
 import monkey from "vite-plugin-monkey";
 import pkg from "./package.json";
+import { Site, userscriptMatch } from "./src/sites";
 
 export default defineConfig({
     build: {
@@ -17,14 +18,7 @@ export default defineConfig({
                 name: `${pkg.name} v${pkg.version}`,
                 namespace: "https://github.com/VisarDomi",
                 description: "manga reader takeover",
-                match: [
-                    "https://ezmanga.org/*",
-                    "https://qimanga.com/*",
-                    "https://valirscans.org/*",
-                    "https://yakshacomics.com/*",
-                    "https://davemangascans.xyz/*",
-                    "https://cubari.moe/read/gist/*"
-                ],
+                match: Object.values(Site).map(userscriptMatch),
                 "run-at": "document-start",
             },
         }),

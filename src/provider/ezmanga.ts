@@ -1,7 +1,4 @@
 import { createAngularProvider } from './angular';
+import { Site } from '../sites';
 
-export const ezmanga = createAngularProvider({
-    name: 'ezmanga',
-    apiBase: 'https://vapi.ezmanga.org/api/v1',
-    siteDomain: 'ezmanga.org',
-});
+export const ezmanga = createAngularProvider(Site.EZManga);

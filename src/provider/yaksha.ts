@@ -1,11 +1,12 @@
 import type { Provider, RouteMatch, ChapterData, ChapterMeta, ChapterImage } from './types';
 import { Handler } from './types';
+import { Site, SITE_CONFIG } from '../sites';
 
 const CHAPTER_RE = /\/([^/]+)\/([^/]+)\/?$/;
-const DOMAIN = 'yakshacomics.com';
+const DOMAIN = SITE_CONFIG[Site.YakshaComics].domain;
 
 export const yaksha: Provider = {
-    name: 'yaksha',
+    name: Site.YakshaComics,
 
     matchRoute(pathname: string): RouteMatch | null {
         const m = CHAPTER_RE.exec(pathname);

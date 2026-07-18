@@ -1,7 +1,4 @@
 import { createAngularProvider } from './angular';
+import { Site } from '../sites';
 
-export const qiscans = createAngularProvider({
-    name: 'qiscans',
-    apiBase: 'https://api.qimanga.com/api/v1',
-    siteDomain: 'qimanga.com',
-});
+export const qiscans = createAngularProvider(Site.QIManga);
