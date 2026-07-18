@@ -2,9 +2,9 @@ export { Handler } from './types';
 export type { Provider, RouteMatch, ChapterData, ChapterImage, ChapterMeta } from './types';
 
 import type {ChapterMeta, Provider} from './types';
-import { ezmanga as ezmanga } from './ezmanga';
-import { qiscans as qiscans } from './qiscans';
-import { yaksha as yaksha } from './yaksha';
+import { ezmanga } from './ezmanga';
+import { qiscans } from './qiscans';
+import { yaksha } from './yaksha';
 
 const providers = { ezmanga, qiscans, yaksha } as const;
 
