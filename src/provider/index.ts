@@ -2,21 +2,22 @@ export { Handler } from './types';
 export type { Provider, RouteMatch, ChapterData, ChapterImage, ChapterMeta } from './types';
 
 import type {ChapterMeta, Provider} from './types';
-import { asura } from './asura';
 import { ezmanga } from './ezmanga';
 import { qiscans } from './qiscans';
 import { yaksha } from './yaksha';
+import { davecubari } from './davecubari';
 
-const providers = { asura, ezmanga, qiscans, yaksha } as const;
+const providers = { ezmanga, qiscans, yaksha, davecubari } as const;
 
 let p: Provider;
 
 export const matchRoute = () => {
     const { pathname, hostname } = window.location;
     if (hostname.includes('ezmanga.org')) p = providers.ezmanga;
-    else if (hostname.includes('asurascans.com')) p = providers.asura;
     else if (hostname.includes('qimanga.com')) p = providers.qiscans;
     else if (hostname.includes('yakshacomics.com')) p = providers.yaksha;
+    else if (hostname.includes('davemangascans.xyz')) p = providers.davecubari;
+    else if (hostname.includes('cubari.moe')) p = providers.davecubari;
     else throw Error('Unable to select provider');
     return p.matchRoute(pathname);
 }
