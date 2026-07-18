@@ -17,14 +17,23 @@ function restoreScroll(wrap: HTMLDivElement, target: HTMLImageElement) {
     const targetIdx = images.indexOf(target);
     let ready = true;
 
+    function scrollToContiguous() {
+        let end = -1;
+        while (end + 1 <= targetIdx && images[end + 1].complete && images[end + 1].naturalHeight > 0) {
+            end++;
+        }
+        if (end >= 0 && !cancelled) {
+            const img = images[end];
+            window.scrollTo(0, img.offsetTop + img.offsetHeight - window.innerHeight / 2);
+        }
+    }
+
     for (let i = 0; i <= targetIdx; i++) {
         const img = images[i];
         if (img.complete && img.naturalHeight > 0) continue;
         ready = false;
-        img.addEventListener('load', () => {
-            if (cancelled) return;
-            window.scrollTo(0, img.offsetTop + img.offsetHeight - window.innerHeight / 2);
-        }, { once: true });
+        img.addEventListener('load', scrollToContiguous, { once: true });
+        img.addEventListener('error', scrollToContiguous, { once: true });
     }
 
     if (ready) window.scrollTo(0, target.offsetTop - window.innerHeight / 2);
