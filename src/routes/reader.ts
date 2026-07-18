@@ -19,8 +19,8 @@ function restoreScroll(wrap: HTMLDivElement, target: HTMLImageElement) {
 
     function scrollToContiguous() {
         let end = -1;
-        while (end + 1 <= targetIdx && images[end + 1].complete && images[end + 1].naturalHeight > 0) {
-            end++;
+        for (let i = 0; i <= targetIdx && images[i].complete; i++) {
+            end = i;
         }
         if (end >= 0 && !cancelled) {
             const img = images[end];
