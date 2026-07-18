@@ -17,7 +17,7 @@ export default defineConfig({
                 name: `${pkg.name} v${pkg.version}`,
                 namespace: "https://github.com/VisarDomi",
                 description: "manga reader takeover",
-                match: ["https://ezmanga.org/*", "https://qimanga.com/*", "https://yakshacomics.com/*"],
+                match: ["https://ezmanga.org/*", "https://qimanga.com/*", "https://yakshacomics.com/*", "https://asurascans.com/*"],
                 "run-at": "document-start",
             },
         }),
