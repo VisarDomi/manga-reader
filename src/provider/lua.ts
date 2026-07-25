@@ -47,7 +47,7 @@ export const lua: Provider = {
         };
     },
 
-    async fetchChapterList(slug: string): Promise<ChapterMeta[]> {
+    async fetchChaptersNewestFirst(slug: string): Promise<ChapterMeta[]> {
         // Get series ID from the series API
         const seriesRes = await fetch(`https://api.${DOMAIN}/series/${slug}`);
         if (!seriesRes.ok) throw new Error(`Series not found: ${seriesRes.status}`);

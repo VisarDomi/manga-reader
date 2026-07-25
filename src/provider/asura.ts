@@ -63,7 +63,7 @@ export const asura: Provider = {
         };
     },
 
-    async fetchChapterList(slug: string): Promise<ChapterMeta[]> {
+    async fetchChaptersNewestFirst(slug: string): Promise<ChapterMeta[]> {
         const res = await fetch(`${API_BASE}/series/${slug}/chapters`);
         if (!res.ok) throw new Error(`Chapter list failed: ${res.status}`);
         const json = await res.json() as { data: Array<{ number: number }> };

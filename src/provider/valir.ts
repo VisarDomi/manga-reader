@@ -97,7 +97,7 @@ export const valir: Provider = {
         };
     },
 
-    async fetchChapterList(slug: string): Promise<ChapterMeta[]> {
+    async fetchChaptersNewestFirst(slug: string): Promise<ChapterMeta[]> {
         // Fetch the first chapter page — it contains the allChapters array for this series
         const pageUrl = `https://${DOMAIN}/series/comic/${slug}/chapter/1`;
         const res = await fetch(pageUrl);
@@ -134,7 +134,7 @@ export const valir: Provider = {
         return `https://${DOMAIN}/series/comic/${slug}`;
     },
 
-    async trackChapter(data: ChapterData, image?: string, chapterList?: ChapterMeta[]): Promise<void> {
+    async trackChapter(data: ChapterData, image?: string, chaptersNewestFirst?: ChapterMeta[]): Promise<void> {
         if (!data.seriesApiId || !data.chapterApiId || image === undefined) return;
 
         const imageIdx = parseInt(image, 10);
@@ -143,11 +143,10 @@ export const valir: Provider = {
 
         const chapters = [{ chapterId: data.chapterApiId, progress }];
 
-        // The list is newest-first, so older chapters follow the current one.
-        if (chapterList) {
-            const currentIdx = chapterList.findIndex(ch => ch.chapterId === data.chapterId);
+        if (chaptersNewestFirst) {
+            const currentIdx = chaptersNewestFirst.findIndex(ch => ch.chapterId === data.chapterId);
             if (currentIdx !== -1) {
-                for (const ch of chapterList.slice(currentIdx + 1)) {
+                for (const ch of chaptersNewestFirst.slice(currentIdx + 1)) {
                     if (ch.chapterApiId) chapters.push({ chapterId: ch.chapterApiId, progress: 100 });
                 }
             }

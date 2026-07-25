@@ -24,9 +24,9 @@ export interface ChapterMeta {
 export interface Provider {
     matchRoute(pathname: string): RouteMatch | null;
     fetchChapter(slug: string, chapterId: string): Promise<ChapterData | null>;
-    fetchChapterList(slug: string): Promise<ChapterMeta[]>;
+    fetchChaptersNewestFirst(slug: string): Promise<ChapterMeta[]>;
     readerUrl(slug: string, chapterId: string, imgIdx?: string): string;
     seriesUrl(slug: string): string;
     /** Mark a chapter as read / track reading progress. Optional — no-op by default. */
-    trackChapter?(data: ChapterData, image?: string, chapterList?: ChapterMeta[]): Promise<void>;
+    trackChapter?(data: ChapterData, image?: string, chaptersNewestFirst?: ChapterMeta[]): Promise<void>;
 }

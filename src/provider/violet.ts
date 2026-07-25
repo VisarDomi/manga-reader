@@ -62,7 +62,7 @@ export const violet: Provider = {
         };
     },
 
-    async fetchChapterList(slug: string): Promise<ChapterMeta[]> {
+    async fetchChaptersNewestFirst(slug: string): Promise<ChapterMeta[]> {
         const url = `https://${DOMAIN}/comics/${slug}/`;
         const res = await fetch(url);
         if (!res.ok) throw new Error(`Series page not found: ${res.status}`);

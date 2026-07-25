@@ -26,7 +26,7 @@ export function createAngularProvider(site: keyof typeof SITE_CONFIG): Provider 
             };
         },
 
-        async fetchChapterList(slug: string): Promise<ChapterMeta[]> {
+        async fetchChaptersNewestFirst(slug: string): Promise<ChapterMeta[]> {
             const chapters: ChapterMeta[] = [];
             let page = 1;
             let hasMore = true;

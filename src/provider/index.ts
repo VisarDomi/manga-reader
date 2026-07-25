@@ -29,7 +29,7 @@ export const matchRoute = () => {
 };
 
 export const fetchChapter = async (slug: string, chapterId: string) => p.fetchChapter(slug, chapterId);
-export const trackChapter = async (data: ChapterData, image?: string, chapterList?: ChapterMeta[]) => p.trackChapter?.(data, image, chapterList)
-export const fetchChapterList = async (slug: string) => p.fetchChapterList(slug);
+export const trackChapter = async (data: ChapterData, image?: string, chaptersNewestFirst?: ChapterMeta[]) => p.trackChapter?.(data, image, chaptersNewestFirst)
+export const fetchChaptersNewestFirst = async (slug: string) => p.fetchChaptersNewestFirst(slug);
 export const readerUrl = (slug: string, chapterId: string, imgIdx?: string) => p.readerUrl(slug, chapterId, imgIdx);
 export const seriesUrl = (slug: string) => p.seriesUrl(slug);

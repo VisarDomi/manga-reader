@@ -66,7 +66,7 @@ export const davecubari: Provider = {
         };
     },
 
-    async fetchChapterList(slug: string): Promise<ChapterMeta[]> {
+    async fetchChaptersNewestFirst(slug: string): Promise<ChapterMeta[]> {
         // slug = base64 gist ID
         const url = `https://${CUBARI_DOMAIN}/read/api/gist/series/${slug}/`;
         const res = await fetch(url);

@@ -3,7 +3,7 @@ import {
     type ChapterData,
     type ChapterMeta,
     fetchChapter,
-    fetchChapterList,
+    fetchChaptersNewestFirst,
     trackChapter,
     readerUrl,
     seriesUrl
@@ -88,10 +88,10 @@ function clearStatus(): void {
     (document.querySelector('.hs-status') as HTMLDivElement).remove();
 }
 
-function findNewerChapter(chapterList: ChapterMeta[], currentChapterId: string): ChapterMeta | undefined {
-    const currentIdx = chapterList.findIndex(chapter => chapter.chapterId === currentChapterId);
+function findNewerChapter(chaptersNewestFirst: ChapterMeta[], currentChapterId: string): ChapterMeta | undefined {
+    const currentIdx = chaptersNewestFirst.findIndex(chapter => chapter.chapterId === currentChapterId);
     if (currentIdx === -1) return undefined;
-    return chapterList[currentIdx - 1];
+    return chaptersNewestFirst[currentIdx - 1];
 }
 
 // ── main ─────────────────────────────────────────────────────────────
@@ -130,14 +130,14 @@ export async function open(slug: string, chapterId: string): Promise<void> {
     if (target) restoreScroll(firstWrap, target);
 
     // 3. Async: fetch chapter list
-    let chapterList: ChapterMeta[] = [];
+    let chaptersNewestFirst: ChapterMeta[] = [];
     const loaded = new Set<string>();
     loaded.add(chapterId);
     let loading = true;
 
     wrapper.appendChild(createStatus('Loading chapters...', 'hs-loading'));
-    fetchChapterList(slug)
-        .then(list => { chapterList = list; })
+    fetchChaptersNewestFirst(slug)
+        .then(chapters => { chaptersNewestFirst = chapters; })
         .catch(() => { wrapper.appendChild(createStatus('Failed to load chapter list', 'hs-error')); })
         .finally(() => { clearStatus(); loading = false; });
 
@@ -160,12 +160,12 @@ export async function open(slug: string, chapterId: string): Promise<void> {
 
             const visibleData = chapterData[visibleChapter];
             document.title = `${visibleData.chapterId} ${visibleData.seriesTitle}`;
-            trackChapter(visibleData, image, chapterList);
+            trackChapter(visibleData, image, chaptersNewestFirst);
 
             const lastLoaded = wrapper.lastElementChild as HTMLDivElement;
             if (chapterWrap !== lastLoaded) return;
 
-            const newerChapter = findNewerChapter(chapterList, visibleChapter);
+            const newerChapter = findNewerChapter(chaptersNewestFirst, visibleChapter);
             if (!newerChapter || loaded.has(newerChapter.chapterId)) return;
 
             loaded.add(newerChapter.chapterId);

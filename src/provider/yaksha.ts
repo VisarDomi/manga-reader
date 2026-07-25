@@ -44,7 +44,7 @@ export const yaksha: Provider = {
         };
     },
 
-    async fetchChapterList(slug: string): Promise<ChapterMeta[]> {
+    async fetchChaptersNewestFirst(slug: string): Promise<ChapterMeta[]> {
         const url = `https://${DOMAIN}/manga/${slug}/`;
         const res = await fetch(url);
         if (!res.ok) throw new Error(`Manga page not found: ${res.status}`);
