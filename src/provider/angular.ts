@@ -17,11 +17,18 @@ export function createAngularProvider(site: keyof typeof SITE_CONFIG): Provider 
         async fetchChapter(slug: string, chapterId: string): Promise<import('./types').ChapterData | null> {
             const res = await fetch(`${apiBase}/series/${slug}/chapters/${chapterId}`);
             if (isChapterUnavailable(res)) return null;
-            const data = await res.json() as Record<string, unknown>;
+            const data = await res.json() as {
+                isFree: boolean;
+                requiresPurchase: boolean;
+                images: Array<{ url: string; width?: number; height?: number }>;
+                series: { title: string };
+            };
             if (!data.isFree || data.requiresPurchase) return null;
 
             return {
-                ...(data as unknown as import('./types').ChapterData),
+                chapterId,
+                seriesTitle: data.series.title,
+                images: data.images.map(({ url, width, height }) => ({ url, width, height })),
             };
         },
 

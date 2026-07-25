@@ -1,6 +1,6 @@
 {
   "name": "manga-reader",
-  "version": "185",
+  "version": "186",
   "description": "Userscript to improve ux of supported sites",
   "type": "module",
   "scripts": {
