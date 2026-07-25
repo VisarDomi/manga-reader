@@ -10,24 +10,14 @@ export interface ChapterImage {
 }
 
 export interface ChapterData {
-    id?: number;
     slug: string;
     number: number;
-    title: string | null;
-    content: string | null;
-    cover: string;
-    publishStatus: string;
-    price: number;
-    isFree: boolean;
-    requiresPurchase: boolean;
     series: { title: string };
     /** Series ID, used for tracking/read progress on some providers. */
     seriesId?: number | string;
     /** Chapter ID, used for tracking/views on some providers. */
     chapterNumericId?: number | string;
     images: ChapterImage[];
-    prevUrl: string | null;
-    nextUrl: string | null;
 }
 
 export interface ChapterMeta {

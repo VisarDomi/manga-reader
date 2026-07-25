@@ -58,23 +58,10 @@ export const asura: Provider = {
         return {
             slug,
             number: data.chapter.number,
-            title: null,
-            content: null,
-            cover: data.series.cover,
-            publishStatus: 'PUBLIC',
-            price: 0,
-            isFree: true,
-            requiresPurchase: false,
             series: { title: data.series.title },
             seriesId: data.series.id,
             chapterNumericId: data.chapter.id,
             images,
-            prevUrl: data.prev_chapter
-                ? `https://${DOMAIN}/comics/${slug}/chapter/${data.prev_chapter.number}`
-                : null,
-            nextUrl: data.next_chapter
-                ? `https://${DOMAIN}/comics/${slug}/chapter/${data.next_chapter.number}`
-                : null,
         };
     },
 

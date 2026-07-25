@@ -7,8 +7,6 @@ const CHAPTER_RE = /^\/(.+)-chapter-(\d+(?:\.\d+)?)\/?$/;
 const DOMAIN = SITE_CONFIG['scythescans'].domain;
 
 interface TsReaderData {
-    prevUrl?: string;
-    nextUrl?: string;
     sources?: Array<{ images?: string[] }>;
 }
 
@@ -23,7 +21,7 @@ export const scythe: Provider = {
 
     async init(): Promise<void> { /* no-op */ },
 
-    async fetchChapter(_slug: string, chapterId: string): Promise<ChapterData> {
+    async fetchChapter(slug: string, chapterId: string): Promise<ChapterData> {
         const url = `https://${DOMAIN}/${chapterId}/`;
         const res = await fetch(url);
         if (!res.ok) throw new Error('Chapter not found');
@@ -64,19 +62,10 @@ export const scythe: Provider = {
         const seriesTitle = seriesMatch ? seriesMatch[1].trim() : '';
 
         return {
-            slug: _slug,
+            slug,
             number: 0,
-            title: null,
-            content: null,
-            cover: '',
-            publishStatus: 'PUBLIC',
-            price: 0,
-            isFree: true,
-            requiresPurchase: false,
             series: { title: seriesTitle },
             images,
-            prevUrl: tsData.prevUrl ?? null,
-            nextUrl: tsData.nextUrl || null,
         };
     },
 

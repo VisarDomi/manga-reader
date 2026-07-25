@@ -20,12 +20,9 @@ export function createAngularProvider(site: keyof typeof SITE_CONFIG): Provider 
             if (!res.ok) throw new Error(`Chapter not found: ${res.status}`);
             const data = await res.json() as Record<string, unknown>;
             if (!data.isFree || data.requiresPurchase) throw new Error('Chapter is paid');
-            const nav = (data as { navigation?: { prev?: { slug?: string } | null; next?: { slug?: string } | null } }).navigation;
 
             return {
                 ...(data as unknown as import('./types').ChapterData),
-                prevUrl: nav?.prev?.slug ? `https://${domain}/series/${slug}/${nav.prev.slug}` : null,
-                nextUrl: nav?.next?.slug ? `https://${domain}/series/${slug}/${nav.next.slug}` : null,
             };
         },
 

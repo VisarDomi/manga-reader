@@ -59,17 +59,8 @@ export const violet: Provider = {
         return {
             slug,
             number: 0,
-            title: null,
-            content: null,
-            cover: '',
-            publishStatus: 'PUBLIC',
-            price: 0,
-            isFree: true,
-            requiresPurchase: false,
             series: { title: seriesTitle },
             images,
-            prevUrl: data.prevUrl || null,
-            nextUrl: data.nextUrl || null,
         };
     },
 

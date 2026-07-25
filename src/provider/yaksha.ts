@@ -38,23 +38,11 @@ export const yaksha: Provider = {
         const bcMatch = /<ol class="breadcrumb">[\s\S]*?<a[^>]*href="[^"]*\/manga\/[^/]+\/"[^>]*>([^<]+)<\/a>/.exec(html);
         const seriesTitle = bcMatch ? bcMatch[1].trim() : '';
 
-        const prevHref = /<a[^>]*href="([^"]+)"[^>]*class="[^"]*prev_page/.exec(html);
-        const nextHref = /<a[^>]*href="([^"]+)"[^>]*class="[^"]*next_page/.exec(html);
-
         return {
             slug,
             number: 0,
-            title: null,
-            content: null,
-            cover: '',
-            publishStatus: 'PUBLIC',
-            price: 0,
-            isFree: true,
-            requiresPurchase: false,
             series: { title: seriesTitle },
             images,
-            prevUrl: prevHref?.[1] ?? null,
-            nextUrl: nextHref?.[1] ?? null,
         };
     },
 

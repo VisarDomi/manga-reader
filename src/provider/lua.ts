@@ -42,24 +42,11 @@ export const lua: Provider = {
         const titleMatch = /<title>([^-]+?)\s*-\s*Chapter\s+\d+\s*-\s*Lua Comic<\/title>/i.exec(html);
         const seriesTitle = titleMatch ? titleMatch[1].trim() : '';
 
-        // Extract prev/next — <a><button>...Previous/Next</button></a> structure
-        const prevMatch = /<a\b[^>]*href="(\/series\/[^/]+\/chapter-\d+)"[^>]*><button[^>]*>(?:(?!<\/button>)[\s\S])*?Previous/i.exec(html);
-        const nextMatch = /<a\b[^>]*href="(\/series\/[^/]+\/chapter-\d+)"[^>]*><button[^>]*>(?:(?!<\/button>)[\s\S])*?Next/i.exec(html);
-
         return {
             slug,
             number: 0,
-            title: null,
-            content: null,
-            cover: '',
-            publishStatus: 'PUBLIC',
-            price: 0,
-            isFree: true,
-            requiresPurchase: false,
             series: { title: seriesTitle },
             images,
-            prevUrl: prevMatch ? `https://${DOMAIN}${prevMatch[1]}` : null,
-            nextUrl: nextMatch ? `https://${DOMAIN}${nextMatch[1]}` : null,
         };
     },
 

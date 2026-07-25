@@ -27,20 +27,12 @@ export const valir: Provider = {
 
         const numericId = chapterMatch[1]; // cuid2 chapter ID
         const chapterNumber = parseInt(chapterMatch[2], 10);
-        const chapterTitle = chapterMatch[3];
 
         // Extract series data
-        const seriesMatch = /\\"series\\":\s*\{[^}]*\\"id\\":\s*\\"([^"\\]+)\\"[^}]*\\"title\\":\s*\\"([^"\\]*)\\"[^}]*\\"coverImage\\":\s*\\"([^"\\]*)\\"/.exec(html);
-        const seriesId = seriesMatch?.[1] ?? '';
-        const seriesTitle = seriesMatch?.[2] ?? '';
-        const coverImage = seriesMatch?.[3] ?? '';
-
-        // Extract navigation
-        const prevMatch = /\\"prevChapter\\":\s*(\d+)/.exec(html);
-        const nextMatch = /\\"nextChapter\\":\s*(\d+|null)/.exec(html);
-        const prevChapter = prevMatch ? parseInt(prevMatch[1], 10) : null;
-        const nextChapterRaw = nextMatch?.[1];
-        const nextChapter = nextChapterRaw && nextChapterRaw !== 'null' ? parseInt(nextChapterRaw, 10) : null;
+        const seriesMatch = /\\"series\\":\s*\{[^}]*\\"id\\":\s*\\"([^"\\]+)\\"[^}]*\\"title\\":\s*\\"([^"\\]*)\\"/.exec(html);
+        if (!seriesMatch) throw new Error('Could not find series data in page');
+        const seriesId = seriesMatch[1];
+        const seriesTitle = seriesMatch[2];
 
         // Extract images from the RSC payload first (free chapters have image URLs embedded)
         const images: ChapterImage[] = [];
@@ -106,19 +98,10 @@ export const valir: Provider = {
         return {
             slug,
             number: chapterNumber,
-            title: chapterTitle || null,
-            content: null,
-            cover: coverImage ? `https://${DOMAIN}${coverImage}` : '',
-            publishStatus: 'PUBLIC',
-            price: 0,
-            isFree: true,
-            requiresPurchase: false,
             series: { title: seriesTitle },
             seriesId,
             chapterNumericId: numericId,
             images,
-            prevUrl: prevChapter ? `/series/comic/${slug}/chapter/${prevChapter}` : null,
-            nextUrl: nextChapter ? `/series/comic/${slug}/chapter/${nextChapter}` : null,
         };
     },
 

@@ -62,17 +62,8 @@ export const davecubari: Provider = {
         return {
             slug,
             number: parseFloat(chapterId) || 0,
-            title: chapterData.title ?? null,
-            content: null,
-            cover: series.cover,
-            publishStatus: 'PUBLIC',
-            price: 0,
-            isFree: true,
-            requiresPurchase: false,
             series: { title: series.title },
             images,
-            prevUrl: null,
-            nextUrl: null,
         };
     },
 
