@@ -75,7 +75,7 @@ export const violet: Provider = {
             const href = m[1];
             const cm = CHAPTER_RE.exec(href);
             if (cm) {
-                chapters.push({ slug: cm[2] });
+                chapters.push({ chapterId: cm[2] });
             }
         }
         return chapters;
@@ -90,7 +90,7 @@ export const violet: Provider = {
     },
 
     getNextChapter(chapterList: ChapterMeta[], lastChapter: string): ChapterMeta {
-        const idx = chapterList.findIndex(m => m.slug === lastChapter);
+        const idx = chapterList.findIndex(m => m.chapterId === lastChapter);
         return chapterList[idx - 1];
     },
 };

@@ -34,7 +34,7 @@ export function createAngularProvider(site: keyof typeof SITE_CONFIG): Provider 
                 if (!res.ok) throw new Error(`Chapter list failed: ${res.status}`);
                 const data = await res.json() as { data?: Array<{ slug: string }>; totalPages?: number; next?: number | null };
                 for (const item of data.data ?? []) {
-                    chapters.push({ slug: item.slug });
+                    chapters.push({ chapterId: item.slug });
                 }
                 hasMore = data.next != null;
                 page++;
@@ -51,7 +51,7 @@ export function createAngularProvider(site: keyof typeof SITE_CONFIG): Provider 
         },
 
         getNextChapter(chapterList: ChapterMeta[], lastChapter: string): ChapterMeta {
-            const idx = chapterList.findIndex(m => m.slug === lastChapter);
+            const idx = chapterList.findIndex(m => m.chapterId === lastChapter);
             return chapterList[idx - 1];
         },
     };

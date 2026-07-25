@@ -20,7 +20,7 @@ export interface ChapterData {
 }
 
 export interface ChapterMeta {
-    slug: string;
+    chapterId: string;
     id?: string;
 }
 

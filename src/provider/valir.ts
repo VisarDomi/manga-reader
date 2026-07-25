@@ -123,7 +123,7 @@ export const valir: Provider = {
             const num = parseInt(m[2], 10);
             if (!seen.has(num)) {
                 seen.add(num);
-                chapters.push({ slug: String(num), id: m[1] });
+                chapters.push({ chapterId: String(num), id: m[1] });
             }
         }
 
@@ -141,7 +141,7 @@ export const valir: Provider = {
     },
 
     getNextChapter(chapterList: ChapterMeta[], lastChapter: string): ChapterMeta {
-        const idx = chapterList.findIndex(m => m.slug === lastChapter);
+        const idx = chapterList.findIndex(m => m.chapterId === lastChapter);
         return chapterList[idx + 1];
     },
 
@@ -157,7 +157,7 @@ export const valir: Provider = {
         // Mark all previous chapters as fully read
         if (chapterList) {
             for (const ch of chapterList) {
-                if (ch.slug === data.chapterId) break;
+                if (ch.chapterId === data.chapterId) break;
                 if (ch.id) chapters.push({ chapterId: ch.id, progress: 100 });
             }
         }

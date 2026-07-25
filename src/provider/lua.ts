@@ -68,7 +68,7 @@ export const lua: Provider = {
                 data: Array<{ chapter_slug: string }>;
             };
             for (const item of data.data) {
-                chapters.push({ slug: item.chapter_slug });
+                chapters.push({ chapterId: item.chapter_slug });
             }
             hasMore = page < data.meta.last_page;
             page++;
@@ -85,7 +85,7 @@ export const lua: Provider = {
     },
 
     getNextChapter(chapterList: ChapterMeta[], lastChapter: string): ChapterMeta {
-        const idx = chapterList.findIndex(m => m.slug === lastChapter);
+        const idx = chapterList.findIndex(m => m.chapterId === lastChapter);
         return chapterList[idx - 1];
     },
 };

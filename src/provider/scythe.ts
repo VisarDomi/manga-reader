@@ -79,7 +79,7 @@ export const scythe: Provider = {
         const chapterSlugRe = new RegExp(`https://${DOMAIN.replace(/\./g, '\\.')}/(${escapedSlug}-chapter-[\\d.]+)/`, 'g');
         let m;
         while ((m = chapterSlugRe.exec(html)) !== null) {
-            chapters.push({ slug: m[1] });
+            chapters.push({ chapterId: m[1] });
         }
         return chapters;
     },
@@ -93,7 +93,7 @@ export const scythe: Provider = {
     },
 
     getNextChapter(chapterList: ChapterMeta[], lastChapter: string): ChapterMeta {
-        const idx = chapterList.findIndex(m => m.slug === lastChapter);
+        const idx = chapterList.findIndex(m => m.chapterId === lastChapter);
         return chapterList[idx - 1];
     },
 };

@@ -67,7 +67,7 @@ export const asura: Provider = {
         const res = await fetch(`${API_BASE}/series/${slug}/chapters`);
         if (!res.ok) throw new Error(`Chapter list failed: ${res.status}`);
         const json = await res.json() as { data: Array<{ number: number }> };
-        return (json.data ?? []).map(ch => ({ slug: String(ch.number) }));
+        return (json.data ?? []).map(ch => ({ chapterId: String(ch.number) }));
     },
 
     readerUrl(_slug: string, chapterId: string, imgIdx?: string): string {
@@ -79,7 +79,7 @@ export const asura: Provider = {
     },
 
     getNextChapter(chapterList: ChapterMeta[], lastChapter: string): ChapterMeta {
-        const idx = chapterList.findIndex(m => m.slug === lastChapter);
+        const idx = chapterList.findIndex(m => m.chapterId === lastChapter);
         return chapterList[idx - 1];
     },
 

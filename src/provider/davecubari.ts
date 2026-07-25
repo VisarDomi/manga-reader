@@ -74,9 +74,9 @@ export const davecubari: Provider = {
 
         // Sort chapters numerically (handle "10.5" style numbers)
         const chapters: ChapterMeta[] = Object.keys(series.chapters)
-            .map(ch => ({ slug: ch, num: parseFloat(ch) || 0 }))
-            .sort((a, b) => b.num - a.num || a.slug.localeCompare(b.slug))
-            .map(({ slug: chSlug }) => ({ slug: chSlug }));
+            .map(ch => ({ chapterId: ch, num: parseFloat(ch) || 0 }))
+            .sort((a, b) => b.num - a.num || a.chapterId.localeCompare(b.chapterId))
+            .map(({ chapterId: chSlug }) => ({ chapterId: chSlug }));
 
         return chapters;
     },
@@ -95,7 +95,7 @@ export const davecubari: Provider = {
     },
 
     getNextChapter(chapterList: ChapterMeta[], lastChapter: string): ChapterMeta {
-        const idx = chapterList.findIndex(m => m.slug === lastChapter);
+        const idx = chapterList.findIndex(m => m.chapterId === lastChapter);
         if (idx === -1) return chapterList[chapterList.length - 1];
         return chapterList[idx - 1];
     },

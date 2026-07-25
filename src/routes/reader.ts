@@ -163,15 +163,15 @@ export async function open(slug: string, chapterId: string): Promise<void> {
             if (chapterWrap !== lastLoaded) return;
 
             const next = getNextChapter(chapterList, visibleChapter);
-            if (!next || loaded.has(next.slug)) return;
+            if (!next || loaded.has(next.chapterId)) return;
 
-            loaded.add(next.slug);
+            loaded.add(next.chapterId);
             loading = true;
             wrapper.appendChild(createStatus('Loading next chapter...', 'hs-loading'));
-            fetchChapter(slug, next.slug)
+            fetchChapter(slug, next.chapterId)
                 .then(nextData => {
-                    chapterData[next.slug] = nextData;
-                    const wrapEl = createChapterWrapper(next.slug);
+                    chapterData[next.chapterId] = nextData;
+                    const wrapEl = createChapterWrapper(next.chapterId);
                     renderChapterImages(wrapEl, nextData);
                     wrapper.appendChild(wrapEl);
                 })

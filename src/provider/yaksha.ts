@@ -54,7 +54,7 @@ export const yaksha: Provider = {
         const liRe = /<li class="wp-manga-chapter[^"]*">[\s\S]*?<a href="([^"]+)">[\s\S]*?Chapter\s+([\d.]+)\s*<\/a>/g;
         let m;
         while ((m = liRe.exec(html)) !== null) {
-            chapters.push({ slug: `chapter-${m[2]}` });
+            chapters.push({ chapterId: `chapter-${m[2]}` });
         }
         return chapters;
     },
@@ -68,7 +68,7 @@ export const yaksha: Provider = {
     },
 
     getNextChapter(chapterList: ChapterMeta[], lastChapter: string): ChapterMeta {
-        const idx = chapterList.findIndex(m => m.slug === lastChapter);
+        const idx = chapterList.findIndex(m => m.chapterId === lastChapter);
         return chapterList[idx - 1];
     },
 };
