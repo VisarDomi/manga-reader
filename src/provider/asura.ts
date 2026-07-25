@@ -56,7 +56,6 @@ export const asura: Provider = {
         }));
 
         return {
-            slug,
             number: data.chapter.number,
             series: { title: data.series.title },
             seriesId: data.series.id,

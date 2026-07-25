@@ -21,7 +21,7 @@ export const scythe: Provider = {
 
     async init(): Promise<void> { /* no-op */ },
 
-    async fetchChapter(slug: string, chapterId: string): Promise<ChapterData> {
+    async fetchChapter(_slug: string, chapterId: string): Promise<ChapterData> {
         const url = `https://${DOMAIN}/${chapterId}/`;
         const res = await fetch(url);
         if (!res.ok) throw new Error('Chapter not found');
@@ -62,7 +62,6 @@ export const scythe: Provider = {
         const seriesTitle = seriesMatch ? seriesMatch[1].trim() : '';
 
         return {
-            slug,
             number: 0,
             series: { title: seriesTitle },
             images,

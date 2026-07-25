@@ -10,7 +10,6 @@ export interface ChapterImage {
 }
 
 export interface ChapterData {
-    slug: string;
     number: number;
     series: { title: string };
     /** Series ID, used for tracking/read progress on some providers. */

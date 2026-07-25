@@ -57,7 +57,6 @@ export const violet: Provider = {
         }
 
         return {
-            slug,
             number: 0,
             series: { title: seriesTitle },
             images,

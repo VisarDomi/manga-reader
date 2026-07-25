@@ -43,7 +43,6 @@ export const lua: Provider = {
         const seriesTitle = titleMatch ? titleMatch[1].trim() : '';
 
         return {
-            slug,
             number: 0,
             series: { title: seriesTitle },
             images,

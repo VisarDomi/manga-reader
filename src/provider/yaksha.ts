@@ -39,7 +39,6 @@ export const yaksha: Provider = {
         const seriesTitle = bcMatch ? bcMatch[1].trim() : '';
 
         return {
-            slug,
             number: 0,
             series: { title: seriesTitle },
             images,

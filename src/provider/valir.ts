@@ -96,7 +96,6 @@ export const valir: Provider = {
         if (images.length === 0) throw new Error('No images found for this chapter');
 
         return {
-            slug,
             number: chapterNumber,
             series: { title: seriesTitle },
             seriesId,
