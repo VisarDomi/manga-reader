@@ -138,8 +138,9 @@ export async function open(slug: string, chapterId: string): Promise<void> {
         .catch(() => { wrapper.appendChild(createStatus('Failed to load chapter list', 'hs-error')); })
         .finally(() => { clearStatus(); loading = false; });
 
-    // 4. Scroll handler: edge detection + URL update
-    window.addEventListener('scrollend', () => {
+    // 4. Scroll handler
+    const seenImages = new Set<string>();
+    function scrollEndOneHundred() {
         setTimeout(() => {
             if (loading) return;
 
@@ -148,9 +149,15 @@ export async function open(slug: string, chapterId: string): Promise<void> {
             const visibleChapter = chapterWrap.dataset.chapter as string;
 
             const image = saveImg.id.split('#')[1];
+            const imageKey = `${visibleChapter}:${image}`;
+            if (seenImages.has(imageKey)) return;
+            seenImages.add(imageKey);
+
             history.replaceState(null, '', readerUrl(slug, visibleChapter, image));
 
-            trackChapter(chapterData[visibleChapter], image);
+            const visibleData = chapterData[visibleChapter];
+            document.title = `${visibleData.number} ${visibleData.series.title}`;
+            trackChapter(visibleData, image);
 
             const lastLoaded = wrapper.lastElementChild as HTMLDivElement;
             if (chapterWrap !== lastLoaded) return;
@@ -171,5 +178,6 @@ export async function open(slug: string, chapterId: string): Promise<void> {
                 .catch(() => { wrapper.appendChild(createStatus('Failed to load chapter', 'hs-error')); })
                 .finally(() => { clearStatus(); loading = false; });
         }, 100);
-    });
+    }
+    window.addEventListener('scrollend', scrollEndOneHundred);
 }
