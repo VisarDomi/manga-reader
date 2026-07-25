@@ -44,5 +44,5 @@ export interface Provider {
     seriesUrl(slug: string): string;
     getNextChapter(chapterList: ChapterMeta[], lastChapter: string): ChapterMeta;
     /** Mark a chapter as read / track reading progress. Optional — no-op by default. */
-    trackChapter?(data: ChapterData): Promise<void>;
+    trackChapter?(data: ChapterData, image?: string): Promise<void>;
 }

@@ -147,9 +147,10 @@ export async function open(slug: string, chapterId: string): Promise<void> {
             const chapterWrap = saveImg.closest('.hs-chapter') as HTMLDivElement;
             const visibleChapter = chapterWrap.dataset.chapter as string;
 
-            history.replaceState(null, '', readerUrl(slug, visibleChapter, saveImg.id.split('#')[1]));
+            const image = saveImg.id.split('#')[1];
+            history.replaceState(null, '', readerUrl(slug, visibleChapter, image));
 
-            trackChapter(chapterData[visibleChapter]);
+            trackChapter(chapterData[visibleChapter], image);
 
             const lastLoaded = wrapper.lastElementChild as HTMLDivElement;
             if (chapterWrap !== lastLoaded) return;
