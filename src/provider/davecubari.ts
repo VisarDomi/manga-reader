@@ -1,6 +1,7 @@
 import type { Provider, RouteMatch, ChapterData, ChapterMeta, ChapterImage } from './types';
 import { Handler } from './types';
-import { SITE_CONFIG } from '../sites';
+import { SITE_CONFIG } from '../core/sites';
+import { isChapterUnavailable } from '../core/http';
 
 const CUBARI_READER_RE = /^\/read\/gist\/([^/]+)\/([^/]+)\/\d*\/?$/;
 const DAVE_LIST_RE = /^\/([^/]+)\/?$/;
@@ -32,24 +33,25 @@ export const davecubari: Provider = {
     },
 
 
-    async fetchChapter(slug: string, chapterId: string): Promise<ChapterData> {
+    async fetchChapter(slug: string, chapterId: string): Promise<ChapterData | null> {
         // slug = base64 gist ID
         const seriesUrl = `https://${CUBARI_DOMAIN}/read/api/gist/series/${slug}/`;
         const seriesRes = await fetch(seriesUrl);
-        if (!seriesRes.ok) throw new Error(`Series not found: ${seriesRes.status}`);
+        if (isChapterUnavailable(seriesRes)) return null;
         const series = await seriesRes.json() as CubariSeries;
 
         const chapterData = series.chapters[chapterId];
-        if (!chapterData) throw new Error(`Chapter ${chapterId} not found`);
+        if (!chapterData) return null;
 
         // Get the proxy URL for chapter images (use first group)
         const groupKeys = Object.keys(chapterData.groups);
-        if (groupKeys.length === 0) throw new Error('No image groups for chapter');
+        if (groupKeys.length === 0) return null;
         const proxyPath = chapterData.groups[groupKeys[0]];
 
         const imgRes = await fetch(`https://${CUBARI_DOMAIN}${proxyPath}`);
-        if (!imgRes.ok) throw new Error(`Chapter images not found: ${imgRes.status}`);
+        if (isChapterUnavailable(imgRes)) return null;
         const imgUrls = await imgRes.json() as string[];
+        if (imgUrls.length === 0) return null;
 
         const images: ChapterImage[] = imgUrls.map((url, i) => ({
             url,

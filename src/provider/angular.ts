@@ -1,6 +1,7 @@
 import type { Provider, RouteMatch, ChapterMeta } from './types';
 import { Handler } from './types';
-import { SITE_CONFIG } from '../sites';
+import { SITE_CONFIG } from '../core/sites';
+import { isChapterUnavailable } from '../core/http';
 
 export function createAngularProvider(site: keyof typeof SITE_CONFIG): Provider {
     const { domain, apiBase } = SITE_CONFIG[site];
@@ -14,11 +15,11 @@ export function createAngularProvider(site: keyof typeof SITE_CONFIG): Provider 
         },
 
 
-        async fetchChapter(slug: string, chapterId: string): Promise<import('./types').ChapterData> {
+        async fetchChapter(slug: string, chapterId: string): Promise<import('./types').ChapterData | null> {
             const res = await fetch(`${apiBase}/series/${slug}/chapters/${chapterId}`);
-            if (!res.ok) throw new Error(`Chapter not found: ${res.status}`);
+            if (isChapterUnavailable(res)) return null;
             const data = await res.json() as Record<string, unknown>;
-            if (!data.isFree || data.requiresPurchase) throw new Error('Chapter is paid');
+            if (!data.isFree || data.requiresPurchase) return null;
 
             return {
                 ...(data as unknown as import('./types').ChapterData),
@@ -32,8 +33,8 @@ export function createAngularProvider(site: keyof typeof SITE_CONFIG): Provider 
             while (hasMore) {
                 const res = await fetch(`${apiBase}/series/${slug}/chapters?perPage=100&page=${page}`);
                 if (!res.ok) throw new Error(`Chapter list failed: ${res.status}`);
-                const data = await res.json() as { data?: Array<{ slug: string }>; totalPages?: number; next?: number | null };
-                for (const item of data.data ?? []) {
+                const data = await res.json() as { data: Array<{ slug: string }>; totalPages?: number; next?: number | null };
+                for (const item of data.data) {
                     chapters.push({ chapterId: item.slug });
                 }
                 hasMore = data.next != null;

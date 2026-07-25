@@ -1,6 +1,7 @@
 import type { Provider, RouteMatch, ChapterData, ChapterMeta, ChapterImage } from './types';
 import { Handler } from './types';
-import { SITE_CONFIG } from '../sites';
+import { SITE_CONFIG } from '../core/sites';
+import { isChapterUnavailable } from '../core/http';
 
 const CHAPTER_RE = /^\/manga\/([^/]+)\/([^/]+)\/?$/;
 const DOMAIN = SITE_CONFIG['yakshacomics'].domain;
@@ -14,10 +15,10 @@ export const yaksha: Provider = {
     },
 
 
-    async fetchChapter(slug: string, chapterId: string): Promise<ChapterData> {
+    async fetchChapter(slug: string, chapterId: string): Promise<ChapterData | null> {
         const url = `https://${DOMAIN}/manga/${slug}/${chapterId}/`;
         const res = await fetch(url);
-        if (res.redirected || !res.ok) throw new Error('Chapter not found');
+        if (isChapterUnavailable(res)) return null;
         const html = await res.text();
 
         const srcs: string[] = [];
@@ -28,7 +29,7 @@ export const yaksha: Provider = {
             if (srcMatch) srcs.push(srcMatch[1].trim().replace(/\s+/g, ''));
         }
 
-        if (srcs.length === 0) throw new Error('Chapter not found');
+        if (srcs.length === 0) throw new Error('Chapter response contained no images');
 
         const images: ChapterImage[] = srcs.map((src, i) => {
             return { url: src, order: i, width: 0, height: 0 };

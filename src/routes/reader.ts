@@ -101,12 +101,10 @@ export async function open(slug: string, chapterId: string): Promise<void> {
     retryBrokenImages(".hs-reader-img", 2000);
 
     // 1. Load the current chapter
-    let data: ChapterData;
-    try {
-        data = await fetchChapter(slug, chapterId);
-    } catch {
+    const data = await fetchChapter(slug, chapterId);
+    if (!data) {
         window.location.href = seriesUrl(slug);
-        throw new Error('No such chapter');
+        return; // just for visuals, location.href redirects the page making further execution impossible
     }
 
     document.title = `${data.chapterId} ${data.seriesTitle}`;
@@ -170,6 +168,10 @@ export async function open(slug: string, chapterId: string): Promise<void> {
             wrapper.appendChild(createStatus('Loading next chapter...', 'hs-loading'));
             fetchChapter(slug, next.chapterId)
                 .then(nextData => {
+                    if (!nextData) {
+                        wrapper.appendChild(createStatus('Chapter unavailable', 'hs-error'));
+                        return;
+                    }
                     chapterData[next.chapterId] = nextData;
                     const wrapEl = createChapterWrapper(next.chapterId);
                     renderChapterImages(wrapEl, nextData);

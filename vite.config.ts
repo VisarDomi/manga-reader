@@ -1,7 +1,7 @@
 import { defineConfig } from "vite";
 import monkey from "vite-plugin-monkey";
 import pkg from "./package.json";
-import { SITE_CONFIG, userscriptMatch } from "./src/sites";
+import { SITE_CONFIG, userscriptMatch } from "./src/core/sites";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 

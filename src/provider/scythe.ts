@@ -1,6 +1,7 @@
 import type { Provider, RouteMatch, ChapterData, ChapterMeta, ChapterImage } from './types';
 import { Handler } from './types';
-import { SITE_CONFIG } from '../sites';
+import { SITE_CONFIG } from '../core/sites';
+import { isChapterUnavailable } from '../core/http';
 
 // URL: /<slug>-chapter-<number>/
 const CHAPTER_RE = /^\/(.+)-chapter-(\d+(?:\.\d+)?)\/?$/;
@@ -20,10 +21,10 @@ export const scythe: Provider = {
     },
 
 
-    async fetchChapter(_slug: string, chapterId: string): Promise<ChapterData> {
+    async fetchChapter(_slug: string, chapterId: string): Promise<ChapterData | null> {
         const url = `https://${DOMAIN}/${chapterId}/`;
         const res = await fetch(url);
-        if (!res.ok) throw new Error('Chapter not found');
+        if (isChapterUnavailable(res)) return null;
         const html = await res.text();
 
         // Extract base64-encoded ts_reader.run({...}) JSON
@@ -37,9 +38,7 @@ export const scythe: Provider = {
                 if (decoded.includes('ts_reader.run(')) {
                     const jsonMatch = decoded.match(/ts_reader\.run\((\{[\s\S]*\\})\);?$/);
                     if (jsonMatch) {
-                        try {
-                            tsData = JSON.parse(jsonMatch[1]) as TsReaderData;
-                        } catch { /* ignore parse errors */ }
+                        tsData = JSON.parse(jsonMatch[1]) as TsReaderData;
                     }
                     break;
                 }
@@ -47,7 +46,7 @@ export const scythe: Provider = {
         }
 
         const srcs: string[] = tsData.sources?.[0]?.images ?? [];
-        if (srcs.length === 0) throw new Error('No chapter images found');
+        if (srcs.length === 0) throw new Error('Chapter response contained no images');
 
         const images: ChapterImage[] = srcs.map((src, i) => ({
             url: src,

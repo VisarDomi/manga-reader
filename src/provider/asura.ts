@@ -1,6 +1,7 @@
 import type { Provider, RouteMatch, ChapterData, ChapterMeta, ChapterImage } from './types';
 import { Handler } from './types';
-import { SITE_CONFIG } from '../sites';
+import { SITE_CONFIG } from '../core/sites';
+import { isChapterUnavailable } from '../core/http';
 
 const CHAPTER_RE = /^\/comics\/([^/]+)\/chapter\/(\d+)/;
 const DOMAIN = SITE_CONFIG['asurascans'].domain;
@@ -17,7 +18,7 @@ interface AsuraChapterResponse {
         id: number;
         series_id: number;
         number: number;
-        pages: AsuraPage[] | null;
+        pages: AsuraPage[];
     };
     series: {
         id: number;
@@ -38,15 +39,15 @@ export const asura: Provider = {
     },
 
 
-    async fetchChapter(slug: string, chapterId: string): Promise<ChapterData> {
+    async fetchChapter(slug: string, chapterId: string): Promise<ChapterData | null> {
         const res = await fetch(`${API_BASE}/series/${slug}/chapters/${chapterId}`);
-        if (!res.ok) throw new Error(`Chapter not found: ${res.status}`);
+        if (isChapterUnavailable(res)) return null;
         const json = await res.json() as { data: AsuraChapterResponse };
         const data = json.data;
 
-        if (data.is_locked) throw new Error('Chapter is locked');
+        if (data.is_locked) return null;
 
-        const pages = data.chapter.pages ?? [];
+        const pages = data.chapter.pages;
         const images: ChapterImage[] = pages.map((p, i) => ({
             url: p.url,
             order: i,
@@ -67,7 +68,7 @@ export const asura: Provider = {
         const res = await fetch(`${API_BASE}/series/${slug}/chapters`);
         if (!res.ok) throw new Error(`Chapter list failed: ${res.status}`);
         const json = await res.json() as { data: Array<{ number: number }> };
-        return (json.data ?? []).map(ch => ({ chapterId: String(ch.number) }));
+        return (json.data).map(ch => ({ chapterId: String(ch.number) }));
     },
 
     readerUrl(_slug: string, chapterId: string, imgIdx?: string): string {
@@ -91,11 +92,11 @@ export const asura: Provider = {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json',
         };
-        fetch(`${API_BASE}/bookmarks/${data.seriesApiId}/read/${data.chapterId}`, { method: 'POST', headers }).catch(() => {});
-        fetch(`${API_BASE}/views/chapter`, {
+        void fetch(`${API_BASE}/bookmarks/${data.seriesApiId}/read/${data.chapterId}`, { method: 'POST', headers })
+        void fetch(`${API_BASE}/views/chapter`, {
             method: 'POST',
             headers,
             body: JSON.stringify({ chapter_id: data.chapterApiId, series_id: data.seriesApiId }),
-        }).catch(() => {});
+        })
     },
 };

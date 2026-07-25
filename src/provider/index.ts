@@ -2,7 +2,7 @@ export { Handler } from './types';
 export type { Provider, RouteMatch, ChapterData, ChapterImage, ChapterMeta } from './types';
 
 import type { ChapterMeta, Provider, ChapterData } from './types';
-import { SITE_CONFIG } from '../sites';
+import { SITE_CONFIG } from '../core/sites';
 import { ezmanga } from './ezmanga';
 import { qiscans } from './qiscans';
 import { yaksha } from './yaksha';

@@ -1,6 +1,7 @@
 import type { Provider, RouteMatch, ChapterData, ChapterMeta, ChapterImage } from './types';
 import { Handler } from './types';
-import { SITE_CONFIG } from '../sites';
+import { SITE_CONFIG } from '../core/sites';
+import { isChapterUnavailable } from '../core/http';
 
 const CHAPTER_RE = /^\/series\/([^/]+)\/(chapter-\d+)\/?$/;
 const DOMAIN = SITE_CONFIG['luacomic'].domain;
@@ -14,10 +15,10 @@ export const lua: Provider = {
     },
 
 
-    async fetchChapter(slug: string, chapterId: string): Promise<ChapterData> {
+    async fetchChapter(slug: string, chapterId: string): Promise<ChapterData | null> {
         const url = `https://${DOMAIN}/series/${slug}/${chapterId}`;
         const res = await fetch(url);
-        if (!res.ok) throw new Error(`Chapter not found: ${res.status}`);
+        if (isChapterUnavailable(res)) return null;
         const html = await res.text();
 
         // Extract chapter images — <img> tags with media.luacomic.org/uploads/series/ in src
@@ -28,7 +29,7 @@ export const lua: Provider = {
             srcs.push(m[1].trim().replace(/\s+/g, ''));
         }
 
-        if (srcs.length === 0) throw new Error('No chapter images found');
+        if (srcs.length === 0) throw new Error('Chapter response contained no images');
 
         const images: ChapterImage[] = srcs.map((src, i) => ({
             url: src,

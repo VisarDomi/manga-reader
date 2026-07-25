@@ -1,6 +1,7 @@
 import type { Provider, RouteMatch, ChapterData, ChapterMeta, ChapterImage } from './types';
 import { Handler } from './types';
-import { SITE_CONFIG } from '../sites';
+import { SITE_CONFIG } from '../core/sites';
+import { isChapterUnavailable } from '../core/http';
 
 const DOMAIN = SITE_CONFIG['valirscans'].domain;
 const CHAPTER_RE = /^\/series\/comic\/([^/]+)\/chapter\/(\d+)/;
@@ -14,10 +15,10 @@ export const valir: Provider = {
     },
 
 
-    async fetchChapter(slug: string, chapterId: string): Promise<ChapterData> {
+    async fetchChapter(slug: string, chapterId: string): Promise<ChapterData | null> {
         const pageUrl = `https://${DOMAIN}/series/comic/${slug}/chapter/${chapterId}`;
         const res = await fetch(pageUrl);
-        if (!res.ok) throw new Error(`Chapter page not found: ${res.status}`);
+        if (isChapterUnavailable(res)) return null;
         const html = await res.text();
 
         // Extract chapter metadata from the RSC payload
@@ -56,7 +57,7 @@ export const valir: Provider = {
             const contentRes = await fetch(`https://${DOMAIN}/api/chapters/content?chapterId=${numericId}`, {
                 cache: 'no-store',
             });
-            if (!contentRes.ok) throw new Error(`Chapter requires authentication: ${contentRes.status}`);
+            if (isChapterUnavailable(contentRes)) return null;
             const contentData = await contentRes.json() as {
                 pages?: Array<{
                     imageUrl?: string;
@@ -91,7 +92,7 @@ export const valir: Provider = {
             }
         }
 
-        if (images.length === 0) throw new Error('No images found for this chapter');
+        if (images.length === 0) throw new Error('Chapter response contained no images');
 
         return {
             chapterId,
@@ -162,11 +163,11 @@ export const valir: Provider = {
             }
         }
 
-        fetch(`https://${DOMAIN}/api/chapters/reading-position`, {
+        void fetch(`https://${DOMAIN}/api/chapters/reading-position`, {
             method: 'POST',
             credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ seriesId: data.seriesApiId, chapters }),
-        }).catch(() => {});
+        });
     },
 };

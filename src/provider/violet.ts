@@ -1,6 +1,7 @@
 import type { Provider, RouteMatch, ChapterData, ChapterMeta, ChapterImage } from './types';
 import { Handler } from './types';
-import { SITE_CONFIG } from '../sites';
+import { SITE_CONFIG } from '../core/sites';
+import { isChapterUnavailable } from '../core/http';
 
 const CHAPTER_RE = /\/(.+)-chapter-([^/]+)\/?$/;
 const DOMAIN = SITE_CONFIG['violetscans'].domain;
@@ -14,21 +15,21 @@ export const violet: Provider = {
     },
 
 
-    async fetchChapter(slug: string, chapterId: string): Promise<ChapterData> {
+    async fetchChapter(slug: string, chapterId: string): Promise<ChapterData | null> {
         const url = `https://${DOMAIN}/${slug}-chapter-${chapterId}/`;
         const res = await fetch(url);
-        if (res.redirected || !res.ok) throw new Error('Chapter not found');
+        if (isChapterUnavailable(res)) return null;
         const html = await res.text();
 
         // Extract ts_reader.run({...}) JSON payload
         const tsMatch = /ts_reader\.run\((\{[\s\S]*?\\})\);?/.exec(html);
-        if (!tsMatch) throw new Error('Chapter not found');
+        if (!tsMatch) throw new Error('Chapter response did not contain reader data');
 
         const raw = tsMatch[1];
         const data = JSON.parse(raw);
 
         const srcs: string[] = data.sources?.[0]?.images ?? [];
-        if (srcs.length === 0) throw new Error('Chapter not found');
+        if (srcs.length === 0) throw new Error('Chapter response contained no images');
 
         const images: ChapterImage[] = srcs.map((src: string, i: number) => ({
             url: src,
