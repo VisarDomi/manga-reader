@@ -1,10 +1,10 @@
 {
   "name": "manga-reader",
-  "version": "102",
+  "version": "110",
   "description": "Userscript to improve ux of supported sites",
   "type": "module",
   "scripts": {
-    "build": "node increase.js && vite build"
+    "build": "node scripts/build.mjs"
   },
   "devDependencies": {
     "@types/tampermonkey": "^5.0.4",
