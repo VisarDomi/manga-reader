@@ -31,6 +31,7 @@ export const valir: Provider = {
 
         // Extract series data
         const seriesMatch = /\\"series\\":\s*\{[^}]*\\"id\\":\s*\\"([^"\\]+)\\"[^}]*\\"title\\":\s*\\"([^"\\]*)\\"[^}]*\\"coverImage\\":\s*\\"([^"\\]*)\\"/.exec(html);
+        const seriesId = seriesMatch?.[1] ?? '';
         const seriesTitle = seriesMatch?.[2] ?? '';
         const coverImage = seriesMatch?.[3] ?? '';
 
@@ -113,6 +114,8 @@ export const valir: Provider = {
             isFree: true,
             requiresPurchase: false,
             series: { title: seriesTitle },
+            seriesId,
+            chapterNumericId: numericId,
             images,
             prevUrl: prevChapter ? `/series/comic/${slug}/chapter/${prevChapter}` : null,
             nextUrl: nextChapter ? `/series/comic/${slug}/chapter/${nextChapter}` : null,
@@ -140,15 +143,11 @@ export const valir: Provider = {
             const num = parseInt(m[2], 10);
             if (!seen.has(num)) {
                 seen.add(num);
-                chapters.push({ slug: String(num) });
+                chapters.push({ slug: String(num), id: m[1] });
             }
         }
 
         if (chapters.length === 0) throw new Error('No chapters found');
-
-        chapters.sort((a, b) => {
-            return parseInt(a.slug, 10) - parseInt(b.slug, 10);
-        });
 
         return chapters;
     },
@@ -164,5 +163,30 @@ export const valir: Provider = {
     getNextChapter(chapterList: ChapterMeta[], lastChapter: string): ChapterMeta {
         const idx = chapterList.findIndex(m => m.slug === lastChapter);
         return chapterList[idx + 1];
+    },
+
+    async trackChapter(data: ChapterData, image?: string, chapterList?: ChapterMeta[]): Promise<void> {
+        if (!data.seriesId || !data.chapterNumericId || image === undefined) return;
+
+        const imageIdx = parseInt(image, 10);
+        const totalImages = data.images.length;
+        const progress = Math.round((imageIdx + 1) / totalImages * 100);
+
+        const chapters = [{ chapterId: data.chapterNumericId, progress }];
+
+        // Mark all previous chapters as fully read
+        if (chapterList) {
+            for (const ch of chapterList) {
+                if (ch.slug === String(data.number)) break;
+                if (ch.id) chapters.push({ chapterId: ch.id, progress: 100 });
+            }
+        }
+
+        fetch(`https://${DOMAIN}/api/chapters/reading-position`, {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ seriesId: data.seriesId, chapters }),
+        }).catch(() => {});
     },
 };

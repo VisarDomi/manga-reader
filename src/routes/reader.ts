@@ -157,7 +157,7 @@ export async function open(slug: string, chapterId: string): Promise<void> {
 
             const visibleData = chapterData[visibleChapter];
             document.title = `${visibleData.number} ${visibleData.series.title}`;
-            trackChapter(visibleData, image);
+            trackChapter(visibleData, image, chapterList);
 
             const lastLoaded = wrapper.lastElementChild as HTMLDivElement;
             if (chapterWrap !== lastLoaded) return;
