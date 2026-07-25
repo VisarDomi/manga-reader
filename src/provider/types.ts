@@ -31,8 +31,6 @@ export interface ChapterMeta {
 }
 
 export interface Provider {
-    readonly name: string;
-
     matchRoute(pathname: string): RouteMatch | null;
     init(): Promise<void>;
 

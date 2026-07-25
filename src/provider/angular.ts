@@ -1,14 +1,12 @@
 import type { Provider, RouteMatch, ChapterMeta } from './types';
 import { Handler } from './types';
-import { Site, SITE_CONFIG } from '../sites';
+import { SITE_CONFIG } from '../sites';
 
-export function createAngularProvider(site: Site): Provider {
+export function createAngularProvider(site: keyof typeof SITE_CONFIG): Provider {
     const { domain, apiBase } = SITE_CONFIG[site];
     const CHAPTER_RE = /\/([^/]+)\/([^/]+)\/([^/]+)$/;
 
     return {
-        name: site,
-
         matchRoute(pathname: string): RouteMatch | null {
             const m = CHAPTER_RE.exec(pathname);
             if (!m) return null;

@@ -1,4 +1,3 @@
 import { createAngularProvider } from './angular';
-import { Site } from '../sites';
 
-export const qiscans = createAngularProvider(Site.QIManga);
+export const qiscans = createAngularProvider('qimanga');

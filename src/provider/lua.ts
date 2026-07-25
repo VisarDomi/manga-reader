@@ -1,12 +1,11 @@
 import type { Provider, RouteMatch, ChapterData, ChapterMeta, ChapterImage } from './types';
 import { Handler } from './types';
-import { Site, SITE_CONFIG } from '../sites';
+import { SITE_CONFIG } from '../sites';
 
 const CHAPTER_RE = /^\/series\/([^/]+)\/(chapter-\d+)\/?$/;
-const DOMAIN = SITE_CONFIG[Site.LuaComic].domain;
+const DOMAIN = SITE_CONFIG['luacomic'].domain;
 
 export const lua: Provider = {
-    name: Site.LuaComic,
 
     matchRoute(pathname: string): RouteMatch | null {
         const m = CHAPTER_RE.exec(pathname);

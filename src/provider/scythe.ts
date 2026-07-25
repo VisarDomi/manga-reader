@@ -1,10 +1,10 @@
 import type { Provider, RouteMatch, ChapterData, ChapterMeta, ChapterImage } from './types';
 import { Handler } from './types';
-import { Site, SITE_CONFIG } from '../sites';
+import { SITE_CONFIG } from '../sites';
 
 // URL: /<slug>-chapter-<number>/
 const CHAPTER_RE = /^\/(.+)-chapter-(\d+(?:\.\d+)?)\/?$/;
-const DOMAIN = SITE_CONFIG[Site.ScytheScans].domain;
+const DOMAIN = SITE_CONFIG['scythescans'].domain;
 
 interface TsReaderData {
     prevUrl?: string;
@@ -13,7 +13,6 @@ interface TsReaderData {
 }
 
 export const scythe: Provider = {
-    name: Site.ScytheScans,
 
     matchRoute(pathname: string): RouteMatch | null {
         const m = CHAPTER_RE.exec(pathname);

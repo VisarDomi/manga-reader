@@ -1,0 +1,46 @@
+{
+  "ezmanga": {
+    "domain": "ezmanga.org",
+    "apiBase": "https://vapi.ezmanga.org/api/v1",
+    "provider": "ezmanga"
+  },
+  "qimanga": {
+    "domain": "qimanga.com",
+    "apiBase": "https://api.qimanga.com/api/v1",
+    "provider": "qiscans"
+  },
+  "yakshacomics": {
+    "domain": "yakshacomics.com",
+    "provider": "yaksha"
+  },
+  "asurascans": {
+    "domain": "asurascans.com",
+    "apiBase": "https://api.asurascans.com/api",
+    "provider": "asura"
+  },
+  "scythescans": {
+    "domain": "scythescans.com",
+    "provider": "scythe"
+  },
+  "luacomic": {
+    "domain": "luacomic.org",
+    "provider": "lua"
+  },
+  "violetscans": {
+    "domain": "violetscans.org",
+    "provider": "violet"
+  },
+  "valirscans": {
+    "domain": "valirscans.org",
+    "provider": "valir"
+  },
+  "davemangascans": {
+    "domain": "davemangascans.xyz",
+    "provider": "davecubari"
+  },
+  "cubari": {
+    "domain": "cubari.moe",
+    "matchPattern": "https://cubari.moe/read/gist/*",
+    "provider": "davecubari"
+  }
+}

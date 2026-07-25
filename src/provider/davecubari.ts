@@ -1,11 +1,11 @@
 import type { Provider, RouteMatch, ChapterData, ChapterMeta, ChapterImage } from './types';
 import { Handler } from './types';
-import { Site, SITE_CONFIG } from '../sites';
+import { SITE_CONFIG } from '../sites';
 
 const CUBARI_READER_RE = /^\/read\/gist\/([^/]+)\/([^/]+)\/\d*\/?$/;
 const DAVE_LIST_RE = /^\/([^/]+)\/?$/;
-const CUBARI_DOMAIN = SITE_CONFIG[Site.Cubari].domain;
-const DAVE_DOMAIN = SITE_CONFIG[Site.DaveMangaScans].domain;
+const CUBARI_DOMAIN = SITE_CONFIG['cubari'].domain;
+const DAVE_DOMAIN = SITE_CONFIG['davemangascans'].domain;
 
 interface CubariSeries {
     title: string;
@@ -19,7 +19,6 @@ interface CubariChapter {
 }
 
 export const davecubari: Provider = {
-    name: Site.DaveMangaScans,
 
     matchRoute(pathname: string): RouteMatch | null {
         // cubari.moe reader URL: /read/gist/<gistId>/<chapter>/<page>/

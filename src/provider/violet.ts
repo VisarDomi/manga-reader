@@ -1,12 +1,11 @@
 import type { Provider, RouteMatch, ChapterData, ChapterMeta, ChapterImage } from './types';
 import { Handler } from './types';
-import { Site, SITE_CONFIG } from '../sites';
+import { SITE_CONFIG } from '../sites';
 
 const CHAPTER_RE = /\/(.+)-chapter-([^/]+)\/?$/;
-const DOMAIN = SITE_CONFIG[Site.VioletScans].domain;
+const DOMAIN = SITE_CONFIG['violetscans'].domain;
 
 export const violet: Provider = {
-    name: Site.VioletScans,
 
     matchRoute(pathname: string): RouteMatch | null {
         const m = CHAPTER_RE.exec(pathname);

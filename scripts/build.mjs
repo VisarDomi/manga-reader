@@ -1,24 +1,27 @@
 #!/usr/bin/env node
 /**
- * Build script with provider filtering.
+ * Build script. Single source of truth: src/sites.json
  *
  * Usage:
- *   node scripts/build.mjs              – all providers → dist/manga-reader.user.js
- *   node scripts/build.mjs asura        – only asura   → dist/asura-reader.user.js
- *   node scripts/build.mjs -asura       – all except   → dist/manga-reader.user.js
- *   node scripts/build.mjs asura,qimanga – only those   → dist/manga-reader.user.js
- *   node scripts/build.mjs -asura,qimanga – all except  → dist/manga-reader.user.js
+ *   node scripts/build.mjs                    – all → dist/manga-reader.user.js
+ *   node scripts/build.mjs asura              – only asura → dist/asura-reader.user.js
+ *   node scripts/build.mjs -asura             – all except → manga-reader.user.js
+ *   node scripts/build.mjs asura,qimanga      – only those → manga-reader.user.js
+ *   node scripts/build.mjs -asura,qimanga     – all except → manga-reader.user.js
  *
- * The script temporarily overwrites src/provider/index.ts with a filtered
- * version, then restores the original after building.
+ * Filtered builds:
+ *   - Writes a temp _empty.ts stub with null exports for excluded providers
+ *   - Vite aliases excluded modules to that stub (via EXCLUDE_PROVIDERS env)
+ *   - Also filters @match patterns (MATCH_SITES) and output name (BUILD_NAME)
+ *   - Cleans up _empty.ts after build
  */
 
-import { copyFileSync, existsSync, readFileSync, unlinkSync, writeFileSync } from 'fs';
+import { readFileSync, writeFileSync, unlinkSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
 
-// ── Version increment (replaces increase.js) ──────────────────────────
+// ── Version increment ────────────────────────────────────────────────
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -28,168 +31,79 @@ pkgJson.version = (parseInt(pkgJson.version, 10) + 1).toString();
 writeFileSync(pkgPath, JSON.stringify(pkgJson, null, 2) + '\n', 'utf-8');
 console.log(`Version incremented -> ${pkgJson.version}`);
 
-// ── Providers list ───────────────────────────────────────────────────
+// ── Read registry ────────────────────────────────────────────────────
 
-const ALL_PROVIDERS = [
-  { module: 'ezmanga',   export: 'ezmanga' },
-  { module: 'qiscans',   export: 'qiscans' },
-  { module: 'yaksha',    export: 'yaksha' },
-  { module: 'asura',     export: 'asura' },
-  { module: 'scythe',    export: 'scythe' },
-  { module: 'lua',       export: 'lua' },
-  { module: 'violet',    export: 'violet' },
-  { module: 'valir',     export: 'valir' },
-  { module: 'davecubari',export: 'davecubari' },
-];
+const registry = JSON.parse(readFileSync('src/sites.json', 'utf-8'));
 
-// Map provider module to Site enum keys
-const SITE_KEYS = [
-  ['EZManga', 'ezmanga'],
-  ['QIManga', 'qiscans'],
-  ['YakshaComics', 'yaksha'],
-  ['AsuraScans', 'asura'],
-  ['ScytheScans', 'scythe'],
-  ['LuaComic', 'lua'],
-  ['VioletScans', 'violet'],
-  ['ValirScans', 'valir'],
-  ['DaveMangaScans', 'davecubari'],
-  ['Cubari', 'davecubari'],
-];
+// Group sites by provider module
+const providerGroups = {};
+for (const [siteKey, cfg] of Object.entries(registry)) {
+  const prov = cfg.provider;
+  if (!providerGroups[prov]) providerGroups[prov] = { sites: [], module: prov };
+  providerGroups[prov].sites.push(siteKey);
+}
+
+const ALL_MODULES = Object.keys(providerGroups);
 
 // ── Parse args ────────────────────────────────────────────────────────
 
 const args = process.argv.slice(2);
-let includeNames = [];
-let excludeNames = [];
+const include = [];
+const exclude = [];
 
 for (const arg of args) {
   for (const item of arg.split(',')) {
-    if (item.startsWith('-')) {
-      excludeNames.push(item.slice(1));
-    } else {
-      includeNames.push(item);
-    }
+    (item.startsWith('-') ? exclude : include).push(item.replace(/^-/, ''));
   }
 }
 
-let filtered;
-if (includeNames.length > 0) {
-  filtered = ALL_PROVIDERS.filter(p => includeNames.includes(p.module));
-  if (filtered.length !== includeNames.length) {
-    const unknown = includeNames.filter(n => !ALL_PROVIDERS.some(p => p.module === n));
+let filteredModules;
+if (include.length > 0) {
+  filteredModules = include;
+  const unknown = include.filter(n => !ALL_MODULES.includes(n));
+  if (unknown.length) {
     console.error(`[build] Unknown providers: ${unknown.join(', ')}`);
-    console.error(`[build] Available: ${ALL_PROVIDERS.map(p => p.module).join(', ')}`);
+    console.error(`[build] Available: ${ALL_MODULES.join(', ')}`);
     process.exit(1);
   }
-} else if (excludeNames.length > 0) {
-  filtered = ALL_PROVIDERS.filter(p => !excludeNames.includes(p.module));
+} else if (exclude.length > 0) {
+  filteredModules = ALL_MODULES.filter(m => !exclude.includes(m));
 } else {
-  filtered = ALL_PROVIDERS;
+  filteredModules = ALL_MODULES;
 }
 
-// ── Generate filtered content ────────────────────────────────────────
+const allProvided = filteredModules.length === ALL_MODULES.length;
 
-const importLines = filtered.map(p =>
-  `import { ${p.export} } from './${p.module}';`
-).join('\n');
+// ── Compute env vars ─────────────────────────────────────────────────
 
-const providersObj = filtered.map(p => p.module).join(', ');
-
-const siteToProviderBody = SITE_KEYS.map(([siteKey, module]) => {
-  const isIncluded = filtered.some(p => p.module === module);
-  return `  [Site.${siteKey}]: ${isIncluded ? `'${module}'` : `'${module}' /* excluded – unreachable */`},`;
-}).join('\n');
-
-const content = `// Auto-generated by scripts/build.mjs – DO NOT EDIT
-export { Handler } from './types';
-export type { Provider, RouteMatch, ChapterData, ChapterImage, ChapterMeta } from './types';
-
-import type { ChapterMeta, Provider } from './types';
-import { Site, SITE_CONFIG } from '../sites';
-${importLines}
-
-const providers = { ${providersObj} } as const;
-
-const siteToProviderKey: Record<Site, keyof typeof providers> = {
-${siteToProviderBody}
-};
-
-let p: Provider;
-
-export const matchRoute = () => {
-    const { pathname, hostname } = window.location;
-    const site = (Object.keys(SITE_CONFIG) as Site[]).find(s =>
-        hostname.includes(SITE_CONFIG[s].domain),
-    );
-    if (!site) throw Error('Unable to select provider');
-    p = providers[siteToProviderKey[site]];
-    return p.matchRoute(pathname);
-};
-
-export const fetchChapter = async (slug: string, chapterId: string) => p.fetchChapter(slug, chapterId);
-export const fetchChapterList = async (slug: string) => p.fetchChapterList(slug);
-export const readerUrl = (slug: string, chapterId: string, imgIdx?: string) => p.readerUrl(slug, chapterId, imgIdx);
-export const seriesUrl = (slug: string) => p.seriesUrl(slug);
-export const getNextChapter = (chapterList: ChapterMeta[], lastChapter: string) => p.getNextChapter(chapterList, lastChapter);
-`;
-
-// ── Map provider module → Site enum value ────────────────────────────
-
-const MODULE_TO_SITE = {
-  ezmanga:    'ezmanga',
-  qiscans:    'qimanga',
-  yaksha:     'yakshacomics',
-  asura:      'asurascans',
-  scythe:     'scythescans',
-  lua:        'luacomic',
-  violet:     'violetscans',
-  valir:      'valirscans',
-  davecubari: 'davemangascans', // cubari is included with davecubari
-};
+const excludedModules = ALL_MODULES.filter(m => !filteredModules.includes(m));
+const matchSites = [...new Set(filteredModules.flatMap(m => providerGroups[m].sites))].join(',');
+const buildName = include.length === 1 ? `${include[0]}-reader` : '';
 
 // ── Build ────────────────────────────────────────────────────────────
 
-const INDEX_FILE = 'src/provider/index.ts';
-const BACKUP_FILE = 'src/provider/index.ts.bak';
+const env = {
+  ...process.env,
+  EXCLUDE_PROVIDERS: excludedModules.join(','),
+  MATCH_SITES: allProvided ? '' : matchSites,
+  BUILD_NAME: buildName,
+};
 
-const isFullBuild = filtered.length === ALL_PROVIDERS.length;
-
-// Compute MATCH_SITES from filtered providers
-const matchSites = [...new Set(filtered.flatMap(p => {
-  const site = MODULE_TO_SITE[p.module];
-  if (p.module === 'davecubari') return [site, 'cubari'];
-  return [site];
-}))].join(',');
-
-// Single-provider include build → custom output name, otherwise `manga-reader`
-const buildName = includeNames.length === 1
-  ? `${includeNames[0]}-reader`
-  : '';
-
-const env = { ...process.env, MATCH_SITES: isFullBuild ? '' : matchSites, BUILD_NAME: buildName };
-
-if (isFullBuild) {
-  console.log('[build] Building all providers');
-  execSync('npx vite build', { stdio: 'inherit', env });
+// Generate stub for excluded providers (vite.config.ts aliases to this)
+const STUB = 'src/provider/_empty.ts';
+if (excludedModules.length > 0) {
+  const exports = ALL_MODULES.map(n => `export const ${n} = null;`).join('\n');
+  writeFileSync(STUB, exports + '\n');
+  console.log(`[build] Excluding: ${excludedModules.join(', ')}`);
 } else {
-  // Backup, write filtered, build, restore
-  console.log(`[build] Building providers: ${filtered.map(p => p.module).join(', ')}`);
-  copyFileSync(INDEX_FILE, BACKUP_FILE);
-  writeFileSync(INDEX_FILE, content);
+  console.log('[build] All providers');
+}
 
-  let success = false;
-  try {
-    execSync('npx vite build', { stdio: 'inherit', env });
-    success = true;
-  } finally {
-    copyFileSync(BACKUP_FILE, INDEX_FILE);
-    unlinkSync(BACKUP_FILE);
-  }
-
-  if (!success) {
-    console.error('[build] Build failed, original index.ts restored');
-    process.exit(1);
-  }
+try {
+  execSync('npx vite build', { stdio: 'inherit', env });
+} finally {
+  // Clean up temp stub
+  try { unlinkSync(STUB); } catch {}
 }
 
 console.log('[build] Done');
