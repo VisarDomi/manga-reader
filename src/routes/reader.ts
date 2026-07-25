@@ -146,9 +146,10 @@ export async function open(slug: string, chapterId: string): Promise<void> {
 
             history.replaceState(null, '', readerUrl(slug, visibleChapter, saveImg.id.split('#')[1]));
 
-            const lastWrap = wrapper.lastElementChild as HTMLDivElement;
-            const lastChapter = lastWrap.dataset.chapter as string;
-            const next = getNextChapter(chapterList, lastChapter);
+            const lastLoaded = wrapper.lastElementChild as HTMLDivElement;
+            if (chapterWrap !== lastLoaded) return;
+
+            const next = getNextChapter(chapterList, visibleChapter);
             if (!next || loaded.has(next.slug)) return;
 
             loaded.add(next.slug);
