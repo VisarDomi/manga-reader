@@ -38,14 +38,3 @@ Dump full traces to `/tmp/` with timestamps. This allows comparing request order
 
 ### J. Check for service workers
 `navigator.serviceWorker.getRegistrations()` reveals if requests go through a SW that adds auth. None found here, but critical to check for other sites.
-
-### L. Image-by-image scroll with load confirmation
-The only reliable scroll technique:
-```js
-for each image:
-  img.scrollIntoView({ block: 'start' })
-  await img.onload || img.complete
-```
-This guarantees lazy-loaded content is actually rendered before proceeding.
-
-

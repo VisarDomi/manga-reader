@@ -104,7 +104,6 @@ export async function open(slug: string, chapterId: string): Promise<void> {
     let data: ChapterData;
     try {
         data = await fetchChapter(slug, chapterId);
-        void trackChapter(data);
     } catch {
         window.location.href = seriesUrl(slug);
         throw new Error('No such chapter');
@@ -119,6 +118,8 @@ export async function open(slug: string, chapterId: string): Promise<void> {
     const firstWrap = createChapterWrapper(chapterId);
     renderChapterImages(firstWrap, data);
     wrapper.appendChild(firstWrap);
+
+    const chapterData: Record<string, ChapterData> = { [chapterId]: data };
 
     // 2. Restore scroll position
     const hash = location.hash;
@@ -148,6 +149,8 @@ export async function open(slug: string, chapterId: string): Promise<void> {
 
             history.replaceState(null, '', readerUrl(slug, visibleChapter, saveImg.id.split('#')[1]));
 
+            trackChapter(chapterData[visibleChapter]);
+
             const lastLoaded = wrapper.lastElementChild as HTMLDivElement;
             if (chapterWrap !== lastLoaded) return;
 
@@ -159,10 +162,10 @@ export async function open(slug: string, chapterId: string): Promise<void> {
             wrapper.appendChild(createStatus('Loading next chapter...', 'hs-loading'));
             fetchChapter(slug, next.slug)
                 .then(nextData => {
+                    chapterData[next.slug] = nextData;
                     const wrapEl = createChapterWrapper(next.slug);
                     renderChapterImages(wrapEl, nextData);
                     wrapper.appendChild(wrapEl);
-                    trackChapter(nextData);
                 })
                 .catch(() => { wrapper.appendChild(createStatus('Failed to load chapter', 'hs-error')); })
                 .finally(() => { clearStatus(); loading = false; });
