@@ -1,5 +1,4 @@
 import type { Provider, RouteMatch, ChapterData, ChapterMeta, ChapterImage } from './types';
-import { Handler } from './types';
 import { SITE_CONFIG } from '../core/sites';
 import { isChapterUnavailable } from '../core/http';
 
@@ -24,7 +23,7 @@ export const davecubari: Provider = {
     matchRoute(pathname: string): RouteMatch | null {
         // cubari.moe reader URL: /read/gist/<gistId>/<chapter>/<page>/
         const cm = CUBARI_READER_RE.exec(pathname);
-        if (cm) return { handler: Handler.Reader, slug: cm[1], chapter: cm[2] };
+        if (cm) return { slug: cm[1], chapter: cm[2] };
 
         // davemangascans.xyz list URL: /<slug> — recognized but no reader action
         if (DAVE_LIST_RE.test(pathname)) return null;

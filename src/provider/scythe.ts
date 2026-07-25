@@ -1,5 +1,4 @@
 import type { Provider, RouteMatch, ChapterData, ChapterMeta, ChapterImage } from './types';
-import { Handler } from './types';
 import { SITE_CONFIG } from '../core/sites';
 import { isChapterUnavailable } from '../core/http';
 
@@ -17,7 +16,7 @@ export const scythe: Provider = {
         const m = CHAPTER_RE.exec(pathname);
         if (!m) return null;
         const chapterSlug = `${m[1]}-chapter-${m[2]}`;
-        return { handler: Handler.Reader, slug: m[1], chapter: chapterSlug };
+        return { slug: m[1], chapter: chapterSlug };
     },
 
 

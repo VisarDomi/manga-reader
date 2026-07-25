@@ -1,6 +1,4 @@
-export enum Handler { Reader }
-
-export type RouteMatch = { handler: Handler.Reader; slug: string; chapter: string };
+export type RouteMatch = { slug: string; chapter: string };
 
 export interface ChapterImage {
     url: string;

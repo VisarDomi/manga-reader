@@ -1,5 +1,4 @@
 import type { Provider, RouteMatch, ChapterData, ChapterMeta, ChapterImage } from './types';
-import { Handler } from './types';
 import { SITE_CONFIG } from '../core/sites';
 import { isChapterUnavailable } from '../core/http';
 
@@ -11,7 +10,7 @@ export const yaksha: Provider = {
     matchRoute(pathname: string): RouteMatch | null {
         const m = CHAPTER_RE.exec(pathname);
         if (!m) return null;
-        return { handler: Handler.Reader, slug: m[1], chapter: m[2] };
+        return { slug: m[1], chapter: m[2] };
     },
 
 

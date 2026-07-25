@@ -1,5 +1,4 @@
 import type { Provider, RouteMatch, ChapterMeta } from './types';
-import { Handler } from './types';
 import { SITE_CONFIG } from '../core/sites';
 import { isChapterUnavailable } from '../core/http';
 
@@ -11,7 +10,7 @@ export function createAngularProvider(site: keyof typeof SITE_CONFIG): Provider 
         matchRoute(pathname: string): RouteMatch | null {
             const m = CHAPTER_RE.exec(pathname);
             if (!m) return null;
-            return { handler: Handler.Reader, slug: m[2], chapter: m[3] };
+            return { slug: m[2], chapter: m[3] };
         },
 
 
