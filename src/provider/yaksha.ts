@@ -10,7 +10,7 @@ export const yaksha: Provider = {
     matchRoute(pathname: string): RouteMatch | null {
         const m = CHAPTER_RE.exec(pathname);
         if (!m) return null;
-        return { slug: m[1], chapter: m[2] };
+        return { slug: m[1], chapterId: m[2] };
     },
 
 
@@ -29,9 +29,7 @@ export const yaksha: Provider = {
 
         if (srcs.length === 0) throw new Error('Chapter response contained no images');
 
-        const images: ChapterImage[] = srcs.map(src => {
-            return { url: src, width: 0, height: 0 };
-        });
+        const images: ChapterImage[] = srcs.map(url => ({ url }));
 
         const bcMatch = /<ol class="breadcrumb">[\s\S]*?<a[^>]*href="[^"]*\/manga\/[^/]+\/"[^>]*>([^<]+)<\/a>/.exec(html);
         const seriesTitle = bcMatch ? bcMatch[1].trim() : '';
@@ -57,8 +55,8 @@ export const yaksha: Provider = {
         return chapters;
     },
 
-    readerUrl(_slug: string, chapterId: string, imgIdx?: string): string {
-        return `https://${DOMAIN}/manga/${_slug}/${chapterId}/${imgIdx ? `#${imgIdx}` : ''}`;
+    readerUrl(_slug: string, chapterId: string, imageIndex?: string): string {
+        return `https://${DOMAIN}/manga/${_slug}/${chapterId}/${imageIndex ? `#${imageIndex}` : ''}`;
     },
 
     seriesUrl(slug: string): string {

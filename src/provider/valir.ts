@@ -10,7 +10,7 @@ export const valir: Provider = {
     matchRoute(pathname: string): RouteMatch | null {
         const m = CHAPTER_RE.exec(pathname);
         if (!m) return null;
-        return { slug: m[1], chapter: m[2] };
+        return { slug: m[1], chapterId: m[2] };
     },
 
 
@@ -78,8 +78,8 @@ export const valir: Provider = {
                 if (imageUrl) {
                     images.push({
                         url: imageUrl,
-                        width: page.width ?? 0,
-                        height: page.height ?? 0,
+                        width: page.width,
+                        height: page.height,
                     });
                 }
             }
@@ -125,20 +125,20 @@ export const valir: Provider = {
         return chapters.reverse();
     },
 
-    readerUrl(slug: string, chapterId: string, imgIdx?: string): string {
-        return `https://${DOMAIN}/series/comic/${slug}/chapter/${chapterId}${imgIdx ? `#${imgIdx}` : ''}`;
+    readerUrl(slug: string, chapterId: string, imageIndex?: string): string {
+        return `https://${DOMAIN}/series/comic/${slug}/chapter/${chapterId}${imageIndex ? `#${imageIndex}` : ''}`;
     },
 
     seriesUrl(slug: string): string {
         return `https://${DOMAIN}/series/comic/${slug}`;
     },
 
-    async trackChapter(data: ChapterData, image?: string, chaptersNewestFirst?: ChapterMeta[]): Promise<void> {
-        if (!data.seriesApiId || !data.chapterApiId || image === undefined) return;
+    async trackChapter(data: ChapterData, imageIndex?: string, chaptersNewestFirst?: ChapterMeta[]): Promise<void> {
+        if (!data.seriesApiId || !data.chapterApiId || imageIndex === undefined) return;
 
-        const imageIdx = parseInt(image, 10);
+        const parsedImageIndex = parseInt(imageIndex, 10);
         const totalImages = data.images.length;
-        const progress = Math.round((imageIdx + 1) / totalImages * 100);
+        const progress = Math.round((parsedImageIndex + 1) / totalImages * 100);
 
         const chapters = [{ chapterId: data.chapterApiId, progress }];
 

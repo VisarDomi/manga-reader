@@ -23,7 +23,7 @@ export const davecubari: Provider = {
     matchRoute(pathname: string): RouteMatch | null {
         // cubari.moe reader URL: /read/gist/<gistId>/<chapter>/<page>/
         const cm = CUBARI_READER_RE.exec(pathname);
-        if (cm) return { slug: cm[1], chapter: cm[2] };
+        if (cm) return { slug: cm[1], chapterId: cm[2] };
 
         // davemangascans.xyz list URL: /<slug> — recognized but no reader action
         if (DAVE_LIST_RE.test(pathname)) return null;
@@ -52,11 +52,7 @@ export const davecubari: Provider = {
         const imgUrls = await imgRes.json() as string[];
         if (imgUrls.length === 0) return null;
 
-        const images: ChapterImage[] = imgUrls.map(url => ({
-            url,
-            width: 0,
-            height: 0,
-        }));
+        const images: ChapterImage[] = imgUrls.map(url => ({ url }));
 
         return {
             chapterId: chapterId,
@@ -81,8 +77,8 @@ export const davecubari: Provider = {
         return chapters;
     },
 
-    readerUrl(_slug: string, chapterId: string, imgIdx?: string): string {
-        const page = imgIdx ? parseInt(imgIdx, 10) + 1 : 1;
+    readerUrl(_slug: string, chapterId: string, imageIndex?: string): string {
+        const page = imageIndex ? parseInt(imageIndex, 10) + 1 : 1;
         return `https://${CUBARI_DOMAIN}/read/gist/${_slug}/${chapterId}/${page}/`;
     },
 

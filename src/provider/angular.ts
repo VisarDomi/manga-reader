@@ -10,7 +10,7 @@ export function createAngularProvider(site: keyof typeof SITE_CONFIG): Provider 
         matchRoute(pathname: string): RouteMatch | null {
             const m = CHAPTER_RE.exec(pathname);
             if (!m) return null;
-            return { slug: m[2], chapter: m[3] };
+            return { slug: m[2], chapterId: m[3] };
         },
 
 
@@ -42,8 +42,8 @@ export function createAngularProvider(site: keyof typeof SITE_CONFIG): Provider 
             return chapters;
         },
 
-        readerUrl(_slug: string, chapterId: string, imgIdx?: string): string {
-            return `https://${domain}/series/${_slug}/${chapterId}${imgIdx ? `#${imgIdx}` : ''}`;
+        readerUrl(_slug: string, chapterId: string, imageIndex?: string): string {
+            return `https://${domain}/series/${_slug}/${chapterId}${imageIndex ? `#${imageIndex}` : ''}`;
         },
 
         seriesUrl(slug: string): string {

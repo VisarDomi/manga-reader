@@ -10,7 +10,7 @@ export const violet: Provider = {
     matchRoute(pathname: string): RouteMatch | null {
         const m = CHAPTER_RE.exec(pathname);
         if (!m) return null;
-        return { slug: m[1], chapter: m[2] };
+        return { slug: m[1], chapterId: m[2] };
     },
 
 
@@ -30,11 +30,7 @@ export const violet: Provider = {
         const srcs: string[] = data.sources?.[0]?.images ?? [];
         if (srcs.length === 0) throw new Error('Chapter response contained no images');
 
-        const images: ChapterImage[] = srcs.map((src: string) => ({
-            url: src,
-            width: 0,
-            height: 0,
-        }));
+        const images: ChapterImage[] = srcs.map((url: string) => ({ url }));
 
         // Extract series title from HISTORY.push or breadcrumb
         let seriesTitle = '';
@@ -79,8 +75,8 @@ export const violet: Provider = {
         return chapters;
     },
 
-    readerUrl(slug: string, chapterId: string, imgIdx?: string): string {
-        return `https://${DOMAIN}/${slug}-chapter-${chapterId}/${imgIdx ? `#${imgIdx}` : ''}`;
+    readerUrl(slug: string, chapterId: string, imageIndex?: string): string {
+        return `https://${DOMAIN}/${slug}-chapter-${chapterId}/${imageIndex ? `#${imageIndex}` : ''}`;
     },
 
     seriesUrl(slug: string): string {

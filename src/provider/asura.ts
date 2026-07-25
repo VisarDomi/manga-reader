@@ -34,7 +34,7 @@ export const asura: Provider = {
     matchRoute(pathname: string): RouteMatch | null {
         const m = CHAPTER_RE.exec(pathname);
         if (!m) return null;
-        return { slug: m[1], chapter: m[2] };
+        return { slug: m[1], chapterId: m[2] };
     },
 
 
@@ -69,8 +69,8 @@ export const asura: Provider = {
         return (json.data).map(ch => ({ chapterId: String(ch.number) }));
     },
 
-    readerUrl(_slug: string, chapterId: string, imgIdx?: string): string {
-        return `https://${DOMAIN}/comics/${_slug}/chapter/${chapterId}${imgIdx ? `#${imgIdx}` : ''}`;
+    readerUrl(_slug: string, chapterId: string, imageIndex?: string): string {
+        return `https://${DOMAIN}/comics/${_slug}/chapter/${chapterId}${imageIndex ? `#${imageIndex}` : ''}`;
     },
 
     seriesUrl(slug: string): string {

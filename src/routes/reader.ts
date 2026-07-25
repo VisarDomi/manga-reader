@@ -85,7 +85,7 @@ function findNewerChapter(chaptersNewestFirst: ChapterMeta[], currentChapterId: 
 // ── main ─────────────────────────────────────────────────────────────
 
 export async function open(provider: Provider, route: RouteMatch): Promise<void> {
-    const { slug, chapter: chapterId } = route;
+    const { slug, chapterId } = route;
 
     document.open();
     document.close();
@@ -145,16 +145,16 @@ export async function open(provider: Provider, route: RouteMatch): Promise<void>
             const chapterWrap = saveImg.closest('.hs-chapter') as HTMLDivElement;
             const visibleChapter = chapterWrap.dataset.chapter as string;
 
-            const image = saveImg.id.split('#')[1];
-            const imageKey = `${visibleChapter}:${image}`;
+            const imageIndex = saveImg.id.split('#')[1];
+            const imageKey = `${visibleChapter}:${imageIndex}`;
             if (seenImages.has(imageKey)) return;
             seenImages.add(imageKey);
 
-            history.replaceState(null, '', provider.readerUrl(slug, visibleChapter, image));
+            history.replaceState(null, '', provider.readerUrl(slug, visibleChapter, imageIndex));
 
             const visibleData = chapterData[visibleChapter];
             document.title = `${visibleData.chapterId} ${visibleData.seriesTitle}`;
-            void provider.trackChapter?.(visibleData, image, chaptersNewestFirst);
+            void provider.trackChapter?.(visibleData, imageIndex, chaptersNewestFirst);
 
             const lastLoaded = wrapper.lastElementChild as HTMLDivElement;
             if (chapterWrap !== lastLoaded) return;

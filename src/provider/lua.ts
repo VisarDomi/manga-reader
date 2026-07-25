@@ -10,7 +10,7 @@ export const lua: Provider = {
     matchRoute(pathname: string): RouteMatch | null {
         const m = CHAPTER_RE.exec(pathname);
         if (!m) return null;
-        return { slug: m[1], chapter: m[2] };
+        return { slug: m[1], chapterId: m[2] };
     },
 
 
@@ -29,11 +29,7 @@ export const lua: Provider = {
 
         if (srcs.length === 0) throw new Error('Chapter response contained no images');
 
-        const images: ChapterImage[] = srcs.map(src => ({
-            url: src,
-            width: 0,
-            height: 0,
-        }));
+        const images: ChapterImage[] = srcs.map(url => ({ url }));
 
         // Extract series title from <title> — format: "Series Title - Chapter N - Lua Comic"
         const titleMatch = /<title>([^-]+?)\s*-\s*Chapter\s+\d+\s*-\s*Lua Comic<\/title>/i.exec(html);
@@ -74,8 +70,8 @@ export const lua: Provider = {
         return chapters;
     },
 
-    readerUrl(_slug: string, chapterId: string, imgIdx?: string): string {
-        return `https://${DOMAIN}/series/${_slug}/${chapterId}${imgIdx ? `#${imgIdx}` : ''}`;
+    readerUrl(_slug: string, chapterId: string, imageIndex?: string): string {
+        return `https://${DOMAIN}/series/${_slug}/${chapterId}${imageIndex ? `#${imageIndex}` : ''}`;
     },
 
     seriesUrl(slug: string): string {

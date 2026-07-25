@@ -16,7 +16,7 @@ export const scythe: Provider = {
         const m = CHAPTER_RE.exec(pathname);
         if (!m) return null;
         const chapterSlug = `${m[1]}-chapter-${m[2]}`;
-        return { slug: m[1], chapter: chapterSlug };
+        return { slug: m[1], chapterId: chapterSlug };
     },
 
 
@@ -47,11 +47,7 @@ export const scythe: Provider = {
         const srcs: string[] = tsData.sources?.[0]?.images ?? [];
         if (srcs.length === 0) throw new Error('Chapter response contained no images');
 
-        const images: ChapterImage[] = srcs.map(src => ({
-            url: src,
-            width: 0,
-            height: 0,
-        }));
+        const images: ChapterImage[] = srcs.map(url => ({ url }));
 
         // Series title from .allc div
         const seriesMatch = /<div class="allc">All chapters are in <a[^>]*>([^<]+)<\/a><\/div>/.exec(html);
@@ -80,8 +76,8 @@ export const scythe: Provider = {
         return chapters;
     },
 
-    readerUrl(_slug: string, chapterId: string, imgIdx?: string): string {
-        return `https://${DOMAIN}/${chapterId}/${imgIdx ? `#${imgIdx}` : ''}`;
+    readerUrl(_slug: string, chapterId: string, imageIndex?: string): string {
+        return `https://${DOMAIN}/${chapterId}/${imageIndex ? `#${imageIndex}` : ''}`;
     },
 
     seriesUrl(slug: string): string {
