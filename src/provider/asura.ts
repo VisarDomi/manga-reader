@@ -48,9 +48,8 @@ export const asura: Provider = {
         if (data.is_locked) return null;
 
         const pages = data.chapter.pages;
-        const images: ChapterImage[] = pages.map((p, i) => ({
+        const images: ChapterImage[] = pages.map(p => ({
             url: p.url,
-            order: i,
             width: p.width,
             height: p.height,
         }));

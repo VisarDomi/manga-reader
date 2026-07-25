@@ -53,9 +53,8 @@ export const davecubari: Provider = {
         const imgUrls = await imgRes.json() as string[];
         if (imgUrls.length === 0) return null;
 
-        const images: ChapterImage[] = imgUrls.map((url, i) => ({
+        const images: ChapterImage[] = imgUrls.map(url => ({
             url,
-            order: i,
             width: 0,
             height: 0,
         }));

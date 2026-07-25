@@ -23,16 +23,15 @@ export const yaksha: Provider = {
 
         const srcs: string[] = [];
         const imgTagRe = /<img\b[^>]*\bclass="wp-manga-chapter-img"[^>]*>/g;
-        let tagMatch;
-        while ((tagMatch = imgTagRe.exec(html)) !== null) {
+        for (const tagMatch of html.matchAll(imgTagRe)) {
             const srcMatch = /src="([^"]+)"/.exec(tagMatch[0]);
             if (srcMatch) srcs.push(srcMatch[1].trim().replace(/\s+/g, ''));
         }
 
         if (srcs.length === 0) throw new Error('Chapter response contained no images');
 
-        const images: ChapterImage[] = srcs.map((src, i) => {
-            return { url: src, order: i, width: 0, height: 0 };
+        const images: ChapterImage[] = srcs.map(src => {
+            return { url: src, width: 0, height: 0 };
         });
 
         const bcMatch = /<ol class="breadcrumb">[\s\S]*?<a[^>]*href="[^"]*\/manga\/[^/]+\/"[^>]*>([^<]+)<\/a>/.exec(html);
@@ -53,8 +52,7 @@ export const yaksha: Provider = {
 
         const chapters: ChapterMeta[] = [];
         const liRe = /<li class="wp-manga-chapter[^"]*">[\s\S]*?<a href="([^"]+)">[\s\S]*?Chapter\s+([\d.]+)\s*<\/a>/g;
-        let m;
-        while ((m = liRe.exec(html)) !== null) {
+        for (const m of html.matchAll(liRe)) {
             chapters.push({ chapterId: `chapter-${m[2]}` });
         }
         return chapters;

@@ -48,9 +48,8 @@ export const scythe: Provider = {
         const srcs: string[] = tsData.sources?.[0]?.images ?? [];
         if (srcs.length === 0) throw new Error('Chapter response contained no images');
 
-        const images: ChapterImage[] = srcs.map((src, i) => ({
+        const images: ChapterImage[] = srcs.map(src => ({
             url: src,
-            order: i,
             width: 0,
             height: 0,
         }));
@@ -76,8 +75,7 @@ export const scythe: Provider = {
         // Match chapter links in #chapterlist
         const escapedSlug = slug.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         const chapterSlugRe = new RegExp(`https://${DOMAIN.replace(/\./g, '\\.')}/(${escapedSlug}-chapter-[\\d.]+)/`, 'g');
-        let m;
-        while ((m = chapterSlugRe.exec(html)) !== null) {
+        for (const m of html.matchAll(chapterSlugRe)) {
             chapters.push({ chapterId: m[1] });
         }
         return chapters;

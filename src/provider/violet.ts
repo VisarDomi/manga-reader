@@ -31,9 +31,8 @@ export const violet: Provider = {
         const srcs: string[] = data.sources?.[0]?.images ?? [];
         if (srcs.length === 0) throw new Error('Chapter response contained no images');
 
-        const images: ChapterImage[] = srcs.map((src: string, i: number) => ({
+        const images: ChapterImage[] = srcs.map((src: string) => ({
             url: src,
-            order: i,
             width: 0,
             height: 0,
         }));
@@ -71,8 +70,7 @@ export const violet: Provider = {
 
         const chapters: ChapterMeta[] = [];
         const liRe = /<li\b[^>]*data-num="[^"]*"[^>]*>\s*<a\b[^>]*href="([^"]+)"[^>]*>/g;
-        let m;
-        while ((m = liRe.exec(html)) !== null) {
+        for (const m of html.matchAll(liRe)) {
             const href = m[1];
             const cm = CHAPTER_RE.exec(href);
             if (cm) {

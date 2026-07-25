@@ -24,16 +24,14 @@ export const lua: Provider = {
         // Extract chapter images — <img> tags with media.luacomic.org/uploads/series/ in src
         const srcs: string[] = [];
         const imgRe = /<img\b[^>]*\bsrc="(https:\/\/media\.luacomic\.org\/file\/[^"]*\/uploads\/series\/[^"]+\.(?:webp|jpg|png)[^"]*)"[^>]*>/g;
-        let m;
-        while ((m = imgRe.exec(html)) !== null) {
+        for (const m of html.matchAll(imgRe)) {
             srcs.push(m[1].trim().replace(/\s+/g, ''));
         }
 
         if (srcs.length === 0) throw new Error('Chapter response contained no images');
 
-        const images: ChapterImage[] = srcs.map((src, i) => ({
+        const images: ChapterImage[] = srcs.map(src => ({
             url: src,
-            order: i,
             width: 0,
             height: 0,
         }));

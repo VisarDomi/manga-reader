@@ -33,7 +33,7 @@ console.log(`Version incremented -> ${pkgJson.version}`);
 
 // ── Read registry ────────────────────────────────────────────────────
 
-const registry = JSON.parse(readFileSync('src/sites.json', 'utf-8'));
+const registry = JSON.parse(readFileSync('src/core/sites.json', 'utf-8'));
 
 // Group sites by provider module
 const providerGroups = {};

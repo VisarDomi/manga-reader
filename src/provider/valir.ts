@@ -22,7 +22,7 @@ export const valir: Provider = {
         const html = await res.text();
 
         // Extract chapter metadata from the RSC payload
-        const chapterMatch = /\\"chapter\\":\s*\{[^}]*\\"id\\":\s*\\"([^"\\]+)\\"[^}]*\\"number\\":\s*(\d+)[^}]*\\"title\\":\s*\\"([^"\\]*)\\"/.exec(html);
+        const chapterMatch = /\\"chaptewr\\":\s*\{[^}]*\\"id\\":\s*\\"([^"\\]+)\\"[^}]*\\"number\\":\s*(\d+)[^}]*\\"title\\":\s*\\"([^"\\]*)\\"/.exec(html);
         if (!chapterMatch) throw new Error('Could not find chapter data in page');
 
         const numericId = chapterMatch[1]; // cuid2 chapter ID
@@ -38,17 +38,13 @@ export const valir: Provider = {
 
         // Each page in the RSC payload has: imageUrl, width, height
         const pageDataRe = /\\"imageUrl\\":\s*\\"([^"\\]*)\\"\s*,\s*\\"width\\":\s*(\d+)\s*,\s*\\"height\\":\s*(\d+)/g;
-        let pageMatch;
-        let order = 0;
-        while ((pageMatch = pageDataRe.exec(html)) !== null) {
+        for (const pageMatch of html.matchAll(pageDataRe)) {
             if (pageMatch[1]) {
                 images.push({
                     url: pageMatch[1],
-                    order: order,
                     width: parseInt(pageMatch[2], 10),
                     height: parseInt(pageMatch[3], 10),
                 });
-                order++;
             }
         }
 
@@ -72,8 +68,7 @@ export const valir: Provider = {
             };
 
             const pages = contentData.pages ?? [];
-            for (let i = 0; i < pages.length; i++) {
-                const page = pages[i];
+            for (const page of pages) {
                 let imageUrl = page.imageUrl;
                 if (!imageUrl && page.hasStrips && page.strips?.length) {
                     imageUrl = page.strips[0].imageUrl;
@@ -84,7 +79,6 @@ export const valir: Provider = {
                 if (imageUrl) {
                     images.push({
                         url: imageUrl,
-                        order: page.pageNumber ?? i,
                         width: page.width ?? 0,
                         height: page.height ?? 0,
                     });
@@ -118,9 +112,8 @@ export const valir: Provider = {
         const region = html.substring(acIdx, acIdx + 100000);
         const chapters: ChapterMeta[] = [];
         const chapterRe = /\\"id\\":\s*\\"(cm[a-z0-9]+)\\",\s*\\"number\\":\s*(\d+),\s*\\"title\\":\s*\\"Chapter (\d+)\\"/g;
-        let m;
         const seen = new Set<number>();
-        while ((m = chapterRe.exec(region)) !== null) {
+        for (const m of region.matchAll(chapterRe)) {
             const num = parseInt(m[2], 10);
             if (!seen.has(num)) {
                 seen.add(num);

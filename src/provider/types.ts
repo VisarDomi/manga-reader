@@ -4,7 +4,6 @@ export type RouteMatch = { handler: Handler.Reader; slug: string; chapter: strin
 
 export interface ChapterImage {
     url: string;
-    order: number;
     width: number;
     height: number;
 }
