@@ -123,7 +123,7 @@ export const valir: Provider = {
             const num = parseInt(m[2], 10);
             if (!seen.has(num)) {
                 seen.add(num);
-                chapters.push({ chapterId: String(num), id: m[1] });
+                chapters.push({ chapterId: String(num), chapterApiId: m[1] });
             }
         }
 
@@ -158,7 +158,7 @@ export const valir: Provider = {
         if (chapterList) {
             for (const ch of chapterList) {
                 if (ch.chapterId === data.chapterId) break;
-                if (ch.id) chapters.push({ chapterId: ch.id, progress: 100 });
+                if (ch.chapterApiId) chapters.push({ chapterId: ch.chapterApiId, progress: 100 });
             }
         }
 

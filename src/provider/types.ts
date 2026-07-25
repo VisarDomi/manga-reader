@@ -9,19 +9,17 @@ export interface ChapterImage {
     height: number;
 }
 
-export interface ChapterData {
-    chapterId: string;
+export interface ChapterData extends ChapterMeta {
     seriesTitle: string;
     /** Internal API ID for the series, used for tracking on some providers. */
     seriesApiId?: number | string;
-    /** Internal API ID for the chapter, used for tracking on some providers. */
-    chapterApiId?: number | string;
     images: ChapterImage[];
 }
 
 export interface ChapterMeta {
     chapterId: string;
-    id?: string;
+    /** Internal API ID for tracking on some providers. */
+    chapterApiId?: string | number;
 }
 
 export interface Provider {
