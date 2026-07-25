@@ -3,11 +3,11 @@
  * Build script with provider filtering.
  *
  * Usage:
- *   node scripts/build.mjs          – build all providers (default)
- *   node scripts/build.mjs asura    – build only asura
- *   node scripts/build.mjs -asura   – build all EXCEPT asura
- *   node scripts/build.mjs asura,qimanga – build asura + qimanga
- *   node scripts/build.mjs -asura,qimanga – all except asura + qimanga
+ *   node scripts/build.mjs              – all providers → dist/manga-reader.user.js
+ *   node scripts/build.mjs asura        – only asura   → dist/asura-reader.user.js
+ *   node scripts/build.mjs -asura       – all except   → dist/manga-reader.user.js
+ *   node scripts/build.mjs asura,qimanga – only those   → dist/manga-reader.user.js
+ *   node scripts/build.mjs -asura,qimanga – all except  → dist/manga-reader.user.js
  *
  * The script temporarily overwrites src/provider/index.ts with a filtered
  * version, then restores the original after building.
@@ -161,7 +161,12 @@ const matchSites = [...new Set(filtered.flatMap(p => {
   return [site];
 }))].join(',');
 
-const env = { ...process.env, MATCH_SITES: isFullBuild ? '' : matchSites };
+// Single-provider include build → custom output name, otherwise `manga-reader`
+const buildName = includeNames.length === 1
+  ? `${includeNames[0]}-reader`
+  : '';
+
+const env = { ...process.env, MATCH_SITES: isFullBuild ? '' : matchSites, BUILD_NAME: buildName };
 
 if (isFullBuild) {
   console.log('[build] Building all providers');

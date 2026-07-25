@@ -13,6 +13,8 @@ function getMatchPatterns(): string[] {
     });
 }
 
+const buildName = process.env.BUILD_NAME || '';
+
 export default defineConfig({
     build: {
         minify: false,
@@ -20,16 +22,20 @@ export default defineConfig({
         target: "esnext",
         modulePreload: false,
         cssCodeSplit: false,
+        emptyOutDir: false,
     },
     plugins: [
         monkey({
             entry: "src/main.ts",
             userscript: {
-                name: `${process.env.BUILD_NAME || pkg.name} v${pkg.version}`,
+                name: `${buildName || pkg.name} v${pkg.version}`,
                 namespace: "https://github.com/VisarDomi",
                 description: "manga reader takeover",
                 match: getMatchPatterns(),
                 "run-at": "document-start",
+            },
+            build: {
+                fileName: buildName ? `${buildName}.user.js` : undefined,
             },
         }),
     ],
