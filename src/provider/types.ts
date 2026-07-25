@@ -11,11 +11,11 @@ export interface ChapterImage {
 
 export interface ChapterData {
     chapterId: string;
-    series: { title: string };
-    /** Series ID, used for tracking/read progress on some providers. */
-    seriesId?: number | string;
-    /** Chapter ID, used for tracking/views on some providers. */
-    chapterNumericId?: number | string;
+    seriesTitle: string;
+    /** Internal API ID for the series, used for tracking on some providers. */
+    seriesApiId?: number | string;
+    /** Internal API ID for the chapter, used for tracking on some providers. */
+    chapterApiId?: number | string;
     images: ChapterImage[];
 }
 

@@ -36,7 +36,7 @@ export const scythe: Provider = {
                 if (!b64) continue;
                 const decoded = atob(b64[1]);
                 if (decoded.includes('ts_reader.run(')) {
-                    const jsonMatch = decoded.match(/ts_reader\.run\((\{[\s\S]*\})\);?$/);
+                    const jsonMatch = decoded.match(/ts_reader\.run\((\{[\s\S]*\\})\);?$/);
                     if (jsonMatch) {
                         try {
                             tsData = JSON.parse(jsonMatch[1]) as TsReaderData;
@@ -63,7 +63,7 @@ export const scythe: Provider = {
 
         return {
             chapterId: chapterId,
-            series: { title: seriesTitle },
+            seriesTitle: seriesTitle,
             images,
         };
     },

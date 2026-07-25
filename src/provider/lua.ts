@@ -44,7 +44,7 @@ export const lua: Provider = {
 
         return {
             chapterId: chapterId,
-            series: { title: seriesTitle },
+            seriesTitle: seriesTitle,
             images,
         };
     },

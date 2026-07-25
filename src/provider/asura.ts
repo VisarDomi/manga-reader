@@ -57,9 +57,9 @@ export const asura: Provider = {
 
         return {
             chapterId,
-            series: { title: data.series.title },
-            seriesId: data.series.id,
-            chapterNumericId: data.chapter.id,
+            seriesTitle: data.series.title,
+            seriesApiId: data.series.id,
+            chapterApiId: data.chapter.id,
             images,
         };
     },
@@ -85,18 +85,18 @@ export const asura: Provider = {
     },
 
     async trackChapter(data: ChapterData): Promise<void> {
-        if (!data.seriesId || !data.chapterNumericId) return;
+        if (!data.seriesApiId || !data.chapterApiId) return;
         const token = globalThis.localStorage?.getItem('access_token');
         if (!token) return;
         const headers = {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json',
         };
-        fetch(`${API_BASE}/bookmarks/${data.seriesId}/read/${data.chapterId}`, { method: 'POST', headers }).catch(() => {});
+        fetch(`${API_BASE}/bookmarks/${data.seriesApiId}/read/${data.chapterId}`, { method: 'POST', headers }).catch(() => {});
         fetch(`${API_BASE}/views/chapter`, {
             method: 'POST',
             headers,
-            body: JSON.stringify({ chapter_id: data.chapterNumericId, series_id: data.seriesId }),
+            body: JSON.stringify({ chapter_id: data.chapterApiId, series_id: data.seriesApiId }),
         }).catch(() => {});
     },
 };

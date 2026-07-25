@@ -96,9 +96,9 @@ export const valir: Provider = {
 
         return {
             chapterId,
-            series: { title: seriesTitle },
-            seriesId,
-            chapterNumericId: numericId,
+            seriesTitle: seriesTitle,
+            seriesApiId: seriesId,
+            chapterApiId: numericId,
             images,
         };
     },
@@ -147,13 +147,13 @@ export const valir: Provider = {
     },
 
     async trackChapter(data: ChapterData, image?: string, chapterList?: ChapterMeta[]): Promise<void> {
-        if (!data.seriesId || !data.chapterNumericId || image === undefined) return;
+        if (!data.seriesApiId || !data.chapterApiId || image === undefined) return;
 
         const imageIdx = parseInt(image, 10);
         const totalImages = data.images.length;
         const progress = Math.round((imageIdx + 1) / totalImages * 100);
 
-        const chapters = [{ chapterId: data.chapterNumericId, progress }];
+        const chapters = [{ chapterId: data.chapterApiId, progress }];
 
         // Mark all previous chapters as fully read
         if (chapterList) {
@@ -167,7 +167,7 @@ export const valir: Provider = {
             method: 'POST',
             credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ seriesId: data.seriesId, chapters }),
+            body: JSON.stringify({ seriesId: data.seriesApiId, chapters }),
         }).catch(() => {});
     },
 };

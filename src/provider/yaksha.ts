@@ -40,7 +40,7 @@ export const yaksha: Provider = {
 
         return {
             chapterId: chapterId,
-            series: { title: seriesTitle },
+            seriesTitle: seriesTitle,
             images,
         };
     },

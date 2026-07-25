@@ -61,7 +61,7 @@ export const davecubari: Provider = {
 
         return {
             chapterId: chapterId,
-            series: { title: series.title },
+            seriesTitle: series.title,
             images,
         };
     },

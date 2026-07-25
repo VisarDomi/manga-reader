@@ -109,7 +109,7 @@ export async function open(slug: string, chapterId: string): Promise<void> {
         throw new Error('No such chapter');
     }
 
-    document.title = `${data.chapterId} ${data.series.title}`;
+    document.title = `${data.chapterId} ${data.seriesTitle}`;
 
     const wrapper = document.createElement('div');
     wrapper.className = 'hs-reader-body';
@@ -156,7 +156,7 @@ export async function open(slug: string, chapterId: string): Promise<void> {
             history.replaceState(null, '', readerUrl(slug, visibleChapter, image));
 
             const visibleData = chapterData[visibleChapter];
-            document.title = `${visibleData.chapterId} ${visibleData.series.title}`;
+            document.title = `${visibleData.chapterId} ${visibleData.seriesTitle}`;
             trackChapter(visibleData, image, chapterList);
 
             const lastLoaded = wrapper.lastElementChild as HTMLDivElement;
