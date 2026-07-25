@@ -1,7 +1,7 @@
 export { Handler } from './types';
 export type { Provider, RouteMatch, ChapterData, ChapterImage, ChapterMeta } from './types';
 
-import type { ChapterMeta, Provider } from './types';
+import type { ChapterMeta, Provider, ChapterData } from './types';
 import { SITE_CONFIG } from '../sites';
 import { ezmanga } from './ezmanga';
 import { qiscans } from './qiscans';
@@ -29,6 +29,7 @@ export const matchRoute = () => {
 };
 
 export const fetchChapter = async (slug: string, chapterId: string) => p.fetchChapter(slug, chapterId);
+export const trackChapter = async (data: ChapterData) => p.trackChapter?.(data);
 export const fetchChapterList = async (slug: string) => p.fetchChapterList(slug);
 export const readerUrl = (slug: string, chapterId: string, imgIdx?: string) => p.readerUrl(slug, chapterId, imgIdx);
 export const seriesUrl = (slug: string) => p.seriesUrl(slug);

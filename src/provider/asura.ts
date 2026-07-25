@@ -14,10 +14,13 @@ interface AsuraPage {
 
 interface AsuraChapterResponse {
     chapter: {
+        id: number;
+        series_id: number;
         number: number;
         pages: AsuraPage[] | null;
     };
     series: {
+        id: number;
         title: string;
         cover: string;
     };
@@ -63,6 +66,8 @@ export const asura: Provider = {
             isFree: true,
             requiresPurchase: false,
             series: { title: data.series.title },
+            seriesId: data.series.id,
+            chapterNumericId: data.chapter.id,
             images,
             prevUrl: data.prev_chapter
                 ? `https://${DOMAIN}/comics/${slug}/chapter/${data.prev_chapter.number}`
@@ -91,5 +96,21 @@ export const asura: Provider = {
     getNextChapter(chapterList: ChapterMeta[], lastChapter: string): ChapterMeta {
         const idx = chapterList.findIndex(m => m.slug === lastChapter);
         return chapterList[idx - 1];
+    },
+
+    async trackChapter(data: ChapterData): Promise<void> {
+        if (!data.seriesId || !data.chapterNumericId) return;
+        const token = globalThis.localStorage?.getItem('access_token');
+        if (!token) return;
+        const headers = {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+        };
+        fetch(`${API_BASE}/bookmarks/${data.seriesId}/read/${data.number}`, { method: 'POST', headers }).catch(() => {});
+        fetch(`${API_BASE}/views/chapter`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ chapter_id: data.chapterNumericId, series_id: data.seriesId }),
+        }).catch(() => {});
     },
 };

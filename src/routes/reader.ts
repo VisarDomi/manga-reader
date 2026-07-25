@@ -4,6 +4,7 @@ import {
     type ChapterMeta,
     fetchChapter,
     fetchChapterList,
+    trackChapter,
     readerUrl,
     seriesUrl,
     getNextChapter
@@ -103,6 +104,7 @@ export async function open(slug: string, chapterId: string): Promise<void> {
     let data: ChapterData;
     try {
         data = await fetchChapter(slug, chapterId);
+        void trackChapter(data);
     } catch {
         window.location.href = seriesUrl(slug);
         throw new Error('No such chapter');
@@ -160,6 +162,7 @@ export async function open(slug: string, chapterId: string): Promise<void> {
                     const wrapEl = createChapterWrapper(next.slug);
                     renderChapterImages(wrapEl, nextData);
                     wrapper.appendChild(wrapEl);
+                    trackChapter(nextData);
                 })
                 .catch(() => { wrapper.appendChild(createStatus('Failed to load chapter', 'hs-error')); })
                 .finally(() => { clearStatus(); loading = false; });

@@ -21,6 +21,10 @@ export interface ChapterData {
     isFree: boolean;
     requiresPurchase: boolean;
     series: { title: string };
+    /** Numeric series ID, used for tracking/read progress on some providers. */
+    seriesId?: number;
+    /** Numeric chapter ID, used for tracking/views on some providers. */
+    chapterNumericId?: number;
     images: ChapterImage[];
     prevUrl: string | null;
     nextUrl: string | null;
@@ -39,4 +43,6 @@ export interface Provider {
     readerUrl(slug: string, chapterId: string, imgIdx?: string): string;
     seriesUrl(slug: string): string;
     getNextChapter(chapterList: ChapterMeta[], lastChapter: string): ChapterMeta;
+    /** Mark a chapter as read / track reading progress. Optional — no-op by default. */
+    trackChapter?(data: ChapterData): Promise<void>;
 }
