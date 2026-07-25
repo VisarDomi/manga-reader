@@ -19,7 +19,6 @@ export const scythe: Provider = {
         return { handler: Handler.Reader, slug: m[1], chapter: chapterSlug };
     },
 
-    async init(): Promise<void> { /* no-op */ },
 
     async fetchChapter(_slug: string, chapterId: string): Promise<ChapterData> {
         const url = `https://${DOMAIN}/${chapterId}/`;

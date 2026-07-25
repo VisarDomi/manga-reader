@@ -13,7 +13,6 @@ export const violet: Provider = {
         return { handler: Handler.Reader, slug: m[1], chapter: m[2] };
     },
 
-    async init(): Promise<void> { /* no-op */ },
 
     async fetchChapter(slug: string, chapterId: string): Promise<ChapterData> {
         const url = `https://${DOMAIN}/${slug}-chapter-${chapterId}/`;

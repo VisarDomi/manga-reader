@@ -13,7 +13,6 @@ export function createAngularProvider(site: keyof typeof SITE_CONFIG): Provider 
             return { handler: Handler.Reader, slug: m[2], chapter: m[3] };
         },
 
-        async init(): Promise<void> { /* no-op */ },
 
         async fetchChapter(slug: string, chapterId: string): Promise<import('./types').ChapterData> {
             const res = await fetch(`${apiBase}/series/${slug}/chapters/${chapterId}`);

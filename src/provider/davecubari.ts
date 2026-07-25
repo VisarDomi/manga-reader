@@ -31,7 +31,6 @@ export const davecubari: Provider = {
         return null;
     },
 
-    async init(): Promise<void> { /* no-op */ },
 
     async fetchChapter(slug: string, chapterId: string): Promise<ChapterData> {
         // slug = base64 gist ID

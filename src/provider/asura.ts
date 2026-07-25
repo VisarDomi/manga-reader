@@ -37,7 +37,6 @@ export const asura: Provider = {
         return { handler: Handler.Reader, slug: m[1], chapter: m[2] };
     },
 
-    async init(): Promise<void> { /* no-op */ },
 
     async fetchChapter(slug: string, chapterId: string): Promise<ChapterData> {
         const res = await fetch(`${API_BASE}/series/${slug}/chapters/${chapterId}`);
