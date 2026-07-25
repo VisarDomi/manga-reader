@@ -88,8 +88,8 @@ function clearStatus(): void {
     (document.querySelector('.hs-status') as HTMLDivElement).remove();
 }
 
-function getNextChapter(chapterList: ChapterMeta[], currentChapter: string): ChapterMeta | undefined {
-    const currentIdx = chapterList.findIndex(chapter => chapter.chapterId === currentChapter);
+function findNewerChapter(chapterList: ChapterMeta[], currentChapterId: string): ChapterMeta | undefined {
+    const currentIdx = chapterList.findIndex(chapter => chapter.chapterId === currentChapterId);
     if (currentIdx === -1) return undefined;
     return chapterList[currentIdx - 1];
 }
@@ -165,21 +165,21 @@ export async function open(slug: string, chapterId: string): Promise<void> {
             const lastLoaded = wrapper.lastElementChild as HTMLDivElement;
             if (chapterWrap !== lastLoaded) return;
 
-            const next = getNextChapter(chapterList, visibleChapter);
-            if (!next || loaded.has(next.chapterId)) return;
+            const newerChapter = findNewerChapter(chapterList, visibleChapter);
+            if (!newerChapter || loaded.has(newerChapter.chapterId)) return;
 
-            loaded.add(next.chapterId);
+            loaded.add(newerChapter.chapterId);
             loading = true;
-            wrapper.appendChild(createStatus('Loading next chapter...', 'hs-loading'));
-            fetchChapter(slug, next.chapterId)
-                .then(nextData => {
-                    if (!nextData) {
+            wrapper.appendChild(createStatus('Loading newer chapter...', 'hs-loading'));
+            fetchChapter(slug, newerChapter.chapterId)
+                .then(newerChapterData => {
+                    if (!newerChapterData) {
                         wrapper.appendChild(createStatus('Chapter unavailable', 'hs-error'));
                         return;
                     }
-                    chapterData[next.chapterId] = nextData;
-                    const wrapEl = createChapterWrapper(next.chapterId);
-                    renderChapterImages(wrapEl, nextData);
+                    chapterData[newerChapter.chapterId] = newerChapterData;
+                    const wrapEl = createChapterWrapper(newerChapter.chapterId);
+                    renderChapterImages(wrapEl, newerChapterData);
                     wrapper.appendChild(wrapEl);
                 })
                 .catch(() => { wrapper.appendChild(createStatus('Failed to load chapter', 'hs-error')); })
