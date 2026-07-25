@@ -40,7 +40,6 @@
   },
   "cubari": {
     "domain": "cubari.moe",
-    "matchPattern": "https://cubari.moe/read/gist/*",
     "provider": "davecubari"
   }
 }
