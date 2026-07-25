@@ -4,7 +4,7 @@ import { Site, SITE_CONFIG } from '../sites';
 
 export function createAngularProvider(site: Site): Provider {
     const { domain, apiBase } = SITE_CONFIG[site];
-    const CHAPTER_RE = /\/([^/]+)\/([^/]+)$/;
+    const CHAPTER_RE = /\/([^/]+)\/([^/]+)\/([^/]+)$/;
 
     return {
         name: site,
@@ -12,7 +12,7 @@ export function createAngularProvider(site: Site): Provider {
         matchRoute(pathname: string): RouteMatch | null {
             const m = CHAPTER_RE.exec(pathname);
             if (!m) return null;
-            return { handler: Handler.Reader, slug: m[1], chapter: m[2] };
+            return { handler: Handler.Reader, slug: m[2], chapter: m[3] };
         },
 
         async init(): Promise<void> { /* no-op */ },

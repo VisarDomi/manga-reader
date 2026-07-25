@@ -9,6 +9,18 @@ import {
     getNextChapter
 } from '../provider';
 
+function retryBrokenImages(selector: ".hs-reader-img" | ".hs-thumb", interval: number): void {
+    setInterval(() => {
+        const imgs = document.querySelectorAll<HTMLImageElement>(selector);
+        for (const img of imgs) {
+            if (!img.complete || img.naturalWidth > 0) continue; // safari ios doesn't execute img.onerror on 429s so we have to do hacks
+            const src = img.src;
+            img.src = ''; // safari ios needs its source cleared first so that it can register the new (same) source
+            img.src = src;
+        }
+    }, interval);
+}
+
 function restoreScroll(wrap: HTMLDivElement, target: HTMLImageElement) {
     let cancelled = false;
     window.addEventListener('scroll', () => { cancelled = true; }, { once: true });
@@ -85,6 +97,7 @@ export async function open(slug: string, chapterId: string): Promise<void> {
     const style = document.createElement('style');
     style.textContent = css;
     document.head.appendChild(style);
+    retryBrokenImages(".hs-reader-img", 2000);
 
     // 1. Load the current chapter
     let data: ChapterData;
@@ -132,9 +145,6 @@ export async function open(slug: string, chapterId: string): Promise<void> {
             const visibleChapter = chapterWrap.dataset.chapter as string;
 
             history.replaceState(null, '', readerUrl(slug, visibleChapter, saveImg.id.split('#')[1]));
-
-            const nearBottom = window.scrollY + chapterWrap.clientHeight > document.documentElement.scrollHeight;
-            if (!nearBottom) return;
 
             const lastWrap = wrapper.lastElementChild as HTMLDivElement;
             const lastChapter = lastWrap.dataset.chapter as string;

@@ -11,6 +11,4 @@ ios26 and ios27 top and bottom bar transparency behaves on if body scrolls or if
 We nuke the site and build our own structure. Infinite reader style.
 
 ## Sites supported
-```
-match: ["https://ezmanga.org/*", "https://qimanga.com/*", "https://yakshacomics.com/*"]
-```
+[sites.ts](./src/sites.ts)
