@@ -21,7 +21,7 @@ export const valir: Provider = {
         const html = await res.text();
 
         // Extract chapter metadata from the RSC payload
-        const chapterMatch = /\\"chaptewr\\":\s*\{[^}]*\\"id\\":\s*\\"([^"\\]+)\\"[^}]*\\"number\\":\s*(\d+)[^}]*\\"title\\":\s*\\"([^"\\]*)\\"/.exec(html);
+        const chapterMatch = /\\"chapter\\":\s*\{[^}]*\\"id\\":\s*\\"([^"\\]+)\\"[^}]*\\"number\\":\s*(\d+)[^}]*\\"title\\":\s*\\"([^"\\]*)\\"/.exec(html);
         if (!chapterMatch) throw new Error('Could not find chapter data in page');
 
         const numericId = chapterMatch[1]; // cuid2 chapter ID

@@ -32,7 +32,7 @@ export const lua: Provider = {
         const images: ChapterImage[] = srcs.map(url => ({ url }));
 
         // Extract series title from <title> — format: "Series Title - Chapter N - Lua Comic"
-        const titleMatch = /<title>([^-]+?)\s*-\s*Chapter\s+\d+\s*-\s*Lua Comic<\/title>/i.exec(html);
+        const titleMatch = /<title>(.+?)\s+-\s+Chapter\s+\d+\s+-\s+Lua Comic<\/title>/i.exec(html);
         const seriesTitle = titleMatch ? titleMatch[1].trim() : '';
 
         return {
