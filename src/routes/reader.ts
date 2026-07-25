@@ -76,10 +76,6 @@ function createStatus(text: string, className: string): HTMLDivElement {
     return div;
 }
 
-function clearStatus(): void {
-    (document.querySelector('.hs-status') as HTMLDivElement).remove();
-}
-
 function findNewerChapter(chaptersNewestFirst: ChapterMeta[], currentChapterId: string): ChapterMeta | undefined {
     const currentIdx = chaptersNewestFirst.findIndex(chapter => chapter.chapterId === currentChapterId);
     if (currentIdx === -1) return undefined;
@@ -129,11 +125,15 @@ export async function open(provider: Provider, route: RouteMatch): Promise<void>
     loaded.add(chapterId);
     let loading = true;
 
-    wrapper.appendChild(createStatus('Loading chapters...', 'hs-loading'));
+    const chaptersLoadingStatus = createStatus('Loading chapters...', 'hs-loading');
+    wrapper.appendChild(chaptersLoadingStatus);
     provider.fetchChaptersNewestFirst(slug)
         .then(chapters => { chaptersNewestFirst = chapters; })
         .catch(() => { wrapper.appendChild(createStatus('Failed to load chapter list', 'hs-error')); })
-        .finally(() => { clearStatus(); loading = false; });
+        .finally(() => {
+            chaptersLoadingStatus.remove();
+            loading = false;
+        });
 
     // 4. Scroll handler
     const seenImages = new Set<string>();
@@ -164,7 +164,8 @@ export async function open(provider: Provider, route: RouteMatch): Promise<void>
 
             loaded.add(newerChapter.chapterId);
             loading = true;
-            wrapper.appendChild(createStatus('Loading newer chapter...', 'hs-loading'));
+            const newerChapterLoadingStatus = createStatus('Loading newer chapter...', 'hs-loading');
+            wrapper.appendChild(newerChapterLoadingStatus);
             provider.fetchChapter(slug, newerChapter.chapterId)
                 .then(newerChapterData => {
                     if (!newerChapterData) {
@@ -177,7 +178,10 @@ export async function open(provider: Provider, route: RouteMatch): Promise<void>
                     wrapper.appendChild(wrapEl);
                 })
                 .catch(() => { wrapper.appendChild(createStatus('Failed to load chapter', 'hs-error')); })
-                .finally(() => { clearStatus(); loading = false; });
+                .finally(() => {
+                    newerChapterLoadingStatus.remove();
+                    loading = false;
+                });
         }, 100);
     }
     window.addEventListener('scrollend', scrollEndOneHundred);
