@@ -27,7 +27,6 @@ export interface Provider {
     fetchChapterList(slug: string): Promise<ChapterMeta[]>;
     readerUrl(slug: string, chapterId: string, imgIdx?: string): string;
     seriesUrl(slug: string): string;
-    getNextChapter(chapterList: ChapterMeta[], lastChapter: string): ChapterMeta;
     /** Mark a chapter as read / track reading progress. Optional — no-op by default. */
     trackChapter?(data: ChapterData, image?: string, chapterList?: ChapterMeta[]): Promise<void>;
 }

@@ -33,4 +33,3 @@ export const trackChapter = async (data: ChapterData, image?: string, chapterLis
 export const fetchChapterList = async (slug: string) => p.fetchChapterList(slug);
 export const readerUrl = (slug: string, chapterId: string, imgIdx?: string) => p.readerUrl(slug, chapterId, imgIdx);
 export const seriesUrl = (slug: string) => p.seriesUrl(slug);
-export const getNextChapter = (chapterList: ChapterMeta[], lastChapter: string) => p.getNextChapter(chapterList, lastChapter);

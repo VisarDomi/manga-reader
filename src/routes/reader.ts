@@ -6,8 +6,7 @@ import {
     fetchChapterList,
     trackChapter,
     readerUrl,
-    seriesUrl,
-    getNextChapter
+    seriesUrl
 } from '../provider';
 
 function retryBrokenImages(selector: ".hs-reader-img" | ".hs-thumb", interval: number): void {
@@ -87,6 +86,12 @@ function createStatus(text: string, className: string): HTMLDivElement {
 
 function clearStatus(): void {
     (document.querySelector('.hs-status') as HTMLDivElement).remove();
+}
+
+function getNextChapter(chapterList: ChapterMeta[], currentChapter: string): ChapterMeta | undefined {
+    const currentIdx = chapterList.findIndex(chapter => chapter.chapterId === currentChapter);
+    if (currentIdx === -1) return undefined;
+    return chapterList[currentIdx - 1];
 }
 
 // ── main ─────────────────────────────────────────────────────────────

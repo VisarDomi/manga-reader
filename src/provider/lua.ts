@@ -82,9 +82,4 @@ export const lua: Provider = {
     seriesUrl(slug: string): string {
         return `https://${DOMAIN}/series/${slug}`;
     },
-
-    getNextChapter(chapterList: ChapterMeta[], lastChapter: string): ChapterMeta {
-        const idx = chapterList.findIndex(m => m.chapterId === lastChapter);
-        return chapterList[idx - 1];
-    },
 };

@@ -123,7 +123,7 @@ export const valir: Provider = {
 
         if (chapters.length === 0) throw new Error('No chapters found');
 
-        return chapters;
+        return chapters.reverse();
     },
 
     readerUrl(slug: string, chapterId: string, imgIdx?: string): string {
@@ -132,11 +132,6 @@ export const valir: Provider = {
 
     seriesUrl(slug: string): string {
         return `https://${DOMAIN}/series/comic/${slug}`;
-    },
-
-    getNextChapter(chapterList: ChapterMeta[], lastChapter: string): ChapterMeta {
-        const idx = chapterList.findIndex(m => m.chapterId === lastChapter);
-        return chapterList[idx + 1];
     },
 
     async trackChapter(data: ChapterData, image?: string, chapterList?: ChapterMeta[]): Promise<void> {
@@ -148,11 +143,13 @@ export const valir: Provider = {
 
         const chapters = [{ chapterId: data.chapterApiId, progress }];
 
-        // Mark all previous chapters as fully read
+        // The list is newest-first, so older chapters follow the current one.
         if (chapterList) {
-            for (const ch of chapterList) {
-                if (ch.chapterId === data.chapterId) break;
-                if (ch.chapterApiId) chapters.push({ chapterId: ch.chapterApiId, progress: 100 });
+            const currentIdx = chapterList.findIndex(ch => ch.chapterId === data.chapterId);
+            if (currentIdx !== -1) {
+                for (const ch of chapterList.slice(currentIdx + 1)) {
+                    if (ch.chapterApiId) chapters.push({ chapterId: ch.chapterApiId, progress: 100 });
+                }
             }
         }
 

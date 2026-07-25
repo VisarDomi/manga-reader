@@ -50,10 +50,5 @@ export function createAngularProvider(site: keyof typeof SITE_CONFIG): Provider 
         seriesUrl(slug: string): string {
             return `https://${domain}/series/${slug}`;
         },
-
-        getNextChapter(chapterList: ChapterMeta[], lastChapter: string): ChapterMeta {
-            const idx = chapterList.findIndex(m => m.chapterId === lastChapter);
-            return chapterList[idx - 1];
-        },
     };
 }

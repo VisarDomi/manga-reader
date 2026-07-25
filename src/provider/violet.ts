@@ -87,11 +87,6 @@ export const violet: Provider = {
     seriesUrl(slug: string): string {
         return `https://${DOMAIN}/comics/${slug}/`;
     },
-
-    getNextChapter(chapterList: ChapterMeta[], lastChapter: string): ChapterMeta {
-        const idx = chapterList.findIndex(m => m.chapterId === lastChapter);
-        return chapterList[idx - 1];
-    },
 };
 
 function escapeRe(s: string): string {

@@ -94,10 +94,4 @@ export const davecubari: Provider = {
         }
         return `https://${DAVE_DOMAIN}/${slug}`;
     },
-
-    getNextChapter(chapterList: ChapterMeta[], lastChapter: string): ChapterMeta {
-        const idx = chapterList.findIndex(m => m.chapterId === lastChapter);
-        if (idx === -1) return chapterList[chapterList.length - 1];
-        return chapterList[idx - 1];
-    },
 };
