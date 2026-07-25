@@ -1,7 +1,7 @@
-import { matchRoute } from './provider';
+import { matchProviderRoute } from './provider';
 import { open } from './routes/reader';
 
-const match = matchRoute();
+const match = matchProviderRoute();
 if (match) {
-    void open(match.slug, match.chapter);
+    void open(match.provider, match.route);
 }

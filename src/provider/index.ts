@@ -1,6 +1,6 @@
 export type { Provider, RouteMatch, ChapterData, ChapterImage, ChapterMeta } from './types';
 
-import type { ChapterMeta, Provider, ChapterData } from './types';
+import type { Provider, RouteMatch } from './types';
 import { SITE_CONFIG } from '../core/sites';
 import { ezmanga } from './ezmanga';
 import { qiscans } from './qiscans';
@@ -15,20 +15,23 @@ import { davecubari } from './davecubari';
 const providers = { ezmanga, qiscans, yaksha, asura, scythe, lua, violet, valir, davecubari } as const;
 type ProviderKey = keyof typeof providers;
 
-let p: Provider;
+export interface ProviderRoute {
+    provider: Provider;
+    route: RouteMatch;
+}
 
-export const matchRoute = () => {
+export function matchProviderRoute(): ProviderRoute | null {
     const { pathname, hostname } = window.location;
-    const entry = Object.entries(SITE_CONFIG).find(([, cfg]) =>
-        hostname.includes(cfg.domain),
+    const site = Object.values(SITE_CONFIG).find(cfg =>
+        hostname === cfg.domain,
     );
-    if (!entry) throw Error('Unable to select provider');
-    p = providers[entry[1].provider as ProviderKey];
-    return p.matchRoute(pathname);
-};
+    if (!site) throw new Error('Unable to select provider');
 
-export const fetchChapter = async (slug: string, chapterId: string) => p.fetchChapter(slug, chapterId);
-export const trackChapter = async (data: ChapterData, image?: string, chaptersNewestFirst?: ChapterMeta[]) => p.trackChapter?.(data, image, chaptersNewestFirst)
-export const fetchChaptersNewestFirst = async (slug: string) => p.fetchChaptersNewestFirst(slug);
-export const readerUrl = (slug: string, chapterId: string, imgIdx?: string) => p.readerUrl(slug, chapterId, imgIdx);
-export const seriesUrl = (slug: string) => p.seriesUrl(slug);
+    const provider = providers[site.provider as ProviderKey];
+    if (!provider) throw new Error(`Unknown provider: ${site.provider}`);
+
+    const route = provider.matchRoute(pathname);
+    if (!route) return null;
+
+    return { provider, route };
+}

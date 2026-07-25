@@ -1,13 +1,5 @@
 import css from '../style.css?inline';
-import {
-    type ChapterData,
-    type ChapterMeta,
-    fetchChapter,
-    fetchChaptersNewestFirst,
-    trackChapter,
-    readerUrl,
-    seriesUrl
-} from '../provider';
+import type { ChapterData, ChapterMeta, Provider, RouteMatch } from '../provider';
 
 function retryBrokenImages(selector: ".hs-reader-img" | ".hs-thumb", interval: number): void {
     setInterval(() => {
@@ -96,7 +88,9 @@ function findNewerChapter(chaptersNewestFirst: ChapterMeta[], currentChapterId: 
 
 // ── main ─────────────────────────────────────────────────────────────
 
-export async function open(slug: string, chapterId: string): Promise<void> {
+export async function open(provider: Provider, route: RouteMatch): Promise<void> {
+    const { slug, chapter: chapterId } = route;
+
     document.open();
     document.close();
 
@@ -106,9 +100,9 @@ export async function open(slug: string, chapterId: string): Promise<void> {
     retryBrokenImages(".hs-reader-img", 2000);
 
     // 1. Load the current chapter
-    const data = await fetchChapter(slug, chapterId);
+    const data = await provider.fetchChapter(slug, chapterId);
     if (!data) {
-        window.location.href = seriesUrl(slug);
+        window.location.href = provider.seriesUrl(slug);
         return; // just for visuals, location.href redirects the page making further execution impossible
     }
 
@@ -136,7 +130,7 @@ export async function open(slug: string, chapterId: string): Promise<void> {
     let loading = true;
 
     wrapper.appendChild(createStatus('Loading chapters...', 'hs-loading'));
-    fetchChaptersNewestFirst(slug)
+    provider.fetchChaptersNewestFirst(slug)
         .then(chapters => { chaptersNewestFirst = chapters; })
         .catch(() => { wrapper.appendChild(createStatus('Failed to load chapter list', 'hs-error')); })
         .finally(() => { clearStatus(); loading = false; });
@@ -156,11 +150,11 @@ export async function open(slug: string, chapterId: string): Promise<void> {
             if (seenImages.has(imageKey)) return;
             seenImages.add(imageKey);
 
-            history.replaceState(null, '', readerUrl(slug, visibleChapter, image));
+            history.replaceState(null, '', provider.readerUrl(slug, visibleChapter, image));
 
             const visibleData = chapterData[visibleChapter];
             document.title = `${visibleData.chapterId} ${visibleData.seriesTitle}`;
-            trackChapter(visibleData, image, chaptersNewestFirst);
+            void provider.trackChapter?.(visibleData, image, chaptersNewestFirst);
 
             const lastLoaded = wrapper.lastElementChild as HTMLDivElement;
             if (chapterWrap !== lastLoaded) return;
@@ -171,7 +165,7 @@ export async function open(slug: string, chapterId: string): Promise<void> {
             loaded.add(newerChapter.chapterId);
             loading = true;
             wrapper.appendChild(createStatus('Loading newer chapter...', 'hs-loading'));
-            fetchChapter(slug, newerChapter.chapterId)
+            provider.fetchChapter(slug, newerChapter.chapterId)
                 .then(newerChapterData => {
                     if (!newerChapterData) {
                         wrapper.appendChild(createStatus('Chapter unavailable', 'hs-error'));
