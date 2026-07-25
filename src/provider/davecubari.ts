@@ -48,7 +48,7 @@ export const davecubari: Provider = {
         const proxyPath = chapterData.groups[groupKeys[0]];
 
         const imgRes = await fetch(`https://${CUBARI_DOMAIN}${proxyPath}`);
-        if (isChapterUnavailable(imgRes)) return null;
+        if (!imgRes.ok) return null;
         const imgUrls = await imgRes.json() as string[];
         if (imgUrls.length === 0) return null;
 

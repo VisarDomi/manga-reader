@@ -21,7 +21,7 @@ export const violet: Provider = {
         const html = await res.text();
 
         // Extract ts_reader.run({...}) JSON payload
-        const tsMatch = /ts_reader\.run\((\{[\s\S]*?\\})\);?/.exec(html);
+        const tsMatch = /ts_reader\.run\((\{[\s\S]*?\})\);?\s*<\/script>/u.exec(html);
         if (!tsMatch) throw new Error('Chapter response did not contain reader data');
 
         const raw = tsMatch[1];
@@ -34,7 +34,7 @@ export const violet: Provider = {
 
         // Extract series title from HISTORY.push or breadcrumb
         let seriesTitle = '';
-        const histMatch = /HISTORY\.push\(\d+,\s*(\{[\s\S]*?\\})\);?/.exec(html);
+        const histMatch = /HISTORY\.push\(\d+,\s*(\{[\s\S]*?\})\);?/u.exec(html);
         if (histMatch) {
             try {
                 const hist = JSON.parse(histMatch[1]);
