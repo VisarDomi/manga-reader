@@ -57,7 +57,7 @@ export const violet: Provider = {
         }
 
         return {
-            number: 0,
+            chapterId: chapterId,
             series: { title: seriesTitle },
             images,
         };

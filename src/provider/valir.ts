@@ -26,7 +26,6 @@ export const valir: Provider = {
         if (!chapterMatch) throw new Error('Could not find chapter data in page');
 
         const numericId = chapterMatch[1]; // cuid2 chapter ID
-        const chapterNumber = parseInt(chapterMatch[2], 10);
 
         // Extract series data
         const seriesMatch = /\\"series\\":\s*\{[^}]*\\"id\\":\s*\\"([^"\\]+)\\"[^}]*\\"title\\":\s*\\"([^"\\]*)\\"/.exec(html);
@@ -96,7 +95,7 @@ export const valir: Provider = {
         if (images.length === 0) throw new Error('No images found for this chapter');
 
         return {
-            number: chapterNumber,
+            chapterId,
             series: { title: seriesTitle },
             seriesId,
             chapterNumericId: numericId,
@@ -159,7 +158,7 @@ export const valir: Provider = {
         // Mark all previous chapters as fully read
         if (chapterList) {
             for (const ch of chapterList) {
-                if (ch.slug === String(data.number)) break;
+                if (ch.slug === data.chapterId) break;
                 if (ch.id) chapters.push({ chapterId: ch.id, progress: 100 });
             }
         }

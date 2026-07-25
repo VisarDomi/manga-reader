@@ -56,7 +56,7 @@ export const asura: Provider = {
         }));
 
         return {
-            number: data.chapter.number,
+            chapterId,
             series: { title: data.series.title },
             seriesId: data.series.id,
             chapterNumericId: data.chapter.id,
@@ -92,7 +92,7 @@ export const asura: Provider = {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json',
         };
-        fetch(`${API_BASE}/bookmarks/${data.seriesId}/read/${data.number}`, { method: 'POST', headers }).catch(() => {});
+        fetch(`${API_BASE}/bookmarks/${data.seriesId}/read/${data.chapterId}`, { method: 'POST', headers }).catch(() => {});
         fetch(`${API_BASE}/views/chapter`, {
             method: 'POST',
             headers,

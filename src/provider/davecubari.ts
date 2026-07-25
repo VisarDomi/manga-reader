@@ -60,7 +60,7 @@ export const davecubari: Provider = {
         }));
 
         return {
-            number: parseFloat(chapterId) || 0,
+            chapterId: chapterId,
             series: { title: series.title },
             images,
         };

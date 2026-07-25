@@ -10,7 +10,7 @@ export interface ChapterImage {
 }
 
 export interface ChapterData {
-    number: number;
+    chapterId: string;
     series: { title: string };
     /** Series ID, used for tracking/read progress on some providers. */
     seriesId?: number | string;

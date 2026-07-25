@@ -62,7 +62,7 @@ export const scythe: Provider = {
         const seriesTitle = seriesMatch ? seriesMatch[1].trim() : '';
 
         return {
-            number: 0,
+            chapterId: chapterId,
             series: { title: seriesTitle },
             images,
         };
