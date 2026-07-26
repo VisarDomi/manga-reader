@@ -1,5 +1,6 @@
 dist/
 node_modules/
+.ios-debug/
 .idea/
 filters-hitomi.txt
 /.repomixignore

@@ -27,9 +27,13 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const pkgPath = resolve(__dirname, '..', 'package.json');
 const pkgJson = JSON.parse(readFileSync(pkgPath, 'utf-8'));
-pkgJson.version = (parseInt(pkgJson.version, 10) + 1).toString();
-writeFileSync(pkgPath, JSON.stringify(pkgJson, null, 2) + '\n', 'utf-8');
-console.log(`Version incremented -> ${pkgJson.version}`);
+if (process.env.NO_VERSION_BUMP !== '1') {
+  pkgJson.version = (parseInt(pkgJson.version, 10) + 1).toString();
+  writeFileSync(pkgPath, JSON.stringify(pkgJson, null, 2) + '\n', 'utf-8');
+  console.log(`Version incremented -> ${pkgJson.version}`);
+} else {
+  console.log(`Version unchanged for test build -> ${pkgJson.version}`);
+}
 
 // ── Read registry ────────────────────────────────────────────────────
 
