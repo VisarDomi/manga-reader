@@ -1,6 +1,34 @@
+Test precondition:
+- Only the repository debugger userscript is enabled. The test runner injects the freshly built manga-reader bundle, so a separately installed manga-reader userscript must not run at the same time.
+
 Test cases:
-1. Newer chapter loading: ONLY one newer chapter loads (on scrollend+100ms) PER chapter.
-2. Scroll restore: on page refresh, the view is scrolled to the appropriate page as per provider url
+1. Reader activation
+   - The manga-reader bundle activates for every URL below and renders exactly one initial chapter.
+
+2. Newer chapter loading
+   - Handle each scrollend event after a 100 ms delay.
+   - Repeated scrollend events while viewing one chapter may append ONLY its single immediate newer chapter.
+   - They must not skip a chapter, append the same chapter twice, or append additional chapters for the same visible chapter.
+   - After the newly appended chapter becomes the visible chapter, its scrollend may append exactly its own immediate newer chapter.
+   - If scrollend occurs while the chapter list is still loading, remember it and replay it exactly once when the list is ready.
+
+3. Scroll save
+   - Do nothing before scrollend + 100 ms.
+   - At scrollend + 100 ms, eligible images are those where image.complete === true and image.naturalWidth > 0.
+   - From the eligible images whose getBoundingClientRect().top <= innerHeight / 2, save the image with the greatest top value (the loaded image whose top most recently crossed the viewport midpoint).
+   - Save both its chapter and image index using the provider's reader URL format.
+   - The provider alone owns URL generation and URL recognition. Tests must use the provider contract rather than duplicate provider-specific URL rules.
+   - Do not save an incomplete or broken image.
+
+4. Scroll restore idempotency
+   - Treat the page encoded in the provider URL as the restore target.
+   - Suppress all scrollend + 100 ms saving and newer-chapter loading for the entire restoration, including the final programmatic scroll and its resulting scrollend.
+   - Starting at image 0, process every image through the target in order.
+   - Wait at each image until image.complete === true and image.naturalWidth > 0, then scroll so that image.getBoundingClientRect().top is at the top of the viewport before proceeding to the next image.
+   - Finish with the target image's top at the top of the viewport (allow at most 1 CSS pixel of layout rounding).
+   - The provider URL must still encode the original target when restoration finishes; intermediate restoration steps must never overwrite it.
+   - Perform three actual page reloads after the initial restoration. All four restorations must finish on the same target with the same provider URL.
+   - touchstart, pointerdown, wheel, or keydown cancels restoration. After cancellation, no pending restoration step may scroll again, and the next user scrollend + 100 ms must save normally.
 
 https://asurascans.com/comics/chronicles-of-the-lazy-sovereign-f886a8af/chapter/56#3
 https://valirscans.org/series/comic/the-emperor-is-annoyed-by-the-maid/chapter/1#8
