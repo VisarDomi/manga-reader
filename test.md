@@ -16,7 +16,7 @@ npm install
 Generate and trust the HTTPS certificate by following
 [`certificate.md`](certificate.md). With `npm run tests:server` still running:
 
-1. Open the `https://<laptop-ip>:19999/debug.user.js` URL printed by
+1. Open the `https://<laptop-ip>:19999/manga-reader-debug.user.js` URL printed by
    `npm run tests:setup`.
 2. Install it in the iOS userscript manager.
 3. Give the userscript extension permission to run on all tested websites.

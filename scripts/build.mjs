@@ -8,6 +8,7 @@
  *   node scripts/build.mjs -asura             – all except → manga-reader.user.js
  *   node scripts/build.mjs asura,qimanga      – only those → manga-reader.user.js
  *   node scripts/build.mjs -asura,qimanga     – all except → manga-reader.user.js
+ *   node scripts/build.mjs --no-increase-version – build without changing package version
  *
  * Filtered builds:
  *   - Writes a temp _empty.ts stub with null exports for excluded providers
@@ -27,7 +28,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const pkgPath = resolve(__dirname, '..', 'package.json');
 const pkgJson = JSON.parse(readFileSync(pkgPath, 'utf-8'));
-if (process.env.NO_VERSION_BUMP !== '1') {
+const rawArgs = process.argv.slice(2);
+const noIncreaseVersion = rawArgs.includes('--no-increase-version');
+if (!noIncreaseVersion) {
   pkgJson.version = (parseInt(pkgJson.version, 10) + 1).toString();
   writeFileSync(pkgPath, JSON.stringify(pkgJson, null, 2) + '\n', 'utf-8');
   console.log(`Version incremented -> ${pkgJson.version}`);
@@ -51,7 +54,7 @@ const ALL_MODULES = Object.keys(providerGroups);
 
 // ── Parse args ────────────────────────────────────────────────────────
 
-const args = process.argv.slice(2);
+const args = rawArgs.filter(arg => arg !== '--no-increase-version');
 const include = [];
 const exclude = [];
 

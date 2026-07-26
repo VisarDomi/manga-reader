@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import https from "node:https";
 import { dirname, resolve } from "node:path";
@@ -12,6 +12,7 @@ const bridgeOrigin = process.env.IOS_DEBUG_ORIGIN ?? "https://127.0.0.1:19999";
 const casePauseMs = Math.max(1000, Number(process.env.IOS_TEST_SETTLE_MS ?? 1000));
 const commandTimeoutMs = Number(process.env.IOS_TEST_COMMAND_TIMEOUT_MS ?? 90000);
 const clientTimeoutMs = Number(process.env.IOS_TEST_CLIENT_TIMEOUT_MS ?? 45000);
+const connectionTimeoutMs = Number(process.env.IOS_TEST_CONNECTION_TIMEOUT_MS ?? 120000);
 const agent = new https.Agent({ rejectUnauthorized: false });
 let ownedServer = null;
 
@@ -83,6 +84,41 @@ async function ensureServer() {
 
 async function state() {
     return request("/__debug_state");
+}
+
+async function waitForDebugger() {
+    const info = await request("/__debug_info");
+    console.log("Waiting for iPhone debugger on port 19999.");
+    console.log(`If it is not installed yet, open:\n  ${info.debuggerUrl}`);
+
+    const deadline = Date.now() + connectionTimeoutMs;
+    while (Date.now() < deadline) {
+        const snapshot = await state();
+        const now = Date.now() / 1000;
+        const active = snapshot.clients.some(client => now - client.lastSeen < 3);
+        if (active) return;
+        await sleep(250);
+    }
+
+    throw new Error(
+        "No iPhone debugger is connected to the repository bridge.\n" +
+        `Install or update “manga-reader debug” from:\n  ${info.debuggerUrl}\n` +
+        "Then open any matched page in foreground Safari and rerun `npm run tests`.\n" +
+        "The older central “debug” userscript on port 35897 does not connect to this suite.",
+    );
+}
+
+function runLocalCommand(command, args) {
+    const completed = spawnSync(command, args, { cwd: root, stdio: "inherit" });
+    if (completed.error) throw completed.error;
+    if (completed.status !== 0) {
+        throw new Error(`${command} ${args.join(" ")} failed with exit code ${completed.status}`);
+    }
+}
+
+function checkAndBuild() {
+    runLocalCommand("npx", ["tsc", "--noEmit"]);
+    runLocalCommand("node", ["scripts/build.mjs", "--no-increase-version"]);
 }
 
 async function postCommand(target, code) {
@@ -234,7 +270,7 @@ async function navigateFromActive(testCase) {
     const before = await state();
     const active = newestClient(before);
     if (!active) {
-        throw new Error("No iPhone debugger is connected. Open any Safari page with debug.user.js enabled.");
+        throw new Error("No iPhone debugger is connected. Open any Safari page with manga-reader-debug.user.js enabled.");
     }
     const known = new Set(before.clients.map(item => item.client));
     await command(active.client, `location.href = ${JSON.stringify(testCase.url)}; return "navigating";`);
@@ -265,6 +301,11 @@ async function runCase(testCase, bundle) {
 
 async function main() {
     await ensureServer();
+    await waitForDebugger();
+    console.log("iPhone debugger connected.");
+
+    checkAndBuild();
+
     const [matrixText, bundle] = await Promise.all([
         readFile(resolve(root, "test.txt"), "utf8"),
         readFile(resolve(root, "dist/manga-reader.user.js"), "utf8"),
@@ -302,6 +343,9 @@ async function main() {
 
 try {
     await main();
+} catch (error) {
+    console.error(`\n${error instanceof Error ? error.message : String(error)}`);
+    process.exitCode = 1;
 } finally {
     if (ownedServer && ownedServer.exitCode === null) ownedServer.kill();
 }

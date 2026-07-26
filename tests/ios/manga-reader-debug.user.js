@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         debug
-// @namespace    VisarDomi
-// @version      1
-// @description  Portable remote JavaScript debugger controlled by the development PC.
+// @name         manga-reader-debug 2
+// @namespace    https://github.com/VisarDomi/manga-reader/debug
+// @version      2
+// @description  Portable manga-reader debugger controlled by the development PC.
 // @match        http://*/*
 // @match        https://*/*
 // @connect      __DEBUG_CONNECT_HOST__

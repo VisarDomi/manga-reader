@@ -17,7 +17,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 REPO_ROOT = ROOT.parent.parent
 STATE_DIR = REPO_ROOT / ".ios-debug"
-TEMPLATE = ROOT / "debug.user.template.js"
+DEBUG_USERSCRIPT = ROOT / "manga-reader-debug.user.js"
 MAX_BODY = 128 * 1024
 MAX_ITEMS = 500
 
@@ -67,7 +67,7 @@ def setup(port: int) -> None:
     shutil.copyfile(Path(caroot) / "rootCA.pem", root_ca_path())
     print(f"Certificate: {cert}")
     print(f"iPhone CA profile: https://{host}:{port}/api/cert")
-    print(f"iPhone debugger:   https://{host}:{port}/debug.user.js")
+    print(f"iPhone debugger:   https://{host}:{port}/manga-reader-debug.user.js")
     print("Start the bridge with `npm run tests:server`, then open those URLs on the iPhone.")
 
 
@@ -104,10 +104,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         query = urllib.parse.parse_qs(parsed.query)
 
-        if parsed.path == "/debug.user.js":
+        if parsed.path == "/manga-reader-debug.user.js":
             host = lan_ip()
             port = self.server.server_port
-            source = TEMPLATE.read_text().replace("__DEBUG_CONNECT_HOST__", host)
+            source = DEBUG_USERSCRIPT.read_text().replace("__DEBUG_CONNECT_HOST__", host)
             source = source.replace("__DEBUG_SERVER__", f"https://{host}:{port}")
             encoded = source.encode()
             self.send_response(200)
@@ -115,6 +115,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(encoded)))
             self.end_headers()
             self.wfile.write(encoded)
+            return
+
+        if parsed.path == "/__debug_info":
+            if not self.local():
+                self.send_error(403, "Local requests only")
+                return
+            host = lan_ip()
+            port = self.server.server_port
+            self.send_json({
+                "host": host,
+                "port": port,
+                "debuggerUrl": f"https://{host}:{port}/manga-reader-debug.user.js",
+                "certificateUrl": f"https://{host}:{port}/api/cert",
+            })
             return
 
         if parsed.path == "/api/cert":
