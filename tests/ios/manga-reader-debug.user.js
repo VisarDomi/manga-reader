@@ -1,11 +1,11 @@
 // ==UserScript==
-// @name         manga-reader-debug 2
-// @namespace    https://github.com/VisarDomi/manga-reader/debug
-// @version      2
-// @description  Portable manga-reader debugger controlled by the development PC.
+// @name         debug
+// @namespace    https://github.com/VisarDomi/debug
+// @version      1
+// @description  Remote Safari debugger controlled by this PC.
 // @match        http://*/*
 // @match        https://*/*
-// @connect      __DEBUG_CONNECT_HOST__
+// @connect      192.168.1.197
 // @grant        GM_xmlhttpRequest
 // @run-at       document-start
 // @noframes
@@ -14,7 +14,7 @@
 (function () {
     'use strict';
 
-    const SERVER = '__DEBUG_SERVER__';
+    const SERVER = 'https://192.168.1.197:37777';
     const POLL_MS = 750;
     const CLIENT_ID = `ios-${typeof crypto.randomUUID === 'function'
         ? crypto.randomUUID()

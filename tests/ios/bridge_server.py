@@ -25,6 +25,7 @@ lock = threading.Lock()
 commands = []
 results = []
 clients = {}
+boots = []
 
 
 def lan_ip() -> str:
@@ -171,6 +172,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_json({"commands": pending, "cursor": cursor})
             return
 
+        if parsed.path == "/__debug_boot":
+            with lock:
+                boots.append({
+                    "client": query.get("client", [""])[0],
+                    "href": query.get("href", [""])[0],
+                    "userAgent": query.get("userAgent", [""])[0],
+                    "lastSeen": time.time(),
+                })
+                del boots[:-MAX_ITEMS]
+            self.send_response(204)
+            self.end_headers()
+            return
+
         if parsed.path == "/__debug_state":
             if not self.local():
                 self.send_error(403, "Local requests only")
@@ -180,6 +194,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     "clients": list(clients.values()),
                     "commands": list(commands),
                     "results": list(results),
+                    "boots": list(boots),
                 })
             return
 
@@ -230,7 +245,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--setup", action="store_true")
-    parser.add_argument("--port", type=int, default=int(os.environ.get("IOS_DEBUG_PORT", "19999")))
+    parser.add_argument("--port", type=int, default=int(os.environ.get("IOS_DEBUG_PORT", "37777")))
     args = parser.parse_args()
     if args.setup:
         setup(args.port)

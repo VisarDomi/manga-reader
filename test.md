@@ -16,7 +16,7 @@ npm install
 Generate and trust the HTTPS certificate by following
 [`certificate.md`](certificate.md). With `npm run tests:server` still running:
 
-1. Open the `https://<laptop-ip>:19999/manga-reader-debug.user.js` URL printed by
+1. Open the `https://<laptop-ip>:37777/manga-reader-debug.user.js` URL printed by
    `npm run tests:setup`.
 2. Install it in the iOS userscript manager.
 3. Give the userscript extension permission to run on all tested websites.
@@ -37,9 +37,9 @@ between phases and sites to avoid overwhelming iOS Safari.
 Configuration:
 
 - `IOS_DEBUG_ORIGIN` — local controller origin, default
-  `https://127.0.0.1:19999`
+  `https://127.0.0.1:37777`
 - `IOS_DEBUG_HOST` — LAN address embedded in the generated phone userscript
-- `IOS_DEBUG_PORT` — bridge port, default `19999`
+- `IOS_DEBUG_PORT` — bridge port, default `37777`
 - `IOS_DEBUG_CERT` / `IOS_DEBUG_KEY` — custom HTTPS certificate paths
 - `IOS_DEBUG_CA` — custom public root CA path for `/api/cert`
 - `IOS_TEST_SETTLE_MS` — delay between tests, clamped to at least `1000`

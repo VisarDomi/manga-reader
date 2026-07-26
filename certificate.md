@@ -33,7 +33,7 @@ Keep `npm run tests:server` running while completing the phone steps.
 ### 3. Install the root CA on iPhone
 
 1. Connect the iPhone and development machine to the same LAN.
-2. Open the printed `https://<laptop-ip>:19999/api/cert` URL in iPhone Safari.
+2. Open the printed `https://<laptop-ip>:37777/api/cert` URL in iPhone Safari.
 3. On the first visit, Safari may warn that the server is not trusted yet.
    Proceed to the site once so the public CA profile can download.
 4. Tap **Allow** when prompted to download the configuration profile.

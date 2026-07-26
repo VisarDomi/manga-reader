@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "../..");
-const bridgeOrigin = process.env.IOS_DEBUG_ORIGIN ?? "https://127.0.0.1:19999";
+const bridgeOrigin = process.env.IOS_DEBUG_ORIGIN ?? "https://127.0.0.1:37777";
 const casePauseMs = Math.max(1000, Number(process.env.IOS_TEST_SETTLE_MS ?? 1000));
 const commandTimeoutMs = Number(process.env.IOS_TEST_COMMAND_TIMEOUT_MS ?? 90000);
 const clientTimeoutMs = Number(process.env.IOS_TEST_CLIENT_TIMEOUT_MS ?? 45000);
@@ -88,7 +88,7 @@ async function state() {
 
 async function waitForDebugger() {
     const info = await request("/__debug_info");
-    console.log("Waiting for iPhone debugger on port 19999.");
+    console.log(`Waiting for iPhone debugger on port ${new URL(bridgeOrigin).port}.`);
     console.log(`If it is not installed yet, open:\n  ${info.debuggerUrl}`);
 
     const deadline = Date.now() + connectionTimeoutMs;
