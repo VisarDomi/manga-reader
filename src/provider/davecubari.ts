@@ -2,7 +2,7 @@ import type { Provider, RouteMatch, ChapterData, ChapterMeta, ChapterImage } fro
 import { SITE_CONFIG } from '../core/sites';
 import { isChapterUnavailable } from '../core/http';
 
-const CUBARI_READER_RE = /^\/read\/gist\/([^/]+)\/([^/]+)\/\d*\/?$/;
+const CUBARI_READER_RE = /^\/read\/gist\/([^/]+)\/([^/]+)\/(\d*)\/?$/;
 const DAVE_LIST_RE = /^\/([^/]+)\/?$/;
 const CUBARI_DOMAIN = SITE_CONFIG['cubari'].domain;
 const DAVE_DOMAIN = SITE_CONFIG['davemangascans'].domain;
@@ -23,7 +23,14 @@ export const davecubari: Provider = {
     matchRoute(pathname: string): RouteMatch | null {
         // cubari.moe reader URL: /read/gist/<gistId>/<chapter>/<page>/
         const cm = CUBARI_READER_RE.exec(pathname);
-        if (cm) return { slug: cm[1], chapterId: cm[2] };
+        if (cm) {
+            const page = parseInt(cm[3], 10);
+            return {
+                slug: cm[1],
+                chapterId: cm[2],
+                imageIndex: Number.isFinite(page) && page > 0 ? String(page - 1) : undefined,
+            };
+        }
 
         // davemangascans.xyz list URL: /<slug> — recognized but no reader action
         if (DAVE_LIST_RE.test(pathname)) return null;

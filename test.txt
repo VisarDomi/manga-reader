@@ -1,0 +1,13 @@
+Test cases:
+1. Newer chapter loading: ONLY one newer chapter loads (on scrollend+100ms) PER chapter.
+2. Scroll restore: on page refresh, the view is scrolled to the appropriate page as per provider url
+
+https://asurascans.com/comics/chronicles-of-the-lazy-sovereign-f886a8af/chapter/56#3
+https://valirscans.org/series/comic/the-emperor-is-annoyed-by-the-maid/chapter/1#8
+https://scythescans.com/magic-emperor-chapter-1/#5
+https://luacomic.org/series/im-tired-of-novel-transmigration/chapter-70#4
+https://violetscans.org/the-abandoned-lady-wants-to-love-your-secret-chapter-1/#17
+https://cubari.moe/read/gist/Z2lzdC9qYmRvd245OS85YjVmMzYzYjM5ZGU2MTlmYWMyNjU3OTRhM2Q0Yzc4MC9yYXcvdmFtcGlyZS5qc29u/1/7/
+https://ezmanga.org/series/apocalypse-villainess-surviving-with-corporate-slave-skills/chapter-2#3
+https://qimanga.com/series/genius-magic-swordsman-returns/chapter-1#5
+https://yakshacomics.com/manga/who-allowed-him-to-cultivate-immortality/chapter-16/#3

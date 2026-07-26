@@ -15,7 +15,11 @@ function retryBrokenImages(selector: ".hs-reader-img" | ".hs-thumb", interval: n
 
 function restoreScroll(wrap: HTMLDivElement, target: HTMLImageElement) {
     let cancelled = false;
-    window.addEventListener('scroll', () => { cancelled = true; }, { once: true });
+    const cancel = () => { cancelled = true; };
+    window.addEventListener('touchstart', cancel, { once: true, passive: true });
+    window.addEventListener('pointerdown', cancel, { once: true, passive: true });
+    window.addEventListener('wheel', cancel, { once: true, passive: true });
+    window.addEventListener('keydown', cancel, { once: true });
 
     const images = Array.from(wrap.querySelectorAll('img'));
     const targetIdx = images.indexOf(target);
@@ -87,6 +91,7 @@ function findNewerChapter(chaptersNewestFirst: ChapterMeta[], currentChapterId: 
 export async function open(provider: Provider, route: RouteMatch): Promise<void> {
     const { slug, chapterId } = route;
 
+    window.stop();
     document.open();
     document.close();
 
@@ -115,8 +120,10 @@ export async function open(provider: Provider, route: RouteMatch): Promise<void>
     const chapterData: Record<string, ChapterData> = { [chapterId]: data };
 
     // 2. Restore scroll position
-    const hash = location.hash;
-    const target = document.getElementById(hash) as HTMLImageElement | null;
+    const imageIndex = route.imageIndex ?? location.hash.slice(1);
+    const target = imageIndex
+        ? document.getElementById(`#${imageIndex}`) as HTMLImageElement | null
+        : null;
     if (target) restoreScroll(firstWrap, target);
 
     // 3. Async: fetch chapter list
@@ -124,6 +131,7 @@ export async function open(provider: Provider, route: RouteMatch): Promise<void>
     const loaded = new Set<string>();
     loaded.add(chapterId);
     let loading = true;
+    let pendingScrollEnd = false;
 
     const chaptersLoadingStatus = createStatus('Loading chapters...', 'hs-loading');
     wrapper.appendChild(chaptersLoadingStatus);
@@ -133,13 +141,20 @@ export async function open(provider: Provider, route: RouteMatch): Promise<void>
         .finally(() => {
             chaptersLoadingStatus.remove();
             loading = false;
+            if (pendingScrollEnd) {
+                pendingScrollEnd = false;
+                scrollEndOneHundred();
+            }
         });
 
     // 4. Scroll handler
     const seenImages = new Set<string>();
     function scrollEndOneHundred() {
         setTimeout(() => {
-            if (loading) return;
+            if (loading) {
+                pendingScrollEnd = true;
+                return;
+            }
 
             const saveImg = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2 + 1) as HTMLImageElement;
             const chapterWrap = saveImg.closest('.hs-chapter') as HTMLDivElement;

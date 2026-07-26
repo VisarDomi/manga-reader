@@ -1,4 +1,9 @@
-export type RouteMatch = { slug: string; chapterId: string };
+export type RouteMatch = {
+    slug: string;
+    chapterId: string;
+    /** Zero-based image index when the provider encodes page position in the path. */
+    imageIndex?: string;
+};
 
 export interface ChapterImage {
     url: string;
