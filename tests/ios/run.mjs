@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "../..");
 const bridgeOrigin = process.env.IOS_DEBUG_ORIGIN ?? "https://127.0.0.1:37777";
-const casePauseMs = Math.max(1000, Number(process.env.IOS_TEST_SETTLE_MS ?? 1000));
+const casePauseMs = Math.max(500, Number(process.env.IOS_TEST_SETTLE_MS ?? 500));
 const commandTimeoutMs = Number(process.env.IOS_TEST_COMMAND_TIMEOUT_MS ?? 90000);
 const clientTimeoutMs = Number(process.env.IOS_TEST_CLIENT_TIMEOUT_MS ?? 45000);
 const connectionTimeoutMs = Number(process.env.IOS_TEST_CONNECTION_TIMEOUT_MS ?? 120000);
@@ -197,16 +197,17 @@ async function foregroundClient() {
     );
 }
 
-async function claimExampleTab() {
+async function claimExampleTab(providerHosts) {
     let client = await foregroundClient();
-    if (new URL(client.href).hostname !== "example.com") {
+    const foregroundUrl = new URL(client.href);
+    if (foregroundUrl.hostname !== "example.com") {
         const controlled = await command(client.client, `
             return Boolean(
                 globalThis.__mangaReaderTestPhase ||
                 document.querySelector(".hs-reader-body")
             );
         `);
-        if (!controlled) {
+        if (!controlled && !providerHosts.has(foregroundUrl.hostname)) {
             throw new Error(
                 "The foreground Safari tab is unrelated to the current test session.\n" +
                 "Open https://example.com once so the harness can claim it safely.\n" +
@@ -345,6 +346,7 @@ function saveNextPosition(chapterId, imageId) {
         const currentIndex = images.findIndex(image => image.id === ${JSON.stringify(imageId)});
         const target = images[currentIndex + 1];
         if (!target) return { error: "restored image has no next image to test" };
+        const before = location.href;
 
         const scrollAndWait = top => new Promise(resolve => {
             const timeout = setTimeout(finish, 5000);
@@ -357,11 +359,10 @@ function saveNextPosition(chapterId, imageId) {
             scrollTo(0, top);
         });
 
-        await scrollAndWait(target.offsetTop);
+        target.loading = "eager";
         for (let i = 0; i < 360 && !(target.complete && target.naturalWidth > 0); i++) {
             await wait(250);
         }
-        const before = location.href;
         const timing = new Promise(resolve => {
             const timeout = setTimeout(() => resolve({
                 at50ms: location.href,
@@ -581,14 +582,19 @@ async function main() {
     await ensureServer();
     await waitForDebugger();
     console.log("iPhone debugger connected.");
-    await claimExampleTab();
+    const frozenMatrixText = await readFile(resolve(root, "test.txt"), "utf8");
+    const providerHosts = new Set(
+        [...frozenMatrixText.matchAll(/https?:\/\/[^\s]+/g), ...requestedUrls.map(url => [url])]
+            .map(match => new URL(match[0]).hostname),
+    );
+    await claimExampleTab(providerHosts);
 
     checkAndBuild();
 
     const [matrixText, bundle] = await Promise.all([
         requestedUrls.length
             ? requestedUrls.join("\n")
-            : readFile(resolve(root, "test.txt"), "utf8"),
+            : frozenMatrixText,
         readFile(resolve(root, "dist/manga-reader.user.js"), "utf8"),
     ]);
     const cases = matrixText
