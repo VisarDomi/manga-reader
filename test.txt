@@ -7,7 +7,6 @@ Features:
 - On scrollend + 100 ms, save the current loaded image in the page URL.
 - Providers own page URL recognition and construction.
 - Opening or refreshing a saved URL restores the corresponding image.
-- The user may cancel restoration by scrolling.
 
 Test URLs:
 

@@ -29,6 +29,12 @@ Then open any page in Safari and run:
 npm run tests
 ```
 
+or
+
+```bash
+npm run tests -- "https://..."
+```
+
 The test command type-checks and builds without incrementing the production
 version, starts the repository-local bridge when needed, injects the current
 bundle, and runs every URL in `test.txt`. It enforces a minimum one-second pause

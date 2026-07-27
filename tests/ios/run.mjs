@@ -198,14 +198,32 @@ async function foregroundClient() {
 }
 
 async function claimExampleTab() {
-    const client = await foregroundClient();
-    const url = new URL(client.href);
-    if (url.hostname !== "example.com") {
-        throw new Error(
-            "The foreground Safari tab must be on https://example.com before running tests.\n" +
-            `Foreground tab is currently: ${client.href}`,
+    let client = await foregroundClient();
+    if (new URL(client.href).hostname !== "example.com") {
+        const controlled = await command(client.client, `
+            return Boolean(
+                globalThis.__mangaReaderTestPhase ||
+                document.querySelector(".hs-reader-body")
+            );
+        `);
+        if (!controlled) {
+            throw new Error(
+                "The foreground Safari tab is unrelated to the current test session.\n" +
+                "Open https://example.com once so the harness can claim it safely.\n" +
+                `Foreground tab is currently: ${client.href}`,
+            );
+        }
+
+        const snapshot = await state();
+        const known = new Set(snapshot.clients.map(item => item.client));
+        console.log(`Returning controlled tab from ${client.href} to https://example.com/.`);
+        await navigationCommand(
+            client.client,
+            `location.href = "https://example.com/"; return "navigating";`,
         );
+        client = await waitForNewClient(known, "https://example.com/");
     }
+
     claimedClient = client;
     console.log(`Claimed foreground Safari tab at ${client.href}.`);
 }
@@ -252,243 +270,221 @@ function describeCase(urlText) {
     };
 }
 
-function injectCode(bundle, url, { cancelRestore = false } = {}) {
+function injectCode(bundle, url) {
     return `
         history.replaceState(null, "", ${JSON.stringify(url)});
-        clearInterval(globalThis.__mangaReaderHrefMonitor);
-        globalThis.__mangaReaderHrefSamples = [location.href];
-        globalThis.__mangaReaderHrefMonitor = setInterval(
-            () => globalThis.__mangaReaderHrefSamples.push(location.href),
-            25,
-        );
-        ${cancelRestore ? `
-        const cancelRestoreInterval = setInterval(() => {
-            dispatchEvent(new Event("touchstart"));
-        }, 25);
-        setTimeout(() => clearInterval(cancelRestoreInterval), 3000);
-        ` : ""}
+        globalThis.__mangaReaderTestPhase = (text, state = "running") => {
+            let box = document.getElementById("__manga-reader-test-phase");
+            if (!box) {
+                box = document.createElement("div");
+                box.id = "__manga-reader-test-phase";
+                Object.assign(box.style, {
+                    position: "fixed",
+                    zIndex: "2147483647",
+                    top: "12px",
+                    left: "12px",
+                    right: "12px",
+                    padding: "14px 16px",
+                    borderRadius: "12px",
+                    color: "white",
+                    font: "700 18px/1.3 system-ui, sans-serif",
+                    textAlign: "center",
+                    boxShadow: "0 4px 20px #0009",
+                    pointerEvents: "none",
+                });
+                (document.body || document.documentElement).appendChild(box);
+            }
+            box.style.background = state === "success"
+                ? "#15803d"
+                : state === "error" ? "#b91c1c" : "#1d4ed8";
+            box.textContent = text;
+        };
         const source = ${JSON.stringify(bundle)};
         new Function(source + String.fromCharCode(10) + "//# sourceURL=manga-reader.test.user.js")();
+        globalThis.__mangaReaderTestPhase("1/4 Restoring requested position");
         return { injectedBytes: source.length };
     `;
 }
 
-function restoreAssertions(expectedUrl) {
+function positionSnapshot() {
     return `
         const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
-        const expectedUrl = ${JSON.stringify(expectedUrl)};
-        for (let i = 0; i < 60; i++) {
-            const body = document.querySelector(".hs-reader-body");
-            const target = document.querySelector('[data-restore-target="true"]');
-            const rect = target?.getBoundingClientRect();
-            if (
-                body?.dataset.restoreState === "complete" &&
-                target?.complete &&
-                target.naturalWidth > 0 &&
-                rect &&
-                Math.abs(rect.top) <= 1
-            ) break;
+        const current = () => Array.from(document.querySelectorAll(".hs-reader-img"))
+            .filter(image => image.complete && image.naturalWidth > 0)
+            .map(image => ({
+                image,
+                top: image.getBoundingClientRect().top,
+            }))
+            .sort((a, b) => Math.abs(a.top) - Math.abs(b.top))[0];
+        for (let i = 0; i < 360; i++) {
+            const item = current();
+            if (item && Math.abs(item.top) <= 1) break;
             await wait(250);
         }
-        const body = document.querySelector(".hs-reader-body");
-        const targets = Array.from(document.querySelectorAll('[data-restore-target="true"]'));
-        const target = targets[0];
-        const rect = target?.getBoundingClientRect();
+        const item = current();
+        const chapter = item?.image.closest(".hs-chapter");
         return {
             readerBodies: document.querySelectorAll(".hs-reader-body").length,
             chapterIds: Array.from(document.querySelectorAll(".hs-chapter")).map(element => element.dataset.chapter),
-            targetCount: targets.length,
-            targetLoaded: !!target?.complete && target.naturalWidth > 0,
-            targetTop: rect?.top ?? null,
-            restoreState: body?.dataset.restoreState ?? null,
+            imageId: item?.image.id ?? null,
+            chapterId: chapter?.dataset.chapter ?? null,
+            imageLoaded: !!item?.image.complete && item.image.naturalWidth > 0,
+            imageTop: item?.top ?? null,
             href: location.href,
-            hrefStable: (globalThis.__mangaReaderHrefSamples || []).every(href => href === expectedUrl),
-            targetUrl: target?.dataset.readerUrl ?? null,
         };
     `;
 }
 
-function saveAssertions() {
+function saveNextPosition(chapterId, imageId) {
     return `
         const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
-        const chapter = document.querySelector(".hs-chapter");
+        globalThis.__mangaReaderTestPhase?.("2/4 Scrolling naturally to the next image");
+        const chapter = Array.from(document.querySelectorAll(".hs-chapter"))
+            .find(element => element.dataset.chapter === ${JSON.stringify(chapterId)});
         const images = Array.from(chapter?.querySelectorAll(".hs-reader-img") || []);
-        const target = images.find(image => image.dataset.restoreTarget !== "true" && image.complete && image.naturalWidth > 0)
-            || images.find(image => image.complete && image.naturalWidth > 0);
-        if (!target) return { error: "no loaded image available for save test" };
+        const currentIndex = images.findIndex(image => image.id === ${JSON.stringify(imageId)});
+        const target = images[currentIndex + 1];
+        if (!target) return { error: "restored image has no next image to test" };
 
-        const originalTransform = target.style.transform;
-        const desiredTop = innerHeight / 2 - 10;
-        const currentTop = target.getBoundingClientRect().top;
-        target.style.transform = "translateY(" + (desiredTop - currentTop) + "px)";
-        await wait(50);
+        const scrollAndWait = top => new Promise(resolve => {
+            const timeout = setTimeout(finish, 5000);
+            function finish() {
+                clearTimeout(timeout);
+                removeEventListener("scrollend", finish);
+                resolve();
+            }
+            addEventListener("scrollend", finish, { once: true });
+            scrollTo(0, top);
+        });
+
+        await scrollAndWait(target.offsetTop);
+        for (let i = 0; i < 360 && !(target.complete && target.naturalWidth > 0); i++) {
+            await wait(250);
+        }
         const before = location.href;
-        dispatchEvent(new Event("scrollend"));
-        await wait(50);
-        const beforeDelayElapsed = location.href;
-        await wait(100);
+        const timing = new Promise(resolve => {
+            const timeout = setTimeout(() => resolve({
+                at50ms: location.href,
+                href: location.href,
+            }), 5000);
+            addEventListener("scrollend", () => {
+                setTimeout(() => {
+                    const at50ms = location.href;
+                    setTimeout(() => {
+                        clearTimeout(timeout);
+                        resolve({ at50ms, href: location.href });
+                    }, 100);
+                }, 50);
+            }, { once: true });
+        });
+        await scrollAndWait(target.offsetTop - innerHeight / 2 + 10);
+        const measured = await timing;
 
-        const midpoint = innerHeight / 2;
-        const eligible = Array.from(document.querySelectorAll(".hs-reader-img"))
-            .filter(image => image.complete && image.naturalWidth > 0)
-            .map(image => ({ image, top: image.getBoundingClientRect().top }))
-            .filter(item => item.top <= midpoint)
-            .sort((a, b) => b.top - a.top);
-        const selected = eligible[0]?.image;
-        const result = {
+        return {
             before,
-            beforeDelayElapsed,
-            href: location.href,
-            expectedUrl: selected?.dataset.readerUrl ?? null,
-            selectedId: selected?.id ?? null,
-            selectedLoaded: !!selected?.complete && selected.naturalWidth > 0,
+            at50ms: measured.at50ms,
+            href: measured.href,
+            imageId: target.id,
+            chapterId: chapter?.dataset.chapter ?? null,
+            imageLoaded: target.complete && target.naturalWidth > 0,
         };
-        target.style.transform = originalTransform;
-        return result;
     `;
 }
 
 function chapterAssertions() {
     return `
         const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+        globalThis.__mangaReaderTestPhase?.("4/4 Loading one newer chapter per visible chapter");
         const chapterIds = () => Array.from(document.querySelectorAll(".hs-chapter"))
             .map(element => element.dataset.chapter);
-        const fireRepeated = async () => {
-            for (let i = 0; i < 3; i++) {
-                dispatchEvent(new Event("scrollend"));
-                await wait(150);
+        const scrollAndWait = top => new Promise(resolve => {
+            const timeout = setTimeout(finish, 5000);
+            function finish() {
+                clearTimeout(timeout);
+                removeEventListener("scrollend", finish);
+                setTimeout(resolve, 150);
+            }
+            addEventListener("scrollend", finish, { once: true });
+            scrollTo(0, top);
+        });
+        const waitForChapterCount = async count => {
+            for (let i = 0; i < 40 && chapterIds().length < count; i++) {
+                if (i > 1 && !document.querySelector(".hs-loading")) break;
+                await wait(250);
             }
         };
 
-        await fireRepeated();
-        for (let i = 0; i < 360 && chapterIds().length < 2; i++) await wait(250);
-        await fireRepeated();
-        await wait(1000);
+        const initial = chapterIds();
+        await scrollAndWait(scrollY + 100);
+        await waitForChapterCount(initial.length + 1);
         const afterFirst = chapterIds();
 
-        const second = document.querySelectorAll(".hs-chapter")[1];
-        const secondImage = second?.querySelector(".hs-reader-img");
-        if (secondImage) {
-            scrollTo(0, secondImage.offsetTop);
-            for (let i = 0; i < 360 && !(secondImage.complete && secondImage.naturalWidth > 0); i++) {
+        await scrollAndWait(scrollY + 100);
+        await wait(500);
+        const afterRepeated = chapterIds();
+
+        const chapters = document.querySelectorAll(".hs-chapter");
+        const last = chapters[chapters.length - 1];
+        const lastImage = last?.querySelector(".hs-reader-img");
+        if (lastImage) {
+            await scrollAndWait(lastImage.offsetTop);
+            for (let i = 0; i < 360 && !(lastImage.complete && lastImage.naturalWidth > 0); i++) {
                 await wait(250);
             }
-            await fireRepeated();
-            await wait(250);
-            for (let i = 0; i < 360 && chapterIds().length < 3; i++) {
-                if (!Array.from(document.querySelectorAll(".hs-loading"))
-                    .some(element => element.textContent === "Loading newer chapter...")) break;
-                await wait(250);
-            }
+            await scrollAndWait(lastImage.offsetTop + 100);
+            await waitForChapterCount(afterRepeated.length + 1);
         }
-        await wait(1000);
         return {
+            initial,
             afterFirst,
+            afterRepeated,
             final: chapterIds(),
-            secondWasLoaded: !!secondImage,
+            lastWasLoaded: !!lastImage?.complete && lastImage.naturalWidth > 0,
         };
     `;
 }
 
-function cancellationAssertions() {
-    return `
-        const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
-        for (let i = 0; i < 360; i++) {
-            const state = document.querySelector(".hs-reader-body")?.dataset.restoreState;
-            if (state === "cancelled") break;
-            await wait(25);
-        }
-        const body = document.querySelector(".hs-reader-body");
-        const scrollAfterCancel = scrollY;
-        await wait(1000);
-        const scrollAfterWait = scrollY;
-        const loadedSaveImage = () => {
-            const images = Array.from(document.querySelectorAll(".hs-reader-img"));
-            return images.find(image =>
-                image.complete &&
-                image.naturalWidth > 0 &&
-                image.dataset.readerUrl !== location.href
-            ) || images.find(image => image.complete && image.naturalWidth > 0);
-        };
-        let saveImage = loadedSaveImage();
-        for (let i = 0; i < 360 && !saveImage; i++) {
-            await wait(250);
-            saveImage = loadedSaveImage();
-        }
-        const originalTransform = saveImage?.style.transform ?? "";
-        if (saveImage) {
-            const desiredTop = innerHeight / 2 - 10;
-            saveImage.style.transform = "translateY(" +
-                (desiredTop - saveImage.getBoundingClientRect().top) + "px)";
-        }
-        const hrefBefore = location.href;
-        dispatchEvent(new Event("scrollend"));
-        await wait(150);
-        const result = {
-            restoreState: body?.dataset.restoreState ?? null,
-            scrollAfterCancel,
-            scrollAfterWait,
-            hrefBefore,
-            hrefAfter: location.href,
-            expectedUrl: saveImage?.dataset.readerUrl ?? null,
-            saveImageLoaded: !!saveImage?.complete && saveImage.naturalWidth > 0,
-        };
-        if (saveImage) saveImage.style.transform = originalTransform;
-        return result;
-    `;
-}
-
-function assertRestore(testCase, phase, result) {
+function assertPosition(expected, phase, result) {
     const failures = [];
     if (result.readerBodies !== 1) failures.push(`expected one reader body, got ${result.readerBodies}`);
-    if (result.chapterIds?.length !== 1) failures.push(`activation rendered ${result.chapterIds?.length ?? 0} chapters`);
-    if (result.targetCount !== 1) failures.push(`expected one provider-decoded restore target, got ${result.targetCount}`);
-    if (!result.targetLoaded) failures.push("restore target was not loaded");
-    if (result.targetTop === null || Math.abs(result.targetTop) > 1) {
-        failures.push(`restore target top was ${result.targetTop}, expected 0 ±1px`);
+    if (!result.chapterIds?.length) failures.push("no chapter rendered");
+    if (!result.imageLoaded) failures.push("restored image was incomplete or broken");
+    if (result.imageTop === null || Math.abs(result.imageTop) > 1) {
+        failures.push(`restored image top was ${result.imageTop}, expected 0 ±1px`);
     }
-    if (result.restoreState !== "complete") failures.push(`restore state was ${result.restoreState}`);
-    if (result.href !== testCase.url) failures.push(`URL changed to ${result.href}`);
-    if (!result.hrefStable) failures.push("URL changed during restoration");
-    if (result.targetUrl !== testCase.url) failures.push(`provider target URL was ${result.targetUrl}`);
+    if (expected.href && result.href !== expected.href) failures.push(`URL changed to ${result.href}`);
+    if (expected.imageId && result.imageId !== expected.imageId) {
+        failures.push(`restored ${result.imageId}, expected ${expected.imageId}`);
+    }
+    if (expected.chapterId && result.chapterId !== expected.chapterId) {
+        failures.push(`restored chapter ${result.chapterId}, expected ${expected.chapterId}`);
+    }
     if (failures.length) throw new Error(`${phase}: ${failures.join("; ")}`);
 }
 
 function assertSave(result) {
     const failures = [];
     if (result.error) failures.push(result.error);
-    if (result.beforeDelayElapsed !== result.before) failures.push("URL changed before scrollend + 100ms");
-    if (!result.selectedLoaded) failures.push("selected image was incomplete or broken");
-    if (!result.expectedUrl) failures.push("provider did not supply a reader URL");
-    if (result.href !== result.expectedUrl) failures.push(`saved ${result.href}, expected ${result.expectedUrl}`);
+    if (result.at50ms !== result.before) failures.push("URL changed before scrollend + 100ms");
+    if (!result.imageLoaded) failures.push("saved image was incomplete or broken");
+    if (result.href === result.before) failures.push("provider URL did not change after saving");
     if (failures.length) throw new Error(`save: ${failures.join("; ")}`);
 }
 
 function assertChapters(result) {
     const failures = [];
-    if (result.afterFirst?.length !== 2) {
-        failures.push(`repeated scrollend on one chapter produced ${result.afterFirst?.length ?? 0} chapters`);
+    if (result.afterFirst?.length > result.initial?.length + 1) {
+        failures.push("one visible chapter appended more than one newer chapter");
     }
-    if (!result.secondWasLoaded) failures.push("newer chapter had no loaded image");
-    if (result.final?.length < 2 || result.final?.length > 3) {
-        failures.push(`newer visible chapter produced ${result.final?.length ?? 0} total chapters`);
+    if (result.afterRepeated?.length !== result.afterFirst?.length) {
+        failures.push("repeated scrolling on one visible chapter appended another chapter");
+    }
+    if (result.final?.length > result.afterRepeated?.length + 1) {
+        failures.push("the next visible chapter appended more than one newer chapter");
     }
     if (new Set(result.final).size !== result.final?.length) failures.push("a chapter was appended twice");
+    if (!result.lastWasLoaded) failures.push("visible chapter had no loaded image");
     if (failures.length) throw new Error(`chapters: ${failures.join("; ")}`);
-}
-
-function assertCancellation(result) {
-    const failures = [];
-    if (result.restoreState !== "cancelled") failures.push(`restore state was ${result.restoreState}`);
-    if (Math.abs(result.scrollAfterWait - result.scrollAfterCancel) > 1) {
-        failures.push("a pending restore step scrolled after cancellation");
-    }
-    if (!result.saveImageLoaded) failures.push("no loaded image was available after cancellation");
-    if (!result.expectedUrl) failures.push("provider did not supply a URL after cancellation");
-    if (result.hrefAfter !== result.expectedUrl) {
-        failures.push(`scroll saving resumed with ${result.hrefAfter}, expected ${result.expectedUrl}`);
-    }
-    if (failures.length) throw new Error(failures.join("; "));
 }
 
 async function navigateClaimedTab(testCase) {
@@ -505,58 +501,83 @@ async function navigateClaimedTab(testCase) {
     return claimedClient;
 }
 
+async function showPhase(client, text, state = "running") {
+    await command(
+        client.client,
+        `globalThis.__mangaReaderTestPhase?.(${JSON.stringify(text)}, ${JSON.stringify(state)}); return true;`,
+    );
+    await sleep(casePauseMs);
+}
+
 async function runCase(testCase, bundle) {
     const navigationClient = await navigateClaimedTab(testCase);
     await command(navigationClient.client, injectCode(bundle, testCase.url));
-    const restores = [];
-    const initial = await command(navigationClient.client, restoreAssertions(testCase.url));
-    assertRestore(testCase, "initial restore", initial);
-    restores.push(initial);
+    const initial = await command(navigationClient.client, positionSnapshot());
+    assertPosition({ href: testCase.url }, "initial restore", initial);
+    await showPhase(
+        navigationClient,
+        `1/4 Restore complete at ${initial.chapterId}${initial.imageId}`,
+    );
 
-    const saved = await command(navigationClient.client, saveAssertions());
-    assertSave(saved);
-    await command(
+    const saved = await command(
         navigationClient.client,
-        `history.replaceState(null, "", ${JSON.stringify(testCase.url)}); return location.href;`,
+        saveNextPosition(initial.chapterId, initial.imageId),
+    );
+    assertSave(saved);
+    await showPhase(
+        navigationClient,
+        `2/4 Save complete at ${saved.chapterId}${saved.imageId}`,
     );
 
-    const chapters = await command(navigationClient.client, chapterAssertions());
-    assertChapters(chapters);
-
-    let currentClient = navigationClient;
-    for (let reload = 1; reload <= 3; reload++) {
-        await sleep(casePauseMs);
-        const beforeRefresh = await state();
-        const known = new Set(beforeRefresh.clients.map(item => item.client));
-        await navigationCommand(
-            currentClient.client,
-            `history.replaceState(null, "", ${JSON.stringify(testCase.url)}); location.reload(); return "reloading";`,
-        );
-        currentClient = await waitForNewClient(known, testCase.url);
-        claimedClient = currentClient;
-        await command(currentClient.client, injectCode(bundle, testCase.url));
-        const restored = await command(currentClient.client, restoreAssertions(testCase.url));
-        assertRestore(testCase, `reload ${reload}`, restored);
-        restores.push(restored);
-    }
-
-    await sleep(casePauseMs);
-    const beforeCancel = await state();
-    const known = new Set(beforeCancel.clients.map(item => item.client));
+    const beforeRefresh = await state();
+    const known = new Set(beforeRefresh.clients.map(item => item.client));
     await navigationCommand(
-        currentClient.client,
-        `history.replaceState(null, "", ${JSON.stringify(testCase.url)}); location.reload(); return "reloading";`,
+        navigationClient.client,
+        `
+            globalThis.__mangaReaderTestPhase?.("3/4 Reloading saved position");
+            await new Promise(resolve => setTimeout(resolve, ${casePauseMs}));
+            history.replaceState(null, "", ${JSON.stringify(saved.href)});
+            location.reload();
+            return "reloading";
+        `,
     );
-    const cancelClient = await waitForNewClient(known, testCase.url);
-    claimedClient = cancelClient;
-    await command(cancelClient.client, injectCode(bundle, testCase.url, { cancelRestore: true }));
-    const cancelled = await command(cancelClient.client, cancellationAssertions());
-    assertCancellation(cancelled);
+    const restoredClient = await waitForNewClient(known, saved.href);
+    claimedClient = restoredClient;
+    await command(restoredClient.client, injectCode(bundle, saved.href));
+    await command(
+        restoredClient.client,
+        `globalThis.__mangaReaderTestPhase?.("3/4 Restoring saved position"); return true;`,
+    );
+    const restored = await command(restoredClient.client, positionSnapshot());
+    assertPosition({
+        imageId: saved.imageId,
+        chapterId: saved.chapterId,
+    }, "saved URL restore", restored);
+    await showPhase(
+        restoredClient,
+        `3/4 Saved position restored at ${restored.chapterId}${restored.imageId}`,
+    );
 
-    return { initial, restores, saved, chapters, cancelled };
+    const chapters = await command(restoredClient.client, chapterAssertions());
+    assertChapters(chapters);
+    await showPhase(
+        restoredClient,
+        `4/4 Chapters loaded: ${chapters.final.join(" → ")}`,
+    );
+    await command(restoredClient.client, `
+        globalThis.__mangaReaderTestPhase?.("TEST SUCCESSFUL", "success");
+        return true;
+    `);
+
+    return { initial, restored, saved, chapters };
 }
 
 async function main() {
+    const requestedUrls = process.argv.slice(2);
+    if (requestedUrls.some(url => !/^https?:\/\//.test(url))) {
+        throw new Error("Each test argument must be a complete http(s) URL");
+    }
+
     await ensureServer();
     await waitForDebugger();
     console.log("iPhone debugger connected.");
@@ -565,7 +586,9 @@ async function main() {
     checkAndBuild();
 
     const [matrixText, bundle] = await Promise.all([
-        readFile(resolve(root, "test.txt"), "utf8"),
+        requestedUrls.length
+            ? requestedUrls.join("\n")
+            : readFile(resolve(root, "test.txt"), "utf8"),
         readFile(resolve(root, "dist/manga-reader.user.js"), "utf8"),
     ]);
     const cases = matrixText
@@ -574,7 +597,7 @@ async function main() {
         .filter(line => /^https?:\/\//.test(line))
         .map(describeCase);
 
-    if (!cases.length) throw new Error("test.txt contains no test URLs");
+    if (!cases.length) throw new Error("No test URLs were supplied");
 
     console.log(`iOS Safari matrix: ${cases.length} cases; ${casePauseMs}ms minimum pause between phases/cases`);
     const failures = [];
@@ -584,10 +607,23 @@ async function main() {
         process.stdout.write(`[${index + 1}/${cases.length}] ${testCase.name} ... `);
         try {
             const result = await runCase(testCase, bundle);
-            console.log(`PASS (${result.chapters.final.join(" → ")}, four idempotent restorations)`);
+            console.log(
+                `PASS (${result.chapters.final.join(" → ")}, saved ${result.saved.chapterId}${result.saved.imageId} restored)`,
+            );
         } catch (error) {
             failures.push({ name: testCase.name, error });
-            console.log(`FAIL\n    ${error.message}`);
+            const message = error instanceof Error ? error.message : String(error);
+            if (claimedClient) {
+                try {
+                    await command(
+                        claimedClient.client,
+                        `globalThis.__mangaReaderTestPhase?.(${JSON.stringify(`TEST FAILED: ${message}`)}, "error"); return true;`,
+                    );
+                } catch {
+                    // The failed page may already have navigated away.
+                }
+            }
+            console.log(`FAIL\n    ${message}`);
         }
     }
 

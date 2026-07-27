@@ -18,23 +18,17 @@ function imageLoaded(image: HTMLImageElement): boolean {
     return image.complete && image.naturalWidth > 0;
 }
 
-function waitForImage(image: HTMLImageElement, signal: AbortSignal): Promise<boolean> {
-    if (signal.aborted) return Promise.resolve(false);
-    if (imageLoaded(image)) return Promise.resolve(true);
+function waitForImage(image: HTMLImageElement): Promise<void> {
+    if (imageLoaded(image)) return Promise.resolve();
 
     return new Promise(resolve => {
-        const finish = (loaded: boolean) => {
-            image.removeEventListener('load', onLoad);
-            signal.removeEventListener('abort', onAbort);
-            resolve(loaded);
-        };
         const onLoad = () => {
-            if (imageLoaded(image)) finish(true);
+            if (!imageLoaded(image)) return;
+            image.removeEventListener('load', onLoad);
+            resolve();
         };
-        const onAbort = () => finish(false);
         image.addEventListener('load', onLoad);
-        signal.addEventListener('abort', onAbort, { once: true });
-        if (imageLoaded(image)) finish(true);
+        if (imageLoaded(image)) onLoad();
     });
 }
 
@@ -42,31 +36,20 @@ async function restoreScroll(
     wrap: HTMLDivElement,
     target: HTMLImageElement,
 ): Promise<void> {
-    const controller = new AbortController();
-    const cancel = () => controller.abort();
-    const cancellationEvents = ['touchstart', 'wheel', 'keydown'] as const;
-    for (const event of cancellationEvents) {
-        window.addEventListener(event, cancel, { once: true, passive: event !== 'keydown' });
+    const images = Array.from(wrap.querySelectorAll<HTMLImageElement>('.hs-reader-img'));
+    const targetIndex = images.indexOf(target);
+    const firstImage = images[0];
+    if (!firstImage) return;
+    await waitForImage(firstImage);
+    window.scrollTo(0, firstImage.offsetTop);
+
+    for (let index = 1; index <= targetIndex; index++) {
+        const image = images[index];
+        window.scrollTo(0, image.offsetTop);
+        await waitForImage(image);
     }
 
-    try {
-        const images = Array.from(wrap.querySelectorAll<HTMLImageElement>('.hs-reader-img'));
-        const targetIndex = images.indexOf(target);
-        const firstImage = images[0];
-        if (!firstImage || !await waitForImage(firstImage, controller.signal)) return;
-        window.scrollTo(0, firstImage.offsetTop);
-
-        for (let index = 1; index <= targetIndex; index++) {
-            if (controller.signal.aborted) return;
-            const image = images[index];
-            window.scrollTo(0, image.offsetTop);
-            if (!await waitForImage(image, controller.signal)) return;
-        }
-
-        window.scrollTo(0, target.offsetTop);
-    } finally {
-        for (const event of cancellationEvents) window.removeEventListener(event, cancel);
-    }
+    window.scrollTo(0, target.offsetTop);
 }
 
 // ── render helpers ───────────────────────────────────────────────────
