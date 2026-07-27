@@ -1,5 +1,6 @@
 import css from '../style.css?inline';
 import type { ChapterData, ChapterMeta, Provider, RouteMatch } from '../provider';
+import { Handler } from '../provider';
 
 function retryBrokenImages(selector: ".hs-reader-img" | ".hs-thumb", interval: number): void {
     setInterval(() => {
@@ -96,7 +97,10 @@ function findNewerChapter(chaptersNewestFirst: ChapterMeta[], currentChapterId: 
 
 // ── main ─────────────────────────────────────────────────────────────
 
-export async function open(provider: Provider, route: RouteMatch): Promise<void> {
+export async function open(
+    provider: Provider,
+    route: Extract<RouteMatch, { handler: Handler.Reader }>,
+): Promise<void> {
     const { slug, chapterId } = route;
 
     window.stop();

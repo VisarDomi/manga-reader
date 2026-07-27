@@ -1,9 +1,17 @@
-export type RouteMatch = {
-    slug: string;
-    chapterId: string;
-    /** Zero-based image index when the provider encodes page position in the path. */
-    imageIndex?: string;
-};
+export enum Handler {
+    Home,
+    Reader,
+}
+
+export type RouteMatch =
+    | { handler: Handler.Home }
+    | {
+        handler: Handler.Reader;
+        slug: string;
+        chapterId: string;
+        /** Zero-based image index when the provider encodes page position in the path. */
+        imageIndex?: string;
+    };
 
 export interface ChapterImage {
     url: string;
@@ -26,6 +34,7 @@ export interface ChapterMeta {
 
 export interface Provider {
     matchRoute(pathname: string, hash: string): RouteMatch | null;
+    openHome?(): void | Promise<void>;
     fetchChapter(slug: string, chapterId: string): Promise<ChapterData | null>;
     fetchChaptersNewestFirst(slug: string): Promise<ChapterMeta[]>;
     readerUrl(slug: string, chapterId: string, imageIndex?: string): string;

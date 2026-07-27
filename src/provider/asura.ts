@@ -1,4 +1,4 @@
-import type { Provider, RouteMatch, ChapterData, ChapterMeta, ChapterImage } from './types';
+import { Handler, type Provider, type RouteMatch, type ChapterData, type ChapterMeta, type ChapterImage } from './types';
 import { SITE_CONFIG } from '../core/sites';
 import { isChapterUnavailable } from '../core/http';
 import { hashImageIndex } from '../core/page';
@@ -6,6 +6,69 @@ import { hashImageIndex } from '../core/page';
 const CHAPTER_RE = /^\/comics\/([^/]+)\/chapter\/(\d+)/;
 const DOMAIN = SITE_CONFIG['asurascans'].domain;
 const API_BASE = SITE_CONFIG['asurascans'].apiBase!;
+const ASURA_STYLESHEET_PATH = /^\/_astro\/[^/]+\.css$/;
+
+function ruleCount(link: HTMLLinkElement): number | null {
+    try {
+        return link.sheet?.cssRules.length ?? null;
+    } catch {
+        return null;
+    }
+}
+
+function isAsuraStylesheet(link: HTMLLinkElement): boolean {
+    if (link.rel !== 'stylesheet' || link.dataset.mangaReaderRepair !== undefined) return false;
+    return ASURA_STYLESHEET_PATH.test(new URL(link.href, location.href).pathname);
+}
+
+function repairStylesheet(link: HTMLLinkElement): void {
+    if (document.querySelector('link[data-manga-reader-repair]')) return;
+
+    const replacement = document.createElement('link');
+    replacement.rel = 'stylesheet';
+    replacement.dataset.mangaReaderRepair = '';
+
+    const url = new URL(link.href);
+    url.searchParams.set('manga-reader-cache-bust', String(Date.now()));
+    replacement.href = url.href;
+
+    replacement.addEventListener('load', () => {
+        if ((ruleCount(replacement) ?? 0) > 0) link.remove();
+        else replacement.remove();
+    }, { once: true });
+    replacement.addEventListener('error', () => replacement.remove(), { once: true });
+    document.head.appendChild(replacement);
+}
+
+function watchStylesheet(link: HTMLLinkElement): void {
+    if (!isAsuraStylesheet(link)) return;
+
+    const repairIfEmpty = () => {
+        if (ruleCount(link) === 0) repairStylesheet(link);
+    };
+    if (link.sheet) repairIfEmpty();
+    else link.addEventListener('load', repairIfEmpty, { once: true });
+}
+
+function openAsuraHome(): void {
+    document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]').forEach(watchStylesheet);
+
+    const observer = new MutationObserver(records => {
+        for (const record of records) {
+            for (const node of record.addedNodes) {
+                if (node instanceof HTMLLinkElement) watchStylesheet(node);
+                else if (node instanceof Element) {
+                    node.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]').forEach(watchStylesheet);
+                }
+            }
+        }
+    });
+    observer.observe(document, { childList: true, subtree: true });
+
+    window.addEventListener('pageshow', () => {
+        document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]').forEach(watchStylesheet);
+    });
+}
 
 interface AsuraPage {
     url: string;
@@ -33,11 +96,13 @@ interface AsuraChapterResponse {
 export const asura: Provider = {
 
     matchRoute(pathname: string, hash: string): RouteMatch | null {
+        if (pathname === '/') return { handler: Handler.Home };
         const m = CHAPTER_RE.exec(pathname);
         if (!m) return null;
-        return { slug: m[1], chapterId: m[2], imageIndex: hashImageIndex(hash) };
+        return { handler: Handler.Reader, slug: m[1], chapterId: m[2], imageIndex: hashImageIndex(hash) };
     },
 
+    openHome: openAsuraHome,
 
     async fetchChapter(slug: string, chapterId: string): Promise<ChapterData | null> {
         const res = await fetch(`${API_BASE}/series/${slug}/chapters/${chapterId}`);

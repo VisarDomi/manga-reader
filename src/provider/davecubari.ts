@@ -1,4 +1,4 @@
-import type { Provider, RouteMatch, ChapterData, ChapterMeta, ChapterImage } from './types';
+import { Handler, type Provider, type RouteMatch, type ChapterData, type ChapterMeta, type ChapterImage } from './types';
 import { SITE_CONFIG } from '../core/sites';
 import { isChapterUnavailable } from '../core/http';
 
@@ -26,6 +26,7 @@ export const davecubari: Provider = {
         if (cm) {
             const page = parseInt(cm[3], 10);
             return {
+                handler: Handler.Reader,
                 slug: cm[1],
                 chapterId: cm[2],
                 imageIndex: Number.isFinite(page) && page > 0 ? String(page - 1) : undefined,

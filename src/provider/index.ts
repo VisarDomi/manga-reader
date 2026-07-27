@@ -1,3 +1,4 @@
+export { Handler } from './types';
 export type { Provider, RouteMatch, ChapterData, ChapterImage, ChapterMeta } from './types';
 
 import type { Provider, RouteMatch } from './types';
