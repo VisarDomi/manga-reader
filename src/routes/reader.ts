@@ -77,14 +77,20 @@ async function restoreScroll(
 
     const images = Array.from(wrap.querySelectorAll<HTMLImageElement>('.hs-reader-img'));
     const targetIndex = images.indexOf(target);
-    for (let index = 0; index <= targetIndex; index++) {
-        const image = images[index];
-        if (!await waitForImage(image, controller.signal)) return;
+    const firstImage = images[0];
+    if (!firstImage || !await waitForImage(firstImage, controller.signal)) return;
+    window.scrollTo(0, firstImage.offsetTop);
+    await nextFrame();
+
+    for (let index = 1; index <= targetIndex; index++) {
         if (controller.signal.aborted) return;
+        const image = images[index];
         window.scrollTo(0, image.offsetTop);
         await nextFrame();
+        if (!await waitForImage(image, controller.signal)) return;
     }
 
+    window.scrollTo(0, target.offsetTop);
     await waitForFinalProgrammaticScroll();
     if (!controller.signal.aborted) body.dataset.restoreState = 'complete';
     for (const event of cancellationEvents) window.removeEventListener(event, cancel);
@@ -104,7 +110,6 @@ function renderChapterImages(
     data: ChapterData,
     provider: Provider,
     slug: string,
-    eagerThrough = -1,
 ): void {
     for (let i = 0; i < data.images.length; i++) {
         const img = document.createElement('img');
@@ -115,7 +120,7 @@ function renderChapterImages(
         if (imgData.width && imgData.height) {
             img.style.aspectRatio = imgData.width + '/' + imgData.height;
         }
-        img.loading = i <= eagerThrough ? 'eager' : 'lazy';
+        img.loading = 'lazy';
         img.src = imgData.url;
         wrap.appendChild(img);
     }
@@ -164,16 +169,7 @@ export async function open(provider: Provider, route: RouteMatch): Promise<void>
     document.body.appendChild(wrapper);
 
     const firstWrap = createChapterWrapper(chapterId);
-    const restoreIndex = route.imageIndex === undefined
-        ? -1
-        : Number.parseInt(route.imageIndex, 10);
-    renderChapterImages(
-        firstWrap,
-        data,
-        provider,
-        slug,
-        Number.isFinite(restoreIndex) ? restoreIndex : -1,
-    );
+    renderChapterImages(firstWrap, data, provider, slug);
     wrapper.appendChild(firstWrap);
 
     const chapterData: Record<string, ChapterData> = { [chapterId]: data };

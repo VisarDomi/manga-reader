@@ -16,6 +16,7 @@ const connectionTimeoutMs = Number(process.env.IOS_TEST_CONNECTION_TIMEOUT_MS ??
 const agent = new https.Agent({ rejectUnauthorized: false });
 let ownedServer = null;
 let claimedClient = null;
+let lastNavigationAt = 0;
 
 function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -152,6 +153,13 @@ async function command(target, code, { expectResult = true } = {}) {
     return expectResult ? waitForResult(id) : id;
 }
 
+async function navigationCommand(target, code) {
+    const remainingPause = lastNavigationAt + casePauseMs - Date.now();
+    if (remainingPause > 0) await sleep(remainingPause);
+    lastNavigationAt = Date.now();
+    return command(target, code);
+}
+
 async function foregroundClient() {
     const snapshot = await state();
     const now = Date.now() / 1000;
@@ -202,12 +210,32 @@ async function claimExampleTab() {
     console.log(`Claimed foreground Safari tab at ${client.href}.`);
 }
 
+function navigationMatches(actualUrl, expectedUrl) {
+    if (actualUrl === expectedUrl) return true;
+    try {
+        const actual = new URL(actualUrl);
+        const expected = new URL(expectedUrl);
+        const actualTail = actual.pathname.split("/").filter(Boolean).slice(-2).join("/");
+        const expectedTail = expected.pathname.split("/").filter(Boolean).slice(-2).join("/");
+        return (
+            actual.hostname === expected.hostname &&
+            actualTail === expectedTail &&
+            actual.hash === expected.hash
+        );
+    } catch {
+        return false;
+    }
+}
+
 async function waitForNewClient(knownClients, expectedUrl) {
     const deadline = Date.now() + clientTimeoutMs;
     while (Date.now() < deadline) {
         const snapshot = await state();
         const client = [...snapshot.clients]
-            .filter(item => !knownClients.has(item.client) && item.href === expectedUrl)
+            .filter(item =>
+                !knownClients.has(item.client) &&
+                navigationMatches(item.href, expectedUrl)
+            )
             .sort((a, b) => b.lastSeen - a.lastSeen)[0];
         if (client) return client;
         await sleep(250);
@@ -467,7 +495,7 @@ async function navigateClaimedTab(testCase) {
     if (!claimedClient) throw new Error("No Safari tab has been claimed");
     const before = await state();
     const known = new Set(before.clients.map(item => item.client));
-    await command(claimedClient.client, `
+    await navigationCommand(claimedClient.client, `
         const target = ${JSON.stringify(testCase.url)};
         if (location.href === target) location.reload();
         else location.href = target;
@@ -500,7 +528,7 @@ async function runCase(testCase, bundle) {
         await sleep(casePauseMs);
         const beforeRefresh = await state();
         const known = new Set(beforeRefresh.clients.map(item => item.client));
-        await command(
+        await navigationCommand(
             currentClient.client,
             `history.replaceState(null, "", ${JSON.stringify(testCase.url)}); location.reload(); return "reloading";`,
         );
@@ -515,7 +543,7 @@ async function runCase(testCase, bundle) {
     await sleep(casePauseMs);
     const beforeCancel = await state();
     const known = new Set(beforeCancel.clients.map(item => item.client));
-    await command(
+    await navigationCommand(
         currentClient.client,
         `history.replaceState(null, "", ${JSON.stringify(testCase.url)}); location.reload(); return "reloading";`,
     );
