@@ -106,10 +106,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         query = urllib.parse.parse_qs(parsed.query)
 
         if parsed.path == "/manga-reader-debug.user.js":
-            host = lan_ip()
-            port = self.server.server_port
-            source = DEBUG_USERSCRIPT.read_text().replace("__DEBUG_CONNECT_HOST__", host)
-            source = source.replace("__DEBUG_SERVER__", f"https://{host}:{port}")
+            source = DEBUG_USERSCRIPT.read_text()
             encoded = source.encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/javascript")
