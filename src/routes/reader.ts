@@ -6,9 +6,10 @@ function retryBrokenImages(selector: ".hs-reader-img" | ".hs-thumb", interval: n
         const imgs = document.querySelectorAll<HTMLImageElement>(selector);
         for (const img of imgs) {
             if (!img.complete || img.naturalWidth > 0) continue; // safari ios doesn't execute img.onerror on 429s so we have to do hacks
-            const src = img.src;
+            const src = new URL(img.src);
+            if (src.origin === location.origin) src.searchParams.set('retry', Date.now().toString());
             img.src = ''; // safari ios needs its source cleared first so that it can register the new (same) source
-            img.src = src;
+            img.src = src.href;
         }
     }, interval);
 }
@@ -37,63 +38,35 @@ function waitForImage(image: HTMLImageElement, signal: AbortSignal): Promise<boo
     });
 }
 
-function nextFrame(): Promise<void> {
-    return new Promise(resolve => requestAnimationFrame(() => resolve()));
-}
-
-function waitForFinalProgrammaticScroll(): Promise<void> {
-    return new Promise(resolve => {
-        let settled = false;
-        const finish = () => {
-            if (settled) return;
-            settled = true;
-            window.removeEventListener('scrollend', onScrollEnd);
-            setTimeout(resolve, 110);
-        };
-        const onScrollEnd = () => finish();
-        window.addEventListener('scrollend', onScrollEnd, { once: true });
-        setTimeout(finish, 250);
-    });
-}
-
 async function restoreScroll(
-    body: HTMLDivElement,
     wrap: HTMLDivElement,
     target: HTMLImageElement,
 ): Promise<void> {
     const controller = new AbortController();
-    const cancel = () => {
-        if (controller.signal.aborted) return;
-        controller.abort();
-        body.dataset.restoreState = 'cancelled';
-    };
-    const cancellationEvents = ['touchstart', 'pointerdown', 'wheel', 'keydown'] as const;
+    const cancel = () => controller.abort();
+    const cancellationEvents = ['touchstart', 'wheel', 'keydown'] as const;
     for (const event of cancellationEvents) {
         window.addEventListener(event, cancel, { once: true, passive: event !== 'keydown' });
     }
 
-    body.dataset.restoreState = 'restoring';
-    window.dispatchEvent(new Event('manga-reader:restore-start'));
+    try {
+        const images = Array.from(wrap.querySelectorAll<HTMLImageElement>('.hs-reader-img'));
+        const targetIndex = images.indexOf(target);
+        const firstImage = images[0];
+        if (!firstImage || !await waitForImage(firstImage, controller.signal)) return;
+        window.scrollTo(0, firstImage.offsetTop);
 
-    const images = Array.from(wrap.querySelectorAll<HTMLImageElement>('.hs-reader-img'));
-    const targetIndex = images.indexOf(target);
-    const firstImage = images[0];
-    if (!firstImage || !await waitForImage(firstImage, controller.signal)) return;
-    window.scrollTo(0, firstImage.offsetTop);
-    await nextFrame();
+        for (let index = 1; index <= targetIndex; index++) {
+            if (controller.signal.aborted) return;
+            const image = images[index];
+            window.scrollTo(0, image.offsetTop);
+            if (!await waitForImage(image, controller.signal)) return;
+        }
 
-    for (let index = 1; index <= targetIndex; index++) {
-        if (controller.signal.aborted) return;
-        const image = images[index];
-        window.scrollTo(0, image.offsetTop);
-        await nextFrame();
-        if (!await waitForImage(image, controller.signal)) return;
+        window.scrollTo(0, target.offsetTop);
+    } finally {
+        for (const event of cancellationEvents) window.removeEventListener(event, cancel);
     }
-
-    window.scrollTo(0, target.offsetTop);
-    await waitForFinalProgrammaticScroll();
-    if (!controller.signal.aborted) body.dataset.restoreState = 'complete';
-    for (const event of cancellationEvents) window.removeEventListener(event, cancel);
 }
 
 // ── render helpers ───────────────────────────────────────────────────
@@ -108,15 +81,12 @@ function createChapterWrapper(chapterId: string): HTMLDivElement {
 function renderChapterImages(
     wrap: HTMLDivElement,
     data: ChapterData,
-    provider: Provider,
-    slug: string,
 ): void {
     for (let i = 0; i < data.images.length; i++) {
         const img = document.createElement('img');
         const imgData = data.images[i];
         img.id = `#${i}`;
         img.className = 'hs-reader-img';
-        img.dataset.readerUrl = provider.readerUrl(slug, data.chapterId, String(i));
         if (imgData.width && imgData.height) {
             img.style.aspectRatio = imgData.width + '/' + imgData.height;
         }
@@ -169,7 +139,7 @@ export async function open(provider: Provider, route: RouteMatch): Promise<void>
     document.body.appendChild(wrapper);
 
     const firstWrap = createChapterWrapper(chapterId);
-    renderChapterImages(firstWrap, data, provider, slug);
+    renderChapterImages(firstWrap, data);
     wrapper.appendChild(firstWrap);
 
     const chapterData: Record<string, ChapterData> = { [chapterId]: data };
@@ -178,13 +148,11 @@ export async function open(provider: Provider, route: RouteMatch): Promise<void>
     const target = route.imageIndex
         ? document.getElementById(`#${route.imageIndex}`) as HTMLImageElement | null
         : null;
-    if (target) target.dataset.restoreTarget = 'true';
-    wrapper.dataset.restoreState = target ? 'restoring' : 'complete';
+    let restoring = Boolean(target);
 
     // 3. Async: fetch chapter list
     let chaptersNewestFirst: ChapterMeta[] = [];
-    const loaded = new Set<string>();
-    loaded.add(chapterId);
+    const loaded = new Set([chapterId]);
     let chapterListLoading = true;
     let pendingScrollEnd = false;
 
@@ -203,10 +171,10 @@ export async function open(provider: Provider, route: RouteMatch): Promise<void>
         });
 
     // 4. Scroll handler
-    const seenImages = new Set<string>();
+    let lastSavedImage = '';
     function scrollEndOneHundred() {
         setTimeout(() => {
-            if (wrapper.dataset.restoreState === 'restoring') return;
+            if (restoring) return;
 
             const midpoint = window.innerHeight / 2;
             const saveImg = Array.from(wrapper.querySelectorAll<HTMLImageElement>('.hs-reader-img'))
@@ -221,9 +189,9 @@ export async function open(provider: Provider, route: RouteMatch): Promise<void>
 
             const imageIndex = saveImg.id.split('#')[1];
             const imageKey = `${visibleChapter}:${imageIndex}`;
-            if (!seenImages.has(imageKey)) {
-                seenImages.add(imageKey);
-                history.replaceState(null, '', saveImg.dataset.readerUrl as string);
+            if (lastSavedImage !== imageKey) {
+                lastSavedImage = imageKey;
+                history.replaceState(null, '', provider.readerUrl(slug, visibleChapter, imageIndex));
                 const visibleData = chapterData[visibleChapter];
                 document.title = `${visibleData.chapterId} ${visibleData.seriesTitle}`;
                 void provider.trackChapter?.(visibleData, imageIndex, chaptersNewestFirst);
@@ -251,7 +219,7 @@ export async function open(provider: Provider, route: RouteMatch): Promise<void>
                     }
                     chapterData[newerChapter.chapterId] = newerChapterData;
                     const wrapEl = createChapterWrapper(newerChapter.chapterId);
-                    renderChapterImages(wrapEl, newerChapterData, provider, slug);
+                    renderChapterImages(wrapEl, newerChapterData);
                     wrapper.appendChild(wrapEl);
                 })
                 .catch(() => { wrapper.appendChild(createStatus('Failed to load chapter', 'hs-error')); })
@@ -261,5 +229,5 @@ export async function open(provider: Provider, route: RouteMatch): Promise<void>
         }, 100);
     }
     window.addEventListener('scrollend', scrollEndOneHundred);
-    if (target) void restoreScroll(wrapper, firstWrap, target);
+    if (target) void restoreScroll(firstWrap, target).finally(() => { restoring = false; });
 }
