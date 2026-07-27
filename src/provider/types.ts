@@ -25,7 +25,7 @@ export interface ChapterMeta {
 }
 
 export interface Provider {
-    matchRoute(pathname: string): RouteMatch | null;
+    matchRoute(pathname: string, hash: string): RouteMatch | null;
     fetchChapter(slug: string, chapterId: string): Promise<ChapterData | null>;
     fetchChaptersNewestFirst(slug: string): Promise<ChapterMeta[]>;
     readerUrl(slug: string, chapterId: string, imageIndex?: string): string;

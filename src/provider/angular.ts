@@ -1,16 +1,17 @@
 import type { Provider, RouteMatch, ChapterMeta } from './types';
 import { SITE_CONFIG } from '../core/sites';
 import { isChapterUnavailable } from '../core/http';
+import { hashImageIndex } from '../core/page';
 
 export function createAngularProvider(site: keyof typeof SITE_CONFIG): Provider {
     const { domain, apiBase } = SITE_CONFIG[site];
     const CHAPTER_RE = /\/([^/]+)\/([^/]+)\/([^/]+)$/;
 
     return {
-        matchRoute(pathname: string): RouteMatch | null {
+        matchRoute(pathname: string, hash: string): RouteMatch | null {
             const m = CHAPTER_RE.exec(pathname);
             if (!m) return null;
-            return { slug: m[2], chapterId: m[3] };
+            return { slug: m[2], chapterId: m[3], imageIndex: hashImageIndex(hash) };
         },
 
 

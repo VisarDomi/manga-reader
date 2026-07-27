@@ -1,6 +1,7 @@
 import type { Provider, RouteMatch, ChapterData, ChapterMeta, ChapterImage } from './types';
 import { SITE_CONFIG } from '../core/sites';
 import { isChapterUnavailable } from '../core/http';
+import { hashImageIndex } from '../core/page';
 
 // URL: /<slug>-chapter-<number>/
 const CHAPTER_RE = /^\/(.+)-chapter-(\d+(?:\.\d+)?)\/?$/;
@@ -12,11 +13,11 @@ interface TsReaderData {
 
 export const scythe: Provider = {
 
-    matchRoute(pathname: string): RouteMatch | null {
+    matchRoute(pathname: string, hash: string): RouteMatch | null {
         const m = CHAPTER_RE.exec(pathname);
         if (!m) return null;
         const chapterSlug = `${m[1]}-chapter-${m[2]}`;
-        return { slug: m[1], chapterId: chapterSlug };
+        return { slug: m[1], chapterId: chapterSlug, imageIndex: hashImageIndex(hash) };
     },
 
 

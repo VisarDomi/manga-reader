@@ -1,16 +1,17 @@
 import type { Provider, RouteMatch, ChapterData, ChapterMeta, ChapterImage } from './types';
 import { SITE_CONFIG } from '../core/sites';
 import { isChapterUnavailable } from '../core/http';
+import { hashImageIndex } from '../core/page';
 
 const DOMAIN = SITE_CONFIG['valirscans'].domain;
 const CHAPTER_RE = /^\/series\/comic\/([^/]+)\/chapter\/(\d+)/;
 
 export const valir: Provider = {
 
-    matchRoute(pathname: string): RouteMatch | null {
+    matchRoute(pathname: string, hash: string): RouteMatch | null {
         const m = CHAPTER_RE.exec(pathname);
         if (!m) return null;
-        return { slug: m[1], chapterId: m[2] };
+        return { slug: m[1], chapterId: m[2], imageIndex: hashImageIndex(hash) };
     },
 
 

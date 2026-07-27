@@ -30,7 +30,7 @@ Test cases:
    - Perform three actual page reloads after the initial restoration. All four restorations must finish on the same target with the same provider URL.
    - touchstart, pointerdown, wheel, or keydown cancels restoration. After cancellation, no pending restoration step may scroll again, and the next user scrollend + 100 ms must save normally.
 
-https://asurascans.com/comics/chronicles-of-the-lazy-sovereign-f886a8af/chapter/56#3
+https://asurascans.com/comics/chronicles-of-the-lazy-sovereign-f886a8af/chapter/50#3
 https://valirscans.org/series/comic/the-emperor-is-annoyed-by-the-maid/chapter/1#8
 https://scythescans.com/magic-emperor-chapter-1/#5
 https://luacomic.org/series/im-tired-of-novel-transmigration/chapter-70#4

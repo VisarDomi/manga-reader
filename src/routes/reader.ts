@@ -13,38 +13,81 @@ function retryBrokenImages(selector: ".hs-reader-img" | ".hs-thumb", interval: n
     }, interval);
 }
 
-function restoreScroll(wrap: HTMLDivElement, target: HTMLImageElement) {
-    let cancelled = false;
-    const cancel = () => { cancelled = true; };
-    window.addEventListener('touchstart', cancel, { once: true, passive: true });
-    window.addEventListener('pointerdown', cancel, { once: true, passive: true });
-    window.addEventListener('wheel', cancel, { once: true, passive: true });
-    window.addEventListener('keydown', cancel, { once: true });
+function imageLoaded(image: HTMLImageElement): boolean {
+    return image.complete && image.naturalWidth > 0;
+}
 
-    const images = Array.from(wrap.querySelectorAll('img'));
-    const targetIdx = images.indexOf(target);
-    let ready = true;
+function waitForImage(image: HTMLImageElement, signal: AbortSignal): Promise<boolean> {
+    if (signal.aborted) return Promise.resolve(false);
+    if (imageLoaded(image)) return Promise.resolve(true);
 
-    function scrollToContiguous() {
-        let end = -1;
-        for (let i = 0; i <= targetIdx && images[i].complete; i++) {
-            end = i;
-        }
-        if (end >= 0 && !cancelled) {
-            const img = images[end];
-            window.scrollTo(0, img.offsetTop + img.offsetHeight - window.innerHeight / 2);
-        }
+    return new Promise(resolve => {
+        const finish = (loaded: boolean) => {
+            image.removeEventListener('load', onLoad);
+            signal.removeEventListener('abort', onAbort);
+            resolve(loaded);
+        };
+        const onLoad = () => {
+            if (imageLoaded(image)) finish(true);
+        };
+        const onAbort = () => finish(false);
+        image.addEventListener('load', onLoad);
+        signal.addEventListener('abort', onAbort, { once: true });
+        if (imageLoaded(image)) finish(true);
+    });
+}
+
+function nextFrame(): Promise<void> {
+    return new Promise(resolve => requestAnimationFrame(() => resolve()));
+}
+
+function waitForFinalProgrammaticScroll(): Promise<void> {
+    return new Promise(resolve => {
+        let settled = false;
+        const finish = () => {
+            if (settled) return;
+            settled = true;
+            window.removeEventListener('scrollend', onScrollEnd);
+            setTimeout(resolve, 110);
+        };
+        const onScrollEnd = () => finish();
+        window.addEventListener('scrollend', onScrollEnd, { once: true });
+        setTimeout(finish, 250);
+    });
+}
+
+async function restoreScroll(
+    body: HTMLDivElement,
+    wrap: HTMLDivElement,
+    target: HTMLImageElement,
+): Promise<void> {
+    const controller = new AbortController();
+    const cancel = () => {
+        if (controller.signal.aborted) return;
+        controller.abort();
+        body.dataset.restoreState = 'cancelled';
+    };
+    const cancellationEvents = ['touchstart', 'pointerdown', 'wheel', 'keydown'] as const;
+    for (const event of cancellationEvents) {
+        window.addEventListener(event, cancel, { once: true, passive: event !== 'keydown' });
     }
 
-    for (let i = 0; i <= targetIdx; i++) {
-        const img = images[i];
-        if (img.complete && img.naturalHeight > 0) continue;
-        ready = false;
-        img.addEventListener('load', scrollToContiguous, { once: true });
-        img.addEventListener('error', scrollToContiguous, { once: true });
+    body.dataset.restoreState = 'restoring';
+    window.dispatchEvent(new Event('manga-reader:restore-start'));
+
+    const images = Array.from(wrap.querySelectorAll<HTMLImageElement>('.hs-reader-img'));
+    const targetIndex = images.indexOf(target);
+    for (let index = 0; index <= targetIndex; index++) {
+        const image = images[index];
+        if (!await waitForImage(image, controller.signal)) return;
+        if (controller.signal.aborted) return;
+        window.scrollTo(0, image.offsetTop);
+        await nextFrame();
     }
 
-    if (ready) window.scrollTo(0, target.offsetTop - window.innerHeight / 2);
+    await waitForFinalProgrammaticScroll();
+    if (!controller.signal.aborted) body.dataset.restoreState = 'complete';
+    for (const event of cancellationEvents) window.removeEventListener(event, cancel);
 }
 
 // ── render helpers ───────────────────────────────────────────────────
@@ -56,16 +99,23 @@ function createChapterWrapper(chapterId: string): HTMLDivElement {
     return wrap;
 }
 
-function renderChapterImages(wrap: HTMLDivElement, data: ChapterData): void {
+function renderChapterImages(
+    wrap: HTMLDivElement,
+    data: ChapterData,
+    provider: Provider,
+    slug: string,
+    eagerThrough = -1,
+): void {
     for (let i = 0; i < data.images.length; i++) {
         const img = document.createElement('img');
         const imgData = data.images[i];
         img.id = `#${i}`;
         img.className = 'hs-reader-img';
+        img.dataset.readerUrl = provider.readerUrl(slug, data.chapterId, String(i));
         if (imgData.width && imgData.height) {
             img.style.aspectRatio = imgData.width + '/' + imgData.height;
         }
-        img.loading = 'lazy';
+        img.loading = i <= eagerThrough ? 'eager' : 'lazy';
         img.src = imgData.url;
         wrap.appendChild(img);
     }
@@ -114,23 +164,32 @@ export async function open(provider: Provider, route: RouteMatch): Promise<void>
     document.body.appendChild(wrapper);
 
     const firstWrap = createChapterWrapper(chapterId);
-    renderChapterImages(firstWrap, data);
+    const restoreIndex = route.imageIndex === undefined
+        ? -1
+        : Number.parseInt(route.imageIndex, 10);
+    renderChapterImages(
+        firstWrap,
+        data,
+        provider,
+        slug,
+        Number.isFinite(restoreIndex) ? restoreIndex : -1,
+    );
     wrapper.appendChild(firstWrap);
 
     const chapterData: Record<string, ChapterData> = { [chapterId]: data };
 
     // 2. Restore scroll position
-    const imageIndex = route.imageIndex ?? location.hash.slice(1);
-    const target = imageIndex
-        ? document.getElementById(`#${imageIndex}`) as HTMLImageElement | null
+    const target = route.imageIndex
+        ? document.getElementById(`#${route.imageIndex}`) as HTMLImageElement | null
         : null;
-    if (target) restoreScroll(firstWrap, target);
+    if (target) target.dataset.restoreTarget = 'true';
+    wrapper.dataset.restoreState = target ? 'restoring' : 'complete';
 
     // 3. Async: fetch chapter list
     let chaptersNewestFirst: ChapterMeta[] = [];
     const loaded = new Set<string>();
     loaded.add(chapterId);
-    let loading = true;
+    let chapterListLoading = true;
     let pendingScrollEnd = false;
 
     const chaptersLoadingStatus = createStatus('Loading chapters...', 'hs-loading');
@@ -140,7 +199,7 @@ export async function open(provider: Provider, route: RouteMatch): Promise<void>
         .catch(() => { wrapper.appendChild(createStatus('Failed to load chapter list', 'hs-error')); })
         .finally(() => {
             chaptersLoadingStatus.remove();
-            loading = false;
+            chapterListLoading = false;
             if (pendingScrollEnd) {
                 pendingScrollEnd = false;
                 scrollEndOneHundred();
@@ -151,34 +210,41 @@ export async function open(provider: Provider, route: RouteMatch): Promise<void>
     const seenImages = new Set<string>();
     function scrollEndOneHundred() {
         setTimeout(() => {
-            if (loading) {
-                pendingScrollEnd = true;
-                return;
-            }
+            if (wrapper.dataset.restoreState === 'restoring') return;
 
-            const saveImg = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2 + 1) as HTMLImageElement;
-            const chapterWrap = saveImg.closest('.hs-chapter') as HTMLDivElement;
+            const midpoint = window.innerHeight / 2;
+            const saveImg = Array.from(wrapper.querySelectorAll<HTMLImageElement>('.hs-reader-img'))
+                .filter(image => imageLoaded(image))
+                .map(image => ({ image, top: image.getBoundingClientRect().top }))
+                .filter(item => item.top <= midpoint)
+                .sort((a, b) => b.top - a.top)[0]?.image;
+            if (!saveImg) return;
+            const chapterWrap = saveImg.closest<HTMLDivElement>('.hs-chapter');
+            if (!chapterWrap) return;
             const visibleChapter = chapterWrap.dataset.chapter as string;
 
             const imageIndex = saveImg.id.split('#')[1];
             const imageKey = `${visibleChapter}:${imageIndex}`;
-            if (seenImages.has(imageKey)) return;
-            seenImages.add(imageKey);
+            if (!seenImages.has(imageKey)) {
+                seenImages.add(imageKey);
+                history.replaceState(null, '', saveImg.dataset.readerUrl as string);
+                const visibleData = chapterData[visibleChapter];
+                document.title = `${visibleData.chapterId} ${visibleData.seriesTitle}`;
+                void provider.trackChapter?.(visibleData, imageIndex, chaptersNewestFirst);
+            }
 
-            history.replaceState(null, '', provider.readerUrl(slug, visibleChapter, imageIndex));
+            if (chapterListLoading) {
+                pendingScrollEnd = true;
+                return;
+            }
 
-            const visibleData = chapterData[visibleChapter];
-            document.title = `${visibleData.chapterId} ${visibleData.seriesTitle}`;
-            void provider.trackChapter?.(visibleData, imageIndex, chaptersNewestFirst);
-
-            const lastLoaded = wrapper.lastElementChild as HTMLDivElement;
-            if (chapterWrap !== lastLoaded) return;
+            const chapterWraps = wrapper.querySelectorAll<HTMLDivElement>('.hs-chapter');
+            if (chapterWrap !== chapterWraps[chapterWraps.length - 1]) return;
 
             const newerChapter = findNewerChapter(chaptersNewestFirst, visibleChapter);
             if (!newerChapter || loaded.has(newerChapter.chapterId)) return;
 
             loaded.add(newerChapter.chapterId);
-            loading = true;
             const newerChapterLoadingStatus = createStatus('Loading newer chapter...', 'hs-loading');
             wrapper.appendChild(newerChapterLoadingStatus);
             provider.fetchChapter(slug, newerChapter.chapterId)
@@ -189,15 +255,15 @@ export async function open(provider: Provider, route: RouteMatch): Promise<void>
                     }
                     chapterData[newerChapter.chapterId] = newerChapterData;
                     const wrapEl = createChapterWrapper(newerChapter.chapterId);
-                    renderChapterImages(wrapEl, newerChapterData);
+                    renderChapterImages(wrapEl, newerChapterData, provider, slug);
                     wrapper.appendChild(wrapEl);
                 })
                 .catch(() => { wrapper.appendChild(createStatus('Failed to load chapter', 'hs-error')); })
                 .finally(() => {
                     newerChapterLoadingStatus.remove();
-                    loading = false;
                 });
         }, 100);
     }
     window.addEventListener('scrollend', scrollEndOneHundred);
+    if (target) void restoreScroll(wrapper, firstWrap, target);
 }

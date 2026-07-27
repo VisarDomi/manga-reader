@@ -20,7 +20,7 @@ interface CubariChapter {
 
 export const davecubari: Provider = {
 
-    matchRoute(pathname: string): RouteMatch | null {
+    matchRoute(pathname: string, _hash: string): RouteMatch | null {
         // cubari.moe reader URL: /read/gist/<gistId>/<chapter>/<page>/
         const cm = CUBARI_READER_RE.exec(pathname);
         if (cm) {

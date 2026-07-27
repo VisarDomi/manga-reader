@@ -21,7 +21,7 @@ export interface ProviderRoute {
 }
 
 export function matchProviderRoute(): ProviderRoute | null {
-    const { pathname, hostname } = window.location;
+    const { pathname, hostname, hash } = window.location;
     const site = Object.values(SITE_CONFIG).find(cfg =>
         hostname === cfg.domain,
     );
@@ -30,7 +30,7 @@ export function matchProviderRoute(): ProviderRoute | null {
     const provider = providers[site.provider as ProviderKey];
     if (!provider) throw new Error(`Unknown provider: ${site.provider}`);
 
-    const route = provider.matchRoute(pathname);
+    const route = provider.matchRoute(pathname, hash);
     if (!route) return null;
 
     return { provider, route };
