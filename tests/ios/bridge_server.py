@@ -209,7 +209,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.send_json({"error": "JSON body with string 'code' required"}, 400)
                 return
             with lock:
-                command_id = commands[-1]["id"] + 1 if commands else 1
+                previous_id = commands[-1]["id"] if commands else 0
+                command_id = max(previous_id + 1, int(time.time() * 1000))
                 command = {
                     "id": command_id,
                     "target": str(payload.get("target") or "*"),

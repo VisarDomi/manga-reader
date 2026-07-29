@@ -271,9 +271,28 @@ function describeCase(urlText) {
     };
 }
 
-function injectCode(bundle, url) {
+function injectCode(bundle, url, { trackAsura = false } = {}) {
     return `
         history.replaceState(null, "", ${JSON.stringify(url)});
+        ${trackAsura ? `
+        globalThis.__mangaReaderTrackingCalls = [];
+        const originalFetch = globalThis.fetch;
+        globalThis.fetch = (input, init) => {
+            const url = typeof input === "string" ? input : input.url;
+            const pathname = new URL(url, location.href).pathname;
+            if (pathname.startsWith("/api/bookmarks/") || pathname === "/api/views/chapter") {
+                globalThis.__mangaReaderTrackingCalls.push({
+                    pathname,
+                    body: init?.body ? JSON.parse(init.body) : null,
+                });
+                return Promise.resolve(new Response("{}", {
+                    status: 200,
+                    headers: { "Content-Type": "application/json" },
+                }));
+            }
+            return originalFetch(input, init);
+        };
+        ` : ""}
         globalThis.__mangaReaderTestPhase = (text, state = "running") => {
             let box = document.getElementById("__manga-reader-test-phase");
             if (!box) {
@@ -302,7 +321,9 @@ function injectCode(bundle, url) {
         };
         const source = ${JSON.stringify(bundle)};
         new Function(source + String.fromCharCode(10) + "//# sourceURL=manga-reader.test.user.js")();
-        globalThis.__mangaReaderTestPhase("1/4 Restoring requested position");
+        globalThis.__mangaReaderTestPhase(${JSON.stringify(
+            trackAsura ? "Testing once-per-chapter tracking" : "1/4 Restoring requested position",
+        )});
         return { injectedBytes: source.length };
     `;
 }
@@ -488,6 +509,86 @@ function assertChapters(result) {
     if (failures.length) throw new Error(`chapters: ${failures.join("; ")}`);
 }
 
+function trackingAssertions() {
+    return `
+        const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+        const scrollAndWait = top => new Promise(resolve => {
+            const timeout = setTimeout(finish, 5000);
+            function finish() {
+                clearTimeout(timeout);
+                removeEventListener("scrollend", finish);
+                setTimeout(resolve, 150);
+            }
+            addEventListener("scrollend", finish, { once: true });
+            scrollTo(0, top);
+        });
+        const waitFor = async predicate => {
+            for (let i = 0; i < 80; i++) {
+                if (predicate()) return true;
+                await wait(250);
+            }
+            return false;
+        };
+        const chapters = () => Array.from(document.querySelectorAll(".hs-chapter"));
+        const images = chapter => Array.from(chapter?.querySelectorAll(".hs-reader-img") || []);
+        const isLoaded = image => image?.complete && image.naturalWidth > 0;
+        const readImages = async selected => {
+            for (const image of selected) {
+                if (!await waitFor(() => isLoaded(image))) return false;
+                await scrollAndWait(image.offsetTop + image.offsetHeight - innerHeight);
+            }
+            return true;
+        };
+
+        const firstChapter = chapters()[0];
+        const currentImageIndex = Math.max(
+            0,
+            images(firstChapter).findIndex(image => image.id === location.hash),
+        );
+        const currentImage = images(firstChapter)[currentImageIndex];
+        if (!await waitFor(() =>
+            isLoaded(currentImage) &&
+            Math.abs(currentImage.getBoundingClientRect().top) <= 1
+        )) {
+            return { error: "reader did not finish restoring the current image" };
+        }
+        await wait(250);
+        if (!await readImages(images(firstChapter).slice(currentImageIndex))) {
+            return { error: "first chapter images did not load naturally" };
+        }
+
+        if (!await waitFor(() => chapters().length >= 2)) {
+            return { error: "a second chapter was not loaded" };
+        }
+        const secondChapter = chapters()[1];
+        if (!await readImages(images(secondChapter).slice(0, 2))) {
+            return { error: "second chapter images did not load naturally" };
+        }
+
+        return {
+            chapterIds: chapters().map(chapter => chapter.dataset.chapter),
+            calls: globalThis.__mangaReaderTrackingCalls,
+        };
+    `;
+}
+
+function assertTracking(result) {
+    if (result.error) throw new Error(`tracking: ${result.error}`);
+    const failures = [];
+    if (result.chapterIds?.length < 2) failures.push("a second chapter was not loaded");
+
+    const bookmarks = result.calls?.filter(call => call.pathname.startsWith("/api/bookmarks/")) ?? [];
+    const views = result.calls?.filter(call => call.pathname === "/api/views/chapter") ?? [];
+    const bookmarkChapters = bookmarks.map(call => call.pathname.split("/").at(-1));
+    const viewChapters = views.map(call => call.body?.chapter_id);
+
+    if (bookmarks.length !== 2) failures.push(`expected 2 bookmark calls, got ${bookmarks.length}`);
+    if (views.length !== 2) failures.push(`expected 2 view calls, got ${views.length}`);
+    if (new Set(bookmarkChapters).size !== 2) failures.push("a chapter was bookmarked more than once");
+    if (new Set(viewChapters).size !== 2) failures.push("a chapter view was tracked more than once");
+    if (failures.length) throw new Error(`tracking: ${failures.join("; ")}`);
+}
+
 async function navigateClaimedTab(testCase) {
     if (!claimedClient) throw new Error("No Safari tab has been claimed");
     const before = await state();
@@ -573,8 +674,43 @@ async function runCase(testCase, bundle) {
     return { initial, restored, saved, chapters };
 }
 
+async function runTrackingCase(testCase, bundle) {
+    const navigationClient = await navigateClaimedTab(testCase);
+    await command(
+        navigationClient.client,
+        injectCode(bundle, testCase.url, { trackAsura: true }),
+    );
+    const result = await command(navigationClient.client, trackingAssertions());
+    assertTracking(result);
+    await command(navigationClient.client, `
+        globalThis.__mangaReaderTestPhase?.("TRACKING TEST SUCCESSFUL", "success");
+        return true;
+    `);
+    return result;
+}
+
 async function main() {
-    const requestedUrls = process.argv.slice(2);
+    const args = process.argv.slice(2);
+    function takeOption(name, fallback) {
+        const index = args.indexOf(name);
+        if (index === -1) return fallback;
+        const value = args[index + 1];
+        if (!value || value.startsWith("--")) {
+            throw new Error(`${name} requires a value`);
+        }
+        args.splice(index, 2);
+        return value;
+    }
+
+    const testName = takeOption("--test", "full");
+    const siteName = takeOption("--site", null);
+    if (!["full", "tracking"].includes(testName)) {
+        throw new Error(`Unknown test "${testName}". Expected "full" or "tracking".`);
+    }
+    if (testName === "tracking" && siteName !== "asura") {
+        throw new Error('The "tracking" test requires --site asura.');
+    }
+    const requestedUrls = args;
     if (requestedUrls.some(url => !/^https?:\/\//.test(url))) {
         throw new Error("Each test argument must be a complete http(s) URL");
     }
@@ -597,25 +733,48 @@ async function main() {
             : frozenMatrixText,
         readFile(resolve(root, "dist/manga-reader.user.js"), "utf8"),
     ]);
-    const cases = matrixText
+    let cases = matrixText
         .split(/\r?\n/)
         .map(line => line.trim())
         .filter(line => /^https?:\/\//.test(line))
         .map(describeCase);
+    if (siteName) {
+        const siteConfig = JSON.parse(
+            await readFile(resolve(root, "src/core/sites.json"), "utf8"),
+        );
+        cases = cases.filter(testCase => {
+            const hostname = new URL(testCase.url).hostname;
+            return Object.entries(siteConfig).some(([key, config]) =>
+                config.domain === hostname &&
+                (siteName === key || siteName === config.provider)
+            );
+        });
+    }
 
-    if (!cases.length) throw new Error("No test URLs were supplied");
+    if (!cases.length) {
+        throw new Error(
+            siteName
+                ? `No test URL found for site "${siteName}"`
+                : "No test URLs were supplied",
+        );
+    }
 
-    console.log(`iOS Safari matrix: ${cases.length} cases; ${casePauseMs}ms minimum pause between phases/cases`);
+    console.log(`iOS Safari ${testName} test: ${cases.length} cases; ${casePauseMs}ms minimum pause between phases/cases`);
     const failures = [];
 
     for (const [index, testCase] of cases.entries()) {
         if (index > 0) await sleep(casePauseMs);
         process.stdout.write(`[${index + 1}/${cases.length}] ${testCase.name} ... `);
         try {
-            const result = await runCase(testCase, bundle);
-            console.log(
-                `PASS (${result.chapters.final.join(" → ")}, saved ${result.saved.chapterId}${result.saved.imageId} restored)`,
-            );
+            if (testName === "tracking") {
+                const result = await runTrackingCase(testCase, bundle);
+                console.log(`PASS (tracked once each: ${result.chapterIds.slice(0, 2).join(" → ")})`);
+            } else {
+                const result = await runCase(testCase, bundle);
+                console.log(
+                    `PASS (${result.chapters.final.join(" → ")}, saved ${result.saved.chapterId}${result.saved.imageId} restored)`,
+                );
+            }
         } catch (error) {
             failures.push({ name: testCase.name, error });
             const message = error instanceof Error ? error.message : String(error);

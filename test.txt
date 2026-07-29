@@ -2,6 +2,7 @@ Features:
 
 1. Newer chapter loading
 - On scrollend + 100 ms, each visible chapter may append its immediate newer chapter exactly once.
+- Tracking happens exactly once per chapter
 
 2. Position persistence
 - On scrollend + 100 ms, save the current loaded image in the page URL.

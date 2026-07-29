@@ -48,6 +48,12 @@ or
 npm run tests -- "https://..."
 ```
 
+Run only the Asura once-per-chapter tracking regression:
+
+```bash
+npm run tests -- --test tracking --site asura
+```
+
 The test command type-checks and builds without incrementing the production
 version, starts the repository-local bridge when needed, injects the current
 bundle, and runs every URL in `test.txt`. It enforces a minimum one-second pause
