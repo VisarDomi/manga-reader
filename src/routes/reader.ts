@@ -159,6 +159,7 @@ export async function open(
 
     // 4. Scroll handler
     let lastSavedImage = '';
+    const tracked = new Set<string>();
     function scrollEndOneHundred() {
         setTimeout(() => {
             if (restoring) return;
@@ -181,6 +182,11 @@ export async function open(
                 history.replaceState(null, '', provider.readerUrl(slug, visibleChapter, imageIndex));
                 const visibleData = chapterData[visibleChapter];
                 document.title = `${visibleData.chapterId} ${visibleData.seriesTitle}`;
+            }
+
+            if (!tracked.has(visibleChapter)) {
+                tracked.add(visibleChapter);
+                const visibleData = chapterData[visibleChapter];
                 void provider.trackChapter?.(visibleData, imageIndex, chaptersNewestFirst);
             }
 
