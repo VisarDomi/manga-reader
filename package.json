@@ -1,13 +1,13 @@
 {
   "name": "manga-reader",
-  "version": "208",
+  "version": "209",
   "description": "Userscript to improve ux of supported sites",
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
     "tests": "node tests/ios/run.mjs",
-    "tests:server": "python3 tests/ios/bridge_server.py",
-    "tests:setup": "python3 tests/ios/bridge_server.py --setup"
+    "tests:server": "userscript-ios-test server --config tests/ios/config.json",
+    "tests:setup": "userscript-ios-test setup --config tests/ios/config.json"
   },
   "devDependencies": {
     "@types/tampermonkey": "^5.0.4",
@@ -16,6 +16,7 @@
     "typescript": "^5.9.3",
     "vite": "^7.1.9",
     "vite-plugin-monkey": "^7.1.4",
-    "vitest": "^4.1.9"
+    "vitest": "^4.1.9",
+    "userscript-ios-test": "file:../../userscript-ios-test"
   }
 }

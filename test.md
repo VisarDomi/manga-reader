@@ -13,24 +13,17 @@ One-time setup on a new development machine:
 npm install
 ```
 
-The debugger is intentionally specific to the original development setup:
-`192.168.1.197:37777`. It is not generated from environment variables. After
-cloning the repository to another machine, change the fixed values before
-installing the debugger:
-
-- In `tests/ios/manga-reader-debug.user.js`, change both `@connect` and
-  `SERVER` to the laptop's LAN address. Change the port in `SERVER` if needed.
-- If changing port `37777`, also change the bridge default in
-  `tests/ios/bridge_server.py` and `bridgeOrigin` in `tests/ios/run.mjs`.
-
-Keep these values identical. The bridge serves the checked-in userscript
-verbatim.
+The shared `userscript-ios-test` package builds one debugger userscript for all
+userscript repositories. Set `IOS_DEBUG_HOST` only when automatic LAN-address
+detection is not correct, then rebuild and reinstall that shared debugger.
 
 Generate and trust the HTTPS certificate by following
 [`certificate.md`](certificate.md). With `npm run tests:server` still running:
 
-1. Open `https://192.168.1.197:37777/manga-reader-debug.user.js`, or the
-   corresponding fixed URL configured above.
+1. Install
+   [`userscript-ios-test-debug.user.js`](../../userscript-ios-test/dist/userscript-ios-test-debug.user.js),
+   or open `https://192.168.1.197:37777/userscript-ios-test-debug.user.js`
+   while the bridge is running.
 2. Install it in the iOS userscript manager.
 3. Give the userscript extension permission to run on all tested websites.
 4. Keep Safari unlocked and foregrounded. Temporarily set display auto-lock to
@@ -66,7 +59,7 @@ Configuration:
   be edited to match.
 - `IOS_DEBUG_HOST` — address used for certificate generation and printed setup
   URLs only; it does not rewrite the userscript.
-- `IOS_DEBUG_PORT` — bridge port, default `37777`
+- `tests/ios/config.json` — repository identity used by the shared harness
 - `IOS_DEBUG_CERT` / `IOS_DEBUG_KEY` — custom HTTPS certificate paths
 - `IOS_DEBUG_CA` — custom public root CA path for `/api/cert`
 - `IOS_TEST_SETTLE_MS` — delay between tests, clamped to at least `1000`

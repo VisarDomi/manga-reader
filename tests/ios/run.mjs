@@ -1,232 +1,42 @@
 #!/usr/bin/env node
 
-import { spawn, spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
-import https from "node:https";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
+import {
+    createController,
+    createSession,
+    parseSelection,
+    phaseBannerScript,
+    runBuildSteps,
+    runCaseMatrix,
+} from "userscript-ios-test/controller";
 
-const here = dirname(fileURLToPath(import.meta.url));
-const root = resolve(here, "../..");
-const bridgeOrigin = process.env.IOS_DEBUG_ORIGIN ?? "https://127.0.0.1:37777";
+const root = resolve(import.meta.dirname, "../..");
+const iosConfig = JSON.parse(
+    await readFile(resolve(root, "tests/ios/config.json"), "utf8"),
+);
 const casePauseMs = Math.max(500, Number(process.env.IOS_TEST_SETTLE_MS ?? 500));
-const commandTimeoutMs = Number(process.env.IOS_TEST_COMMAND_TIMEOUT_MS ?? 90000);
-const clientTimeoutMs = Number(process.env.IOS_TEST_CLIENT_TIMEOUT_MS ?? 45000);
-const connectionTimeoutMs = Number(process.env.IOS_TEST_CONNECTION_TIMEOUT_MS ?? 120000);
-const agent = new https.Agent({ rejectUnauthorized: false });
-let ownedServer = null;
-let claimedClient = null;
-let lastNavigationAt = 0;
-
-function sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-function request(path, { method = "GET", body } = {}) {
-    return new Promise((resolveRequest, rejectRequest) => {
-        const url = new URL(path, bridgeOrigin);
-        const payload = body === undefined ? null : JSON.stringify(body);
-        const req = https.request(url, {
-            method,
-            agent,
-            headers: payload ? {
-                "content-type": "application/json",
-                "content-length": Buffer.byteLength(payload),
-            } : undefined,
-        }, response => {
-            const chunks = [];
-            response.on("data", chunk => chunks.push(chunk));
-            response.on("end", () => {
-                const text = Buffer.concat(chunks).toString();
-                if (!response.statusCode || response.statusCode < 200 || response.statusCode >= 300) {
-                    rejectRequest(new Error(`${method} ${url.pathname}: HTTP ${response.statusCode}: ${text}`));
-                    return;
-                }
-                if (!text) {
-                    resolveRequest(null);
-                    return;
-                }
-                try {
-                    resolveRequest(JSON.parse(text));
-                } catch {
-                    rejectRequest(new Error(`${method} ${url.pathname}: invalid JSON response`));
-                }
-            });
-        });
-        req.on("error", rejectRequest);
-        if (payload) req.write(payload);
-        req.end();
-    });
-}
-
-async function ensureServer() {
-    try {
-        await request("/__debug_state");
-        return;
-    } catch {
-        ownedServer = spawn("python3", [resolve(here, "bridge_server.py")], {
-            cwd: root,
-            stdio: ["ignore", "ignore", "inherit"],
-        });
-    }
-
-    for (let attempt = 0; attempt < 30; attempt++) {
-        if (ownedServer.exitCode !== null) {
-            throw new Error("The repository-local iOS bridge failed to start. Run `npm run tests:setup`.");
-        }
-        try {
-            await request("/__debug_state");
-            return;
-        } catch {
-            await sleep(250);
-        }
-    }
-    throw new Error("Timed out starting the repository-local iOS bridge.");
-}
-
-async function state() {
-    return request("/__debug_state");
-}
-
-async function waitForDebugger() {
-    const info = await request("/__debug_info");
-    console.log(`Waiting for iPhone debugger on port ${new URL(bridgeOrigin).port}.`);
-    console.log(`If it is not installed yet, open:\n  ${info.debuggerUrl}`);
-
-    const deadline = Date.now() + connectionTimeoutMs;
-    while (Date.now() < deadline) {
-        const snapshot = await state();
-        const now = Date.now() / 1000;
-        const active = snapshot.clients.some(client => now - client.lastSeen < 3);
-        if (active) return;
-        await sleep(250);
-    }
-
-    throw new Error(
-        "No iPhone debugger is connected to the repository bridge.\n" +
-        `Install or update “manga-reader debug” from:\n  ${info.debuggerUrl}\n` +
-        "Then open any matched page in foreground Safari and rerun `npm run tests`.\n" +
-        "The older central “debug” userscript on port 35897 does not connect to this suite.",
-    );
-}
-
-function runLocalCommand(command, args) {
-    const completed = spawnSync(command, args, { cwd: root, stdio: "inherit" });
-    if (completed.error) throw completed.error;
-    if (completed.status !== 0) {
-        throw new Error(`${command} ${args.join(" ")} failed with exit code ${completed.status}`);
-    }
-}
+const controller = createController({
+    root,
+    name: iosConfig.name,
+    debuggerName: iosConfig.debuggerName,
+    port: iosConfig.port,
+    settleMs: casePauseMs,
+    commandTimeoutMs: Number(process.env.IOS_TEST_COMMAND_TIMEOUT_MS ?? 90000),
+    clientTimeoutMs: Number(process.env.IOS_TEST_CLIENT_TIMEOUT_MS ?? 45000),
+    connectionTimeoutMs: Number(process.env.IOS_TEST_CONNECTION_TIMEOUT_MS ?? 120000),
+});
+const session = createSession({
+    controller,
+    sourceLabel: "manga-reader.test.user.js",
+});
+const command = (_client, code, options) => session.command(code, options);
 
 function checkAndBuild() {
-    runLocalCommand("npx", ["tsc", "--noEmit"]);
-    runLocalCommand("node", ["scripts/build.mjs", "--no-increase-version"]);
-}
-
-async function postCommand(target, code) {
-    const command = await request("/__debug_command", {
-        method: "POST",
-        body: { target, code },
-    });
-    return command.id;
-}
-
-async function waitForResult(commandId) {
-    const deadline = Date.now() + commandTimeoutMs;
-    while (Date.now() < deadline) {
-        const snapshot = await state();
-        const result = [...snapshot.results].reverse().find(item => item.commandId === commandId);
-        if (result) {
-            if (!result.ok) {
-                const error = result.error?.message ?? JSON.stringify(result.error);
-                throw new Error(`Remote command ${commandId} failed: ${error}`);
-            }
-            return result.result;
-        }
-        await sleep(250);
-    }
-    throw new Error(`Timed out waiting for remote command ${commandId}`);
-}
-
-async function command(target, code, { expectResult = true } = {}) {
-    const id = await postCommand(target, code);
-    return expectResult ? waitForResult(id) : id;
-}
-
-async function navigationCommand(target, code) {
-    const remainingPause = lastNavigationAt + casePauseMs - Date.now();
-    if (remainingPause > 0) await sleep(remainingPause);
-    lastNavigationAt = Date.now();
-    return command(target, code);
-}
-
-async function foregroundClient() {
-    const snapshot = await state();
-    const now = Date.now() / 1000;
-    const active = snapshot.clients.filter(client => now - client.lastSeen < 3);
-    if (!active.length) throw new Error("No active iPhone debugger client");
-
-    const commandId = await postCommand("*", `
-        return {
-            visibilityState: document.visibilityState,
-            hasFocus: document.hasFocus(),
-            href: location.href,
-        };
-    `);
-    const deadline = Date.now() + 5000;
-    while (Date.now() < deadline) {
-        const current = await state();
-        const results = current.results.filter(result =>
-            result.commandId === commandId && result.ok
-        );
-        const focused = results.find(result =>
-            result.result?.visibilityState === "visible" && result.result?.hasFocus
-        );
-        const visible = focused ?? results.find(result =>
-            result.result?.visibilityState === "visible"
-        );
-        if (visible) {
-            const client = active.find(item => item.client === visible.client);
-            if (client) return client;
-        }
-        await sleep(100);
-    }
-    if (active.length === 1) return active[0];
-    throw new Error(
-        `Could not identify the foreground Safari tab among ${active.length} active debugger clients`,
-    );
-}
-
-async function claimExampleTab(providerHosts) {
-    let client = await foregroundClient();
-    const foregroundUrl = new URL(client.href);
-    if (foregroundUrl.hostname !== "example.com") {
-        const controlled = await command(client.client, `
-            return Boolean(
-                globalThis.__mangaReaderTestPhase ||
-                document.querySelector(".hs-reader-body")
-            );
-        `);
-        if (!controlled && !providerHosts.has(foregroundUrl.hostname)) {
-            throw new Error(
-                "The foreground Safari tab is unrelated to the current test session.\n" +
-                "Open https://example.com once so the harness can claim it safely.\n" +
-                `Foreground tab is currently: ${client.href}`,
-            );
-        }
-
-        const snapshot = await state();
-        const known = new Set(snapshot.clients.map(item => item.client));
-        console.log(`Returning controlled tab from ${client.href} to https://example.com/.`);
-        await navigationCommand(
-            client.client,
-            `location.href = "https://example.com/"; return "navigating";`,
-        );
-        client = await waitForNewClient(known, "https://example.com/");
-    }
-
-    claimedClient = client;
-    console.log(`Claimed foreground Safari tab at ${client.href}.`);
+    runBuildSteps(controller, [
+        ["npx", ["tsc", "--noEmit"]],
+        ["node", ["scripts/build.mjs", "--no-increase-version"]],
+    ]);
 }
 
 function navigationMatches(actualUrl, expectedUrl) {
@@ -244,22 +54,6 @@ function navigationMatches(actualUrl, expectedUrl) {
     } catch {
         return false;
     }
-}
-
-async function waitForNewClient(knownClients, expectedUrl) {
-    const deadline = Date.now() + clientTimeoutMs;
-    while (Date.now() < deadline) {
-        const snapshot = await state();
-        const client = [...snapshot.clients]
-            .filter(item =>
-                !knownClients.has(item.client) &&
-                navigationMatches(item.href, expectedUrl)
-            )
-            .sort((a, b) => b.lastSeen - a.lastSeen)[0];
-        if (client) return client;
-        await sleep(250);
-    }
-    throw new Error(`No iPhone debugger connected at ${expectedUrl}`);
 }
 
 function describeCase(urlText) {
@@ -293,32 +87,10 @@ function injectCode(bundle, url, { trackAsura = false } = {}) {
             return originalFetch(input, init);
         };
         ` : ""}
-        globalThis.__mangaReaderTestPhase = (text, state = "running") => {
-            let box = document.getElementById("__manga-reader-test-phase");
-            if (!box) {
-                box = document.createElement("div");
-                box.id = "__manga-reader-test-phase";
-                Object.assign(box.style, {
-                    position: "fixed",
-                    zIndex: "2147483647",
-                    top: "12px",
-                    left: "12px",
-                    right: "12px",
-                    padding: "14px 16px",
-                    borderRadius: "12px",
-                    color: "white",
-                    font: "700 18px/1.3 system-ui, sans-serif",
-                    textAlign: "center",
-                    boxShadow: "0 4px 20px #0009",
-                    pointerEvents: "none",
-                });
-                (document.body || document.documentElement).appendChild(box);
-            }
-            box.style.background = state === "success"
-                ? "#15803d"
-                : state === "error" ? "#b91c1c" : "#1d4ed8";
-            box.textContent = text;
-        };
+        ${phaseBannerScript({
+            globalName: "__mangaReaderTestPhase",
+            elementId: "__manga-reader-test-phase",
+        })}
         const source = ${JSON.stringify(bundle)};
         new Function(source + String.fromCharCode(10) + "//# sourceURL=manga-reader.test.user.js")();
         globalThis.__mangaReaderTestPhase(${JSON.stringify(
@@ -590,25 +362,19 @@ function assertTracking(result) {
 }
 
 async function navigateClaimedTab(testCase) {
-    if (!claimedClient) throw new Error("No Safari tab has been claimed");
-    const before = await state();
-    const known = new Set(before.clients.map(item => item.client));
-    await navigationCommand(claimedClient.client, `
-        const target = ${JSON.stringify(testCase.url)};
-        if (location.href === target) location.reload();
-        else location.href = target;
-        return "navigating";
-    `);
-    claimedClient = await waitForNewClient(known, testCase.url);
-    return claimedClient;
+    return session.navigate(testCase.url, {
+        matches: (candidate, expected) =>
+            navigationMatches(candidate.href, expected),
+    });
 }
 
-async function showPhase(client, text, state = "running") {
-    await command(
-        client.client,
-        `globalThis.__mangaReaderTestPhase?.(${JSON.stringify(text)}, ${JSON.stringify(state)}); return true;`,
-    );
-    await sleep(casePauseMs);
+async function showPhase(_client, text, state = "running") {
+    await session.showPhase({
+        globalName: "__mangaReaderTestPhase",
+        text,
+        state,
+        pauseMs: casePauseMs,
+    });
 }
 
 async function runCase(testCase, bundle) {
@@ -631,20 +397,14 @@ async function runCase(testCase, bundle) {
         `2/4 Save complete at ${saved.chapterId}${saved.imageId}`,
     );
 
-    const beforeRefresh = await state();
-    const known = new Set(beforeRefresh.clients.map(item => item.client));
-    await navigationCommand(
-        navigationClient.client,
-        `
+    const restoredClient = await session.reload(saved.href, {
+        before: `
             globalThis.__mangaReaderTestPhase?.("3/4 Reloading saved position");
             await new Promise(resolve => setTimeout(resolve, ${casePauseMs}));
-            history.replaceState(null, "", ${JSON.stringify(saved.href)});
-            location.reload();
-            return "reloading";
         `,
-    );
-    const restoredClient = await waitForNewClient(known, saved.href);
-    claimedClient = restoredClient;
+        matches: (candidate, expected) =>
+            navigationMatches(candidate.href, expected),
+    });
     await command(restoredClient.client, injectCode(bundle, saved.href));
     await command(
         restoredClient.client,
@@ -690,40 +450,35 @@ async function runTrackingCase(testCase, bundle) {
 }
 
 async function main() {
-    const args = process.argv.slice(2);
-    function takeOption(name, fallback) {
-        const index = args.indexOf(name);
-        if (index === -1) return fallback;
-        const value = args[index + 1];
-        if (!value || value.startsWith("--")) {
-            throw new Error(`${name} requires a value`);
-        }
-        args.splice(index, 2);
-        return value;
-    }
-
-    const testName = takeOption("--test", "full");
-    const siteName = takeOption("--site", null);
+    const selection = parseSelection(process.argv.slice(2));
+    const testName = selection.test;
+    const siteName = selection.site;
     if (!["full", "tracking"].includes(testName)) {
         throw new Error(`Unknown test "${testName}". Expected "full" or "tracking".`);
     }
     if (testName === "tracking" && siteName !== "asura") {
         throw new Error('The "tracking" test requires --site asura.');
     }
-    const requestedUrls = args;
+    const requestedUrls = selection.args;
     if (requestedUrls.some(url => !/^https?:\/\//.test(url))) {
         throw new Error("Each test argument must be a complete http(s) URL");
     }
 
-    await ensureServer();
-    await waitForDebugger();
-    console.log("iPhone debugger connected.");
     const frozenMatrixText = await readFile(resolve(root, "test.txt"), "utf8");
     const providerHosts = new Set(
         [...frozenMatrixText.matchAll(/https?:\/\/[^\s]+/g), ...requestedUrls.map(url => [url])]
             .map(match => new URL(match[0]).hostname),
     );
-    await claimExampleTab(providerHosts);
+    await session.connect({
+        allowedHosts: [...providerHosts],
+        controlledCode: `
+            return Boolean(
+                globalThis.__mangaReaderTestPhase ||
+                document.querySelector(".hs-reader-body")
+            );
+        `,
+    });
+    console.log("iPhone debugger connected.");
 
     checkAndBuild();
 
@@ -760,37 +515,31 @@ async function main() {
     }
 
     console.log(`iOS Safari ${testName} test: ${cases.length} cases; ${casePauseMs}ms minimum pause between phases/cases`);
-    const failures = [];
-
-    for (const [index, testCase] of cases.entries()) {
-        if (index > 0) await sleep(casePauseMs);
-        process.stdout.write(`[${index + 1}/${cases.length}] ${testCase.name} ... `);
-        try {
+    const { failures } = await runCaseMatrix({
+        cases,
+        pauseMs: casePauseMs,
+        run: async testCase => {
             if (testName === "tracking") {
-                const result = await runTrackingCase(testCase, bundle);
-                console.log(`PASS (tracked once each: ${result.chapterIds.slice(0, 2).join(" → ")})`);
-            } else {
-                const result = await runCase(testCase, bundle);
-                console.log(
-                    `PASS (${result.chapters.final.join(" → ")}, saved ${result.saved.chapterId}${result.saved.imageId} restored)`,
-                );
+                return runTrackingCase(testCase, bundle);
             }
-        } catch (error) {
-            failures.push({ name: testCase.name, error });
-            const message = error instanceof Error ? error.message : String(error);
-            if (claimedClient) {
+            return runCase(testCase, bundle);
+        },
+        formatPass: result => testName === "tracking"
+            ? `PASS (tracked once each: ${result.chapterIds.slice(0, 2).join(" → ")})`
+            : `PASS (${result.chapters.final.join(" → ")}, saved ${result.saved.chapterId}${result.saved.imageId} restored)`,
+        onFailure: async ({ message }) => {
+            if (session.client) {
                 try {
                     await command(
-                        claimedClient.client,
+                        session.client.client,
                         `globalThis.__mangaReaderTestPhase?.(${JSON.stringify(`TEST FAILED: ${message}`)}, "error"); return true;`,
                     );
                 } catch {
                     // The failed page may already have navigated away.
                 }
             }
-            console.log(`FAIL\n    ${message}`);
-        }
-    }
+        },
+    });
 
     if (failures.length) {
         console.error(`\n${failures.length}/${cases.length} iOS Safari cases failed.`);
@@ -806,5 +555,6 @@ try {
     console.error(`\n${error instanceof Error ? error.message : String(error)}`);
     process.exitCode = 1;
 } finally {
-    if (ownedServer && ownedServer.exitCode === null) ownedServer.kill();
+    await session.cleanup();
+    session.close();
 }
