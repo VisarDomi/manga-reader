@@ -1,13 +1,11 @@
 {
   "name": "manga-reader",
-  "version": "209",
+  "version": "211",
   "description": "Userscript to improve ux of supported sites",
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
-    "tests": "node tests/ios/run.mjs",
-    "tests:server": "userscript-ios-test server --config tests/ios/config.json",
-    "tests:setup": "userscript-ios-test setup --config tests/ios/config.json"
+    "tests": "node tests/ios/run.mjs"
   },
   "devDependencies": {
     "@types/tampermonkey": "^5.0.4",
