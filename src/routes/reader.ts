@@ -74,8 +74,15 @@ function renderChapterImages(
         if (imgData.width && imgData.height) {
             img.style.aspectRatio = imgData.width + '/' + imgData.height;
         }
+        const reconcileAspectRatio = () => {
+            if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+                img.style.aspectRatio = img.naturalWidth + '/' + img.naturalHeight;
+            }
+        };
+        img.addEventListener('load', reconcileAspectRatio);
         img.loading = 'lazy';
         img.src = imgData.url;
+        if (imageLoaded(img)) reconcileAspectRatio();
         wrap.appendChild(img);
     }
 }

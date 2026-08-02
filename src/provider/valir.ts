@@ -33,58 +33,26 @@ export const valir: Provider = {
         const seriesId = seriesMatch[1];
         const seriesTitle = seriesMatch[2];
 
-        // Extract images from the RSC payload first (free chapters have image URLs embedded)
-        const images: ChapterImage[] = [];
+        // A chapter's public RSC payload is the authoritative page source.
+        // Anchor on the complete page-record shape so nested fragment imageUrl
+        // fields cannot be mistaken for reader pages.
+        const pageDataRe = /\\"id\\":\s*\\"([^"\\]+)\\"\s*,\s*\\"pageNumber\\":\s*(\d+)\s*,\s*\\"imageUrl\\":\s*\\"([^"\\]+)\\"\s*,\s*\\"width\\":\s*(\d+)\s*,\s*\\"height\\":\s*(\d+)\s*,\s*\\"isEncrypted\\":\s*(?:true|false)/g;
+        const pages = [...html.matchAll(pageDataRe)]
+            .map(match => ({
+                pageNumber: parseInt(match[2], 10),
+                image: {
+                    url: match[3],
+                    width: parseInt(match[4], 10),
+                    height: parseInt(match[5], 10),
+                } satisfies ChapterImage,
+            }))
+            .sort((left, right) => left.pageNumber - right.pageNumber);
 
-        // Each page in the RSC payload has: imageUrl, width, height
-        const pageDataRe = /\\"imageUrl\\":\s*\\"([^"\\]*)\\"\s*,\s*\\"width\\":\s*(\d+)\s*,\s*\\"height\\":\s*(\d+)/g;
-        for (const pageMatch of html.matchAll(pageDataRe)) {
-            if (pageMatch[1]) {
-                images.push({
-                    url: pageMatch[1],
-                    width: parseInt(pageMatch[2], 10),
-                    height: parseInt(pageMatch[3], 10),
-                });
-            }
+        if (pages.some((page, index) => page.pageNumber !== index + 1)) {
+            throw new Error('Chapter response contained invalid page ordering');
         }
 
-        // If no images found in RSC (premium chapter), try the content API
-        if (images.length === 0) {
-            const contentRes = await fetch(`https://${DOMAIN}/api/chapters/content?chapterId=${numericId}`, {
-                cache: 'no-store',
-            });
-            if (isChapterUnavailable(contentRes)) return null;
-            const contentData = await contentRes.json() as {
-                pages?: Array<{
-                    imageUrl?: string;
-                    pageNumber?: number;
-                    width?: number;
-                    height?: number;
-                    hasStrips?: boolean;
-                    strips?: Array<{ imageUrl: string }>;
-                    hasFragments?: boolean;
-                    fragments?: Array<{ imageUrl: string }>;
-                }>;
-            };
-
-            const pages = contentData.pages ?? [];
-            for (const page of pages) {
-                let imageUrl = page.imageUrl;
-                if (!imageUrl && page.hasStrips && page.strips?.length) {
-                    imageUrl = page.strips[0].imageUrl;
-                }
-                if (!imageUrl && page.hasFragments && page.fragments?.length) {
-                    imageUrl = page.fragments[0].imageUrl;
-                }
-                if (imageUrl) {
-                    images.push({
-                        url: imageUrl,
-                        width: page.width,
-                        height: page.height,
-                    });
-                }
-            }
-        }
+        const images = pages.map(page => page.image);
 
         if (images.length === 0) throw new Error('Chapter response contained no images');
 
