@@ -1,6 +1,7 @@
 import css from '../style.css?inline';
 import type { ChapterData, ChapterMeta, Provider, RouteMatch } from '../provider';
 import { Handler } from '../provider';
+import { createReaderTracker } from './tracking';
 
 function retryBrokenImages(selector: ".hs-reader-img" | ".hs-thumb", interval: number): void {
     setInterval(() => {
@@ -166,7 +167,7 @@ export async function open(
 
     // 4. Scroll handler
     let lastSavedImage = '';
-    const tracked = new Set<string>();
+    const tracker = createReaderTracker(provider);
     function scrollEndOneHundred() {
         setTimeout(() => {
             if (restoring) return;
@@ -191,11 +192,7 @@ export async function open(
                 document.title = `${visibleData.chapterId} ${visibleData.seriesTitle}`;
             }
 
-            if (!tracked.has(visibleChapter)) {
-                tracked.add(visibleChapter);
-                const visibleData = chapterData[visibleChapter];
-                void provider.trackChapter?.(visibleData, imageIndex, chaptersNewestFirst);
-            }
+            tracker.track(chapterData[visibleChapter], imageIndex, chaptersNewestFirst);
 
             if (chapterListLoading) {
                 pendingScrollEnd = true;

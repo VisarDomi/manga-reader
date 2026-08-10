@@ -39,6 +39,8 @@ export interface Provider {
     fetchChaptersNewestFirst(slug: string): Promise<ChapterMeta[]>;
     readerUrl(slug: string, chapterId: string, imageIndex?: string): string;
     seriesUrl(slug: string): string;
-    /** Mark a chapter as read / track reading progress. Optional — no-op by default. */
-    trackChapter?(data: ChapterData, imageIndex?: string, chaptersNewestFirst?: ChapterMeta[]): Promise<void>;
+    /** Track progress for a visible page. Optional — no-op by default. */
+    trackPage?(data: ChapterData, imageIndex: string, chaptersNewestFirst: ChapterMeta[]): Promise<void>;
+    /** Mark a chapter as read and/or record a chapter view. Optional — no-op by default. */
+    trackChapter?(data: ChapterData): Promise<void>;
 }

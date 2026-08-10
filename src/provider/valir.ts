@@ -102,8 +102,8 @@ export const valir: Provider = {
         return `https://${DOMAIN}/series/comic/${slug}`;
     },
 
-    async trackChapter(data: ChapterData, imageIndex?: string, chaptersNewestFirst?: ChapterMeta[]): Promise<void> {
-        if (!data.seriesApiId || !data.chapterApiId || imageIndex === undefined) return;
+    async trackPage(data: ChapterData, imageIndex: string, chaptersNewestFirst: ChapterMeta[]): Promise<void> {
+        if (!data.seriesApiId || !data.chapterApiId) return;
 
         const parsedImageIndex = parseInt(imageIndex, 10);
         const totalImages = data.images.length;
@@ -111,12 +111,10 @@ export const valir: Provider = {
 
         const chapters = [{ chapterId: data.chapterApiId, progress }];
 
-        if (chaptersNewestFirst) {
-            const currentIdx = chaptersNewestFirst.findIndex(ch => ch.chapterId === data.chapterId);
-            if (currentIdx !== -1) {
-                for (const ch of chaptersNewestFirst.slice(currentIdx + 1)) {
-                    if (ch.chapterApiId) chapters.push({ chapterId: ch.chapterApiId, progress: 100 });
-                }
+        const currentIdx = chaptersNewestFirst.findIndex(ch => ch.chapterId === data.chapterId);
+        if (currentIdx !== -1) {
+            for (const ch of chaptersNewestFirst.slice(currentIdx + 1)) {
+                if (ch.chapterApiId) chapters.push({ chapterId: ch.chapterApiId, progress: 100 });
             }
         }
 

@@ -1,10 +1,11 @@
 {
   "name": "manga-reader",
-  "version": "213",
+  "version": "216",
   "description": "Userscript to improve ux of supported sites",
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
+    "test:unit": "vitest run tests/unit",
     "tests": "node tests/ios/run.mjs"
   },
   "devDependencies": {
