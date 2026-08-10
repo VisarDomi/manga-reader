@@ -1,6 +1,7 @@
 import { Handler, type Provider, type RouteMatch, type ChapterData, type ChapterMeta, type ChapterImage } from './types';
 import { SITE_CONFIG } from '../core/sites';
 import { isChapterUnavailable } from '../core/http';
+import { noTokenManager } from '../core/token-manager';
 
 const CUBARI_READER_RE = /^\/read\/gist\/([^/]+)\/([^/]+)\/(\d*)\/?$/;
 const DAVE_LIST_RE = /^\/([^/]+)\/?$/;
@@ -19,6 +20,7 @@ interface CubariChapter {
 }
 
 export const davecubari: Provider = {
+    tokenManager: noTokenManager,
 
     matchRoute(pathname: string, _hash: string): RouteMatch | null {
         // cubari.moe reader URL: /read/gist/<gistId>/<chapter>/<page>/

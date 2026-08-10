@@ -1,15 +1,27 @@
+// @vitest-environment jsdom
+
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ChapterData, ChapterMeta } from '../../src/provider';
 import { asura } from '../../src/provider/asura';
 import { valir } from '../../src/provider/valir';
 
 afterEach(() => {
+    localStorage.clear();
     vi.unstubAllGlobals();
 });
 
 describe('Valir tracking', () => {
     it('sends page progress and marks older chapters complete', async () => {
-        const fetchMock = vi.fn(async () => new Response());
+        const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+            const url = String(input);
+            if (url.endsWith('/api/heartbeat')) {
+                return new Response(JSON.stringify({ success: true, sessionToken: 'heartbeat-token' }));
+            }
+            if (url.endsWith('/api/auth/session')) {
+                return new Response(JSON.stringify({ user: { id: 'reader' } }));
+            }
+            return new Response();
+        });
         vi.stubGlobal('fetch', fetchMock);
         const data: ChapterData = {
             chapterId: '11',
@@ -32,8 +44,10 @@ describe('Valir tracking', () => {
 
         await valir.trackPage?.(data, '1', chapters);
 
-        expect(fetchMock).toHaveBeenCalledOnce();
-        const [url, init] = fetchMock.mock.calls[0];
+        expect(fetchMock).toHaveBeenCalledTimes(3);
+        expect(String(fetchMock.mock.calls[0][0])).toContain('/api/heartbeat');
+        expect(String(fetchMock.mock.calls[1][0])).toContain('/api/auth/session');
+        const [url, init] = fetchMock.mock.calls[2];
         expect(String(url)).toContain('/api/chapters/reading-position');
         expect(init).toMatchObject({ method: 'POST', credentials: 'include' });
         expect(JSON.parse(String(init?.body))).toEqual({
@@ -50,7 +64,7 @@ describe('Asura tracking', () => {
     it('sends one history request and one chapter-view request', async () => {
         const fetchMock = vi.fn(async () => new Response());
         vi.stubGlobal('fetch', fetchMock);
-        vi.stubGlobal('localStorage', { getItem: vi.fn(() => 'token') });
+        localStorage.setItem('access_token', 'token');
         const data: ChapterData = {
             chapterId: '7',
             chapterApiId: 70,

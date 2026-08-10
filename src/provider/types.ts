@@ -1,3 +1,5 @@
+import type { TokenManager } from '../core/token-manager';
+
 export enum Handler {
     Home,
     Reader,
@@ -33,8 +35,8 @@ export interface ChapterMeta {
 }
 
 export interface Provider {
+    tokenManager: TokenManager;
     matchRoute(pathname: string, hash: string): RouteMatch | null;
-    openHome?(): void | Promise<void>;
     fetchChapter(slug: string, chapterId: string): Promise<ChapterData | null>;
     fetchChaptersNewestFirst(slug: string): Promise<ChapterMeta[]>;
     readerUrl(slug: string, chapterId: string, imageIndex?: string): string;

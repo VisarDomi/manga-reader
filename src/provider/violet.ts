@@ -2,11 +2,13 @@ import { Handler, type Provider, type RouteMatch, type ChapterData, type Chapter
 import { SITE_CONFIG } from '../core/sites';
 import { isChapterUnavailable } from '../core/http';
 import { hashImageIndex } from '../core/page';
+import { noTokenManager } from '../core/token-manager';
 
 const CHAPTER_RE = /\/(.+)-chapter-([^/]+)\/?$/;
 const DOMAIN = SITE_CONFIG['violetscans'].domain;
 
 export const violet: Provider = {
+    tokenManager: noTokenManager,
 
     matchRoute(pathname: string, hash: string): RouteMatch | null {
         const m = CHAPTER_RE.exec(pathname);

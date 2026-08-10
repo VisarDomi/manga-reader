@@ -2,11 +2,13 @@ import { Handler, type Provider, type RouteMatch, type ChapterData, type Chapter
 import { SITE_CONFIG } from '../core/sites';
 import { isChapterUnavailable } from '../core/http';
 import { hashImageIndex } from '../core/page';
+import { noTokenManager } from '../core/token-manager';
 
 const CHAPTER_RE = /^\/manga\/([^/]+)\/([^/]+)\/?$/;
 const DOMAIN = SITE_CONFIG['yakshacomics'].domain;
 
 export const yaksha: Provider = {
+    tokenManager: noTokenManager,
 
     matchRoute(pathname: string, hash: string): RouteMatch | null {
         const m = CHAPTER_RE.exec(pathname);

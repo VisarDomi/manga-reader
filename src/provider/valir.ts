@@ -2,11 +2,14 @@ import { Handler, type Provider, type RouteMatch, type ChapterData, type Chapter
 import { SITE_CONFIG } from '../core/sites';
 import { isChapterUnavailable } from '../core/http';
 import { hashImageIndex } from '../core/page';
+import { createValirTokenManager } from './valir-token-manager';
 
 const DOMAIN = SITE_CONFIG['valirscans'].domain;
 const CHAPTER_RE = /^\/series\/comic\/([^/]+)\/chapter\/(\d+)/;
+export const valirTokenManager = createValirTokenManager(`https://${DOMAIN}`);
 
 export const valir: Provider = {
+    tokenManager: valirTokenManager,
 
     matchRoute(pathname: string, hash: string): RouteMatch | null {
         const m = CHAPTER_RE.exec(pathname);
@@ -118,11 +121,13 @@ export const valir: Provider = {
             }
         }
 
-        void fetch(`https://${DOMAIN}/api/chapters/reading-position`, {
+        const response = await valirTokenManager.fetch(`https://${DOMAIN}/api/chapters/reading-position`, {
             method: 'POST',
-            credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ seriesId: data.seriesApiId, chapters }),
         });
+        if (response !== null && !response.ok) {
+            throw new Error(`Valir reading position failed: ${response.status}`);
+        }
     },
 };
