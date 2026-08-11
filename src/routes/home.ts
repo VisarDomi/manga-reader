@@ -1,4 +1,10 @@
-import type { HomeChapter, HomePage, HomeSeries, Provider } from '../provider';
+import type {
+    HomeChapter,
+    HomePage,
+    HomeSeries,
+    Provider,
+    RemoteSeriesHistory,
+} from '../provider';
 import {
     getProviderProgress,
     isChapterComplete,
@@ -55,6 +61,33 @@ function progressKey(seriesSlug: string, chapterId: string): string {
     return `${seriesSlug}\u0000${chapterId}`;
 }
 
+function historyId(series: HomeSeries): string {
+    return series.historyId ?? series.slug;
+}
+
+function chapterAtOrBefore(chapterId: string, boundaryId: string): boolean {
+    const chapter = Number(chapterId);
+    const boundary = Number(boundaryId);
+    if (Number.isFinite(chapter) && Number.isFinite(boundary)) return chapter <= boundary;
+    return chapterId === boundaryId;
+}
+
+function remoteImageIndex(percent: number, totalImages: number): number {
+    return Math.max(0, Math.min(totalImages - 1, Math.round(percent / 100 * totalImages) - 1));
+}
+
+async function resumeRemotePage(
+    provider: Provider,
+    seriesSlug: string,
+    chapterId: string,
+    percent: number,
+): Promise<void> {
+    const chapter = await provider.fetchChapter(seriesSlug, chapterId);
+    window.location.href = chapter === null
+        ? provider.readerUrl(seriesSlug, chapterId)
+        : provider.readerUrl(seriesSlug, chapterId, String(remoteImageIndex(percent, chapter.images.length)));
+}
+
 function createProgressIndex(progress: ChapterProgress[]): Map<string, ChapterProgress> {
     return new Map(progress.map(item => [progressKey(item.seriesSlug, item.chapterId), item]));
 }
@@ -96,7 +129,20 @@ function renderChapter(provider: Provider, series: HomeSeries, chapter: HomeChap
     }
     link.append(label, uploadedAt);
     link.addEventListener('click', event => {
-        if (link.classList.contains('hs-home-chapter-locked')) event.preventDefault();
+        if (link.classList.contains('hs-home-chapter-locked')) {
+            event.preventDefault();
+            return;
+        }
+        const remotePercent = link.dataset.remoteResumePercent;
+        if (remotePercent === undefined) return;
+        event.preventDefault();
+        if (link.dataset.loading === 'true') return;
+        link.dataset.loading = 'true';
+        void resumeRemotePage(provider, series.slug, chapter.chapterId, Number(remotePercent))
+            .catch(error => {
+                link.title = error instanceof Error ? error.message : String(error);
+                link.dataset.loading = 'false';
+            });
     });
     return link;
 }
@@ -105,6 +151,7 @@ function renderSeries(provider: Provider, series: HomeSeries): HTMLElement {
     const card = document.createElement('article');
     card.className = 'hs-home-card';
     card.dataset.seriesSlug = series.slug;
+    card.dataset.historyId = historyId(series);
 
     const coverLink = createLink('hs-home-cover', provider.seriesUrl(series.slug));
     coverLink.dataset.seriesSlug = series.slug;
@@ -114,7 +161,23 @@ function renderSeries(provider: Provider, series: HomeSeries): HTMLElement {
     cover.loading = 'lazy';
     coverLink.appendChild(cover);
     coverLink.addEventListener('click', event => {
-        if (coverLink.dataset.resume === 'true') return;
+        if (coverLink.dataset.resume === 'local') return;
+        if (coverLink.dataset.resume === 'remote') {
+            const chapterId = coverLink.dataset.remoteResumeChapterId;
+            const remotePercent = coverLink.dataset.remoteResumePercent;
+            if (chapterId === undefined || remotePercent === undefined) return;
+            event.preventDefault();
+            if (coverLink.dataset.loading === 'true') return;
+            coverLink.dataset.loading = 'true';
+            coverLink.classList.add('hs-home-cover-loading');
+            void resumeRemotePage(provider, series.slug, chapterId, Number(remotePercent))
+                .catch(error => {
+                    coverLink.dataset.loading = 'false';
+                    coverLink.classList.remove('hs-home-cover-loading');
+                    coverLink.title = error instanceof Error ? error.message : String(error);
+                });
+            return;
+        }
         event.preventDefault();
         if (coverLink.dataset.loading === 'true') return;
         coverLink.dataset.loading = 'true';
@@ -182,8 +245,10 @@ function applyProgress(
         const chapterId = chapter.dataset.chapterId;
         if (!seriesSlug || !chapterId) continue;
         const saved = index.get(progressKey(seriesSlug, chapterId));
-        chapter.classList.toggle('hs-home-chapter-partial', saved !== undefined && !isChapterComplete(saved));
-        chapter.classList.toggle('hs-home-chapter-read', saved !== undefined && isChapterComplete(saved));
+        if (saved === undefined) continue;
+        chapter.classList.toggle('hs-home-chapter-partial', !isChapterComplete(saved));
+        chapter.classList.toggle('hs-home-chapter-read', isChapterComplete(saved));
+        delete chapter.dataset.remoteResumePercent;
         if (saved && !chapter.classList.contains('hs-home-chapter-locked')) {
             chapter.href = provider.readerUrl(seriesSlug, chapterId, String(saved.imageIndex));
         }
@@ -193,13 +258,59 @@ function applyProgress(
         const seriesSlug = cover.dataset.seriesSlug;
         if (!seriesSlug) continue;
         const saved = latestSeriesProgress(progress, seriesSlug);
-        if (!saved) {
-            cover.dataset.resume = 'false';
-            cover.href = provider.seriesUrl(seriesSlug);
-            continue;
-        }
-        cover.dataset.resume = 'true';
+        if (!saved) continue;
+        cover.dataset.resume = 'local';
+        delete cover.dataset.remoteResumeChapterId;
+        delete cover.dataset.remoteResumePercent;
         cover.href = provider.readerUrl(seriesSlug, saved.chapterId, String(saved.imageIndex));
+    }
+}
+
+function applyRemoteHistory(
+    provider: Provider,
+    root: ParentNode,
+    history: RemoteSeriesHistory[],
+): void {
+    const index = new Map(history.map(item => [item.seriesId, item]));
+    for (const card of root.querySelectorAll<HTMLElement>('.hs-home-card')) {
+        const seriesSlug = card.dataset.seriesSlug;
+        const remoteId = card.dataset.historyId;
+        if (!seriesSlug || !remoteId) continue;
+        const remote = index.get(remoteId);
+        for (const chapter of card.querySelectorAll<HTMLAnchorElement>('.hs-home-chapter')) {
+            const chapterId = chapter.dataset.chapterId;
+            if (!chapterId) continue;
+            chapter.classList.remove('hs-home-chapter-read', 'hs-home-chapter-partial');
+            delete chapter.dataset.remoteResumePercent;
+            chapter.href = provider.readerUrl(seriesSlug, chapterId);
+            if (!remote) continue;
+            if (
+                remote.readThroughChapterId !== undefined
+                && chapterAtOrBefore(chapterId, remote.readThroughChapterId)
+            ) {
+                chapter.classList.add('hs-home-chapter-read');
+            }
+            if (chapterId === remote.resumeChapterId && remote.resumePercent !== undefined) {
+                chapter.classList.toggle('hs-home-chapter-partial', remote.resumePercent < 100);
+                chapter.classList.toggle('hs-home-chapter-read', remote.resumePercent >= 100);
+                chapter.dataset.remoteResumePercent = String(remote.resumePercent);
+            }
+        }
+
+        const cover = card.querySelector<HTMLAnchorElement>('.hs-home-cover');
+        if (!cover) continue;
+        cover.dataset.resume = remote ? 'remote' : 'false';
+        delete cover.dataset.remoteResumeChapterId;
+        delete cover.dataset.remoteResumePercent;
+        cover.href = remote
+            ? provider.readerUrl(seriesSlug, remote.resumeChapterId)
+            : provider.seriesUrl(seriesSlug);
+        if (remote) {
+            cover.dataset.remoteResumeChapterId = remote.resumeChapterId;
+            if (remote.resumePercent !== undefined) {
+                cover.dataset.remoteResumePercent = String(remote.resumePercent);
+            }
+        }
     }
 }
 
@@ -272,6 +383,7 @@ export async function open(provider: Provider): Promise<void> {
     loading.textContent = 'Loading latest updates…';
     document.body.appendChild(loading);
     let progress = getProviderProgress(provider.key);
+    let remoteHistory: RemoteSeriesHistory[] = [];
 
     let firstPage: HomePage;
     try {
@@ -314,17 +426,41 @@ export async function open(provider: Provider): Promise<void> {
             current.element.replaceWith(element);
             cards.set(series.slug, { series: merged, element });
         }
+        applyRemoteHistory(provider, list, remoteHistory);
         applyProgress(provider, list, progress);
     }
     appendPage(firstPage);
     status.textContent = statusText(cards.size, total, firstPage.nextCursor !== null);
 
-    function reconcileProgress(): void {
-        resetTransientCoverState(list);
+    function applyHistoryLayers(): void {
         progress = getProviderProgress(provider.key);
+        applyRemoteHistory(provider, list, remoteHistory);
         applyProgress(provider, list, progress);
     }
-    window.addEventListener('pageshow', reconcileProgress);
+    function reconcileProgress(): void {
+        resetTransientCoverState(list);
+        applyHistoryLayers();
+    }
+    let historyRequestGeneration = 0;
+    let historyRequestLifecycle = -1;
+    function reconcileRemoteHistory(): void {
+        if (!active || !provider.fetchRemoteHistory || historyRequestLifecycle === lifecycleVersion) return;
+        historyRequestLifecycle = lifecycleVersion;
+        const generation = ++historyRequestGeneration;
+        void provider.fetchRemoteHistory()
+            .then(history => {
+                if (generation !== historyRequestGeneration || !active) return;
+                remoteHistory = history;
+                applyHistoryLayers();
+            })
+            .catch(error => console.error('Provider history sidecar failed', error));
+    }
+    function reconcilePageShow(): void {
+        reconcileProgress();
+        reconcileRemoteHistory();
+    }
+    window.addEventListener('pageshow', reconcilePageShow);
+    reconcileRemoteHistory();
     window.setInterval(() => updateUnlockCountdowns(section), 60_000);
 
     const seenCursors = new Set<string>();

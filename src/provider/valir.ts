@@ -6,6 +6,7 @@ import {
     type ChapterMeta,
     type ChapterImage,
     type HomePage,
+    type RemoteSeriesHistory,
 } from './types';
 import { SITE_CONFIG } from '../core/sites';
 import { isChapterUnavailable } from '../core/http';
@@ -92,6 +93,56 @@ export function parseValirChapters(html: string): ChapterMeta[] {
     return chapters.reverse();
 }
 
+function record(value: unknown, context: string): Record<string, unknown> {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+        throw new Error(`Valir ${context} is not an object`);
+    }
+    return value as Record<string, unknown>;
+}
+
+function requiredString(value: unknown, context: string): string {
+    if (typeof value !== 'string' || value.trim() === '') throw new Error(`Valir ${context} is not a string`);
+    return value;
+}
+
+function positiveChapter(value: unknown, context: string): string {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+        throw new Error(`Valir ${context} is not a positive chapter number`);
+    }
+    return String(value);
+}
+
+export function parseValirRemoteHistory(value: unknown): RemoteSeriesHistory[] {
+    const envelope = record(value, 'continue reading response');
+    if (!Array.isArray(envelope.series)) throw new Error('Valir continue reading response has no series array');
+    return envelope.series.map((raw, index) => {
+        const series = record(raw, `continue reading series ${index}`);
+        const slug = requiredString(series.urlSlug ?? series.slug, `continue reading series ${index} slug`);
+        const lastChapter = record(series.lastChapter, `continue reading series ${index} lastChapter`);
+        const resumeChapterId = positiveChapter(
+            lastChapter.number,
+            `continue reading series ${index} lastChapter.number`,
+        );
+        const readThroughChapterId = positiveChapter(
+            series.highestChapter,
+            `continue reading series ${index} highestChapter`,
+        );
+        const history: RemoteSeriesHistory = { seriesId: slug, readThroughChapterId, resumeChapterId };
+        if (lastChapter.progress !== undefined && lastChapter.progress !== null) {
+            if (
+                typeof lastChapter.progress !== 'number'
+                || !Number.isFinite(lastChapter.progress)
+                || lastChapter.progress < 0
+                || lastChapter.progress > 100
+            ) {
+                throw new Error(`Valir continue reading series ${index} lastChapter.progress is invalid`);
+            }
+            history.resumePercent = lastChapter.progress;
+        }
+        return history;
+    });
+}
+
 export const valir: Provider = {
     key: 'valirscans',
     documentTitle: SITE_CONFIG.valirscans.documentTitle,
@@ -149,6 +200,13 @@ export const valir: Provider = {
                 })),
             })),
         };
+    },
+
+    async fetchRemoteHistory(): Promise<RemoteSeriesHistory[]> {
+        const response = await valirTokenManager.fetch(`https://${DOMAIN}/api/continue-reading`);
+        if (response === null) return [];
+        if (!response.ok) throw new Error(`Valir continue reading failed: ${response.status}`);
+        return parseValirRemoteHistory(await response.json());
     },
 
 

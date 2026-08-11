@@ -15,6 +15,7 @@ describe('Asura home catalog', () => {
         vi.setSystemTime(new Date('2026-08-10T10:00:00.000Z'));
         const fetchMock = vi.fn(async () => new Response(JSON.stringify({
             data: [{
+                slug: 'example-series',
                 title: 'Example Series',
                 cover: 'https://cdn.example/covers/example.webp',
                 public_url: '/comics/example-series-abc',
@@ -42,6 +43,7 @@ describe('Asura home catalog', () => {
             nextCursor: '3',
             series: [{
                 slug: 'example-series-abc',
+                historyId: 'example-series',
                 title: 'Example Series',
                 coverUrl: 'https://cdn.example/covers/example-400.webp',
                 chapters: [

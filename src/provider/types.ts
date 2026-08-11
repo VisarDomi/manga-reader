@@ -45,6 +45,8 @@ export interface HomeChapter {
 
 export interface HomeSeries {
     slug: string;
+    /** Provider-owned identity used to join catalog entries with remote history. */
+    historyId?: string;
     title: string;
     coverUrl: string;
     chapters: HomeChapter[];
@@ -57,6 +59,17 @@ export interface HomePage {
     total?: number;
 }
 
+export interface RemoteSeriesHistory {
+    /** Matches HomeSeries.historyId, or HomeSeries.slug when no separate identity is needed. */
+    seriesId: string;
+    /** Every chapter through this provider-defined boundary has been read. */
+    readThroughChapterId?: string;
+    /** The chapter the provider considers the current resume point. */
+    resumeChapterId: string;
+    /** Page progress within resumeChapterId, when the provider exposes it. */
+    resumePercent?: number;
+}
+
 export interface Provider {
     /** Stable storage namespace for local progress. */
     key: string;
@@ -65,6 +78,8 @@ export interface Provider {
     tokenManager?: TokenManager;
     matchRoute(pathname: string, hash: string): RouteMatch | null;
     fetchHome(cursor: string | null): Promise<HomePage>;
+    /** Fetch authenticated provider history as an optional, non-blocking sidecar. */
+    fetchRemoteHistory?(): Promise<RemoteSeriesHistory[]>;
     fetchChapter(slug: string, chapterId: string): Promise<ChapterData | null>;
     fetchChaptersNewestFirst(slug: string): Promise<ChapterMeta[]>;
     readerUrl(slug: string, chapterId: string, imageIndex?: string): string;

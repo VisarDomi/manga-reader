@@ -12,6 +12,7 @@ import { valir } from '../../src/provider/valir';
 import { violet } from '../../src/provider/violet';
 import { yaksha } from '../../src/provider/yaksha';
 import { open as openHome } from '../../src/routes/home';
+import { saveChapterProgress } from '../../src/storage/progress';
 
 afterEach(() => {
     vi.useRealTimers();
@@ -198,7 +199,8 @@ describe('home catalog rendering', () => {
             fetchHome,
             fetchChapter: async () => null,
             fetchChaptersNewestFirst: async () => [],
-            readerUrl: (slug, chapterId) => `https://example.test/${slug}/${chapterId}`,
+            readerUrl: (slug, chapterId, imageIndex) =>
+                `https://example.test/${slug}/${chapterId}${imageIndex === undefined ? '' : `#${imageIndex}`}`,
             seriesUrl: slug => `https://example.test/${slug}`,
         };
     }
@@ -254,6 +256,73 @@ describe('home catalog rendering', () => {
         expect(chapters[0].querySelector('time')?.textContent).toBe('2 hours ago');
         expect(document.querySelector('.hs-home-card[data-series-slug="empty"] .hs-home-no-chapters')?.textContent)
             .toBe('No chapters available');
+    });
+
+    it('uses remote history as the base and reapplies newer local page progress over it', async () => {
+        let resolveHistory!: (history: Awaited<ReturnType<NonNullable<Provider['fetchRemoteHistory']>>>) => void;
+        const remoteHistory = new Promise<Awaited<ReturnType<NonNullable<Provider['fetchRemoteHistory']>>>>(
+            resolve => { resolveHistory = resolve; },
+        );
+        const provider: Provider = {
+            ...testProvider(async () => ({
+                nextCursor: null,
+                series: [
+                    {
+                        slug: 'series-a',
+                        historyId: 'remote-a',
+                        title: 'Series A',
+                        coverUrl: 'https://example.test/a.webp',
+                        chapters: [
+                            { chapterId: '3', label: 'Chapter 3', uploadedAt: null, locked: false, unlockAt: null },
+                            { chapterId: '2', label: 'Chapter 2', uploadedAt: null, locked: false, unlockAt: null },
+                        ],
+                    },
+                    {
+                        slug: 'series-b',
+                        title: 'Series B',
+                        coverUrl: 'https://example.test/b.webp',
+                        chapters: [
+                            { chapterId: '5', label: 'Chapter 5', uploadedAt: null, locked: false, unlockAt: null },
+                        ],
+                    },
+                ],
+            })),
+            fetchRemoteHistory: () => remoteHistory,
+        };
+
+        await openHome(provider);
+        saveChapterProgress('test', 'series-a', '3', 1, 5);
+        resolveHistory([
+            { seriesId: 'remote-a', readThroughChapterId: '3', resumeChapterId: '3' },
+            { seriesId: 'series-b', readThroughChapterId: '5', resumeChapterId: '5' },
+        ]);
+        await remoteHistory;
+        await Promise.resolve();
+
+        const chapterA3 = document.querySelector<HTMLElement>(
+            '.hs-home-card[data-series-slug="series-a"] .hs-home-chapter[data-chapter-id="3"]',
+        );
+        const chapterA2 = document.querySelector<HTMLElement>(
+            '.hs-home-card[data-series-slug="series-a"] .hs-home-chapter[data-chapter-id="2"]',
+        );
+        const chapterB5 = document.querySelector<HTMLElement>(
+            '.hs-home-card[data-series-slug="series-b"] .hs-home-chapter[data-chapter-id="5"]',
+        );
+        expect(chapterA3?.classList.contains('hs-home-chapter-partial')).toBe(true);
+        expect(chapterA3?.classList.contains('hs-home-chapter-read')).toBe(false);
+        expect(chapterA2?.classList.contains('hs-home-chapter-read')).toBe(true);
+        expect(chapterB5?.classList.contains('hs-home-chapter-read')).toBe(true);
+
+        const coverA = document.querySelector<HTMLAnchorElement>(
+            '.hs-home-card[data-series-slug="series-a"] .hs-home-cover',
+        );
+        const coverB = document.querySelector<HTMLAnchorElement>(
+            '.hs-home-card[data-series-slug="series-b"] .hs-home-cover',
+        );
+        expect(coverA?.href).toBe('https://example.test/series-a/3#1');
+        expect(coverA?.dataset.resume).toBe('local');
+        expect(coverB?.href).toBe('https://example.test/series-b/5');
+        expect(coverB?.dataset.resume).toBe('remote');
     });
 
     it('retries an interrupted bulk request after BFCache restoration', async () => {
