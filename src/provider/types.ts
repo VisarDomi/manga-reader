@@ -34,9 +34,37 @@ export interface ChapterMeta {
     chapterApiId?: string | number;
 }
 
+export interface HomeChapter {
+    chapterId: string;
+    label: string;
+    /** An ISO timestamp or a provider-supplied relative/absolute date label. */
+    uploadedAt: string | null;
+    locked: boolean;
+    unlockAt: string | null;
+}
+
+export interface HomeSeries {
+    slug: string;
+    title: string;
+    coverUrl: string;
+    chapters: HomeChapter[];
+}
+
+export interface HomePage {
+    series: HomeSeries[];
+    /** Opaque provider-owned cursor for the next bulk catalog request. */
+    nextCursor: string | null;
+    total?: number;
+}
+
 export interface Provider {
-    tokenManager: TokenManager;
+    /** Stable storage namespace for local progress. */
+    key: string;
+    /** Title used when takeover happens before the provider page supplies one. */
+    documentTitle: string;
+    tokenManager?: TokenManager;
     matchRoute(pathname: string, hash: string): RouteMatch | null;
+    fetchHome(cursor: string | null): Promise<HomePage>;
     fetchChapter(slug: string, chapterId: string): Promise<ChapterData | null>;
     fetchChaptersNewestFirst(slug: string): Promise<ChapterMeta[]>;
     readerUrl(slug: string, chapterId: string, imageIndex?: string): string;

@@ -1,5 +1,14 @@
 export { Handler } from './types';
-export type { Provider, RouteMatch, ChapterData, ChapterImage, ChapterMeta } from './types';
+export type {
+    Provider,
+    RouteMatch,
+    ChapterData,
+    ChapterImage,
+    ChapterMeta,
+    HomeChapter,
+    HomeSeries,
+    HomePage,
+} from './types';
 
 import type { Provider, RouteMatch } from './types';
 import { SITE_CONFIG } from '../core/sites';
@@ -11,17 +20,17 @@ import { scythe } from './scythe';
 import { lua } from './lua';
 import { violet } from './violet';
 import { valir } from './valir';
-import { davecubari } from './davecubari';
 
-const providers = { ezmanga, qiscans, yaksha, asura, scythe, lua, violet, valir, davecubari } as const;
+const providers = { ezmanga, qiscans, yaksha, asura, scythe, lua, violet, valir } as const;
 type ProviderKey = keyof typeof providers;
 
-export interface ProviderRoute {
+export interface InitializedProviderRoute {
     provider: Provider;
     route: RouteMatch;
+    documentTitle: string;
 }
 
-export function matchProviderRoute(): ProviderRoute | null {
+export function initializeProviderRoute(): InitializedProviderRoute | null {
     const { pathname, hostname, hash } = window.location;
     const site = Object.values(SITE_CONFIG).find(cfg =>
         hostname === cfg.domain,
@@ -33,6 +42,14 @@ export function matchProviderRoute(): ProviderRoute | null {
 
     const route = provider.matchRoute(pathname, hash);
     if (!route) return null;
+    const documentTitle = document.title.trim() || provider.documentTitle;
 
-    return { provider, route };
+    const stopProviderServices = provider.tokenManager?.start();
+    if (stopProviderServices) {
+        window.addEventListener('pagehide', event => {
+            if (!event.persisted) stopProviderServices();
+        }, { once: true });
+    }
+
+    return { provider, route, documentTitle };
 }

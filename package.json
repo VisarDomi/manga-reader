@@ -1,6 +1,6 @@
 {
   "name": "manga-reader",
-  "version": "224",
+  "version": "234",
   "description": "Userscript to improve ux of supported sites",
   "type": "module",
   "scripts": {
@@ -14,9 +14,9 @@
     "@vitest/ui": "^4.1.9",
     "jsdom": "^29.1.1",
     "typescript": "^5.9.3",
+    "userscript-ios-test": "file:../../userscript-ios-test",
     "vite": "^7.1.9",
     "vite-plugin-monkey": "^7.1.4",
-    "vitest": "^4.1.9",
-    "userscript-ios-test": "file:../../userscript-ios-test"
+    "vitest": "^4.1.9"
   }
 }

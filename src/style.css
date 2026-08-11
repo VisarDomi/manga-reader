@@ -41,6 +41,7 @@ body {
 }
 
 .hs-home-cover {
+    position: relative;
     grid-column: span 4;
     height: 146px;
     overflow: hidden;
@@ -53,6 +54,24 @@ body {
     height: 100%;
     border-radius: 6px;
     object-fit: cover;
+}
+
+.hs-home-cover-loading img {
+    opacity: 0.55;
+}
+
+.hs-home-cover-loading::after {
+    position: absolute;
+    inset: 0 10% 0 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px;
+    color: #fff;
+    content: 'Finding first chapter…';
+    font-size: 11px;
+    line-height: 16px;
+    text-align: center;
 }
 
 .hs-home-details {
@@ -79,6 +98,13 @@ body {
     display: flex;
     flex-direction: column;
     gap: 6px;
+}
+
+.hs-home-no-chapters {
+    margin: 0;
+    color: rgba(255, 255, 255, 0.38);
+    font-size: 12px;
+    line-height: 21px;
 }
 
 .hs-home-chapter {
@@ -114,12 +140,16 @@ body {
     color: #fbbf24;
 }
 
-.hs-home-chapter-locked {
-    color: #fbbf24;
-}
-
 .hs-home-chapter-read {
     color: #913fe2;
+}
+
+.hs-home-chapter-partial {
+    color: #38bdf8;
+}
+
+.hs-home-chapter-locked {
+    color: #fbbf24;
 }
 
 .hs-home-chapter time {
@@ -139,6 +169,18 @@ body {
     color: #ff9f9f;
     font-size: 12px;
     line-height: 18px;
+}
+
+.hs-home-catalog-status {
+    margin: 12px 24px 4px;
+    color: rgba(255, 255, 255, 0.45);
+    font-size: 11px;
+    line-height: 18px;
+    text-align: center;
+}
+
+.hs-home-catalog-error {
+    color: #ff9f9f;
 }
 
 .hs-home-loading,
@@ -164,6 +206,10 @@ body {
 
     .hs-home-cover img {
         width: 100%;
+    }
+
+    .hs-home-cover-loading::after {
+        right: 0;
     }
 
     .hs-home-details {

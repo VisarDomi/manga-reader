@@ -1,17 +1,14 @@
-import { Handler, matchProviderRoute } from './provider';
+import { Handler, initializeProviderRoute } from './provider';
 import { open as openHome } from './routes/home';
 import { open as openReader } from './routes/reader';
+import {startInit} from "./core/shell";
 
-const match = matchProviderRoute();
+const match = initializeProviderRoute();
 if (match) {
-    const stopTokenManager = match.provider.tokenManager.start();
-    window.addEventListener('pagehide', event => {
-        if (!event.persisted) stopTokenManager();
-    }, { once: true });
-
+    startInit(match.documentTitle);
     switch (match.route.handler) {
         case Handler.Home:
-            void openHome();
+            void openHome(match.provider);
             break;
         case Handler.Reader:
             void openReader(match.provider, match.route);

@@ -1,20 +1,6 @@
-import css from '../style.css?inline';
 import type { ChapterData, ChapterMeta, Provider, RouteMatch } from '../provider';
 import { Handler } from '../provider';
 import { createReaderTracker } from './tracking';
-
-function retryBrokenImages(selector: ".hs-reader-img" | ".hs-thumb", interval: number): void {
-    setInterval(() => {
-        const imgs = document.querySelectorAll<HTMLImageElement>(selector);
-        for (const img of imgs) {
-            if (!img.complete || img.naturalWidth > 0) continue; // safari ios doesn't execute img.onerror on 429s so we have to do hacks
-            const src = new URL(img.src);
-            if (src.origin === location.origin) src.searchParams.set('retry', Date.now().toString());
-            img.src = ''; // safari ios needs its source cleared first so that it can register the new (same) source
-            img.src = src.href;
-        }
-    }, interval);
-}
 
 function imageLoaded(image: HTMLImageElement): boolean {
     return image.complete && image.naturalWidth > 0;
@@ -110,16 +96,6 @@ export async function open(
     route: Extract<RouteMatch, { handler: Handler.Reader }>,
 ): Promise<void> {
     const { slug, chapterId } = route;
-
-    window.stop();
-    document.open();
-    document.close();
-
-    const style = document.createElement('style');
-    style.textContent = css;
-    document.head.appendChild(style);
-    retryBrokenImages(".hs-reader-img", 2000);
-
     // 1. Load the current chapter
     const data = await provider.fetchChapter(slug, chapterId);
     if (!data) {
@@ -167,7 +143,19 @@ export async function open(
 
     // 4. Scroll handler
     let lastSavedImage = '';
-    const tracker = createReaderTracker(provider);
+    let localTrackingErrorShown = false;
+    const tracker = createReaderTracker(provider, {
+        providerKey: provider.key,
+        seriesSlug: slug,
+        onError(error) {
+            if (localTrackingErrorShown) return;
+            localTrackingErrorShown = true;
+            wrapper.appendChild(createStatus(
+                `Local history failed: ${error instanceof Error ? error.message : String(error)}`,
+                'hs-error',
+            ));
+        },
+    });
     function scrollEndOneHundred() {
         setTimeout(() => {
             if (restoring) return;
@@ -226,5 +214,16 @@ export async function open(
         }, 100);
     }
     window.addEventListener('scrollend', scrollEndOneHundred);
-    if (target) void restoreScroll(firstWrap, target).finally(() => { restoring = false; });
+    window.addEventListener('pageshow', scrollEndOneHundred);
+    window.addEventListener('load', scrollEndOneHundred, { once: true });
+    firstWrap.querySelector<HTMLImageElement>('.hs-reader-img')
+        ?.addEventListener('load', scrollEndOneHundred, { once: true });
+    if (target) {
+        void restoreScroll(firstWrap, target).finally(() => {
+            restoring = false;
+            scrollEndOneHundred();
+        });
+    } else {
+        scrollEndOneHundred();
+    }
 }

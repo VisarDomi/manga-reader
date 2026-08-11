@@ -35,4 +35,18 @@ describe('reader tracking', () => {
         ]);
         expect(trackChapter.mock.calls.map(([data]) => data.chapterId)).toEqual(['1', '2']);
     });
+
+    it('waits for chapter metadata before deduplicating provider page tracking', () => {
+        const trackPage = vi.fn(async () => {});
+        const tracker = createReaderTracker({ trackPage });
+        const data = chapter('1');
+        const chapters = [{ chapterId: '2' }, { chapterId: '1' }];
+
+        tracker.track(data, '0', []);
+        tracker.track(data, '0', chapters);
+        tracker.track(data, '0', chapters);
+
+        expect(trackPage).toHaveBeenCalledOnce();
+        expect(trackPage).toHaveBeenCalledWith(data, '0', chapters);
+    });
 });

@@ -2,44 +2,44 @@
   "ezmanga": {
     "domain": "ezmanga.org",
     "apiBase": "https://vapi.ezmanga.org/api/v1",
-    "provider": "ezmanga"
+    "provider": "ezmanga",
+    "documentTitle": "EzManga"
   },
   "qimanga": {
     "domain": "qimanga.com",
     "apiBase": "https://api.qimanga.com/api/v1",
-    "provider": "qiscans"
+    "provider": "qiscans",
+    "documentTitle": "Qi Manga"
   },
   "yakshacomics": {
     "domain": "yakshacomics.com",
-    "provider": "yaksha"
+    "provider": "yaksha",
+    "documentTitle": "Yaksha Comics"
   },
   "asurascans": {
     "domain": "asurascans.com",
     "apiBase": "https://api.asurascans.com/api",
-    "provider": "asura"
+    "provider": "asura",
+    "documentTitle": "Asura Scans"
   },
   "scythescans": {
     "domain": "scythescans.com",
-    "provider": "scythe"
+    "provider": "scythe",
+    "documentTitle": "Scythe Scans"
   },
   "luacomic": {
     "domain": "luacomic.org",
-    "provider": "lua"
+    "provider": "lua",
+    "documentTitle": "Lua Comic"
   },
   "violetscans": {
     "domain": "violetscans.org",
-    "provider": "violet"
+    "provider": "violet",
+    "documentTitle": "Violet Scans"
   },
   "valirscans": {
     "domain": "valirscans.org",
-    "provider": "valir"
-  },
-  "davemangascans": {
-    "domain": "davemangascans.xyz",
-    "provider": "davecubari"
-  },
-  "cubari": {
-    "domain": "cubari.moe",
-    "provider": "davecubari"
+    "provider": "valir",
+    "documentTitle": "ValirScans"
   }
 }

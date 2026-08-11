@@ -1,4 +1,12 @@
-import { Handler, type Provider, type RouteMatch, type ChapterData, type ChapterMeta, type ChapterImage } from './types';
+import {
+    Handler,
+    type Provider,
+    type RouteMatch,
+    type ChapterData,
+    type ChapterMeta,
+    type ChapterImage,
+    type HomePage,
+} from './types';
 import { SITE_CONFIG } from '../core/sites';
 import { isChapterUnavailable } from '../core/http';
 import { hashImageIndex } from '../core/page';
@@ -6,15 +14,141 @@ import { createValirTokenManager } from './valir-token-manager';
 
 const DOMAIN = SITE_CONFIG['valirscans'].domain;
 const CHAPTER_RE = /^\/series\/comic\/([^/]+)\/chapter\/(\d+)/;
+const FLIGHT_PUSH = 'self.__next_f.push(';
 export const valirTokenManager = createValirTokenManager(`https://${DOMAIN}`);
 
+function jsonArrayAt(value: string, start: number): string {
+    if (value[start] !== '[') throw new Error('Expected a JSON array');
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let index = start; index < value.length; index += 1) {
+        const character = value[index];
+        if (inString) {
+            if (escaped) escaped = false;
+            else if (character === '\\') escaped = true;
+            else if (character === '"') inString = false;
+            continue;
+        }
+        if (character === '"') inString = true;
+        else if (character === '[') depth += 1;
+        else if (character === ']' && --depth === 0) return value.slice(start, index + 1);
+    }
+    throw new Error('JSON array was not terminated');
+}
+
+function flightPayloads(html: string): string[] {
+    const document = new DOMParser().parseFromString(html, 'text/html');
+    const payloads: string[] = [];
+    for (const script of document.querySelectorAll('script')) {
+        const source = script.textContent ?? '';
+        let searchFrom = 0;
+        while (true) {
+            const push = source.indexOf(FLIGHT_PUSH, searchFrom);
+            if (push === -1) break;
+            const tupleStart = push + FLIGHT_PUSH.length;
+            const tupleJson = jsonArrayAt(source, tupleStart);
+            const tuple = JSON.parse(tupleJson) as unknown;
+            if (!Array.isArray(tuple)) throw new Error('Valir flight push is not a tuple');
+            if (tuple[0] === 1) {
+                if (typeof tuple[1] !== 'string') throw new Error('Valir flight payload is not a string');
+                payloads.push(tuple[1]);
+            }
+            searchFrom = tupleStart + tupleJson.length;
+        }
+    }
+    return payloads;
+}
+
+export function parseValirChapters(html: string): ChapterMeta[] {
+    const flight = flightPayloads(html).join('');
+    const markers = [...flight.matchAll(/"allChapters"\s*:/g)];
+    if (markers.length !== 1) {
+        throw new Error(`Expected one Valir chapter list, found ${markers.length}`);
+    }
+    let arrayStart = markers[0].index + markers[0][0].length;
+    while (/\s/.test(flight[arrayStart] ?? '')) arrayStart += 1;
+    const value = JSON.parse(jsonArrayAt(flight, arrayStart)) as unknown;
+    if (!Array.isArray(value) || value.length === 0) throw new Error('Valir chapter list is empty');
+
+    const chapters = value.map((chapter, index): ChapterMeta => {
+        if (typeof chapter !== 'object' || chapter === null) {
+            throw new Error(`Valir chapter ${index} is not an object`);
+        }
+        const { id, number } = chapter as { id?: unknown; number?: unknown };
+        if (typeof id !== 'string' || id.trim() === '') {
+            throw new Error(`Valir chapter ${index} has no ID`);
+        }
+        if (!Number.isSafeInteger(number) || (number as number) <= 0) {
+            throw new Error(`Valir chapter ${index} has an invalid number`);
+        }
+        return { chapterId: String(number), chapterApiId: id };
+    });
+    for (let index = 1; index < chapters.length; index += 1) {
+        if (Number(chapters[index - 1].chapterId) >= Number(chapters[index].chapterId)) {
+            throw new Error('Valir chapters are not uniquely ordered oldest first');
+        }
+    }
+    return chapters.reverse();
+}
+
 export const valir: Provider = {
+    key: 'valirscans',
+    documentTitle: SITE_CONFIG.valirscans.documentTitle,
     tokenManager: valirTokenManager,
 
     matchRoute(pathname: string, hash: string): RouteMatch | null {
+        if (pathname === '/') return { handler: Handler.Home };
         const m = CHAPTER_RE.exec(pathname);
         if (!m) return null;
         return { handler: Handler.Reader, slug: m[1], chapterId: m[2], imageIndex: hashImageIndex(hash) };
+    },
+
+    async fetchHome(cursor: string | null): Promise<HomePage> {
+        const page = cursor === null ? 1 : Number(cursor);
+        if (!Number.isSafeInteger(page) || page < 1) throw new Error(`Invalid Valir home cursor: ${cursor}`);
+        const limit = 100;
+        const query = new URLSearchParams({
+            type: 'MANHWA,MANHUA,MANGA,WEBTOON',
+            page: String(page),
+            limit: String(limit),
+        });
+        const res = await fetch(`https://${DOMAIN}/api/series?${query}`);
+        if (!res.ok) throw new Error(`Series catalog failed: ${res.status}`);
+        const response = await res.json() as {
+            data: Array<{
+                slug: string;
+                urlSlug: string;
+                title: string;
+                coverImage: string;
+                chapters: Array<{
+                    number: number;
+                    title: string;
+                    isLocked: boolean;
+                    isFree: boolean;
+                    coinPrice: number;
+                    publishedAt: string;
+                    unlockedAt: string | null;
+                }>;
+            }>;
+            meta: { total: number; hasMore: boolean };
+        };
+        return {
+            total: response.meta.total,
+            nextCursor: response.meta.hasMore ? String(page + 1) : null,
+            series: response.data.map(series => ({
+                slug: series.urlSlug || series.slug,
+                title: series.title,
+                coverUrl: new URL(series.coverImage, `https://${DOMAIN}`).href,
+                chapters: series.chapters.slice(0, 3).map(chapter => ({
+                    chapterId: String(chapter.number),
+                    label: chapter.title || `Chapter ${chapter.number}`,
+                    uploadedAt: chapter.publishedAt,
+                    locked: chapter.isLocked || !chapter.isFree || chapter.coinPrice > 0,
+                    unlockAt: chapter.unlockedAt,
+                })),
+            })),
+        };
     },
 
 
@@ -75,26 +209,7 @@ export const valir: Provider = {
         if (!res.ok) throw new Error(`Chapter page not found: ${res.status}`);
         const html = await res.text();
 
-        // Find the allChapters section and extract chapter numbers from it
-        const acIdx = html.indexOf('allChapters');
-        if (acIdx === -1) throw new Error('No chapter list found');
-
-        // Look at the region after allChapters for chapter entries
-        const region = html.substring(acIdx, acIdx + 100000);
-        const chapters: ChapterMeta[] = [];
-        const chapterRe = /\\"id\\":\s*\\"(cm[a-z0-9]+)\\",\s*\\"number\\":\s*(\d+),\s*\\"title\\":\s*\\"Chapter (\d+)\\"/g;
-        const seen = new Set<number>();
-        for (const m of region.matchAll(chapterRe)) {
-            const num = parseInt(m[2], 10);
-            if (!seen.has(num)) {
-                seen.add(num);
-                chapters.push({ chapterId: String(num), chapterApiId: m[1] });
-            }
-        }
-
-        if (chapters.length === 0) throw new Error('No chapters found');
-
-        return chapters.reverse();
+        return parseValirChapters(html);
     },
 
     readerUrl(slug: string, chapterId: string, imageIndex?: string): string {
