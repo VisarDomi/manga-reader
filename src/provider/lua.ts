@@ -74,7 +74,7 @@ export const lua: Provider = {
                     slug: series.series_slug,
                     title: series.title,
                     coverUrl: series.thumbnail,
-                    chapters: chapters.slice(0, 4).map(({ chapter, locked }) => ({
+                    chapters: chapters.slice(0, 5).map(({ chapter, locked }) => ({
                         chapterId: chapter.chapter_slug,
                         label: chapter.chapter_name.replace(/\s+/g, ' ').trim(),
                         uploadedAt: chapter.created_at,

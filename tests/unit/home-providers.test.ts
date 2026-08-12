@@ -259,6 +259,7 @@ describe('home catalog rendering', () => {
                         { chapterId: '3', label: 'Chapter 3', uploadedAt: null, locked: false, unlockAt: null },
                         { chapterId: '1', label: 'Chapter 1', uploadedAt: null, locked: false, unlockAt: null },
                         { chapterId: '0', label: 'Chapter 0', uploadedAt: null, locked: false, unlockAt: null },
+                        { chapterId: '-1', label: 'Chapter -1', uploadedAt: null, locked: false, unlockAt: null },
                     ],
                 }],
             }],
@@ -275,6 +276,7 @@ describe('home catalog rendering', () => {
             'Chapter 2',
             'Chapter 1',
             'Chapter 0',
+            'Chapter -1',
         ]);
         expect(chapters[0].querySelector('time')?.textContent).toBe('2 hours ago');
         expect(document.querySelector('.hs-home-card[data-series-slug="empty"] .hs-home-no-chapters')?.textContent)

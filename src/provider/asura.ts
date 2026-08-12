@@ -145,7 +145,7 @@ export const asura: Provider = {
                 historyId: series.slug,
                 title: series.title,
                 coverUrl: coverUrl(series.cover),
-                chapters: series.latest_chapters.slice(0, 4).map(chapter => {
+                chapters: series.latest_chapters.slice(0, 5).map(chapter => {
                     const unlockTime = chapter.early_access_until === null
                         ? null
                         : new Date(chapter.early_access_until).getTime();

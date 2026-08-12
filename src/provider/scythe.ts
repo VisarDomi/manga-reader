@@ -72,7 +72,7 @@ function richHomeSeries(card: Element): HomePage['series'][number] {
             };
         });
     if (chapters.length === 0) throw new Error(`Scythe home card ${identity.slug} has no chapters`);
-    return { ...identity, chapters: chapters.slice(0, 4) };
+    return { ...identity, chapters: chapters.slice(0, 5) };
 }
 
 function catalogSeries(card: Element): HomePage['series'][number] {

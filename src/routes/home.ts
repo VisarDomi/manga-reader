@@ -200,10 +200,9 @@ function renderSeries(provider: Provider, series: HomeSeries): HTMLElement {
 
     const details = document.createElement('div');
     details.className = 'hs-home-details';
-    const title = createLink('hs-home-series-title', provider.seriesUrl(series.slug), series.title);
     const chapters = document.createElement('div');
     chapters.className = 'hs-home-chapters';
-    const visibleChapters = series.chapters.slice(0, 4);
+    const visibleChapters = series.chapters.slice(0, 5);
     if (visibleChapters.length === 0) {
         const empty = document.createElement('p');
         empty.className = 'hs-home-no-chapters';
@@ -212,7 +211,7 @@ function renderSeries(provider: Provider, series: HomeSeries): HTMLElement {
     } else {
         chapters.append(...visibleChapters.map((chapter: HomeChapter) => renderChapter(provider, series, chapter)));
     }
-    details.append(title, chapters);
+    details.appendChild(chapters);
     card.append(coverLink, details);
     return card;
 }
@@ -334,7 +333,7 @@ function mergeSeries(current: HomeSeries, incoming: HomeSeries): HomeSeries {
         chapterIds.add(chapter.chapterId);
         chapters.push(chapter);
     }
-    return { ...current, chapters: chapters.slice(0, 4) };
+    return { ...current, chapters: chapters.slice(0, 5) };
 }
 
 function resetTransientCoverState(root: ParentNode): void {
@@ -397,14 +396,11 @@ export async function open(provider: Provider): Promise<void> {
     main.className = 'hs-home';
     const section = document.createElement('section');
     section.className = 'hs-home-section';
-    const heading = document.createElement('h1');
-    heading.className = 'hs-home-heading';
-    heading.textContent = 'Latest Updates';
     const list = document.createElement('div');
     list.className = 'hs-home-list';
     const status = document.createElement('p');
     status.className = 'hs-home-catalog-status';
-    section.append(heading, list, status);
+    section.append(list, status);
     main.appendChild(section);
     document.body.replaceChildren(main);
 
