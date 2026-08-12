@@ -203,7 +203,7 @@ function renderSeries(provider: Provider, series: HomeSeries): HTMLElement {
     const title = createLink('hs-home-series-title', provider.seriesUrl(series.slug), series.title);
     const chapters = document.createElement('div');
     chapters.className = 'hs-home-chapters';
-    const visibleChapters = series.chapters.slice(0, 3);
+    const visibleChapters = series.chapters.slice(0, 4);
     if (visibleChapters.length === 0) {
         const empty = document.createElement('p');
         empty.className = 'hs-home-no-chapters';
@@ -334,7 +334,7 @@ function mergeSeries(current: HomeSeries, incoming: HomeSeries): HomeSeries {
         chapterIds.add(chapter.chapterId);
         chapters.push(chapter);
     }
-    return { ...current, chapters: chapters.slice(0, 3) };
+    return { ...current, chapters: chapters.slice(0, 4) };
 }
 
 function resetTransientCoverState(root: ParentNode): void {

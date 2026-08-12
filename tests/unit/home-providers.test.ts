@@ -30,6 +30,12 @@ describe('provider home routes', () => {
             expect(provider.matchRoute('/series', '')).not.toEqual({ handler: Handler.Home });
             expect(provider.matchRoute('/manga/', '')).not.toEqual({ handler: Handler.Home });
         }
+        expect(scythe.matchRoute('/worlds-strongest-troll-chapter-194-2/', '#7')).toEqual({
+            handler: Handler.Reader,
+            slug: 'worlds-strongest-troll',
+            chapterId: 'worlds-strongest-troll-chapter-194-2',
+            imageIndex: '7',
+        });
     });
 });
 
@@ -110,7 +116,7 @@ describe('HTML home enrichment', () => {
                     <div class="tt"><a>Series A</a></div>
                     <ul class="chfiv">
                         <li><a href="https://scythescans.com/series-a-chapter-12/"><span class="fivchap">Ch. 12</span><span class="fivtime">3 hours</span></a></li>
-                        <li><a href="https://scythescans.com/series-a-chapter-11/"><span class="fivchap">Ch. 11</span><span class="fivtime">1 week</span></a></li>
+                        <li><a href="https://scythescans.com/series-a-chapter-11-2/"><span class="fivchap">Ch. 11</span><span class="fivtime">1 week</span></a></li>
                     </ul>
                 </div></div></div>
             </div>`;
@@ -133,11 +139,26 @@ describe('HTML home enrichment', () => {
             'https://scythescans.com/manga/?order=update&page=1',
         ]);
         expect([...document.querySelectorAll('.hs-home-chapter')].map(chapter => ({
+            href: (chapter as HTMLAnchorElement).href,
             label: chapter.querySelector('.hs-home-chapter-label')?.textContent,
             date: chapter.querySelector('time')?.textContent,
         }))).toEqual([
-            { label: 'Chapter 12', date: '3 hours ago' },
-            { label: 'Chapter 11', date: '1 week ago' },
+            { href: 'https://scythescans.com/series-a-chapter-12/', label: 'Chapter 12', date: '3 hours ago' },
+            { href: 'https://scythescans.com/series-a-chapter-11-2/', label: 'Chapter 11', date: '1 week ago' },
+        ]);
+    });
+
+    it('preserves Scythe WordPress collision suffixes in the chapter list', async () => {
+        const html = `
+            <div id="chapterlist"><ul>
+                <li><a href="https://scythescans.com/worlds-strongest-troll-chapter-195/">Chapter 195</a></li>
+                <li><a href="https://scythescans.com/worlds-strongest-troll-chapter-194-2/">Chapter 194</a></li>
+            </ul></div>`;
+        vi.stubGlobal('fetch', vi.fn(async () => new Response(html)));
+
+        await expect(scythe.fetchChaptersNewestFirst('worlds-strongest-troll')).resolves.toEqual([
+            { chapterId: 'worlds-strongest-troll-chapter-195' },
+            { chapterId: 'worlds-strongest-troll-chapter-194-2' },
         ]);
     });
 
@@ -237,6 +258,7 @@ describe('home catalog rendering', () => {
                     chapters: [
                         { chapterId: '3', label: 'Chapter 3', uploadedAt: null, locked: false, unlockAt: null },
                         { chapterId: '1', label: 'Chapter 1', uploadedAt: null, locked: false, unlockAt: null },
+                        { chapterId: '0', label: 'Chapter 0', uploadedAt: null, locked: false, unlockAt: null },
                     ],
                 }],
             }],
@@ -252,6 +274,7 @@ describe('home catalog rendering', () => {
             'Chapter 3',
             'Chapter 2',
             'Chapter 1',
+            'Chapter 0',
         ]);
         expect(chapters[0].querySelector('time')?.textContent).toBe('2 hours ago');
         expect(document.querySelector('.hs-home-card[data-series-slug="empty"] .hs-home-no-chapters')?.textContent)

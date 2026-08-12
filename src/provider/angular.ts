@@ -47,7 +47,7 @@ export function createAngularProvider(site: keyof typeof SITE_CONFIG): Provider 
             slug: series.slug,
             title: series.title.trim(),
             coverUrl: series.cover,
-            chapters: (series.chapters ?? []).slice(0, 3).map(homeChapter),
+            chapters: (series.chapters ?? []).slice(0, 4).map(homeChapter),
         };
     }
 

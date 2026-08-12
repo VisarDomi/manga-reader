@@ -191,7 +191,7 @@ export const valir: Provider = {
                 slug: series.urlSlug || series.slug,
                 title: series.title,
                 coverUrl: new URL(series.coverImage, `https://${DOMAIN}`).href,
-                chapters: series.chapters.slice(0, 3).map(chapter => ({
+                chapters: series.chapters.slice(0, 4).map(chapter => ({
                     chapterId: String(chapter.number),
                     label: chapter.title || `Chapter ${chapter.number}`,
                     uploadedAt: chapter.publishedAt,

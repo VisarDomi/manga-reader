@@ -44,7 +44,7 @@ export const yaksha: Provider = {
                 slug: match[1],
                 title,
                 coverUrl: new URL(cover.getAttribute('src') ?? '', `https://${DOMAIN}`).href,
-                chapters: [...card.querySelectorAll('.list-chapter .chapter-item')].slice(0, 3).map(row => {
+                chapters: [...card.querySelectorAll('.list-chapter .chapter-item')].slice(0, 4).map(row => {
                     const chapterLink = row.querySelector<HTMLAnchorElement>('.chapter a');
                     const chapterHref = chapterLink?.getAttribute('href');
                     const label = chapterLink?.textContent?.replace(/\s+/g, ' ').trim();
