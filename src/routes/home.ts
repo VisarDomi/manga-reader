@@ -1,4 +1,5 @@
 import type {
+    ChapterMeta,
     HomeChapter,
     HomePage,
     HomeSeries,
@@ -92,16 +93,31 @@ function createProgressIndex(progress: ChapterProgress[]): Map<string, ChapterPr
     return new Map(progress.map(item => [progressKey(item.seriesSlug, item.chapterId), item]));
 }
 
-function latestSeriesProgress(
-    progress: Iterable<ChapterProgress>,
-    seriesSlug: string,
-): ChapterProgress | undefined {
-    let latest: ChapterProgress | undefined;
-    for (const item of progress) {
-        if (item.seriesSlug !== seriesSlug) continue;
-        if (!latest || item.updatedAt > latest.updatedAt) latest = item;
-    }
-    return latest;
+type CoverResume =
+    | { kind: 'none' }
+    | { kind: 'local-partial'; chapterId: string; imageIndex: number }
+    | { kind: 'remote-partial'; chapterId: string; percent: number }
+    | { kind: 'read'; readThroughChapterId?: string; locallyReadChapterIds: Set<string> };
+
+const coverResume = new WeakMap<HTMLAnchorElement, CoverResume>();
+
+function newestPartial(progress: ChapterProgress[]): ChapterProgress | undefined {
+    return progress
+        .filter(item => !isChapterComplete(item))
+        .sort((a, b) => b.updatedAt - a.updatedAt)[0];
+}
+
+function resumeAfterRead(
+    chaptersNewestFirst: ChapterMeta[],
+    resume: Extract<CoverResume, { kind: 'read' }>,
+): ChapterMeta | undefined {
+    const firstUnread = [...chaptersNewestFirst].reverse().find(chapter => {
+        if (resume.locallyReadChapterIds.has(chapter.chapterId)) return false;
+        return resume.readThroughChapterId === undefined
+            || !chapterAtOrBefore(chapter.chapterId, resume.readThroughChapterId);
+    });
+    if (firstUnread !== undefined) return firstUnread;
+    return chaptersNewestFirst[0];
 }
 
 function renderChapter(provider: Provider, series: HomeSeries, chapter: HomeChapter): HTMLAnchorElement {
@@ -161,16 +177,17 @@ function renderSeries(provider: Provider, series: HomeSeries): HTMLElement {
     cover.loading = 'lazy';
     coverLink.appendChild(cover);
     coverLink.addEventListener('click', event => {
-        if (coverLink.dataset.resume === 'local') return;
-        if (coverLink.dataset.resume === 'remote') {
-            const chapterId = coverLink.dataset.remoteResumeChapterId;
-            const remotePercent = coverLink.dataset.remoteResumePercent;
-            if (chapterId === undefined || remotePercent === undefined) return;
+        const resume = coverResume.get(coverLink);
+        if (resume === undefined) {
+            throw new Error(`Cover resume state was not initialized for ${series.slug}`);
+        }
+        if (resume.kind === 'local-partial') return;
+        if (resume.kind === 'remote-partial') {
             event.preventDefault();
             if (coverLink.dataset.loading === 'true') return;
             coverLink.dataset.loading = 'true';
             coverLink.classList.add('hs-home-cover-loading');
-            void resumeRemotePage(provider, series.slug, chapterId, Number(remotePercent))
+            void resumeRemotePage(provider, series.slug, resume.chapterId, resume.percent)
                 .catch(error => {
                     coverLink.dataset.loading = 'false';
                     coverLink.classList.remove('hs-home-cover-loading');
@@ -184,11 +201,13 @@ function renderSeries(provider: Provider, series: HomeSeries): HTMLElement {
         coverLink.classList.add('hs-home-cover-loading');
         void provider.fetchChaptersNewestFirst(series.slug)
             .then(chapters => {
-                const oldest = chapters.at(-1);
+                const destination = resume.kind === 'read'
+                    ? resumeAfterRead(chapters, resume)
+                    : chapters.at(-1);
                 coverLink.dataset.loading = 'false';
                 coverLink.classList.remove('hs-home-cover-loading');
-                window.location.href = oldest
-                    ? provider.readerUrl(series.slug, oldest.chapterId)
+                window.location.href = destination
+                    ? provider.readerUrl(series.slug, destination.chapterId)
                     : provider.seriesUrl(series.slug);
             })
             .catch(error => {
@@ -233,83 +252,126 @@ function updateUnlockCountdowns(root: ParentNode): void {
     }
 }
 
-function applyProgress(
-    provider: Provider,
-    root: ParentNode,
-    progress: ChapterProgress[],
-): void {
-    const index = createProgressIndex(progress);
-    for (const chapter of root.querySelectorAll<HTMLAnchorElement>('.hs-home-chapter')) {
-        const seriesSlug = chapter.dataset.seriesSlug;
-        const chapterId = chapter.dataset.chapterId;
-        if (!seriesSlug || !chapterId) continue;
-        const saved = index.get(progressKey(seriesSlug, chapterId));
-        if (saved === undefined) continue;
-        chapter.classList.toggle('hs-home-chapter-partial', !isChapterComplete(saved));
-        chapter.classList.toggle('hs-home-chapter-read', isChapterComplete(saved));
-        delete chapter.dataset.remoteResumePercent;
-        if (saved && !chapter.classList.contains('hs-home-chapter-locked')) {
-            chapter.href = provider.readerUrl(seriesSlug, chapterId, String(saved.imageIndex));
-        }
-    }
-
-    for (const cover of root.querySelectorAll<HTMLAnchorElement>('.hs-home-cover')) {
-        const seriesSlug = cover.dataset.seriesSlug;
-        if (!seriesSlug) continue;
-        const saved = latestSeriesProgress(progress, seriesSlug);
-        if (!saved) continue;
-        cover.dataset.resume = 'local';
-        delete cover.dataset.remoteResumeChapterId;
-        delete cover.dataset.remoteResumePercent;
-        cover.href = provider.readerUrl(seriesSlug, saved.chapterId, String(saved.imageIndex));
-    }
-}
-
-function applyRemoteHistory(
+function applyHistory(
     provider: Provider,
     root: ParentNode,
     history: RemoteSeriesHistory[],
+    progress: ChapterProgress[],
 ): void {
-    const index = new Map(history.map(item => [item.seriesId, item]));
+    const remoteIndex = new Map(history.map(item => [item.seriesId, item]));
+    const localIndex = createProgressIndex(progress);
     for (const card of root.querySelectorAll<HTMLElement>('.hs-home-card')) {
         const seriesSlug = card.dataset.seriesSlug;
         const remoteId = card.dataset.historyId;
         if (!seriesSlug || !remoteId) continue;
-        const remote = index.get(remoteId);
+        const remote = remoteIndex.get(remoteId);
+        const seriesProgress = progress.filter(item => item.seriesSlug === seriesSlug);
+        const sameChapterLocalPartial = remote === undefined
+            ? undefined
+            : seriesProgress.find(item => (
+                item.chapterId === remote.resumeChapterId && !isChapterComplete(item)
+            ));
         for (const chapter of card.querySelectorAll<HTMLAnchorElement>('.hs-home-chapter')) {
             const chapterId = chapter.dataset.chapterId;
             if (!chapterId) continue;
             chapter.classList.remove('hs-home-chapter-read', 'hs-home-chapter-partial');
             delete chapter.dataset.remoteResumePercent;
             chapter.href = provider.readerUrl(seriesSlug, chapterId);
-            if (!remote) continue;
-            if (
-                remote.readThroughChapterId !== undefined
-                && chapterAtOrBefore(chapterId, remote.readThroughChapterId)
-            ) {
-                chapter.classList.add('hs-home-chapter-read');
+            if (remote !== undefined) {
+                if (
+                    remote.readThroughChapterId !== undefined
+                    && chapterAtOrBefore(chapterId, remote.readThroughChapterId)
+                ) {
+                    chapter.classList.add('hs-home-chapter-read');
+                }
+                if (chapterId === remote.resumeChapterId && remote.resumePercent !== undefined) {
+                    chapter.classList.toggle('hs-home-chapter-partial', remote.resumePercent < 100);
+                    chapter.classList.toggle('hs-home-chapter-read', remote.resumePercent >= 100);
+                    chapter.dataset.remoteResumePercent = String(remote.resumePercent);
+                }
             }
-            if (chapterId === remote.resumeChapterId && remote.resumePercent !== undefined) {
-                chapter.classList.toggle('hs-home-chapter-partial', remote.resumePercent < 100);
-                chapter.classList.toggle('hs-home-chapter-read', remote.resumePercent >= 100);
-                chapter.dataset.remoteResumePercent = String(remote.resumePercent);
+            const saved = localIndex.get(progressKey(seriesSlug, chapterId));
+            const localCanOverride = remote === undefined
+                ? saved !== undefined
+                : saved === sameChapterLocalPartial;
+            if (!localCanOverride || saved === undefined) continue;
+            chapter.classList.toggle('hs-home-chapter-partial', !isChapterComplete(saved));
+            chapter.classList.toggle('hs-home-chapter-read', isChapterComplete(saved));
+            delete chapter.dataset.remoteResumePercent;
+            if (!chapter.classList.contains('hs-home-chapter-locked')) {
+                chapter.href = provider.readerUrl(seriesSlug, chapterId, String(saved.imageIndex));
             }
         }
 
         const cover = card.querySelector<HTMLAnchorElement>('.hs-home-cover');
         if (!cover) continue;
-        cover.dataset.resume = remote ? 'remote' : 'false';
         delete cover.dataset.remoteResumeChapterId;
         delete cover.dataset.remoteResumePercent;
-        cover.href = remote
-            ? provider.readerUrl(seriesSlug, remote.resumeChapterId)
-            : provider.seriesUrl(seriesSlug);
-        if (remote) {
-            cover.dataset.remoteResumeChapterId = remote.resumeChapterId;
-            if (remote.resumePercent !== undefined) {
-                cover.dataset.remoteResumePercent = String(remote.resumePercent);
-            }
+        if (sameChapterLocalPartial !== undefined) {
+            const resume: CoverResume = {
+                kind: 'local-partial',
+                chapterId: sameChapterLocalPartial.chapterId,
+                imageIndex: sameChapterLocalPartial.imageIndex,
+            };
+            coverResume.set(cover, resume);
+            cover.dataset.resume = 'local';
+            cover.href = provider.readerUrl(seriesSlug, resume.chapterId, String(resume.imageIndex));
+            continue;
         }
+        if (remote !== undefined && remote.resumePercent !== undefined && remote.resumePercent < 100) {
+            const resume: CoverResume = {
+                kind: 'remote-partial',
+                chapterId: remote.resumeChapterId,
+                percent: remote.resumePercent,
+            };
+            coverResume.set(cover, resume);
+            cover.dataset.resume = 'remote';
+            cover.dataset.remoteResumeChapterId = resume.chapterId;
+            cover.dataset.remoteResumePercent = String(resume.percent);
+            cover.href = provider.readerUrl(seriesSlug, resume.chapterId);
+            continue;
+        }
+        if (remote !== undefined) {
+            const readThroughChapterId = remote.readThroughChapterId === undefined
+                ? remote.resumeChapterId
+                : remote.readThroughChapterId;
+            const resume: CoverResume = {
+                kind: 'read',
+                readThroughChapterId,
+                locallyReadChapterIds: new Set(),
+            };
+            coverResume.set(cover, resume);
+            cover.dataset.resume = 'read';
+            cover.href = provider.readerUrl(seriesSlug, remote.resumeChapterId);
+            continue;
+        }
+
+        const localPartial = newestPartial(seriesProgress);
+        if (localPartial !== undefined) {
+            const resume: CoverResume = {
+                kind: 'local-partial',
+                chapterId: localPartial.chapterId,
+                imageIndex: localPartial.imageIndex,
+            };
+            coverResume.set(cover, resume);
+            cover.dataset.resume = 'local';
+            cover.href = provider.readerUrl(seriesSlug, resume.chapterId, String(resume.imageIndex));
+            continue;
+        }
+
+        const locallyReadChapterIds = new Set(
+            seriesProgress.filter(isChapterComplete).map(item => item.chapterId),
+        );
+        if (locallyReadChapterIds.size > 0) {
+            coverResume.set(cover, { kind: 'read', locallyReadChapterIds });
+            cover.dataset.resume = 'read';
+            cover.href = provider.seriesUrl(seriesSlug);
+            continue;
+        }
+
+        coverResume.set(cover, { kind: 'none' });
+        cover.dataset.resume = 'false';
+        cover.href = provider.seriesUrl(seriesSlug);
     }
 }
 
@@ -422,16 +484,14 @@ export async function open(provider: Provider): Promise<void> {
             current.element.replaceWith(element);
             cards.set(series.slug, { series: merged, element });
         }
-        applyRemoteHistory(provider, list, remoteHistory);
-        applyProgress(provider, list, progress);
+        applyHistory(provider, list, remoteHistory, progress);
     }
     appendPage(firstPage);
     status.textContent = statusText(cards.size, total, firstPage.nextCursor !== null);
 
     function applyHistoryLayers(): void {
         progress = getProviderProgress(provider.key);
-        applyRemoteHistory(provider, list, remoteHistory);
-        applyProgress(provider, list, progress);
+        applyHistory(provider, list, remoteHistory, progress);
     }
     function reconcileProgress(): void {
         resetTransientCoverState(list);

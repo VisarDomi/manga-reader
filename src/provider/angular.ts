@@ -120,6 +120,7 @@ export function createAngularProvider(site: keyof typeof SITE_CONFIG): Provider 
 
             return {
                 chapterId,
+                seriesSlug: slug,
                 seriesTitle: data.series.title,
                 images: data.images.map(({ url, width, height }) => ({ url, width, height })),
             };

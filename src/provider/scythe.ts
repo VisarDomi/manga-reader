@@ -151,7 +151,7 @@ export const scythe: Provider = {
     },
 
 
-    async fetchChapter(_slug: string, chapterId: string): Promise<ChapterData | null> {
+    async fetchChapter(slug: string, chapterId: string): Promise<ChapterData | null> {
         const url = `https://${DOMAIN}/${chapterId}/`;
         const res = await fetch(url);
         if (isChapterUnavailable(res)) return null;
@@ -187,6 +187,7 @@ export const scythe: Provider = {
 
         return {
             chapterId: chapterId,
+            seriesSlug: slug,
             seriesTitle: seriesTitle,
             images,
         };

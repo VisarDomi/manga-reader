@@ -94,6 +94,7 @@ export const yaksha: Provider = {
 
         return {
             chapterId: chapterId,
+            seriesSlug: slug,
             seriesTitle: seriesTitle,
             images,
         };

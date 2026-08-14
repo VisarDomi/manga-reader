@@ -184,6 +184,7 @@ export const asura: Provider = {
         if (images.length === 0) throw new Error('Chapter response contained no images');
         return {
             chapterId,
+            seriesSlug: slug,
             seriesTitle: data.series.title,
             seriesApiId: data.series.id,
             chapterApiId: data.chapter.id,

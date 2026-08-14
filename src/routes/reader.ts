@@ -95,13 +95,14 @@ export async function open(
     provider: Provider,
     route: Extract<RouteMatch, { handler: Handler.Reader }>,
 ): Promise<void> {
-    const { slug, chapterId } = route;
+    const { slug: routeSlug, chapterId } = route;
     // 1. Load the current chapter
-    const data = await provider.fetchChapter(slug, chapterId);
+    const data = await provider.fetchChapter(routeSlug, chapterId);
     if (!data) {
-        window.location.href = provider.seriesUrl(slug);
+        window.location.href = provider.seriesUrl(routeSlug);
         return; // just for visuals, location.href redirects the page making further execution impossible
     }
+    const slug = data.seriesSlug;
 
     document.title = `${data.chapterId} ${data.seriesTitle}`;
 

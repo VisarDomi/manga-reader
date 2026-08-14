@@ -111,6 +111,7 @@ export const lua: Provider = {
 
         return {
             chapterId: chapterId,
+            seriesSlug: slug,
             seriesTitle: seriesTitle,
             images,
         };

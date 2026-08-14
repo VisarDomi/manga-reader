@@ -25,6 +25,7 @@ describe('Valir tracking', () => {
         vi.stubGlobal('fetch', fetchMock);
         const data: ChapterData = {
             chapterId: '11',
+            seriesSlug: 'series',
             chapterApiId: 'chapter-api-11',
             seriesApiId: 'series-api',
             seriesTitle: 'Series',
@@ -67,6 +68,7 @@ describe('Asura tracking', () => {
         localStorage.setItem('access_token', 'token');
         const data: ChapterData = {
             chapterId: '7',
+            seriesSlug: 'series',
             chapterApiId: 70,
             seriesApiId: 5,
             seriesTitle: 'Series',

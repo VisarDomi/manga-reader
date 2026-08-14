@@ -175,13 +175,21 @@ describe('HTML home enrichment', () => {
                         <a href="https://violetscans.org/comics/series-a/">All Chapters</a>
                     </div>
                 </div></div>
+                <div class="bs"><div class="bsx">
+                    <a href="https://violetscans.org/comics/announced-series/"><img src="/announced.webp"></a>
+                    <div class="tt">Announced Series</div>
+                    <div class="chapter-list">
+                        <a href="https://violetscans.org/comics/announced-series/">All Chapters</a>
+                    </div>
+                </div></div>
             </div></div>`;
         const catalog = `
             <div class="bs"><div class="bsx">
                 <a href="https://violetscans.org/comics/series-b/"><img src="/b.webp"></a>
                 <div class="tt">Series B</div>
                 <div class="chapter-list">
-                    <a href="https://violetscans.org/series-b-chapter-1/"><div class="epxs">Chapter 1</div><div class="epxdate">3 days</div></a>
+                    <a href="https://violetscans.org/renamed-series-b-chapter-1/"><div class="epxs">Chapter 1</div><div class="epxdate">3 days</div></a>
+                    <a href="https://violetscans.org/comics/series-b/">All Chapters</a>
                 </div>
             </div></div>`;
         const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
@@ -191,23 +199,59 @@ describe('HTML home enrichment', () => {
 
         await expect(violet.fetchHome(null)).resolves.toMatchObject({
             nextCursor: 'ajax:2',
-            series: [{
-                slug: 'series-a',
-                chapters: [
-                    { chapterId: '3', locked: true, uploadedAt: 'NEW' },
-                    { chapterId: '2', locked: false, uploadedAt: '2 days ago' },
-                    { chapterId: '1', locked: false, uploadedAt: '1 week ago' },
-                ],
-            }],
+            series: [
+                {
+                    slug: 'series-a',
+                    chapters: [
+                        { chapterId: '3', locked: true, uploadedAt: 'NEW' },
+                        { chapterId: '2', locked: false, uploadedAt: '2 days ago' },
+                        { chapterId: '1', locked: false, uploadedAt: '1 week ago' },
+                    ],
+                },
+                { slug: 'announced-series', chapters: [] },
+            ],
         });
         await expect(violet.fetchHome('ajax:2')).resolves.toMatchObject({
             nextCursor: null,
             series: [{ slug: 'series-b', chapters: [{ chapterId: '1' }] }],
         });
+        expect(violet.readerUrl('series-b', '1')).toBe(
+            'https://violetscans.org/renamed-series-b-chapter-1/',
+        );
         expect(fetchMock.mock.calls.map(([input]) => String(input))).toEqual([
             'https://violetscans.org/',
             'https://violetscans.org/wp-admin/admin-ajax.php',
         ]);
+    });
+
+    it('rejects Violet cards whose chapter-list structure is missing', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => new Response(`
+            <div class="violet-latest-comics"><div class="latest-updates">
+                <div class="bs"><div class="bsx">
+                    <a href="https://violetscans.org/comics/malformed-series/"><img src="/cover.webp"></a>
+                    <div class="tt">Malformed Series</div>
+                </div></div>
+            </div></div>
+        `)));
+
+        await expect(violet.fetchHome(null)).rejects.toThrow('has no chapter list');
+    });
+
+    it('rejects unexpected links instead of dropping them from Violet chapter lists', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => new Response(`
+            <div class="violet-latest-comics"><div class="latest-updates">
+                <div class="bs"><div class="bsx">
+                    <a href="https://violetscans.org/comics/malformed-series/"><img src="/cover.webp"></a>
+                    <div class="tt">Malformed Series</div>
+                    <div class="chapter-list">
+                        <a href="https://violetscans.org/unexpected-path/">Unexpected</a>
+                        <a href="https://violetscans.org/comics/malformed-series/">All Chapters</a>
+                    </div>
+                </div></div>
+            </div></div>
+        `)));
+
+        await expect(violet.fetchHome(null)).rejects.toThrow('Invalid Violet home chapter URL');
     });
 });
 
@@ -283,7 +327,7 @@ describe('home catalog rendering', () => {
             .toBe('No chapters available');
     });
 
-    it('uses remote history as the base and reapplies newer local page progress over it', async () => {
+    it('uses remote history as the base and reapplies same-chapter local partial progress', async () => {
         let resolveHistory!: (history: Awaited<ReturnType<NonNullable<Provider['fetchRemoteHistory']>>>) => void;
         const remoteHistory = new Promise<Awaited<ReturnType<NonNullable<Provider['fetchRemoteHistory']>>>>(
             resolve => { resolveHistory = resolve; },
@@ -347,7 +391,98 @@ describe('home catalog rendering', () => {
         expect(coverA?.href).toBe('https://example.test/series-a/3#1');
         expect(coverA?.dataset.resume).toBe('local');
         expect(coverB?.href).toBe('https://example.test/series-b/5');
-        expect(coverB?.dataset.resume).toBe('remote');
+        expect(coverB?.dataset.resume).toBe('read');
+    });
+
+    it('makes covers start, resume, continue, and fall back to the newest chapter', async () => {
+        const readerUrl = vi.fn(() => window.location.href);
+        const chapterLists = new Map([
+            ['new-reader', ['3', '2', '1']],
+            ['partial-reader', ['3', '2', '1']],
+            ['continuing-reader', ['3', '2', '1']],
+            ['finished-reader', ['3', '2', '1']],
+        ]);
+        const provider: Provider = {
+            ...testProvider(async () => ({
+                nextCursor: null,
+                series: [...chapterLists.keys()].map(slug => ({
+                    slug,
+                    title: slug,
+                    coverUrl: `https://example.test/${slug}.webp`,
+                    chapters: [],
+                })),
+            })),
+            readerUrl,
+            fetchChaptersNewestFirst: async slug => (
+                chapterLists.get(slug)?.map(chapterId => ({ chapterId })) ?? []
+            ),
+        };
+        saveChapterProgress('test', 'partial-reader', '2', 1, 5);
+        saveChapterProgress('test', 'continuing-reader', '1', 4, 5);
+        for (const chapterId of ['1', '2', '3']) {
+            saveChapterProgress('test', 'finished-reader', chapterId, 4, 5);
+        }
+
+        await openHome(provider);
+
+        const cover = (slug: string) => document.querySelector<HTMLAnchorElement>(
+            `.hs-home-card[data-series-slug="${slug}"] .hs-home-cover`,
+        )!;
+        expect(cover('partial-reader').dataset.resume).toBe('local');
+        expect(readerUrl).toHaveBeenCalledWith('partial-reader', '2', '1');
+
+        readerUrl.mockClear();
+        cover('new-reader').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        await vi.waitFor(() => expect(readerUrl).toHaveBeenCalledWith('new-reader', '1'));
+
+        readerUrl.mockClear();
+        cover('continuing-reader').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        await vi.waitFor(() => expect(readerUrl).toHaveBeenCalledWith('continuing-reader', '2'));
+
+        readerUrl.mockClear();
+        cover('finished-reader').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        await vi.waitFor(() => expect(readerUrl).toHaveBeenCalledWith('finished-reader', '3'));
+    });
+
+    it('ignores local progress from a different chapter when server history exists', async () => {
+        const readerUrl = vi.fn(() => window.location.href);
+        const provider: Provider = {
+            ...testProvider(async () => ({
+                nextCursor: null,
+                series: [{
+                    slug: 'series-a',
+                    title: 'Series A',
+                    coverUrl: 'https://example.test/a.webp',
+                    chapters: [
+                        { chapterId: '4', label: 'Chapter 4', uploadedAt: null, locked: false, unlockAt: null },
+                        { chapterId: '3', label: 'Chapter 3', uploadedAt: null, locked: false, unlockAt: null },
+                        { chapterId: '2', label: 'Chapter 2', uploadedAt: null, locked: false, unlockAt: null },
+                    ],
+                }],
+            })),
+            readerUrl,
+            fetchRemoteHistory: async () => [{
+                seriesId: 'series-a',
+                readThroughChapterId: '3',
+                resumeChapterId: '3',
+            }],
+            fetchChaptersNewestFirst: async () => ['5', '4', '3', '2', '1'].map(chapterId => ({ chapterId })),
+        };
+        saveChapterProgress('test', 'series-a', '2', 1, 5);
+
+        await openHome(provider);
+        await vi.waitFor(() => expect(
+            document.querySelector<HTMLAnchorElement>('.hs-home-cover')?.dataset.resume,
+        ).toBe('read'));
+
+        const chapterTwo = document.querySelector<HTMLAnchorElement>('[data-chapter-id="2"]')!;
+        expect(chapterTwo.classList.contains('hs-home-chapter-read')).toBe(true);
+        expect(chapterTwo.classList.contains('hs-home-chapter-partial')).toBe(false);
+
+        readerUrl.mockClear();
+        document.querySelector<HTMLAnchorElement>('.hs-home-cover')
+            ?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        await vi.waitFor(() => expect(readerUrl).toHaveBeenCalledWith('series-a', '4'));
     });
 
     it('retries an interrupted bulk request after BFCache restoration', async () => {

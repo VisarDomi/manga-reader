@@ -23,6 +23,8 @@ export interface ChapterImage {
 
 export interface ChapterData extends ChapterMeta {
     seriesTitle: string;
+    /** Canonical catalog slug used for history and chapter-list requests. */
+    seriesSlug: string;
     /** Internal API ID for the series, used for tracking on some providers. */
     seriesApiId?: number | string;
     images: ChapterImage[];

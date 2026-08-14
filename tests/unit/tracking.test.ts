@@ -5,6 +5,7 @@ import { createReaderTracker } from '../../src/routes/tracking';
 function chapter(chapterId: string): ChapterData {
     return {
         chapterId,
+        seriesSlug: 'series',
         seriesTitle: 'Series',
         images: [{ url: 'page-1' }, { url: 'page-2' }],
     };

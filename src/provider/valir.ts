@@ -253,6 +253,7 @@ export const valir: Provider = {
 
         return {
             chapterId,
+            seriesSlug: slug,
             seriesTitle: seriesTitle,
             seriesApiId: seriesId,
             chapterApiId: numericId,
