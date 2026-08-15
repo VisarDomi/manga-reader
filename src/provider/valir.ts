@@ -18,6 +18,23 @@ const CHAPTER_RE = /^\/series\/comic\/([^/]+)\/chapter\/(\d+)/;
 const FLIGHT_PUSH = 'self.__next_f.push(';
 export const valirTokenManager = createValirTokenManager(`https://${DOMAIN}`);
 
+function valirDocumentReady(): boolean {
+    return [...document.scripts].some(script => script.textContent?.includes(FLIGHT_PUSH));
+}
+
+export function waitForValirTakeover(): Promise<void> {
+    if (valirDocumentReady()) return Promise.resolve();
+
+    return new Promise(resolve => {
+        const observer = new MutationObserver(() => {
+            if (!valirDocumentReady()) return;
+            observer.disconnect();
+            resolve();
+        });
+        observer.observe(document, { childList: true, subtree: true });
+    });
+}
+
 function jsonArrayAt(value: string, start: number): string {
     if (value[start] !== '[') throw new Error('Expected a JSON array');
     let depth = 0;
@@ -146,6 +163,7 @@ export function parseValirRemoteHistory(value: unknown): RemoteSeriesHistory[] {
 export const valir: Provider = {
     key: 'valirscans',
     documentTitle: SITE_CONFIG.valirscans.documentTitle,
+    waitForTakeover: waitForValirTakeover,
     tokenManager: valirTokenManager,
 
     matchRoute(pathname: string, hash: string): RouteMatch | null {

@@ -1,4 +1,5 @@
 import css from '../style.css?inline';
+import type { Provider } from '../provider/types';
 
 const FIRST_IMAGE_RETRY_MS = 1_000;
 const MAX_IMAGE_RETRY_MS = 2_147_483_647;
@@ -51,7 +52,12 @@ function retryBrokenImages(selector: ".hs-reader-img" | ".hs-home-cover img"): v
 }
 
 
-export function startInit(documentTitle: string): void {
+export async function startInit(
+    documentTitle: string,
+    provider: Pick<Provider, 'waitForTakeover' | 'tokenManager'>,
+): Promise<void> {
+    if (provider.waitForTakeover) await provider.waitForTakeover();
+
     window.stop();
     document.open();
     document.close();
@@ -61,4 +67,14 @@ export function startInit(documentTitle: string): void {
     document.head.appendChild(style);
     retryBrokenImages(".hs-reader-img");
     retryBrokenImages(".hs-home-cover img");
+
+    const stopProviderServices = provider.tokenManager?.start();
+    if (stopProviderServices) {
+        const stopOnPageHide = (event: PageTransitionEvent) => {
+            if (event.persisted) return;
+            stopProviderServices();
+            window.removeEventListener('pagehide', stopOnPageHide);
+        };
+        window.addEventListener('pagehide', stopOnPageHide);
+    }
 }

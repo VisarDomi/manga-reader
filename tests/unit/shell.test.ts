@@ -10,12 +10,59 @@ afterEach(() => {
 });
 
 describe('broken image retries', () => {
+    it('waits for the optional provider hook before replacing the document', async () => {
+        vi.useFakeTimers();
+        const calls: string[] = [];
+        let release: (() => void) | undefined;
+        const waitForTakeover = vi.fn(() => new Promise<void>(resolve => {
+            calls.push('wait');
+            release = resolve;
+        }));
+        vi.spyOn(window, 'stop').mockImplementation(() => {
+            calls.push('stop');
+        });
+        vi.spyOn(document, 'open').mockImplementation(() => {
+            calls.push('open');
+            return document;
+        });
+        vi.spyOn(document, 'close').mockImplementation(() => {
+            calls.push('close');
+        });
+
+        const stopProviderServices = vi.fn();
+        const startProviderServices = vi.fn(() => {
+            calls.push('start services');
+            return stopProviderServices;
+        });
+        const initialization = startInit('Test', {
+            waitForTakeover,
+            tokenManager: { start: startProviderServices },
+        });
+        await Promise.resolve();
+
+        expect(calls).toEqual(['wait']);
+        expect(startProviderServices).not.toHaveBeenCalled();
+
+        release?.();
+        await initialization;
+
+        expect(calls).toEqual(['wait', 'stop', 'open', 'close', 'start services']);
+
+        const persistedPageHide = new Event('pagehide');
+        Object.defineProperty(persistedPageHide, 'persisted', { value: true });
+        window.dispatchEvent(persistedPageHide);
+        expect(stopProviderServices).not.toHaveBeenCalled();
+
+        window.dispatchEvent(new Event('pagehide'));
+        expect(stopProviderServices).toHaveBeenCalledOnce();
+    });
+
     it('ignores images with missing or empty sources', async () => {
         vi.useFakeTimers();
         vi.spyOn(window, 'stop').mockImplementation(() => undefined);
         vi.spyOn(document, 'open').mockImplementation(() => document);
         vi.spyOn(document, 'close').mockImplementation(() => undefined);
-        startInit('Test');
+        void startInit('Test', {});
 
         const missingSource = document.createElement('img');
         missingSource.className = 'hs-reader-img';
@@ -43,7 +90,7 @@ describe('broken image retries', () => {
         vi.spyOn(window, 'stop').mockImplementation(() => undefined);
         vi.spyOn(document, 'open').mockImplementation(() => document);
         vi.spyOn(document, 'close').mockImplementation(() => undefined);
-        startInit('Test');
+        void startInit('Test', {});
 
         const gallery = document.createElement('img');
         gallery.className = 'hs-reader-img';
@@ -85,7 +132,7 @@ describe('broken image retries', () => {
         vi.spyOn(window, 'stop').mockImplementation(() => undefined);
         vi.spyOn(document, 'open').mockImplementation(() => document);
         vi.spyOn(document, 'close').mockImplementation(() => undefined);
-        startInit('Test');
+        void startInit('Test', {});
 
         const first = document.createElement('img');
         first.className = 'hs-reader-img';

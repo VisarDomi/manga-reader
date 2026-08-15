@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ChapterData, ChapterMeta } from '../../src/provider';
-import { createReaderTracker } from '../../src/routes/tracking';
+import { createReaderTracker } from '../../src/core/tracking';
 
 function chapter(chapterId: string): ChapterData {
     return {

@@ -1,6 +1,6 @@
 import type { ChapterData, ChapterMeta, Provider, RouteMatch } from '../provider';
 import { Handler } from '../provider';
-import { createReaderTracker } from './tracking';
+import { createReaderTracker } from '../core/tracking';
 
 function imageLoaded(image: HTMLImageElement): boolean {
     return image.complete && image.naturalWidth > 0;

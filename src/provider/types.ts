@@ -77,6 +77,8 @@ export interface Provider {
     key: string;
     /** Title used when takeover happens before the provider page supplies one. */
     documentTitle: string;
+    /** Wait until this provider's document is safe to replace. */
+    waitForTakeover?: () => Promise<void>;
     tokenManager?: TokenManager;
     matchRoute(pathname: string, hash: string): RouteMatch | null;
     fetchHome(cursor: string | null): Promise<HomePage>;

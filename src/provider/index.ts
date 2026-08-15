@@ -45,12 +45,5 @@ export function initializeProviderRoute(): InitializedProviderRoute | null {
     if (!route) return null;
     const documentTitle = document.title.trim() || provider.documentTitle;
 
-    const stopProviderServices = provider.tokenManager?.start();
-    if (stopProviderServices) {
-        window.addEventListener('pagehide', event => {
-            if (!event.persisted) stopProviderServices();
-        }, { once: true });
-    }
-
     return { provider, route, documentTitle };
 }
