@@ -168,10 +168,24 @@ function respond(id: number, outcome: Outcome): void {
     (self as unknown as Worker).postMessage(response);
 }
 
-// The op queue initializes lazily and token managers start on the first
-// session signal — nothing runs at module scope except this entry handler.
-let queue: Promise<void> | null = null;
+// Ops run per their nature: READS in parallel (as fast as the device goes),
+// WRITES serialized (deterministic IDB ordering). Token managers start on
+// the first session signal — nothing else runs at module scope.
+let writeQueue: Promise<void> | null = null;
 let tokenManagersStarted = false;
+
+const WRITE_OPS: ReadonlySet<string> = new Set([
+    'save-progress',
+    'track-page',
+    'track-chapter',
+]);
+
+function opFailure(error: unknown): { ok: false; error: string } {
+    return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+    };
+}
 
 self.onmessage = (event: MessageEvent<ComputeRequest>) => {
     const request = event.data;
@@ -179,13 +193,19 @@ self.onmessage = (event: MessageEvent<ComputeRequest>) => {
         tokenManagersStarted = true;
         startWorkerTokenManagers();
     }
-    const chain = queue ?? Promise.resolve();
-    queue = chain
-        .then(async () => respond(request.id, await handle(request)))
-        .catch(error => {
-            respond(request.id, {
-                ok: false,
-                error: error instanceof Error ? error.message : String(error),
+    const task = async (): Promise<void> => {
+        respond(request.id, await handle(request));
+    };
+    if (WRITE_OPS.has(request.op)) {
+        const chain = writeQueue === null ? Promise.resolve() : writeQueue.catch(() => {});
+        writeQueue = chain
+            .then(task)
+            .catch(error => {
+                respond(request.id, opFailure(error));
             });
+    } else {
+        void task().catch(error => {
+            respond(request.id, opFailure(error));
         });
+    }
 };
