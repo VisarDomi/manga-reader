@@ -7,7 +7,8 @@
     "build": "node scripts/build.mjs",
     "ios:foreground": "node investigation/ios-foreground-connection.mjs",
     "test:unit": "vitest run tests/unit",
-    "tests": "node tests/ios/run.mjs"
+    "tests": "node tests/ios/run-fresh.mjs",
+    "tests:single": "node tests/ios/run.mjs"
   },
   "devDependencies": {
     "@types/tampermonkey": "^5.0.4",
