@@ -4,9 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Handler, type HomePage, type Provider, type RemoteSeriesHistory } from '../../src/provider';
 import { createAngularProvider } from '../../src/provider/angular';
 import { asura } from '../../src/provider/asura';
-import { ezmanga } from '../../src/provider/ezmanga';
+import { createEzmangaProvider } from '../../src/provider/ezmanga';
 import { lua } from '../../src/provider/lua';
-import { qiscans } from '../../src/provider/qiscans';
+import { createQiscansProvider } from '../../src/provider/qiscans';
 import { scythe } from '../../src/provider/scythe';
 import { valir } from '../../src/provider/valir';
 import { violet } from '../../src/provider/violet';
@@ -60,7 +60,7 @@ afterEach(() => {
 
 describe('provider home routes', () => {
     it('takes over only the exact root path for every provider', () => {
-        for (const provider of [asura, valir, scythe, lua, violet, ezmanga, qiscans, yaksha]) {
+        for (const provider of [asura, valir, scythe, lua, violet, createEzmangaProvider(), createQiscansProvider(), yaksha]) {
             expect(provider.documentTitle.trim()).not.toBe('');
             expect(provider.matchRoute('/', '')).toEqual({ handler: Handler.Home });
             expect(provider.matchRoute('/browse', '')).not.toEqual({ handler: Handler.Home });

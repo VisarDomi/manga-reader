@@ -168,13 +168,19 @@ function respond(id: number, outcome: Outcome): void {
     (self as unknown as Worker).postMessage(response);
 }
 
-let queue: Promise<void> = Promise.resolve();
-
-startWorkerTokenManagers();
+// The op queue initializes lazily and token managers start on the first
+// session signal — nothing runs at module scope except this entry handler.
+let queue: Promise<void> | null = null;
+let tokenManagersStarted = false;
 
 self.onmessage = (event: MessageEvent<ComputeRequest>) => {
     const request = event.data;
-    queue = queue
+    if (request.op === 'cookie-snapshot' && !tokenManagersStarted) {
+        tokenManagersStarted = true;
+        startWorkerTokenManagers();
+    }
+    const chain = queue ?? Promise.resolve();
+    queue = chain
         .then(async () => respond(request.id, await handle(request)))
         .catch(error => {
             respond(request.id, {

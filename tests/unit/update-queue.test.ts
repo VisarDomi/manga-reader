@@ -19,13 +19,12 @@ describe('update queue (scrollend + 100ms)', () => {
         resetQueue();
     });
 
-    it('applies every batch in one synchronous pass after scrollend + 100ms', async () => {
+    it('an idle page drains 100ms after enqueue — no scroll needed', async () => {
         vi.useFakeTimers();
         const applied: string[] = [];
         enqueue('history', [() => applied.push('a'), () => applied.push('b'), () => applied.push('c')]);
         expect(applied).toEqual([]);
 
-        window.dispatchEvent(new Event('scrollend'));
         await vi.advanceTimersByTimeAsync(99);
         expect(applied).toEqual([]);
 
@@ -34,13 +33,18 @@ describe('update queue (scrollend + 100ms)', () => {
         expect(pendingKinds()).toEqual([]);
     });
 
-    it('never drains without a scrollend, no matter how long it waits', async () => {
+    it('a scroll before the timer fires postpones the burst until quiet', async () => {
         vi.useFakeTimers();
         const applied: string[] = [];
         enqueue('history', [() => applied.push('x')]);
-        await vi.advanceTimersByTimeAsync(60_000);
+        await vi.advanceTimersByTimeAsync(50);
+        window.dispatchEvent(new Event('scroll'));
+        // The timer fires at 100ms, sees the recent scroll, and re-arms...
+        await vi.advanceTimersByTimeAsync(100);
         expect(applied).toEqual([]);
-        expect(isPending('history')).toBe(true);
+        // ...then drains once 100ms of quiet follows.
+        await vi.advanceTimersByTimeAsync(100);
+        expect(applied).toEqual(['x']);
     });
 
     it('a newer batch supersedes a pending one (latest-wins)', async () => {
@@ -78,16 +82,17 @@ describe('update queue (scrollend + 100ms)', () => {
         expect(applied).toEqual(['x']);
     });
 
-    it('a scroll before the timer elapses cancels the burst until the next scrollend', async () => {
+    it('an endless stream of scroll events only delays the burst — it converges', async () => {
         vi.useFakeTimers();
         const applied: string[] = [];
         enqueue('history', [() => applied.push('x')]);
-        window.dispatchEvent(new Event('pageshow'));
-        await vi.advanceTimersByTimeAsync(50);
-        window.dispatchEvent(new Event('scroll'));
-        await vi.advanceTimersByTimeAsync(200);
+        // Scroll every 50ms for 600ms: each fire re-arms instead of draining.
+        for (let i = 0; i < 12; i++) {
+            window.dispatchEvent(new Event('scroll'));
+            await vi.advanceTimersByTimeAsync(50);
+        }
         expect(applied).toEqual([]);
-        window.dispatchEvent(new Event('scrollend'));
+        // The stream stops; 100ms of quiet later the burst applies.
         await vi.advanceTimersByTimeAsync(100);
         expect(applied).toEqual(['x']);
     });

@@ -1,3 +1,6 @@
 import { createAngularProvider } from './angular';
+import type { Provider } from './types';
 
-export const ezmanga = createAngularProvider('ezmanga');
+export function createEzmangaProvider(): Provider {
+    return createAngularProvider('ezmanga');
+}

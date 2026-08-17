@@ -335,6 +335,7 @@ function appendPageDeferred(
     remoteHistory: RemoteSeriesHistory[],
     reportHistoryError: HistoryErrorReporter,
     page: HomePage,
+    onBatchApplied: () => void,
 ): void {
     const steps: Array<() => void> = page.series.map(series => () => {
         const current = cards.get(series.slug);
@@ -350,7 +351,13 @@ function appendPageDeferred(
         current.element.replaceWith(element);
         cards.set(series.slug, { series: merged, element });
     });
-    steps.push(() => queueHistoryRefresh(provider, cards, remoteHistory, reportHistoryError));
+    // The counter must reflect the batch that actually rendered: refresh it
+    // after the deferred steps apply (the loop's own status write shows the
+    // pre-batch count).
+    steps.push(() => {
+        queueHistoryRefresh(provider, cards, remoteHistory, reportHistoryError);
+        onBatchApplied();
+    });
     enqueue('catalog', steps);
 }
 
@@ -519,7 +526,9 @@ export async function open(provider: Provider): Promise<void> {
         try {
             const page = await fetchPage(requestCursor);
             seenCursors.add(requestCursor);
-            appendPageDeferred(provider, cards, list, remoteHistory, reportHistoryError, page);
+            appendPageDeferred(provider, cards, list, remoteHistory, reportHistoryError, page, () => {
+                status.textContent = statusText(cards.size, total, page.nextCursor !== null);
+            });
             nextCursor = page.nextCursor;
             status.textContent = statusText(cards.size, total, nextCursor !== null);
         } catch (error) {

@@ -1,3 +1,6 @@
 import { createAngularProvider } from './angular';
+import type { Provider } from './types';
 
-export const qiscans = createAngularProvider('qimanga');
+export function createQiscansProvider(): Provider {
+    return createAngularProvider('qimanga');
+}

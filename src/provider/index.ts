@@ -13,17 +13,41 @@ export type {
 
 import type { Provider, RouteMatch } from './types';
 import { SITE_CONFIG } from '../core/sites';
-import { ezmanga } from './ezmanga';
-import { qiscans } from './qiscans';
-import { yaksha } from './yaksha';
 import { asura } from './asura';
 import { scythe } from './scythe';
 import { lua } from './lua';
 import { violet } from './violet';
 import { valir } from './valir';
+import { yaksha } from './yaksha';
+import { createEzmangaProvider } from './ezmanga';
+import { createQiscansProvider } from './qiscans';
 
-const providers = { ezmanga, qiscans, yaksha, asura, scythe, lua, violet, valir } as const;
-type ProviderKey = keyof typeof providers;
+// Keyed by PROVIDER name (site.provider), not by site key.
+type ProviderMap = Record<string, Provider>;
+
+// Built at runtime, inside a function — importing this module performs no
+// construction. The Angular providers (ezmanga/qimanga) are factories so
+// nothing executes at module scope.
+let providers: ProviderMap | null = null;
+
+function getProviders(): ProviderMap {
+    providers ??= {
+        ezmanga: createEzmangaProvider(),
+        qiscans: createQiscansProvider(),
+        yaksha,
+        asura,
+        scythe,
+        lua,
+        violet,
+        valir,
+    };
+    return providers;
+}
+
+/** Pure lookup by provider name — used by route resolution and tests. */
+export function providerForSite(providerName: string): Provider | undefined {
+    return getProviders()[providerName];
+}
 
 export interface InitializedProviderRoute {
     provider: Provider;
@@ -38,8 +62,8 @@ export function initializeProviderRoute(): InitializedProviderRoute | null {
     );
     if (!site) throw new Error('Unable to select provider');
 
-    const provider = providers[site.provider as ProviderKey];
-    if (!provider) throw new Error(`Unknown provider: ${site.provider}`);
+    const provider = providerForSite(site.provider);
+    if (!provider) throw new Error('Unknown provider: ' + site.provider);
 
     const route = provider.matchRoute(pathname, hash);
     if (!route) return null;
