@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Handler, type HomePage, type Provider } from '../../src/provider';
+import { Handler, type HomePage, type Provider, type RemoteSeriesHistory } from '../../src/provider';
 import { createAngularProvider } from '../../src/provider/angular';
 import { asura } from '../../src/provider/asura';
 import { ezmanga } from '../../src/provider/ezmanga';
@@ -31,6 +31,12 @@ vi.mock('../../src/core/compute/history-client', async () => {
         })),
     };
 });
+
+// The remote-history fetch is a worker op; tests drive it through this seam.
+const remoteSeam = vi.hoisted(() => ({ pending: Promise.resolve([] as never[]) }));
+vi.mock('../../src/core/compute/remote-history-client', () => ({
+    fetchRemoteHistoryAsync: () => remoteSeam.pending,
+}));
 
 beforeEach(() => {
     resetQueue();
@@ -351,10 +357,11 @@ describe('home catalog rendering', () => {
     });
 
     it('uses remote history as the base and reapplies same-chapter local partial progress', async () => {
-        let resolveHistory!: (history: Awaited<ReturnType<NonNullable<Provider['fetchRemoteHistory']>>>) => void;
-        const remoteHistory = new Promise<Awaited<ReturnType<NonNullable<Provider['fetchRemoteHistory']>>>>(
+        let resolveHistory!: (history: RemoteSeriesHistory[]) => void;
+        const remoteHistory = new Promise<RemoteSeriesHistory[]>(
             resolve => { resolveHistory = resolve; },
         );
+        remoteSeam.pending = remoteHistory;
         const provider: Provider = {
             ...testProvider(async () => ({
                 nextCursor: null,
@@ -379,7 +386,7 @@ describe('home catalog rendering', () => {
                     },
                 ],
             })),
-            fetchRemoteHistory: () => remoteHistory,
+            remoteHistoryInWorker: true,
         };
 
         await openHome(provider);
@@ -491,14 +498,15 @@ describe('home catalog rendering', () => {
                 }],
             })),
             readerUrl,
-            fetchRemoteHistory: async () => [{
-                seriesId: 'series-a',
-                readThroughChapterId: '3',
-                resumeChapterId: '3',
-            }],
+            remoteHistoryInWorker: true,
             fetchChaptersNewestFirst: async () => ['5', '4', '3', '2', '1'].map(chapterId => ({ chapterId })),
         };
         saveChapterProgress('test', 'series-a', '2', 1, 5);
+        remoteSeam.pending = Promise.resolve([{
+            seriesId: 'series-a',
+            readThroughChapterId: '3',
+            resumeChapterId: '3',
+        }]);
 
         await openHome(provider);
         await vi.waitFor(() => expect(

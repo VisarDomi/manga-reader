@@ -1,41 +1,18 @@
-// @vitest-environment jsdom
-
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { ChapterData, ChapterMeta } from '../../src/provider';
-import { asura } from '../../src/provider/asura';
-import { valir } from '../../src/provider/valir';
+import { buildValirReadingPosition } from '../../src/provider/valir-remote';
 
-afterEach(() => {
-    localStorage.clear();
-    vi.unstubAllGlobals();
-});
+const data: ChapterData = {
+    chapterId: '11',
+    seriesSlug: 'series',
+    chapterApiId: 'chapter-api-11',
+    seriesApiId: 'series-api',
+    seriesTitle: 'Series',
+    images: [{ url: 'page-1' }, { url: 'page-2' }, { url: 'page-3' }, { url: 'page-4' }],
+};
 
-describe('Valir tracking', () => {
-    it('sends page progress and marks older chapters complete', async () => {
-        const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-            const url = String(input);
-            if (url.endsWith('/api/heartbeat')) {
-                return new Response(JSON.stringify({ success: true, sessionToken: 'heartbeat-token' }));
-            }
-            if (url.endsWith('/api/auth/session')) {
-                return new Response(JSON.stringify({ user: { id: 'reader' } }));
-            }
-            return new Response();
-        });
-        vi.stubGlobal('fetch', fetchMock);
-        const data: ChapterData = {
-            chapterId: '11',
-            seriesSlug: 'series',
-            chapterApiId: 'chapter-api-11',
-            seriesApiId: 'series-api',
-            seriesTitle: 'Series',
-            images: [
-                { url: 'page-1' },
-                { url: 'page-2' },
-                { url: 'page-3' },
-                { url: 'page-4' },
-            ],
-        };
+describe('Valir reading position builder', () => {
+    it('sends page progress and marks older chapters complete', () => {
         const chapters: ChapterMeta[] = [
             { chapterId: '12', chapterApiId: 'chapter-api-12' },
             { chapterId: '11', chapterApiId: 'chapter-api-11' },
@@ -43,15 +20,7 @@ describe('Valir tracking', () => {
             { chapterId: '9' },
         ];
 
-        await valir.trackPage?.(data, '1', chapters);
-
-        expect(fetchMock).toHaveBeenCalledTimes(3);
-        expect(String(fetchMock.mock.calls[0][0])).toContain('/api/heartbeat');
-        expect(String(fetchMock.mock.calls[1][0])).toContain('/api/auth/session');
-        const [url, init] = fetchMock.mock.calls[2];
-        expect(String(url)).toContain('/api/chapters/reading-position');
-        expect(init).toMatchObject({ method: 'POST', credentials: 'include' });
-        expect(JSON.parse(String(init?.body))).toEqual({
+        expect(buildValirReadingPosition(data, '1', chapters)).toEqual({
             seriesId: 'series-api',
             chapters: [
                 { chapterId: 'chapter-api-11', progress: 50 },
@@ -59,30 +28,8 @@ describe('Valir tracking', () => {
             ],
         });
     });
-});
 
-describe('Asura tracking', () => {
-    it('sends one history request and one chapter-view request', async () => {
-        const fetchMock = vi.fn(async () => new Response());
-        vi.stubGlobal('fetch', fetchMock);
-        localStorage.setItem('access_token', 'token');
-        const data: ChapterData = {
-            chapterId: '7',
-            seriesSlug: 'series',
-            chapterApiId: 70,
-            seriesApiId: 5,
-            seriesTitle: 'Series',
-            images: [{ url: 'page-1' }],
-        };
-
-        await asura.trackChapter?.(data);
-
-        expect(fetchMock).toHaveBeenCalledTimes(2);
-        expect(String(fetchMock.mock.calls[0][0])).toContain('/bookmarks/5/read/7');
-        expect(String(fetchMock.mock.calls[1][0])).toContain('/views/chapter');
-        expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toEqual({
-            chapter_id: 70,
-            series_id: 5,
-        });
+    it('returns null without api ids', () => {
+        expect(buildValirReadingPosition({ ...data, seriesApiId: undefined }, '1', [])).toBeNull();
     });
 });

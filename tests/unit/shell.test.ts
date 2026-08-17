@@ -4,6 +4,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { startInit } from '../../src/core/shell';
 import { registeredImageCount, registerImage, resetImageRegistry } from '../../src/core/image-retry';
 
+const ops: Array<{ op: string; payload: unknown }> = [];
+vi.mock('../../src/core/compute/transport', () => ({
+    computeRequest: vi.fn(async (op: string, payload: unknown) => {
+        ops.push({ op, payload });
+    }),
+    onComputeNotification: vi.fn(),
+}));
+
 function brokenImage(src: string): HTMLImageElement {
     const image = document.createElement('img');
     Object.defineProperties(image, {
@@ -42,32 +50,22 @@ describe('startInit lifecycle', () => {
             calls.push('close');
         });
 
-        const stopProviderServices = vi.fn();
-        const startProviderServices = vi.fn(() => {
-            calls.push('start services');
-            return stopProviderServices;
-        });
-        const initialization = startInit('Test', {
-            waitForTakeover,
-            tokenManager: { start: startProviderServices },
-        });
+        ops.length = 0;
+        const initialization = startInit('Test', { waitForTakeover });
         await Promise.resolve();
 
         expect(calls).toEqual(['wait']);
-        expect(startProviderServices).not.toHaveBeenCalled();
+        expect(ops).toEqual([]);
 
         release?.();
         await initialization;
 
-        expect(calls).toEqual(['wait', 'stop', 'open', 'close', 'start services']);
-
-        const persistedPageHide = new Event('pagehide');
-        Object.defineProperty(persistedPageHide, 'persisted', { value: true });
-        window.dispatchEvent(persistedPageHide);
-        expect(stopProviderServices).not.toHaveBeenCalled();
+        expect(calls).toEqual(['wait', 'stop', 'open', 'close']);
+        // Post-nuke worker context sync happens exactly once.
+        expect(ops.filter(op => op.op === 'cookie-snapshot')).toHaveLength(1);
 
         window.dispatchEvent(new Event('pagehide'));
-        expect(stopProviderServices).toHaveBeenCalledOnce();
+        expect(ops.filter(op => op.op === 'lifecycle' && (op.payload as { hidden: boolean }).hidden)).toHaveLength(1);
     });
 });
 

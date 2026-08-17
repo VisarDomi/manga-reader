@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { parseAsuraRemoteHistory } from '../../src/provider/asura';
-import { parseValirRemoteHistory } from '../../src/provider/valir';
+import { parseAsuraRemoteHistory } from '../../src/provider/asura-remote';
+import { parseValirRemoteHistory } from '../../src/provider/valir-remote';
 
 describe('remote reading history', () => {
     it('normalizes Asura chapter history into a provider-owned read boundary', () => {

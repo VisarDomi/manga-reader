@@ -1,5 +1,5 @@
 import WorkerConstructor from './worker-entry?worker&inline';
-import type { ComputeRequest, ComputeResponse, OpTypes } from './messages';
+import type { ComputeNotification, ComputeRequest, ComputeResponse, OpTypes } from './messages';
 
 interface Pending {
     resolve: (value: unknown) => void;
@@ -11,14 +11,27 @@ interface WorkerState {
     pending: Map<number, Pending>;
 }
 
+type NotifyHandler = (notification: ComputeNotification) => void;
+
 let state: WorkerState | null = null;
 let nextRequestId = 1;
+let notifyHandler: NotifyHandler | null = null;
+
+/** Register the handler for unsolicited worker notifications (cookie write-backs). */
+export function onComputeNotification(handler: NotifyHandler): void {
+    notifyHandler = handler;
+}
 
 function spawn(): WorkerState {
     const worker = new WorkerConstructor();
     const instance: WorkerState = { worker, pending: new Map() };
-    worker.onmessage = (event: MessageEvent<ComputeResponse>) => {
-        const response = event.data;
+    worker.onmessage = (event: MessageEvent<ComputeResponse | ComputeNotification>) => {
+        const message = event.data;
+        if ((message as ComputeNotification).kind === 'notify') {
+            notifyHandler?.(message as ComputeNotification);
+            return;
+        }
+        const response = message as ComputeResponse;
         const entry = instance.pending.get(response.id);
         if (!entry) return;
         instance.pending.delete(response.id);

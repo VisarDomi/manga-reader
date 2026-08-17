@@ -8,6 +8,8 @@ import type {
 } from '../provider';
 import { enqueue } from '../core/update-queue';
 import { resolveHistoryAsync } from '../core/compute/history-client';
+import { fetchRemoteHistoryAsync } from '../core/compute/remote-history-client';
+import { computeRequest } from '../core/compute/transport';
 import { registerImage } from '../core/image-retry';
 import type { CardResolution, CoverResumeModel } from '../core/compute/history';
 
@@ -422,9 +424,16 @@ export async function open(provider: Provider): Promise<void> {
     document.body.appendChild(loading);
     let remoteHistory: RemoteSeriesHistory[] = [];
 
+    function fetchPage(cursor: string | null): Promise<HomePage> {
+        if (provider.catalogInWorker) {
+            return computeRequest('fetch-home', { provider: provider.key, cursor });
+        }
+        return provider.fetchHome(cursor);
+    }
+
     let firstPage: HomePage;
     try {
-        firstPage = await provider.fetchHome(null);
+        firstPage = await fetchPage(null);
     } catch (error) {
         renderError(error);
         return;
@@ -476,10 +485,10 @@ export async function open(provider: Provider): Promise<void> {
     let historyRequestGeneration = 0;
     let historyRequestLifecycle = -1;
     function reconcileRemoteHistory(): void {
-        if (!active || !provider.fetchRemoteHistory || historyRequestLifecycle === lifecycleVersion) return;
+        if (!active || !provider.remoteHistoryInWorker || historyRequestLifecycle === lifecycleVersion) return;
         historyRequestLifecycle = lifecycleVersion;
         const generation = ++historyRequestGeneration;
-        void provider.fetchRemoteHistory()
+        void fetchRemoteHistoryAsync({ provider: provider.key })
             .then(history => {
                 if (generation !== historyRequestGeneration || !active) return;
                 remoteHistory = history;
@@ -508,7 +517,7 @@ export async function open(provider: Provider): Promise<void> {
         const requestCursor = nextCursor;
         const requestLifecycle = lifecycleVersion;
         try {
-            const page = await provider.fetchHome(requestCursor);
+            const page = await fetchPage(requestCursor);
             seenCursors.add(requestCursor);
             appendPageDeferred(provider, cards, list, remoteHistory, reportHistoryError, page);
             nextCursor = page.nextCursor;

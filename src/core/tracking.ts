@@ -1,7 +1,5 @@
-import type { ChapterData, ChapterMeta, Provider } from '../provider';
+import type { ChapterData, ChapterMeta } from '../provider';
 import { computeRequest } from './compute/transport';
-
-type TrackingProvider = Pick<Provider, 'trackPage' | 'trackChapter'>;
 
 export interface ReaderTracker {
     track(data: ChapterData, imageIndex: string, chaptersNewestFirst: ChapterMeta[]): void;
@@ -18,7 +16,6 @@ function reportSidecarError(error: unknown): void {
 }
 
 export function createReaderTracker(
-    provider: TrackingProvider,
     local?: LocalTrackingContext,
 ): ReaderTracker {
     const savedLocalPages = new Set<string>();
@@ -44,14 +41,31 @@ export function createReaderTracker(
 
             // Valir needs the complete chapter list to mark older chapters.
             // Keep this dedupe separate from the always-immediate local write.
-            if (chaptersNewestFirst.length > 0 && !trackedProviderPages.has(pageKey)) {
+            if (
+                local
+                && local.providerKey === 'valirscans'
+                && chaptersNewestFirst.length > 0
+                && !trackedProviderPages.has(pageKey)
+            ) {
                 trackedProviderPages.add(pageKey);
-                void provider.trackPage?.(data, imageIndex, chaptersNewestFirst).catch(reportSidecarError);
+                void computeRequest('track-page', {
+                    provider: local.providerKey,
+                    data,
+                    imageIndex,
+                    chaptersNewestFirst,
+                }).catch(reportSidecarError);
             }
 
-            if (!trackedChapters.has(data.chapterId)) {
+            if (
+                local
+                && local.providerKey === 'asurascans'
+                && !trackedChapters.has(data.chapterId)
+            ) {
                 trackedChapters.add(data.chapterId);
-                void provider.trackChapter?.(data).catch(reportSidecarError);
+                void computeRequest('track-chapter', {
+                    provider: local.providerKey,
+                    data,
+                }).catch(reportSidecarError);
             }
         },
     };

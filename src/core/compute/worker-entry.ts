@@ -11,6 +11,16 @@ import {
 } from './progress';
 import { resolveHistory, type CardInput } from './history';
 import { progressGetAll, progressPut } from './store';
+import { fetchCatalogHome } from './catalog';
+import {
+    fetchAsuraRemoteHistory,
+    fetchValirRemoteHistory,
+    setWorkerContext,
+    startWorkerTokenManagers,
+    trackAsuraChapter,
+    trackValirPage,
+} from './token';
+import type { ChapterData, ChapterMeta } from '../../provider/types';
 
 interface WorkerState {
     progress: ChapterProgress[];
@@ -59,6 +69,71 @@ async function handle(request: ComputeRequest): Promise<Outcome> {
                 return { ok: true, value: entry };
             }
 
+            case 'cookie-snapshot': {
+                const payload = request.payload as { cookies?: unknown; pathname?: unknown } | undefined;
+                setWorkerContext({
+                    cookies: typeof payload?.cookies === 'string' ? payload.cookies : '',
+                    pathname: typeof payload?.pathname === 'string' ? payload.pathname : '/',
+                });
+                return { ok: true, value: undefined };
+            }
+
+            case 'lifecycle': {
+                const payload = request.payload as { hidden?: unknown } | undefined;
+                setWorkerContext({ hidden: payload?.hidden === true });
+                return { ok: true, value: undefined };
+            }
+
+            case 'remote-history': {
+                const payload = request.payload as { provider?: unknown } | undefined;
+                if (payload?.provider === 'asurascans') {
+                    return { ok: true, value: await fetchAsuraRemoteHistory() };
+                }
+                if (payload?.provider === 'valirscans') {
+                    return { ok: true, value: await fetchValirRemoteHistory() };
+                }
+                throw new Error('remote-history requires an asura/valir provider key');
+            }
+
+            case 'track-chapter': {
+                const payload = request.payload as { provider?: unknown; data?: ChapterData } | undefined;
+                if (payload?.provider !== 'asurascans' || !payload?.data) {
+                    throw new Error('track-chapter requires asura provider data');
+                }
+                await trackAsuraChapter(payload.data);
+                return { ok: true, value: undefined };
+            }
+
+            case 'track-page': {
+                const payload = request.payload as {
+                    provider?: unknown;
+                    data?: ChapterData;
+                    imageIndex?: string;
+                    chaptersNewestFirst?: ChapterMeta[];
+                } | undefined;
+                if (payload?.provider !== 'valirscans' || !payload?.data) {
+                    throw new Error('track-page requires valir provider data');
+                }
+                await trackValirPage(
+                    payload.data,
+                    payload.imageIndex ?? '0',
+                    payload.chaptersNewestFirst ?? [],
+                );
+                return { ok: true, value: undefined };
+            }
+
+            case 'fetch-home': {
+                const payload = request.payload as { provider?: unknown; cursor?: unknown } | undefined;
+                if (typeof payload?.provider !== 'string') {
+                    throw new Error('fetch-home requires a provider key');
+                }
+                const cursor = payload.cursor === null || payload.cursor === undefined
+                    ? null
+                    : String(payload.cursor);
+                const page = await fetchCatalogHome(payload.provider, cursor);
+                return { ok: true, value: page };
+            }
+
             case 'history-resolve': {
                 const payload = request.payload as {
                     cards?: CardInput[];
@@ -93,6 +168,8 @@ function respond(id: number, outcome: Outcome): void {
 }
 
 let queue: Promise<void> = Promise.resolve();
+
+startWorkerTokenManagers();
 
 self.onmessage = (event: MessageEvent<ComputeRequest>) => {
     const request = event.data;

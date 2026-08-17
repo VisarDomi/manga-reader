@@ -1,5 +1,3 @@
-import type { TokenManager } from '../core/token-manager';
-
 export enum Handler {
     Home,
     Reader,
@@ -75,21 +73,18 @@ export interface RemoteSeriesHistory {
 export interface Provider {
     /** Stable storage namespace for local progress. */
     key: string;
+    /** When true, the compute worker performs the catalog fetch + mapping. */
+    catalogInWorker?: boolean;
     /** Title used when takeover happens before the provider page supplies one. */
     documentTitle: string;
     /** Wait until this provider's document is safe to replace. */
     waitForTakeover?: () => Promise<void>;
-    tokenManager?: TokenManager;
+    /** Authenticated history and tracking run in the compute worker. */
+    remoteHistoryInWorker?: boolean;
     matchRoute(pathname: string, hash: string): RouteMatch | null;
     fetchHome(cursor: string | null): Promise<HomePage>;
-    /** Fetch authenticated provider history as an optional, non-blocking sidecar. */
-    fetchRemoteHistory?(): Promise<RemoteSeriesHistory[]>;
     fetchChapter(slug: string, chapterId: string): Promise<ChapterData | null>;
     fetchChaptersNewestFirst(slug: string): Promise<ChapterMeta[]>;
     readerUrl(slug: string, chapterId: string, imageIndex?: string): string;
     seriesUrl(slug: string): string;
-    /** Track progress for a visible page. Optional — no-op by default. */
-    trackPage?(data: ChapterData, imageIndex: string, chaptersNewestFirst: ChapterMeta[]): Promise<void>;
-    /** Mark a chapter as read and/or record a chapter view. Optional — no-op by default. */
-    trackChapter?(data: ChapterData): Promise<void>;
 }

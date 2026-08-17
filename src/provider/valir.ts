@@ -6,17 +6,15 @@ import {
     type ChapterMeta,
     type ChapterImage,
     type HomePage,
-    type RemoteSeriesHistory,
 } from './types';
 import { SITE_CONFIG } from '../core/sites';
 import { isChapterUnavailable } from '../core/http';
 import { hashImageIndex } from '../core/page';
-import { createValirTokenManager } from './valir-token-manager';
+import { fetchValirHome } from './valir-catalog';
 
 const DOMAIN = SITE_CONFIG['valirscans'].domain;
 const CHAPTER_RE = /^\/series\/comic\/([^/]+)\/chapter\/(\d+)/;
 const FLIGHT_PUSH = 'self.__next_f.push(';
-export const valirTokenManager = createValirTokenManager(`https://${DOMAIN}`);
 
 function valirDocumentReady(): boolean {
     return [...document.scripts].some(script => script.textContent?.includes(FLIGHT_PUSH));
@@ -110,61 +108,12 @@ export function parseValirChapters(html: string): ChapterMeta[] {
     return chapters.reverse();
 }
 
-function record(value: unknown, context: string): Record<string, unknown> {
-    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-        throw new Error(`Valir ${context} is not an object`);
-    }
-    return value as Record<string, unknown>;
-}
-
-function requiredString(value: unknown, context: string): string {
-    if (typeof value !== 'string' || value.trim() === '') throw new Error(`Valir ${context} is not a string`);
-    return value;
-}
-
-function positiveChapter(value: unknown, context: string): string {
-    if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
-        throw new Error(`Valir ${context} is not a positive chapter number`);
-    }
-    return String(value);
-}
-
-export function parseValirRemoteHistory(value: unknown): RemoteSeriesHistory[] {
-    const envelope = record(value, 'continue reading response');
-    if (!Array.isArray(envelope.series)) throw new Error('Valir continue reading response has no series array');
-    return envelope.series.map((raw, index) => {
-        const series = record(raw, `continue reading series ${index}`);
-        const slug = requiredString(series.urlSlug ?? series.slug, `continue reading series ${index} slug`);
-        const lastChapter = record(series.lastChapter, `continue reading series ${index} lastChapter`);
-        const resumeChapterId = positiveChapter(
-            lastChapter.number,
-            `continue reading series ${index} lastChapter.number`,
-        );
-        const readThroughChapterId = positiveChapter(
-            series.highestChapter,
-            `continue reading series ${index} highestChapter`,
-        );
-        const history: RemoteSeriesHistory = { seriesId: slug, readThroughChapterId, resumeChapterId };
-        if (lastChapter.progress !== undefined && lastChapter.progress !== null) {
-            if (
-                typeof lastChapter.progress !== 'number'
-                || !Number.isFinite(lastChapter.progress)
-                || lastChapter.progress < 0
-                || lastChapter.progress > 100
-            ) {
-                throw new Error(`Valir continue reading series ${index} lastChapter.progress is invalid`);
-            }
-            history.resumePercent = lastChapter.progress;
-        }
-        return history;
-    });
-}
-
 export const valir: Provider = {
     key: 'valirscans',
+    catalogInWorker: true,
+    remoteHistoryInWorker: true,
     documentTitle: SITE_CONFIG.valirscans.documentTitle,
     waitForTakeover: waitForValirTakeover,
-    tokenManager: valirTokenManager,
 
     matchRoute(pathname: string, hash: string): RouteMatch | null {
         if (pathname === '/') return { handler: Handler.Home };
@@ -174,57 +123,7 @@ export const valir: Provider = {
     },
 
     async fetchHome(cursor: string | null): Promise<HomePage> {
-        const page = cursor === null ? 1 : Number(cursor);
-        if (!Number.isSafeInteger(page) || page < 1) throw new Error(`Invalid Valir home cursor: ${cursor}`);
-        const limit = 100;
-        const query = new URLSearchParams({
-            type: 'MANHWA,MANHUA,MANGA,WEBTOON',
-            page: String(page),
-            limit: String(limit),
-        });
-        const res = await fetch(`https://${DOMAIN}/api/series?${query}`);
-        if (!res.ok) throw new Error(`Series catalog failed: ${res.status}`);
-        const response = await res.json() as {
-            data: Array<{
-                slug: string;
-                urlSlug: string;
-                title: string;
-                coverImage: string;
-                chapters: Array<{
-                    number: number;
-                    title: string;
-                    isLocked: boolean;
-                    isFree: boolean;
-                    coinPrice: number;
-                    publishedAt: string;
-                    unlockedAt: string | null;
-                }>;
-            }>;
-            meta: { total: number; hasMore: boolean };
-        };
-        return {
-            total: response.meta.total,
-            nextCursor: response.meta.hasMore ? String(page + 1) : null,
-            series: response.data.map(series => ({
-                slug: series.urlSlug || series.slug,
-                title: series.title,
-                coverUrl: new URL(series.coverImage, `https://${DOMAIN}`).href,
-                chapters: series.chapters.slice(0, 5).map(chapter => ({
-                    chapterId: String(chapter.number),
-                    label: chapter.title || `Chapter ${chapter.number}`,
-                    uploadedAt: chapter.publishedAt,
-                    locked: chapter.isLocked || !chapter.isFree || chapter.coinPrice > 0,
-                    unlockAt: chapter.unlockedAt,
-                })),
-            })),
-        };
-    },
-
-    async fetchRemoteHistory(): Promise<RemoteSeriesHistory[]> {
-        const response = await valirTokenManager.fetch(`https://${DOMAIN}/api/continue-reading`);
-        if (response === null) return [];
-        if (!response.ok) throw new Error(`Valir continue reading failed: ${response.status}`);
-        return parseValirRemoteHistory(await response.json());
+        return fetchValirHome(cursor);
     },
 
 
@@ -297,29 +196,4 @@ export const valir: Provider = {
         return `https://${DOMAIN}/series/comic/${slug}`;
     },
 
-    async trackPage(data: ChapterData, imageIndex: string, chaptersNewestFirst: ChapterMeta[]): Promise<void> {
-        if (!data.seriesApiId || !data.chapterApiId) return;
-
-        const parsedImageIndex = parseInt(imageIndex, 10);
-        const totalImages = data.images.length;
-        const progress = Math.round((parsedImageIndex + 1) / totalImages * 100);
-
-        const chapters = [{ chapterId: data.chapterApiId, progress }];
-
-        const currentIdx = chaptersNewestFirst.findIndex(ch => ch.chapterId === data.chapterId);
-        if (currentIdx !== -1) {
-            for (const ch of chaptersNewestFirst.slice(currentIdx + 1)) {
-                if (ch.chapterApiId) chapters.push({ chapterId: ch.chapterApiId, progress: 100 });
-            }
-        }
-
-        const response = await valirTokenManager.fetch(`https://${DOMAIN}/api/chapters/reading-position`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ seriesId: data.seriesApiId, chapters }),
-        });
-        if (response !== null && !response.ok) {
-            throw new Error(`Valir reading position failed: ${response.status}`);
-        }
-    },
 };

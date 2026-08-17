@@ -147,7 +147,7 @@ export async function open(
     // 4. Scroll handler
     let lastSavedImage = '';
     let localTrackingErrorShown = false;
-    const tracker = createReaderTracker(provider, {
+    const tracker = createReaderTracker({
         providerKey: provider.key,
         seriesSlug: slug,
         onError(error) {

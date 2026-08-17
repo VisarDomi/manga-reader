@@ -1,6 +1,15 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChapterData, ChapterMeta } from '../../src/provider';
 import { createReaderTracker } from '../../src/core/tracking';
+
+// jsdom has no Worker: observe the ops the tracker dispatches.
+const calls: Array<{ op: string; payload: unknown }> = [];
+vi.mock('../../src/core/compute/transport', () => ({
+    computeRequest: vi.fn(async (op: string, payload: unknown) => {
+        calls.push({ op, payload });
+    }),
+    onComputeNotification: vi.fn(),
+}));
 
 function chapter(chapterId: string): ChapterData {
     return {
@@ -11,11 +20,21 @@ function chapter(chapterId: string): ChapterData {
     };
 }
 
+const payloadFor = (op: string) => calls
+    .filter(call => call.op === op)
+    .map(call => call.payload);
+
+beforeEach(() => {
+    calls.length = 0;
+});
+
+afterEach(() => {
+    vi.unstubAllGlobals();
+});
+
 describe('reader tracking', () => {
-    it('tracks each page once and each chapter once', () => {
-        const trackPage = vi.fn(async () => {});
-        const trackChapter = vi.fn(async () => {});
-        const tracker = createReaderTracker({ trackPage, trackChapter });
+    it('saves each page once and tracks each chapter once (asura)', () => {
+        const tracker = createReaderTracker({ providerKey: 'asurascans', seriesSlug: 'series' });
         const chapters: ChapterMeta[] = [
             { chapterId: '2' },
             { chapterId: '1' },
@@ -29,17 +48,18 @@ describe('reader tracking', () => {
         tracker.track(chapterOne, '0', chapters);
         tracker.track(chapterTwo, '0', chapters);
 
-        expect(trackPage.mock.calls.map(([data, imageIndex]) => [data.chapterId, imageIndex])).toEqual([
-            ['1', '0'],
-            ['1', '1'],
-            ['2', '0'],
+        const saves = payloadFor('save-progress') as Array<{ chapterId: string; imageIndex: number }>;
+        expect(saves.map(save => [save.chapterId, save.imageIndex])).toEqual([
+            ['1', 0],
+            ['1', 1],
+            ['2', 0],
         ]);
-        expect(trackChapter.mock.calls.map(([data]) => data.chapterId)).toEqual(['1', '2']);
+        const chapterTracks = payloadFor('track-chapter') as Array<{ data: ChapterData }>;
+        expect(chapterTracks.map(track => track.data.chapterId)).toEqual(['1', '2']);
     });
 
-    it('waits for chapter metadata before deduplicating provider page tracking', () => {
-        const trackPage = vi.fn(async () => {});
-        const tracker = createReaderTracker({ trackPage });
+    it('waits for chapter metadata before deduplicating provider page tracking (valir)', async () => {
+        const tracker = createReaderTracker({ providerKey: 'valirscans', seriesSlug: 'series' });
         const data = chapter('1');
         const chapters = [{ chapterId: '2' }, { chapterId: '1' }];
 
@@ -47,7 +67,7 @@ describe('reader tracking', () => {
         tracker.track(data, '0', chapters);
         tracker.track(data, '0', chapters);
 
-        expect(trackPage).toHaveBeenCalledOnce();
-        expect(trackPage).toHaveBeenCalledWith(data, '0', chapters);
+        await Promise.resolve();
+        expect(payloadFor('track-page')).toHaveLength(1);
     });
 });
