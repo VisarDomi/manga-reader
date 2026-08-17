@@ -270,7 +270,12 @@ export async function trackValirPage(
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(position),
     });
-    if (response !== null && !response.ok) {
+    if (response === null) {
+        // Fail loudly: a skipped POST means the server never gets the
+        // percentage, and the user must know their progress is not syncing.
+        throw new Error('Valir tracking skipped: no authenticated session');
+    }
+    if (!response.ok) {
         throw new Error('Valir reading position failed: ' + response.status);
     }
 }

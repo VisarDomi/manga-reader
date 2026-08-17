@@ -11,7 +11,13 @@ export interface LocalTrackingContext {
     onError?(error: unknown): void;
 }
 
-function reportSidecarError(error: unknown): void {
+function reportSidecarError(local: LocalTrackingContext | undefined, error: unknown): void {
+    // The visible onError channel is the loud path; the console is only the
+    // fallback when the caller never wired one.
+    if (local?.onError) {
+        local.onError(error);
+        return;
+    }
     console.error('Provider tracking sidecar failed', error);
 }
 
@@ -53,7 +59,7 @@ export function createReaderTracker(
                     data,
                     imageIndex,
                     chaptersNewestFirst,
-                }).catch(reportSidecarError);
+                }).catch(error => reportSidecarError(local, error));
             }
 
             if (
@@ -65,7 +71,7 @@ export function createReaderTracker(
                 void computeRequest('track-chapter', {
                     provider: local.providerKey,
                     data,
-                }).catch(reportSidecarError);
+                }).catch(error => reportSidecarError(local, error));
             }
         },
     };

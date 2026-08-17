@@ -154,7 +154,7 @@ export async function open(
             if (localTrackingErrorShown) return;
             localTrackingErrorShown = true;
             wrapper.appendChild(createStatus(
-                `Local history failed: ${error instanceof Error ? error.message : String(error)}`,
+                `Progress sync failed: ${error instanceof Error ? error.message : String(error)}`,
                 'hs-error',
             ));
         },
