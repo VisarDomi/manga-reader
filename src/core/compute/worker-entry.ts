@@ -15,11 +15,11 @@ import { fetchCatalogHome } from './catalog';
 import {
     fetchAsuraRemoteHistory,
     fetchValirRemoteHistory,
-    setWorkerContext,
     startWorkerTokenManagers,
     trackAsuraChapter,
     trackValirPage,
 } from './token';
+import { setWorkerContext } from './context';
 import type { ChapterData, ChapterMeta } from '../../provider/types';
 
 interface WorkerState {
@@ -70,10 +70,11 @@ async function handle(request: ComputeRequest): Promise<Outcome> {
             }
 
             case 'cookie-snapshot': {
-                const payload = request.payload as { cookies?: unknown; pathname?: unknown } | undefined;
+                const payload = request.payload as { cookies?: unknown; pathname?: unknown; href?: unknown } | undefined;
                 setWorkerContext({
                     cookies: typeof payload?.cookies === 'string' ? payload.cookies : '',
                     pathname: typeof payload?.pathname === 'string' ? payload.pathname : '/',
+                    href: typeof payload?.href === 'string' ? payload.href : '',
                 });
                 return { ok: true, value: undefined };
             }

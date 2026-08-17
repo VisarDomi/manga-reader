@@ -5,6 +5,7 @@
 // 'cookie-write' notifications (workers cannot touch document.cookie).
 
 import { tokensGet, tokensPut } from './store';
+import { workerContext } from './context';
 import { parseAsuraRemoteHistory } from '../../provider/asura-remote';
 import { buildValirReadingPosition, parseValirRemoteHistory } from '../../provider/valir-remote';
 import type { ChapterData, ChapterMeta, RemoteSeriesHistory } from '../../provider/types';
@@ -17,24 +18,19 @@ const BACKOFF_INTERVAL_MS = 60_000;
 const SESSION_REFRESH_EVERY = 5;
 const MAX_CONSECUTIVE_FAILURES = 10;
 
-interface WorkerContext {
-    cookies: string;
-    pathname: string;
-    hidden: boolean;
-}
-
-const context: WorkerContext = { cookies: '', pathname: '/', hidden: false };
-
-export function setWorkerContext(update: Partial<WorkerContext>): void {
-    Object.assign(context, update);
-}
-
 function cookiePresent(name: string): boolean {
-    return new RegExp('(?:^|;\\s*)' + name + '=1(?:;|$)').test(context.cookies);
+    return new RegExp('(?:^|;\\s*)' + name + '=1(?:;|$)').test(workerContext().cookies);
 }
 
 function notifyCookieWrite(value: string): void {
     (self as unknown as Worker).postMessage({ kind: 'notify', name: 'cookie-write', value });
+}
+
+/** All worker-side provider fetches carry the page URL as the referrer:
+ * Cloudflare-fronted APIs can reject requests whose Referer is not the page. */
+function providerFetch(input: string, init: RequestInit = {}): Promise<Response> {
+    const referrer = workerContext().href;
+    return fetch(input, referrer ? { ...init, referrer } : init);
 }
 
 // ── asura ────────────────────────────────────────────────────────────
@@ -56,7 +52,7 @@ async function asuraRefreshAccessToken(): Promise<string> {
         if (refreshToken === undefined && !cookiePresent('logged_in')) {
             throw new Error('Asura has no refresh credentials');
         }
-        const response = await fetch(ASURA_API + '/auth/refresh', {
+        const response = await providerFetch(ASURA_API + '/auth/refresh', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(refreshToken === undefined ? {} : { refresh_token: refreshToken }),
@@ -94,11 +90,11 @@ async function asuraAuthedFetch(input: string, init: RequestInit = {}): Promise<
 
     const headers = new Headers(init.headers);
     headers.set('Authorization', 'Bearer ' + accessToken);
-    let response = await fetch(input, { ...init, headers });
+    let response = await providerFetch(input, { ...init, headers });
     if (response.status === 401 && await asuraCanRefresh()) {
         accessToken = await asuraRefreshAccessToken();
         headers.set('Authorization', 'Bearer ' + accessToken);
-        response = await fetch(input, { ...init, headers });
+        response = await providerFetch(input, { ...init, headers });
     }
     return response;
 }
@@ -163,10 +159,10 @@ function objectOrNull(value: unknown, contextName: string): Record<string, unkno
 
 async function valirHeartbeat(): Promise<void> {
     const previousToken = await tokensGet('valir:session');
-    const response = await fetch('https://' + VALIR_DOMAIN + '/api/heartbeat', {
+    const response = await providerFetch('https://' + VALIR_DOMAIN + '/api/heartbeat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionToken: previousToken ?? null, currentPage: context.pathname }),
+        body: JSON.stringify({ sessionToken: previousToken ?? null, currentPage: workerContext().pathname }),
         credentials: 'include',
     });
     if (!response.ok) throw new Error('Valir heartbeat failed: ' + response.status);
@@ -181,7 +177,7 @@ async function valirHeartbeat(): Promise<void> {
 }
 
 async function valirRefreshSessionState(): Promise<void> {
-    const response = await fetch('https://' + VALIR_DOMAIN + '/api/auth/session', {
+    const response = await providerFetch('https://' + VALIR_DOMAIN + '/api/auth/session', {
         credentials: 'include',
         cache: 'no-store',
     });
@@ -210,11 +206,11 @@ async function valirSessionFetch(input: string, init: RequestInit = {}): Promise
     if (!valirState.authenticated) return null;
 
     const requestInit = { ...init, credentials: 'include' as const };
-    let response = await fetch(input, requestInit);
+    let response = await providerFetch(input, requestInit);
     if (response.status === 401) {
         await valirRefreshSession();
         if (!valirState.authenticated) return null;
-        response = await fetch(input, requestInit);
+        response = await providerFetch(input, requestInit);
     }
     return response;
 }
@@ -224,7 +220,7 @@ function valirSchedule(): void {
         self.clearTimeout(valirState.timer);
         valirState.timer = null;
     }
-    if (context.hidden || valirState.failures >= MAX_CONSECUTIVE_FAILURES) return;
+    if (workerContext().hidden || valirState.failures >= MAX_CONSECUTIVE_FAILURES) return;
     valirState.timer = self.setTimeout(
         () => { void valirRunHeartbeat(); },
         valirState.failures >= 3 ? BACKOFF_INTERVAL_MS : HEARTBEAT_INTERVAL_MS,

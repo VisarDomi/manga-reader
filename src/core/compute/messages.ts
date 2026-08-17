@@ -44,6 +44,7 @@ export interface FetchHomePayload {
 export interface SnapshotPayload {
     cookies: string;
     pathname: string;
+    href: string;
 }
 
 export interface RemoteHistoryPayload {

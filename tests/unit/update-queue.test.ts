@@ -1,95 +1,105 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+// @vitest-environment jsdom
+
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
     enqueue,
     isPending,
     pendingKinds,
     resetQueue,
-    setIdleDeadlineSource,
-    setIdleScheduler,
+    runPendingDrain,
 } from '../../src/core/update-queue';
 
-describe('update queue', () => {
-    let callbacks: Array<() => void>;
-    // A real IdleDeadline.timeRemaining() decreases as the callback consumes it,
-    // and each new idle callback receives a fresh deadline.
-    let perDrainBudget = Infinity;
-    let remaining = Infinity;
-
+describe('update queue (scrollend + 100ms)', () => {
     beforeEach(() => {
-        callbacks = [];
-        perDrainBudget = Infinity;
-        setIdleScheduler(callback => callbacks.push(callback));
-        setIdleDeadlineSource(() => {
-            remaining = perDrainBudget;
-            return { timeRemaining: () => Math.max(0, remaining--) };
-        });
+        resetQueue();
     });
 
     afterEach(() => {
+        vi.useRealTimers();
         resetQueue();
-        setIdleScheduler(callback => {
-            throw new Error('scheduler was not injected in this test');
-        });
-        setIdleDeadlineSource(() => null);
     });
 
-    const flush = () => {
-        while (callbacks.length > 0) {
-            const callback = callbacks.shift()!;
-            callback();
-        }
-    };
-
-    it('applies every step exactly once in order', () => {
+    it('applies every batch in one synchronous pass after scrollend + 100ms', async () => {
+        vi.useFakeTimers();
         const applied: string[] = [];
         enqueue('history', [() => applied.push('a'), () => applied.push('b'), () => applied.push('c')]);
-        flush();
+        expect(applied).toEqual([]);
+
+        window.dispatchEvent(new Event('scrollend'));
+        await vi.advanceTimersByTimeAsync(99);
+        expect(applied).toEqual([]);
+
+        await vi.advanceTimersByTimeAsync(1);
         expect(applied).toEqual(['a', 'b', 'c']);
         expect(pendingKinds()).toEqual([]);
     });
 
-    it('stops at the idle budget and reschedules', () => {
+    it('never drains without a scrollend, no matter how long it waits', async () => {
+        vi.useFakeTimers();
         const applied: string[] = [];
-        perDrainBudget = 1;
-        enqueue('history', [() => applied.push('a'), () => applied.push('b'), () => applied.push('c')]);
-        flush();
-        expect(applied).toEqual(['a', 'b', 'c']);
-        expect(pendingKinds()).toEqual([]);
-    });
-
-    it('drops a superseded batch when a newer one arrives (latest-wins)', () => {
-        const applied: string[] = [];
-        perDrainBudget = 2;
-        enqueue('history', ['a1', 'a2', 'a3', 'a4'].map(step => () => applied.push(step)));
-        // first idle callback applies only a1, a2
-        callbacks.shift()!();
-        expect(applied).toEqual(['a1', 'a2']);
+        enqueue('history', [() => applied.push('x')]);
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(applied).toEqual([]);
         expect(isPending('history')).toBe(true);
+    });
 
-        perDrainBudget = Infinity;
+    it('a newer batch supersedes a pending one (latest-wins)', async () => {
+        vi.useFakeTimers();
+        const applied: string[] = [];
+        enqueue('history', ['a1', 'a2'].map(step => () => applied.push(step)));
         enqueue('history', ['b1', 'b2'].map(step => () => applied.push(step)));
-        flush();
-        expect(applied).toEqual(['a1', 'a2', 'b1', 'b2']);
+        window.dispatchEvent(new Event('scrollend'));
+        await vi.advanceTimersByTimeAsync(100);
+        expect(applied).toEqual(['b1', 'b2']);
         expect(isPending('history')).toBe(false);
     });
 
-    it('keeps distinct kinds independent', () => {
+    it('a later scrollend re-arms the delay', async () => {
+        vi.useFakeTimers();
+        const applied: string[] = [];
+        enqueue('history', [() => applied.push('x')]);
+        window.dispatchEvent(new Event('scrollend'));
+        await vi.advanceTimersByTimeAsync(50);
+        window.dispatchEvent(new Event('scrollend'));
+        await vi.advanceTimersByTimeAsync(50);
+        expect(applied).toEqual([]);
+        await vi.advanceTimersByTimeAsync(50);
+        expect(applied).toEqual(['x']);
+    });
+
+    it('pageshow arms the burst (bfcache restore applies without a scroll)', async () => {
+        vi.useFakeTimers();
+        const applied: string[] = [];
+        enqueue('history', [() => applied.push('x')]);
+        window.dispatchEvent(new Event('pageshow'));
+        await vi.advanceTimersByTimeAsync(99);
+        expect(applied).toEqual([]);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(applied).toEqual(['x']);
+    });
+
+    it('a scroll before the timer elapses cancels the burst until the next scrollend', async () => {
+        vi.useFakeTimers();
+        const applied: string[] = [];
+        enqueue('history', [() => applied.push('x')]);
+        window.dispatchEvent(new Event('pageshow'));
+        await vi.advanceTimersByTimeAsync(50);
+        window.dispatchEvent(new Event('scroll'));
+        await vi.advanceTimersByTimeAsync(200);
+        expect(applied).toEqual([]);
+        window.dispatchEvent(new Event('scrollend'));
+        await vi.advanceTimersByTimeAsync(100);
+        expect(applied).toEqual(['x']);
+    });
+
+    it('keeps distinct kinds independent and drains them together', async () => {
+        vi.useFakeTimers();
         const applied: string[] = [];
         enqueue('history', [() => applied.push('h')]);
         enqueue('catalog', [() => applied.push('c')]);
         expect(pendingKinds().sort()).toEqual(['catalog', 'history']);
-        flush();
+        runPendingDrain();
         expect(applied.sort()).toEqual(['c', 'h']);
-    });
-
-    it('never runs without budget and stays scheduled', () => {
-        const applied: string[] = [];
-        perDrainBudget = 0;
-        enqueue('history', [() => applied.push('x')]);
-        expect(callbacks).toHaveLength(1);
-        callbacks.shift()!();
-        expect(applied).toEqual([]);
-        expect(isPending('history')).toBe(true);
-        expect(callbacks).toHaveLength(1);
+        expect(pendingKinds()).toEqual([]);
     });
 });

@@ -34,7 +34,7 @@ function coverUrl(raw: string): string {
     return url.href;
 }
 
-export async function fetchAsuraHome(cursor: string | null): Promise<HomePage> {
+export async function fetchAsuraHome(cursor: string | null, referrer?: string): Promise<HomePage> {
     const page = cursor === null ? 1 : Number(cursor);
     if (!Number.isSafeInteger(page) || page < 1) throw new Error(`Invalid Asura home cursor: ${cursor}`);
     const limit = 50;
@@ -44,7 +44,7 @@ export async function fetchAsuraHome(cursor: string | null): Promise<HomePage> {
         limit: String(limit),
         offset: String((page - 1) * limit),
     });
-    const res = await fetch(`${API_BASE}/series?${query}`);
+    const res = await fetch(`${API_BASE}/series?${query}`, referrer ? { referrer } : undefined);
     if (!res.ok) throw new Error(`Series catalog failed: ${res.status}`);
     const response = await res.json() as {
         data: AsuraHomeSeries[];

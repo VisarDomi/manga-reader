@@ -49,11 +49,11 @@ function homeCursor(cursor: string | null): { source: 'latest' | 'catalog'; page
     return { source: match[1] as 'latest' | 'catalog', page };
 }
 
-export async function fetchAngularHome(site: Site, cursor: string | null): Promise<HomePage> {
+export async function fetchAngularHome(site: Site, cursor: string | null, referrer?: string): Promise<HomePage> {
     const { apiBase } = SITE_CONFIG[site];
     const { source, page } = homeCursor(cursor);
     if (source === 'latest') {
-        const res = await fetch(`${apiBase}/home/latest?page=${page}&perPage=50`);
+        const res = await fetch(`${apiBase}/home/latest?page=${page}&perPage=50`, referrer ? { referrer } : undefined);
         if (!res.ok) throw new Error(`Latest series failed: ${res.status}`);
         const data = await res.json() as {
             data: AngularHomeSeries[];
@@ -69,7 +69,7 @@ export async function fetchAngularHome(site: Site, cursor: string | null): Promi
         };
     }
 
-    const res = await fetch(`${apiBase}/series?perPage=100&page=${page}`);
+    const res = await fetch(`${apiBase}/series?perPage=100&page=${page}`, referrer ? { referrer } : undefined);
     if (!res.ok) throw new Error(`Series catalog failed: ${res.status}`);
     const data = await res.json() as {
         data: AngularHomeSeries[];

@@ -9,7 +9,7 @@ Features:
 - Providers own page URL recognition and construction.
 - Opening or refreshing a saved URL restores the corresponding image.
 
-Test URLs:
+Test URLs for testing reader:
 
 https://asurascans.com/comics/chronicles-of-the-lazy-sovereign-f886a8af/chapter/50#3
 https://valirscans.org/series/comic/my-tyrant-brother-is-a-bonus/chapter/16#2
@@ -20,9 +20,17 @@ https://ezmanga.org/series/apocalypse-villainess-surviving-with-corporate-slave-
 https://qimanga.com/series/genius-magic-swordsman-returns/chapter-1#5
 https://yakshacomics.com/manga/who-allowed-him-to-cultivate-immortality/chapter-16/#3
 
+Test URLs for testing home:
+https://asurascans.com
+https://valirscans.org
+https://scythescans.com
+https://luacomic.org
+https://violetscans.org
+https://ezmanga.org
+https://qimanga.com
+https://yakshacomics.com
 
 Test URLs for showing all manga:
-
 https://asurascans.com/browse?page=2
 https://valirscans.org/series?type=Manhwa%2CManhua%2CManga%2CWebtoon&page=2
 https://scythescans.com/

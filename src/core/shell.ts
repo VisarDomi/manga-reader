@@ -29,6 +29,7 @@ export async function startInit(
         void computeRequest('cookie-snapshot', {
             cookies: document.cookie,
             pathname: location.pathname,
+            href: location.href,
         });
     };
     syncContext();

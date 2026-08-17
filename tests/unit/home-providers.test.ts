@@ -13,7 +13,7 @@ import { violet } from '../../src/provider/violet';
 import { yaksha } from '../../src/provider/yaksha';
 import { open as openHome } from '../../src/routes/home';
 import { saveChapterProgress } from '../../src/storage/progress';
-import { resetQueue, setIdleScheduler } from '../../src/core/update-queue';
+import { resetQueue } from '../../src/core/update-queue';
 
 // jsdom has no Worker: route the history client through the pure resolver,
 // reading test progress from localStorage like the old synchronous path did.
@@ -38,12 +38,20 @@ vi.mock('../../src/core/compute/remote-history-client', () => ({
     fetchRemoteHistoryAsync: () => remoteSeam.pending,
 }));
 
+let scrollendInterval: ReturnType<typeof setInterval> | null = null;
+
 beforeEach(() => {
     resetQueue();
-    setIdleScheduler(callback => queueMicrotask(callback));
+    // The update queue now drains at scrollend + 100ms (production policy):
+    // simulate regular scroll pauses so queued overlays apply.
+    scrollendInterval = setInterval(() => {
+        window.dispatchEvent(new Event('scrollend'));
+    }, 300);
 });
 
 afterEach(() => {
+    if (scrollendInterval !== null) clearInterval(scrollendInterval);
+    scrollendInterval = null;
     vi.useRealTimers();
     vi.unstubAllGlobals();
     localStorage.clear();
@@ -342,6 +350,10 @@ describe('home catalog rendering', () => {
         const opening = openHome(provider);
         await vi.advanceTimersByTimeAsync(1_000);
         await opening;
+
+        // The deferred catalog batch drains at scrollend + 100ms.
+        window.dispatchEvent(new Event('scrollend'));
+        await vi.advanceTimersByTimeAsync(100);
 
         const chapters = [...document.querySelectorAll('.hs-home-card[data-series-slug="series-a"] .hs-home-chapter')];
         expect(chapters.map(chapter => chapter.querySelector('.hs-home-chapter-label')?.textContent)).toEqual([

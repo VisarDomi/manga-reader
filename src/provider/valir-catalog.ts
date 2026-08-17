@@ -4,7 +4,7 @@ import type { HomePage } from './types';
 
 const DOMAIN = SITE_CONFIG['valirscans'].domain;
 
-export async function fetchValirHome(cursor: string | null): Promise<HomePage> {
+export async function fetchValirHome(cursor: string | null, referrer?: string): Promise<HomePage> {
     const page = cursor === null ? 1 : Number(cursor);
     if (!Number.isSafeInteger(page) || page < 1) throw new Error(`Invalid Valir home cursor: ${cursor}`);
     const limit = 100;
@@ -13,7 +13,7 @@ export async function fetchValirHome(cursor: string | null): Promise<HomePage> {
         page: String(page),
         limit: String(limit),
     });
-    const res = await fetch(`https://${DOMAIN}/api/series?${query}`);
+    const res = await fetch(`https://${DOMAIN}/api/series?${query}`, referrer ? { referrer } : undefined);
     if (!res.ok) throw new Error(`Series catalog failed: ${res.status}`);
     const response = await res.json() as {
         data: Array<{

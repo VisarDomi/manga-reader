@@ -26,7 +26,7 @@ function luaChapterNumber(chapter: LuaHomeChapter): number {
     return Number.isFinite(number) ? number : Number.NEGATIVE_INFINITY;
 }
 
-export async function fetchLuaHome(cursor: string | null): Promise<HomePage> {
+export async function fetchLuaHome(cursor: string | null, referrer?: string): Promise<HomePage> {
     if (cursor !== null) throw new Error(`Invalid Lua home cursor: ${cursor}`);
     const query = new URLSearchParams({
         page: '1',
@@ -38,7 +38,7 @@ export async function fetchLuaHome(cursor: string | null): Promise<HomePage> {
         status: 'All',
         tags_ids: '[]',
     });
-    const res = await fetch(`${API_BASE}/query?${query}`);
+    const res = await fetch(`${API_BASE}/query?${query}`, referrer ? { referrer } : undefined);
     if (!res.ok) throw new Error(`Series catalog failed: ${res.status}`);
     const data = await res.json() as { meta: { total: number }; data: LuaHomeSeries[] };
     return {
