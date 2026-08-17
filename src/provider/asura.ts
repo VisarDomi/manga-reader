@@ -11,10 +11,34 @@ import { SITE_CONFIG } from '../core/sites';
 import { isChapterUnavailable } from '../core/http';
 import { hashImageIndex } from '../core/page';
 import { fetchAsuraHome } from './asura-catalog';
+import { lastImageIndexFrom, percentImageIndexFrom } from './resume';
 
 const CHAPTER_RE = /^\/comics\/([^/]+)\/chapter\/(\d+)/;
 const DOMAIN = SITE_CONFIG.asurascans.domain;
 const API_BASE = SITE_CONFIG.asurascans.apiBase!;
+
+async function fetchAsuraChapter(slug: string, chapterId: string): Promise<ChapterData | null> {
+    const res = await fetch(`${API_BASE}/series/${slug}/chapters/${chapterId}`);
+    if (isChapterUnavailable(res)) return null;
+    const response = await res.json() as { data: AsuraChapterResponse };
+    const data = response.data;
+    if (data.is_locked) return null;
+
+    const images: ChapterImage[] = data.chapter.pages.map(page => ({
+        url: page.url,
+        width: page.width,
+        height: page.height,
+    }));
+    if (images.length === 0) throw new Error('Chapter response contained no images');
+    return {
+        chapterId,
+        seriesSlug: slug,
+        seriesTitle: data.series.title,
+        seriesApiId: data.series.id,
+        chapterApiId: data.chapter.id,
+        images,
+    };
+}
 
 interface AsuraPage {
     url: string;
@@ -60,27 +84,11 @@ export const asura: Provider = {
     },
 
     async fetchChapter(slug: string, chapterId: string): Promise<ChapterData | null> {
-        const res = await fetch(`${API_BASE}/series/${slug}/chapters/${chapterId}`);
-        if (isChapterUnavailable(res)) return null;
-        const response = await res.json() as { data: AsuraChapterResponse };
-        const data = response.data;
-        if (data.is_locked) return null;
-
-        const images: ChapterImage[] = data.chapter.pages.map(page => ({
-            url: page.url,
-            width: page.width,
-            height: page.height,
-        }));
-        if (images.length === 0) throw new Error('Chapter response contained no images');
-        return {
-            chapterId,
-            seriesSlug: slug,
-            seriesTitle: data.series.title,
-            seriesApiId: data.series.id,
-            chapterApiId: data.chapter.id,
-            images,
-        };
+        return fetchAsuraChapter(slug, chapterId);
     },
+
+    lastReadImageIndex: lastImageIndexFrom(fetchAsuraChapter),
+    resumeImageIndex: percentImageIndexFrom(fetchAsuraChapter),
 
     async fetchChaptersNewestFirst(slug: string): Promise<ChapterMeta[]> {
         const res = await fetch(`${API_BASE}/series/${slug}/chapters`);

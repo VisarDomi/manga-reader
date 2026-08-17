@@ -486,15 +486,16 @@ describe('home catalog rendering', () => {
 
         readerUrl.mockClear();
         cover('continuing-reader').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-        await vi.waitFor(() => expect(readerUrl).toHaveBeenCalledWith('continuing-reader', '2'));
+        await vi.waitFor(() => expect(readerUrl).toHaveBeenCalledWith('continuing-reader', '1', '4'));
 
         readerUrl.mockClear();
         cover('finished-reader').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-        await vi.waitFor(() => expect(readerUrl).toHaveBeenCalledWith('finished-reader', '3'));
+        await vi.waitFor(() => expect(readerUrl).toHaveBeenCalledWith('finished-reader', '3', '4'));
     });
 
-    it('ignores local progress from a different chapter when server history exists', async () => {
-        const readerUrl = vi.fn(() => window.location.href);
+    it('local progress trumps server for a chapter beyond the read-through boundary', async () => {
+        const readerUrl = vi.fn((slug: string, chapterId: string, index?: string) =>
+            `https://example.test/${slug}/${chapterId}${index ? `#${index}` : ''}`);
         const provider: Provider = {
             ...testProvider(async () => ({
                 nextCursor: null,
@@ -523,16 +524,85 @@ describe('home catalog rendering', () => {
         await openHome(provider);
         await vi.waitFor(() => expect(
             document.querySelector<HTMLAnchorElement>('.hs-home-cover')?.dataset.resume,
-        ).toBe('read'));
+        ).toBe('local'));
 
         const chapterTwo = document.querySelector<HTMLAnchorElement>('[data-chapter-id="2"]')!;
-        expect(chapterTwo.classList.contains('hs-home-chapter-read')).toBe(true);
-        expect(chapterTwo.classList.contains('hs-home-chapter-partial')).toBe(false);
+        expect(chapterTwo.classList.contains('hs-home-chapter-read')).toBe(false);
+        expect(chapterTwo.classList.contains('hs-home-chapter-partial')).toBe(true);
+
+        // Local partial: the cover is a plain link to the saved page — the
+        // click does not go through the resume fetch path.
+        const cover = document.querySelector<HTMLAnchorElement>('.hs-home-cover')!;
+        expect(cover.href).toBe('https://example.test/series-a/2#1');
+        readerUrl.mockClear();
+        cover.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        await vi.waitFor(() => expect(readerUrl).not.toHaveBeenCalled());
+    });
+
+
+    it('remote partial clicks go through the provider percent capability or degrade', async () => {
+        const readerUrl = vi.fn((slug: string, chapterId: string, index?: string) =>
+            `https://example.test/${slug}/${chapterId}${index === undefined ? '' : `#${index}`}`);
+        const withCapability = {
+            ...testProvider(async () => ({
+                nextCursor: null,
+                series: [{
+                    slug: 'percent-a',
+                    title: 'Percent A',
+                    coverUrl: 'https://example.test/a.webp',
+                    chapters: [{ chapterId: '7', label: 'Chapter 7', uploadedAt: null, locked: false, unlockAt: null }],
+                }],
+            })),
+            readerUrl,
+            remoteHistoryInWorker: true,
+            resumeImageIndex: async (_slug, chapterId, percent) => `${percent}` + '-' + chapterId,
+        };
+        remoteSeam.pending = Promise.resolve([{
+            seriesId: 'percent-a',
+            readThroughChapterId: '6',
+            resumeChapterId: '7',
+            resumePercent: 40,
+        }]);
+
+        await openHome(withCapability);
+        const cover = document.querySelector<HTMLAnchorElement>('.hs-home-cover')!;
+        await vi.waitFor(() => expect(cover.dataset.resume).toBe('remote'));
 
         readerUrl.mockClear();
-        document.querySelector<HTMLAnchorElement>('.hs-home-cover')
-            ?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-        await vi.waitFor(() => expect(readerUrl).toHaveBeenCalledWith('series-a', '4'));
+        cover.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        await vi.waitFor(() => expect(readerUrl).toHaveBeenCalledWith('percent-a', '7', '40-7'));
+    });
+
+    it('remote partial without the capability degrades to the chapter start', async () => {
+        const readerUrl = vi.fn((slug: string, chapterId: string, index?: string) =>
+            `https://example.test/${slug}/${chapterId}${index === undefined ? '' : `#${index}`}`);
+        const withoutCapability: Provider = {
+            ...testProvider(async () => ({
+                nextCursor: null,
+                series: [{
+                    slug: 'percent-b',
+                    title: 'Percent B',
+                    coverUrl: 'https://example.test/b.webp',
+                    chapters: [{ chapterId: '7', label: 'Chapter 7', uploadedAt: null, locked: false, unlockAt: null }],
+                }],
+            })),
+            readerUrl,
+            remoteHistoryInWorker: true,
+        };
+        remoteSeam.pending = Promise.resolve([{
+            seriesId: 'percent-b',
+            readThroughChapterId: '6',
+            resumeChapterId: '7',
+            resumePercent: 40,
+        }]);
+
+        await openHome(withoutCapability);
+        const cover = document.querySelector<HTMLAnchorElement>('.hs-home-cover')!;
+        await vi.waitFor(() => expect(cover.dataset.resume).toBe('remote'));
+
+        readerUrl.mockClear();
+        cover.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        await vi.waitFor(() => expect(readerUrl).toHaveBeenCalledWith('percent-b', '7'));
     });
 
     it('retries an interrupted bulk request after BFCache restoration', async () => {

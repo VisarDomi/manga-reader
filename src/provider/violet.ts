@@ -11,6 +11,7 @@ import { SITE_CONFIG } from '../core/sites';
 import { isChapterUnavailable } from '../core/http';
 import { hashImageIndex } from '../core/page';
 import { defaultReaderImages } from './ts-reader';
+import { lastImageIndexFrom, percentImageIndexFrom } from './resume';
 
 const CHAPTER_RE = /\/(.+)-chapter-([^/]+)\/?$/;
 const DOMAIN = SITE_CONFIG['violetscans'].domain;
@@ -159,6 +160,46 @@ function ajaxCursor(cursor: string): number {
     return page;
 }
 
+async function fetchVioletChapter(slug: string, chapterId: string): Promise<ChapterData | null> {
+    const routeSlug = chapterRouteSlugForFetch(slug, chapterId);
+    const url = `https://${DOMAIN}/${routeSlug}-chapter-${chapterId}/`;
+    const res = await fetch(url);
+    if (isChapterUnavailable(res)) return null;
+    const html = await res.text();
+    const seriesSlug = seriesSlugFromChapterHtml(html);
+    rememberChapterRoute(seriesSlug, chapterId, routeSlug);
+    if (html.includes('class="lock-status"')) return null;
+
+    // Extract ts_reader.run({...}) JSON payload
+    const tsMatch = /ts_reader\.run\((\{[\s\S]*?\})\);?\s*<\/script>/u.exec(html);
+    if (!tsMatch) throw new Error('Chapter response did not contain reader data');
+
+    const raw = tsMatch[1];
+    const data = JSON.parse(raw) as unknown;
+    const srcs = defaultReaderImages(data);
+
+    const images: ChapterImage[] = srcs.map((url: string) => ({ url }));
+
+    // HISTORY is Violet's structured chapter identity payload.
+    const histMatch = /HISTORY\.push\(\d+,\s*(\{[\s\S]*?\})\);?/u.exec(html);
+    if (!histMatch) throw new Error('Chapter response did not contain Violet history data');
+    const history = JSON.parse(histMatch[1]) as unknown;
+    if (typeof history !== 'object' || history === null) {
+        throw new Error('Violet history data is not an object');
+    }
+    const seriesTitle = (history as { manga_title?: unknown }).manga_title;
+    if (typeof seriesTitle !== 'string' || seriesTitle.trim() === '') {
+        throw new Error('Violet history data has no series title');
+    }
+
+    return {
+        chapterId: chapterId,
+        seriesSlug,
+        seriesTitle: seriesTitle.trim(),
+        images,
+    };
+}
+
 export const violet: Provider = {
     key: 'violetscans',
     documentTitle: SITE_CONFIG.violetscans.documentTitle,
@@ -204,44 +245,11 @@ export const violet: Provider = {
 
 
     async fetchChapter(slug: string, chapterId: string): Promise<ChapterData | null> {
-        const routeSlug = chapterRouteSlugForFetch(slug, chapterId);
-        const url = `https://${DOMAIN}/${routeSlug}-chapter-${chapterId}/`;
-        const res = await fetch(url);
-        if (isChapterUnavailable(res)) return null;
-        const html = await res.text();
-        const seriesSlug = seriesSlugFromChapterHtml(html);
-        rememberChapterRoute(seriesSlug, chapterId, routeSlug);
-        if (html.includes('class="lock-status"')) return null;
-
-        // Extract ts_reader.run({...}) JSON payload
-        const tsMatch = /ts_reader\.run\((\{[\s\S]*?\})\);?\s*<\/script>/u.exec(html);
-        if (!tsMatch) throw new Error('Chapter response did not contain reader data');
-
-        const raw = tsMatch[1];
-        const data = JSON.parse(raw) as unknown;
-        const srcs = defaultReaderImages(data);
-
-        const images: ChapterImage[] = srcs.map((url: string) => ({ url }));
-
-        // HISTORY is Violet's structured chapter identity payload.
-        const histMatch = /HISTORY\.push\(\d+,\s*(\{[\s\S]*?\})\);?/u.exec(html);
-        if (!histMatch) throw new Error('Chapter response did not contain Violet history data');
-        const history = JSON.parse(histMatch[1]) as unknown;
-        if (typeof history !== 'object' || history === null) {
-            throw new Error('Violet history data is not an object');
-        }
-        const seriesTitle = (history as { manga_title?: unknown }).manga_title;
-        if (typeof seriesTitle !== 'string' || seriesTitle.trim() === '') {
-            throw new Error('Violet history data has no series title');
-        }
-
-        return {
-            chapterId: chapterId,
-            seriesSlug,
-            seriesTitle: seriesTitle.trim(),
-            images,
-        };
+        return fetchVioletChapter(slug, chapterId);
     },
+
+    lastReadImageIndex: lastImageIndexFrom(fetchVioletChapter),
+    resumeImageIndex: percentImageIndexFrom(fetchVioletChapter),
 
     async fetchChaptersNewestFirst(slug: string): Promise<ChapterMeta[]> {
         const seriesSlug = canonicalSeriesSlug(slug);

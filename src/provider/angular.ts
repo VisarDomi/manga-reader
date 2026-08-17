@@ -9,10 +9,31 @@ import { SITE_CONFIG } from '../core/sites';
 import { isChapterUnavailable } from '../core/http';
 import { hashImageIndex } from '../core/page';
 import { fetchAngularHome } from './angular-catalog';
+import { lastImageIndexFrom, percentImageIndexFrom } from './resume';
 
 export function createAngularProvider(site: keyof typeof SITE_CONFIG): Provider {
     const { domain, apiBase, documentTitle } = SITE_CONFIG[site];
     const CHAPTER_RE = /\/([^/]+)\/([^/]+)\/([^/]+)$/;
+
+    async function fetchAngularChapter(slug: string, chapterId: string): Promise<import('./types').ChapterData | null> {
+    const res = await fetch(`${apiBase}/series/${slug}/chapters/${chapterId}`);
+    if (isChapterUnavailable(res)) return null;
+    const data = await res.json() as {
+        isFree: boolean;
+        requiresPurchase: boolean;
+        images: Array<{ url: string; width?: number; height?: number }>;
+        series: { title: string };
+    };
+    if (!data.isFree || data.requiresPurchase) return null;
+
+    return {
+        chapterId,
+        seriesSlug: slug,
+        seriesTitle: data.series.title,
+        images: data.images.map(({ url, width, height }) => ({ url, width, height })),
+    };
+    }
+
 
     return {
         key: site,
@@ -31,23 +52,11 @@ export function createAngularProvider(site: keyof typeof SITE_CONFIG): Provider 
         },
 
         async fetchChapter(slug: string, chapterId: string): Promise<import('./types').ChapterData | null> {
-            const res = await fetch(`${apiBase}/series/${slug}/chapters/${chapterId}`);
-            if (isChapterUnavailable(res)) return null;
-            const data = await res.json() as {
-                isFree: boolean;
-                requiresPurchase: boolean;
-                images: Array<{ url: string; width?: number; height?: number }>;
-                series: { title: string };
-            };
-            if (!data.isFree || data.requiresPurchase) return null;
-
-            return {
-                chapterId,
-                seriesSlug: slug,
-                seriesTitle: data.series.title,
-                images: data.images.map(({ url, width, height }) => ({ url, width, height })),
-            };
+            return fetchAngularChapter(slug, chapterId);
         },
+
+        lastReadImageIndex: lastImageIndexFrom(fetchAngularChapter),
+        resumeImageIndex: percentImageIndexFrom(fetchAngularChapter),
 
         async fetchChaptersNewestFirst(slug: string): Promise<ChapterMeta[]> {
             const chapters: ChapterMeta[] = [];

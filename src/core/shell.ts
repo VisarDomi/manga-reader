@@ -1,6 +1,7 @@
 import css from '../style.css?inline';
 import type { Provider } from '../provider/types';
 import { computeRequest, onComputeNotification } from './compute/transport';
+import { trapUncaughtErrors } from './fatal';
 
 export async function startInit(
     documentTitle: string,
@@ -40,4 +41,6 @@ export async function startInit(
     window.addEventListener('pagehide', () => {
         void computeRequest('lifecycle', { hidden: true });
     });
+
+    trapUncaughtErrors();
 }

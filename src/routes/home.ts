@@ -1,5 +1,4 @@
 import type {
-    ChapterMeta,
     HomeChapter,
     HomePage,
     HomeSeries,
@@ -63,43 +62,23 @@ function historyId(series: HomeSeries): string {
     return series.historyId ?? series.slug;
 }
 
-function remoteImageIndex(percent: number, totalImages: number): number {
-    return Math.max(0, Math.min(totalImages - 1, Math.round(percent / 100 * totalImages) - 1));
-}
-
 async function resumeRemotePage(
     provider: Provider,
     seriesSlug: string,
     chapterId: string,
     percent: number,
 ): Promise<void> {
-    const chapter = await provider.fetchChapter(seriesSlug, chapterId);
-    window.location.href = chapter === null
-        ? provider.readerUrl(seriesSlug, chapterId)
-        : provider.readerUrl(seriesSlug, chapterId, String(remoteImageIndex(percent, chapter.images.length)));
+    // The percentage's meaning is provider knowledge. Without the capability,
+    // degrade gracefully to the chapter's start.
+    if (provider.resumeImageIndex === undefined) {
+        window.location.href = provider.readerUrl(seriesSlug, chapterId);
+        return;
+    }
+    const imageIndex = await provider.resumeImageIndex(seriesSlug, chapterId, percent);
+    window.location.href = provider.readerUrl(seriesSlug, chapterId, imageIndex);
 }
 
 const coverResume = new WeakMap<HTMLAnchorElement, CoverResumeModel>();
-
-function resumeAfterRead(
-    chaptersNewestFirst: ChapterMeta[],
-    resume: Extract<CoverResumeModel, { kind: 'read' }>,
-): ChapterMeta | undefined {
-    const firstUnread = [...chaptersNewestFirst].reverse().find(chapter => {
-        if (resume.locallyReadChapterIds.includes(chapter.chapterId)) return false;
-        return resume.readThroughChapterId === undefined
-            || !chapterAtOrBefore(chapter.chapterId, resume.readThroughChapterId);
-    });
-    if (firstUnread !== undefined) return firstUnread;
-    return chaptersNewestFirst[0];
-}
-
-function chapterAtOrBefore(chapterId: string, boundaryId: string): boolean {
-    const chapter = Number(chapterId);
-    const boundary = Number(boundaryId);
-    if (Number.isFinite(chapter) && Number.isFinite(boundary)) return chapter <= boundary;
-    return chapterId === boundaryId;
-}
 
 function renderChapter(provider: Provider, series: HomeSeries, chapter: HomeChapter): HTMLAnchorElement {
     const classes = ['hs-home-chapter'];
@@ -131,15 +110,36 @@ function renderChapter(provider: Provider, series: HomeSeries, chapter: HomeChap
             return;
         }
         const remotePercent = link.dataset.remoteResumePercent;
-        if (remotePercent === undefined) return;
-        event.preventDefault();
-        if (link.dataset.loading === 'true') return;
-        link.dataset.loading = 'true';
-        void resumeRemotePage(provider, series.slug, chapter.chapterId, Number(remotePercent))
-            .catch(error => {
-                link.title = error instanceof Error ? error.message : String(error);
-                link.dataset.loading = 'false';
-            });
+        if (remotePercent !== undefined) {
+            // Server partial: jump to the partial position.
+            event.preventDefault();
+            if (link.dataset.loading === 'true') return;
+            link.dataset.loading = 'true';
+            void resumeRemotePage(provider, series.slug, chapter.chapterId, Number(remotePercent))
+                .catch(error => {
+                    link.title = error instanceof Error ? error.message : String(error);
+                    link.dataset.loading = 'false';
+                });
+            return;
+        }
+        if (
+            link.classList.contains('hs-home-chapter-read')
+            && link.hash === ''
+            && provider.lastReadImageIndex !== undefined
+        ) {
+            // Server-read without a local page: jump to the last image.
+            event.preventDefault();
+            if (link.dataset.loading === 'true') return;
+            link.dataset.loading = 'true';
+            void provider.lastReadImageIndex(series.slug, chapter.chapterId)
+                .then(imageIndex => {
+                    window.location.href = provider.readerUrl(series.slug, chapter.chapterId, imageIndex);
+                })
+                .catch(error => {
+                    link.title = error instanceof Error ? error.message : String(error);
+                    link.dataset.loading = 'false';
+                });
+        }
     });
     return link;
 }
@@ -182,15 +182,35 @@ function renderSeries(provider: Provider, series: HomeSeries): HTMLElement {
         coverLink.dataset.loading = 'true';
         coverLink.classList.add('hs-home-cover-loading');
         void provider.fetchChaptersNewestFirst(series.slug)
-            .then(chapters => {
-                const destination = resume.kind === 'read'
-                    ? resumeAfterRead(chapters, resume)
-                    : chapters.at(-1);
+            .then(async chapters => {
+                let destinationUrl: string;
+                if (resume.kind === 'read') {
+                    // End of the last-read chapter: the reader then loads the
+                    // next one as the user continues.
+                    const lastChapterId = resume.latestLocalComplete?.chapterId
+                        ?? resume.resumeChapterId
+                        ?? resume.readThroughChapterId;
+                    let imageIndex: string | undefined;
+                    if (
+                        resume.latestLocalComplete !== undefined
+                        && resume.latestLocalComplete.chapterId === lastChapterId
+                    ) {
+                        imageIndex = String(resume.latestLocalComplete.imageIndex);
+                    } else if (lastChapterId !== undefined && provider.lastReadImageIndex !== undefined) {
+                        imageIndex = await provider.lastReadImageIndex(series.slug, lastChapterId);
+                    }
+                    destinationUrl = lastChapterId !== undefined
+                        ? provider.readerUrl(series.slug, lastChapterId, imageIndex)
+                        : provider.seriesUrl(series.slug);
+                } else {
+                    const first = chapters.at(-1);
+                    destinationUrl = first !== undefined
+                        ? provider.readerUrl(series.slug, first.chapterId)
+                        : provider.seriesUrl(series.slug);
+                }
                 coverLink.dataset.loading = 'false';
                 coverLink.classList.remove('hs-home-cover-loading');
-                window.location.href = destination
-                    ? provider.readerUrl(series.slug, destination.chapterId)
-                    : provider.seriesUrl(series.slug);
+                window.location.href = destinationUrl;
             })
             .catch(error => {
                 coverLink.dataset.loading = 'false';
@@ -289,7 +309,9 @@ function applyCardPatch(
             coverResume.set(cover, {
                 kind: 'read',
                 readThroughChapterId: resume.readThroughChapterId,
+                resumeChapterId: resume.resumeChapterId,
                 locallyReadChapterIds: resume.locallyReadChapterIds,
+                latestLocalComplete: resume.latestLocalComplete,
             });
             cover.dataset.resume = 'read';
             cover.href = resume.resumeChapterId !== undefined

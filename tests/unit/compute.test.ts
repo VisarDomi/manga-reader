@@ -52,11 +52,12 @@ describe('resolveHistory', () => {
             progress,
         });
         const seven = result.chapters.find(chapter => chapter.chapterId === '7');
-        expect(seven).toMatchObject({ read: false, partial: true, remoteResumePercent: undefined, localImageIndex: 1 });
+        expect(seven).toMatchObject({ read: false, partial: true, localImageIndex: 1 });
+        expect(seven?.remoteResumePercent).toBeUndefined();
         expect(result.cover).toEqual({ kind: 'local-partial', chapterId: '7', imageIndex: 1 });
     });
 
-    it('ignores local progress for other chapters when remote history exists', () => {
+    it('local progress trumps server for chapters beyond the resume point', () => {
         const progress = [createChapterProgress('test', 'series-a', '4', 0, 5, 100)];
         const [result] = resolveHistory({
             cards: [card(['4', '3'])],
@@ -64,9 +65,7 @@ describe('resolveHistory', () => {
             progress,
         });
         const four = result.chapters.find(chapter => chapter.chapterId === '4');
-        expect(four).toMatchObject({ read: false });
-        expect(four?.localImageIndex).toBeUndefined();
-        expect(four?.remoteResumePercent).toBeUndefined();
+        expect(four).toMatchObject({ read: false, partial: true, localImageIndex: 0 });
     });
 
     it('falls back to local completion state when no remote history exists', () => {
@@ -101,6 +100,7 @@ describe('resolveHistory', () => {
         expect(result.cover).toEqual({
             kind: 'read',
             locallyReadChapterIds: expect.arrayContaining(['3', '2']),
+            latestLocalComplete: { chapterId: '3', imageIndex: 4 },
         });
         expect(result.chapters.find(chapter => chapter.chapterId === '1')?.read).toBe(false);
     });

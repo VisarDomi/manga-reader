@@ -29,6 +29,8 @@ export type CoverResumeModel =
         /** Present when remote history drives the resume; links straight to it. */
         resumeChapterId?: string;
         locallyReadChapterIds: string[];
+        /** Most recent local complete — the precise last page. */
+        latestLocalComplete?: { chapterId: string; imageIndex: number };
       };
 
 export interface ChapterStateModel {
@@ -67,15 +69,17 @@ export function resolveHistory(input: ResolveHistoryInput): CardResolution[] {
     return input.cards.map(card => {
         const remote = remoteIndex.get(card.historyId);
         const seriesProgress = bySeries.get(card.seriesSlug) ?? [];
-        const sameChapterLocalPartial = remote === undefined
-            ? undefined
-            : seriesProgress.find(item => (
-                item.chapterId === remote.resumeChapterId && !isChapterComplete(item)
-            ));
 
         const chapters: ChapterStateModel[] = card.chapterIds.map(chapterId => {
             const state: ChapterStateModel = { chapterId, read: false, partial: false };
-            if (remote !== undefined) {
+            const saved = byChapter.get(progressKey(card.seriesSlug, chapterId));
+            if (saved !== undefined) {
+                // Local trumps server: the reader keeps the server fresh, so
+                // any local entry is the most recent truth for this chapter.
+                state.partial = !isChapterComplete(saved);
+                state.read = isChapterComplete(saved);
+                state.localImageIndex = saved.imageIndex;
+            } else if (remote !== undefined) {
                 if (
                     remote.readThroughChapterId !== undefined
                     && chapterAtOrBefore(chapterId, remote.readThroughChapterId)
@@ -88,31 +92,40 @@ export function resolveHistory(input: ResolveHistoryInput): CardResolution[] {
                     state.remoteResumePercent = remote.resumePercent;
                 }
             }
-            const saved = byChapter.get(progressKey(card.seriesSlug, chapterId));
-            const localCanOverride = remote === undefined
-                ? saved !== undefined
-                : saved === sameChapterLocalPartial;
-            if (localCanOverride && saved !== undefined) {
-                state.partial = !isChapterComplete(saved);
-                state.read = isChapterComplete(saved);
-                state.remoteResumePercent = undefined;
-                state.localImageIndex = saved.imageIndex;
-            }
             return state;
         });
 
+        const completes = seriesProgress.filter(isChapterComplete);
+        const locallyReadChapterIds = completes.map(item => item.chapterId);
+        const latestLocalComplete = completes.length > 0
+            ? completes.sort((left, right) => (
+                right.updatedAt - left.updatedAt
+                || Number(right.chapterId) - Number(left.chapterId)
+            ))[0]
+            : undefined;
+
         let cover: CoverResumeModel;
-        if (sameChapterLocalPartial !== undefined) {
+        const localPartial = newestPartial(seriesProgress);
+        if (localPartial !== undefined) {
             cover = {
                 kind: 'local-partial',
-                chapterId: sameChapterLocalPartial.chapterId,
-                imageIndex: sameChapterLocalPartial.imageIndex,
+                chapterId: localPartial.chapterId,
+                imageIndex: localPartial.imageIndex,
             };
         } else if (remote !== undefined && remote.resumePercent !== undefined && remote.resumePercent < 100) {
             cover = {
                 kind: 'remote-partial',
                 chapterId: remote.resumeChapterId,
                 percent: remote.resumePercent,
+            };
+        } else if (latestLocalComplete !== undefined) {
+            cover = {
+                kind: 'read',
+                locallyReadChapterIds,
+                latestLocalComplete: {
+                    chapterId: latestLocalComplete.chapterId,
+                    imageIndex: latestLocalComplete.imageIndex,
+                },
             };
         } else if (remote !== undefined) {
             cover = {
@@ -124,23 +137,7 @@ export function resolveHistory(input: ResolveHistoryInput): CardResolution[] {
                 locallyReadChapterIds: [],
             };
         } else {
-            const localPartial = newestPartial(seriesProgress);
-            if (localPartial !== undefined) {
-                cover = {
-                    kind: 'local-partial',
-                    chapterId: localPartial.chapterId,
-                    imageIndex: localPartial.imageIndex,
-                };
-            } else {
-                const locallyReadChapterIds = seriesProgress
-                    .filter(isChapterComplete)
-                    .map(item => item.chapterId);
-                if (locallyReadChapterIds.length > 0) {
-                    cover = { kind: 'read', locallyReadChapterIds };
-                } else {
-                    cover = { kind: 'none' };
-                }
-            }
+            cover = { kind: 'none' };
         }
 
         return { seriesSlug: card.seriesSlug, cover, chapters };

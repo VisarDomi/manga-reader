@@ -11,10 +11,72 @@ import { SITE_CONFIG } from '../core/sites';
 import { isChapterUnavailable } from '../core/http';
 import { hashImageIndex } from '../core/page';
 import { fetchValirHome } from './valir-catalog';
+import { lastImageIndexFrom, percentImageIndexFrom } from './resume';
 
 const DOMAIN = SITE_CONFIG['valirscans'].domain;
 const CHAPTER_RE = /^\/series\/comic\/([^/]+)\/chapter\/(\d+)/;
 const FLIGHT_PUSH = 'self.__next_f.push(';
+
+async function fetchValirChapter(slug: string, chapterId: string): Promise<ChapterData | null> {
+    const pageUrl = `https://${DOMAIN}/series/comic/${slug}/chapter/${chapterId}`;
+    const res = await fetch(pageUrl);
+    if (isChapterUnavailable(res)) return null;
+    const html = await res.text();
+
+    // Extract chapter metadata from the RSC payload
+    const chapterMatch = /\\"chapter\\":\s*\{[^}]*\\"id\\":\s*\\"([^"\\]+)\\"[^}]*\\"number\\":\s*(\d+)[^}]*\\"title\\":\s*\\"([^"\\]*)\\"/.exec(html);
+    if (!chapterMatch) throw new Error('Could not find chapter data in page');
+
+    const numericId = chapterMatch[1]; // cuid2 chapter ID
+
+    // Extract series data
+    const seriesMatch = /\\"series\\":\s*\{[^}]*\\"id\\":\s*\\"([^"\\]+)\\"[^}]*\\"title\\":\s*\\"([^"\\]*)\\"/.exec(html);
+    if (!seriesMatch) throw new Error('Could not find series data in page');
+    const seriesId = seriesMatch[1];
+    const seriesTitle = seriesMatch[2];
+
+    // A chapter's public RSC payload is the authoritative page source.
+    // Anchor on the complete page-record shape so nested fragment imageUrl
+    // fields cannot be mistaken for reader pages.
+    const pageDataRe = /\\"id\\":\s*\\"([^"\\]+)\\"\s*,\s*\\"pageNumber\\":\s*(\d+)\s*,\s*\\"imageUrl\\":\s*\\"([^"\\]+)\\"\s*,\s*\\"width\\":\s*(\d+)\s*,\s*\\"height\\":\s*(\d+)\s*,\s*\\"isEncrypted\\":\s*(?:true|false)/g;
+    const pages = [...html.matchAll(pageDataRe)]
+        .map(match => ({
+            pageNumber: parseInt(match[2], 10),
+            image: {
+                url: match[3],
+                width: parseInt(match[4], 10),
+                height: parseInt(match[5], 10),
+            } satisfies ChapterImage,
+        }))
+        .sort((left, right) => left.pageNumber - right.pageNumber);
+
+    if (pages.some((page, index) => page.pageNumber !== index + 1)) {
+        throw new Error('Chapter response contained invalid page ordering');
+    }
+
+    const images = pages.map(page => page.image);
+
+    if (images.length === 0) throw new Error('Chapter response contained no images');
+
+    return {
+        chapterId,
+        seriesSlug: slug,
+        seriesTitle: seriesTitle,
+        seriesApiId: seriesId,
+        chapterApiId: numericId,
+        images,
+    };
+}
+
+async function fetchValirChaptersNewestFirst(slug: string): Promise<ChapterMeta[]> {
+    // Fetch the first chapter page — it contains the allChapters array for this series
+    const pageUrl = `https://${DOMAIN}/series/comic/${slug}/chapter/1`;
+    const res = await fetch(pageUrl);
+    if (!res.ok) throw new Error(`Chapter page not found: ${res.status}`);
+    const html = await res.text();
+
+    return parseValirChapters(html);
+}
 
 function valirDocumentReady(): boolean {
     return [...document.scripts].some(script => script.textContent?.includes(FLIGHT_PUSH));
@@ -126,66 +188,15 @@ export const valir: Provider = {
         return fetchValirHome(cursor);
     },
 
-
     async fetchChapter(slug: string, chapterId: string): Promise<ChapterData | null> {
-        const pageUrl = `https://${DOMAIN}/series/comic/${slug}/chapter/${chapterId}`;
-        const res = await fetch(pageUrl);
-        if (isChapterUnavailable(res)) return null;
-        const html = await res.text();
-
-        // Extract chapter metadata from the RSC payload
-        const chapterMatch = /\\"chapter\\":\s*\{[^}]*\\"id\\":\s*\\"([^"\\]+)\\"[^}]*\\"number\\":\s*(\d+)[^}]*\\"title\\":\s*\\"([^"\\]*)\\"/.exec(html);
-        if (!chapterMatch) throw new Error('Could not find chapter data in page');
-
-        const numericId = chapterMatch[1]; // cuid2 chapter ID
-
-        // Extract series data
-        const seriesMatch = /\\"series\\":\s*\{[^}]*\\"id\\":\s*\\"([^"\\]+)\\"[^}]*\\"title\\":\s*\\"([^"\\]*)\\"/.exec(html);
-        if (!seriesMatch) throw new Error('Could not find series data in page');
-        const seriesId = seriesMatch[1];
-        const seriesTitle = seriesMatch[2];
-
-        // A chapter's public RSC payload is the authoritative page source.
-        // Anchor on the complete page-record shape so nested fragment imageUrl
-        // fields cannot be mistaken for reader pages.
-        const pageDataRe = /\\"id\\":\s*\\"([^"\\]+)\\"\s*,\s*\\"pageNumber\\":\s*(\d+)\s*,\s*\\"imageUrl\\":\s*\\"([^"\\]+)\\"\s*,\s*\\"width\\":\s*(\d+)\s*,\s*\\"height\\":\s*(\d+)\s*,\s*\\"isEncrypted\\":\s*(?:true|false)/g;
-        const pages = [...html.matchAll(pageDataRe)]
-            .map(match => ({
-                pageNumber: parseInt(match[2], 10),
-                image: {
-                    url: match[3],
-                    width: parseInt(match[4], 10),
-                    height: parseInt(match[5], 10),
-                } satisfies ChapterImage,
-            }))
-            .sort((left, right) => left.pageNumber - right.pageNumber);
-
-        if (pages.some((page, index) => page.pageNumber !== index + 1)) {
-            throw new Error('Chapter response contained invalid page ordering');
-        }
-
-        const images = pages.map(page => page.image);
-
-        if (images.length === 0) throw new Error('Chapter response contained no images');
-
-        return {
-            chapterId,
-            seriesSlug: slug,
-            seriesTitle: seriesTitle,
-            seriesApiId: seriesId,
-            chapterApiId: numericId,
-            images,
-        };
+        return fetchValirChapter(slug, chapterId);
     },
 
-    async fetchChaptersNewestFirst(slug: string): Promise<ChapterMeta[]> {
-        // Fetch the first chapter page — it contains the allChapters array for this series
-        const pageUrl = `https://${DOMAIN}/series/comic/${slug}/chapter/1`;
-        const res = await fetch(pageUrl);
-        if (!res.ok) throw new Error(`Chapter page not found: ${res.status}`);
-        const html = await res.text();
+    lastReadImageIndex: lastImageIndexFrom(fetchValirChapter),
+    resumeImageIndex: percentImageIndexFrom(fetchValirChapter),
 
-        return parseValirChapters(html);
+    async fetchChaptersNewestFirst(slug: string): Promise<ChapterMeta[]> {
+        return fetchValirChaptersNewestFirst(slug);
     },
 
     readerUrl(slug: string, chapterId: string, imageIndex?: string): string {
@@ -195,5 +206,4 @@ export const valir: Provider = {
     seriesUrl(slug: string): string {
         return `https://${DOMAIN}/series/comic/${slug}`;
     },
-
 };

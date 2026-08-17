@@ -11,6 +11,7 @@ import { SITE_CONFIG } from '../core/sites';
 import { isChapterUnavailable } from '../core/http';
 import { hashImageIndex } from '../core/page';
 import { defaultReaderImages } from './ts-reader';
+import { lastImageIndexFrom, percentImageIndexFrom } from './resume';
 
 // WordPress may append a numeric collision suffix after the public chapter number.
 // Example: /worlds-strongest-troll-chapter-194-2/ is Chapter 194.
@@ -101,6 +102,48 @@ function homeCursor(cursor: string | null): { source: 'home' | 'catalog'; page: 
     return { source: match[1] as 'home' | 'catalog', page };
 }
 
+async function fetchScytheChapter(slug: string, chapterId: string): Promise<ChapterData | null> {
+    const url = `https://${DOMAIN}/${chapterId}/`;
+    const res = await fetch(url);
+    if (isChapterUnavailable(res)) return null;
+    const html = await res.text();
+
+    // Extract base64-encoded ts_reader.run({...}) JSON
+    let tsData: unknown;
+    const b64Match = html.match(/<script defer src="data:text\/javascript;base64,([A-Za-z0-9+/=]+)"><\/script>/g);
+    if (b64Match) {
+        for (const tag of b64Match) {
+            const b64 = tag.match(/base64,([A-Za-z0-9+/=]+)/);
+            if (!b64) continue;
+            const decoded = atob(b64[1]);
+            if (decoded.includes('ts_reader.run(')) {
+                const jsonMatch = /^ts_reader\.run\((\{[\s\S]*\})\);?$/u.exec(decoded.trim());
+                if (jsonMatch) {
+                    tsData = JSON.parse(jsonMatch[1]) as unknown;
+                }
+                break;
+            }
+        }
+    }
+
+    if (tsData === undefined) throw new Error('Chapter response did not contain reader data');
+    const srcs = defaultReaderImages(tsData);
+
+    const images: ChapterImage[] = srcs.map(url => ({ url }));
+
+    // Series title from .allc div
+    const seriesMatch = /<div class="allc">All chapters are in <a[^>]*>([^<]+)<\/a><\/div>/.exec(html);
+    const seriesTitle = seriesMatch?.[1].trim();
+    if (!seriesTitle) throw new Error('Chapter response did not contain the series title');
+
+    return {
+        chapterId: chapterId,
+        seriesSlug: slug,
+        seriesTitle: seriesTitle,
+        images,
+    };
+}
+
 export const scythe: Provider = {
     key: 'scythescans',
     documentTitle: SITE_CONFIG.scythescans.documentTitle,
@@ -152,46 +195,11 @@ export const scythe: Provider = {
 
 
     async fetchChapter(slug: string, chapterId: string): Promise<ChapterData | null> {
-        const url = `https://${DOMAIN}/${chapterId}/`;
-        const res = await fetch(url);
-        if (isChapterUnavailable(res)) return null;
-        const html = await res.text();
-
-        // Extract base64-encoded ts_reader.run({...}) JSON
-        let tsData: unknown;
-        const b64Match = html.match(/<script defer src="data:text\/javascript;base64,([A-Za-z0-9+/=]+)"><\/script>/g);
-        if (b64Match) {
-            for (const tag of b64Match) {
-                const b64 = tag.match(/base64,([A-Za-z0-9+/=]+)/);
-                if (!b64) continue;
-                const decoded = atob(b64[1]);
-                if (decoded.includes('ts_reader.run(')) {
-                    const jsonMatch = /^ts_reader\.run\((\{[\s\S]*\})\);?$/u.exec(decoded.trim());
-                    if (jsonMatch) {
-                        tsData = JSON.parse(jsonMatch[1]) as unknown;
-                    }
-                    break;
-                }
-            }
-        }
-
-        if (tsData === undefined) throw new Error('Chapter response did not contain reader data');
-        const srcs = defaultReaderImages(tsData);
-
-        const images: ChapterImage[] = srcs.map(url => ({ url }));
-
-        // Series title from .allc div
-        const seriesMatch = /<div class="allc">All chapters are in <a[^>]*>([^<]+)<\/a><\/div>/.exec(html);
-        const seriesTitle = seriesMatch?.[1].trim();
-        if (!seriesTitle) throw new Error('Chapter response did not contain the series title');
-
-        return {
-            chapterId: chapterId,
-            seriesSlug: slug,
-            seriesTitle: seriesTitle,
-            images,
-        };
+        return fetchScytheChapter(slug, chapterId);
     },
+
+    lastReadImageIndex: lastImageIndexFrom(fetchScytheChapter),
+    resumeImageIndex: percentImageIndexFrom(fetchScytheChapter),
 
     async fetchChaptersNewestFirst(slug: string): Promise<ChapterMeta[]> {
         const url = `https://${DOMAIN}/manga/${slug}/`;

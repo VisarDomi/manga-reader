@@ -84,6 +84,13 @@ export interface Provider {
     matchRoute(pathname: string, hash: string): RouteMatch | null;
     fetchHome(cursor: string | null): Promise<HomePage>;
     fetchChapter(slug: string, chapterId: string): Promise<ChapterData | null>;
+    /** The image index of a chapter's LAST page, for resuming at the end of a
+     * read chapter when only server history exists. Provider-specific: the
+     * core never derives page counts from chapter data itself. */
+    lastReadImageIndex?(slug: string, chapterId: string): Promise<string | undefined>;
+    /** The image index for a server progress percentage (partial resume).
+     * Provider-specific: what a percentage means belongs to the provider. */
+    resumeImageIndex?(slug: string, chapterId: string, percent: number): Promise<string | undefined>;
     fetchChaptersNewestFirst(slug: string): Promise<ChapterMeta[]>;
     readerUrl(slug: string, chapterId: string, imageIndex?: string): string;
     seriesUrl(slug: string): string;

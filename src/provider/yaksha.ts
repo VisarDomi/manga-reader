@@ -10,9 +10,39 @@ import {
 import { SITE_CONFIG } from '../core/sites';
 import { isChapterUnavailable } from '../core/http';
 import { hashImageIndex } from '../core/page';
+import { lastImageIndexFrom, percentImageIndexFrom } from './resume';
 
 const CHAPTER_RE = /^\/manga\/([^/]+)\/([^/]+)\/?$/;
 const DOMAIN = SITE_CONFIG['yakshacomics'].domain;
+
+async function fetchYakshaChapter(slug: string, chapterId: string): Promise<ChapterData | null> {
+    const url = `https://${DOMAIN}/manga/${slug}/${chapterId}/`;
+    const res = await fetch(url);
+    if (isChapterUnavailable(res)) return null;
+    const html = await res.text();
+
+    const srcs: string[] = [];
+    const imgTagRe = /<img\b[^>]*\bclass="wp-manga-chapter-img"[^>]*>/g;
+    for (const tagMatch of html.matchAll(imgTagRe)) {
+        const srcMatch = /src="([^"]+)"/.exec(tagMatch[0]);
+        if (srcMatch) srcs.push(srcMatch[1].trim().replace(/\s+/g, ''));
+    }
+
+    if (srcs.length === 0) throw new Error('Chapter response contained no images');
+
+    const images: ChapterImage[] = srcs.map(url => ({ url }));
+
+    const bcMatch = /<ol class="breadcrumb">[\s\S]*?<a[^>]*href="[^"]*\/manga\/[^/]+\/"[^>]*>([^<]+)<\/a>/.exec(html);
+    const seriesTitle = bcMatch?.[1].trim();
+    if (!seriesTitle) throw new Error('Chapter response did not contain the series title');
+
+    return {
+        chapterId: chapterId,
+        seriesSlug: slug,
+        seriesTitle: seriesTitle,
+        images,
+    };
+}
 
 export const yaksha: Provider = {
     key: 'yakshacomics',
@@ -72,33 +102,11 @@ export const yaksha: Provider = {
 
 
     async fetchChapter(slug: string, chapterId: string): Promise<ChapterData | null> {
-        const url = `https://${DOMAIN}/manga/${slug}/${chapterId}/`;
-        const res = await fetch(url);
-        if (isChapterUnavailable(res)) return null;
-        const html = await res.text();
-
-        const srcs: string[] = [];
-        const imgTagRe = /<img\b[^>]*\bclass="wp-manga-chapter-img"[^>]*>/g;
-        for (const tagMatch of html.matchAll(imgTagRe)) {
-            const srcMatch = /src="([^"]+)"/.exec(tagMatch[0]);
-            if (srcMatch) srcs.push(srcMatch[1].trim().replace(/\s+/g, ''));
-        }
-
-        if (srcs.length === 0) throw new Error('Chapter response contained no images');
-
-        const images: ChapterImage[] = srcs.map(url => ({ url }));
-
-        const bcMatch = /<ol class="breadcrumb">[\s\S]*?<a[^>]*href="[^"]*\/manga\/[^/]+\/"[^>]*>([^<]+)<\/a>/.exec(html);
-        const seriesTitle = bcMatch?.[1].trim();
-        if (!seriesTitle) throw new Error('Chapter response did not contain the series title');
-
-        return {
-            chapterId: chapterId,
-            seriesSlug: slug,
-            seriesTitle: seriesTitle,
-            images,
-        };
+        return fetchYakshaChapter(slug, chapterId);
     },
+
+    lastReadImageIndex: lastImageIndexFrom(fetchYakshaChapter),
+    resumeImageIndex: percentImageIndexFrom(fetchYakshaChapter),
 
     async fetchChaptersNewestFirst(slug: string): Promise<ChapterMeta[]> {
         const url = `https://${DOMAIN}/manga/${slug}/`;
