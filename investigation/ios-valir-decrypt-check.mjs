@@ -47,6 +47,7 @@ function injectCode(url) {
 const SNAPSHOT = String.raw`
     const images = [...document.querySelectorAll(".hs-reader-img")];
     return {
+        t: Date.now(),
         readerBodies: document.querySelectorAll(".hs-reader-body").length,
         chapters: document.querySelectorAll(".hs-chapter").length,
         images: images.length,
@@ -74,13 +75,16 @@ try {
     const fg = await controller.foregroundClient();
     log({ step: "foreground", client: fg.client.slice(0, 16) });
 
+    const start = Date.now();
     await controller.command(fg.client, injectCode(url), { expectResult: false });
-    log({ step: "inject-posted" });
-    await sleep(12000);
+    log({ step: "inject-posted", t: Date.now() - start });
+    await sleep(5000);
     const fg2 = await controller.foregroundClient();
-    log({ step: "snapshot-1", result: await controller.command(fg2.client, SNAPSHOT) });
-    await sleep(12000);
-    log({ step: "snapshot-2", result: await controller.command(fg2.client, SNAPSHOT) });
+    log({ step: "snapshot-1", elapsed: Date.now() - start, result: await controller.command(fg2.client, SNAPSHOT) });
+    await sleep(8000);
+    log({ step: "snapshot-2", elapsed: Date.now() - start, result: await controller.command(fg2.client, SNAPSHOT) });
+    await sleep(8000);
+    log({ step: "snapshot-3", elapsed: Date.now() - start, result: await controller.command(fg2.client, SNAPSHOT) });
 } finally {
     await session.cleanup().catch(error => log({ step: "cleanup-warning", error: String(error) }));
     session.close();

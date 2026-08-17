@@ -38,12 +38,13 @@ async function fetchValirChapter(slug: string, chapterId: string): Promise<Chapt
 
     const pages = parseValirPages(html);
 
-    const images: ChapterImage[] = [];
-    for (const page of pages) {
-        images.push(page.encrypted
+    // Pages decrypt independently — all of them in parallel, as fast as the
+    // device goes. Resource scheduling belongs to the runtime, not the app.
+    const images: ChapterImage[] = await Promise.all(pages.map(async page => (
+        page.encrypted
             ? { url: await decryptValirPage(page.pageId, page.width, page.height), width: page.width, height: page.height }
-            : { url: page.url, width: page.width, height: page.height });
-    }
+            : { url: page.url, width: page.width, height: page.height }
+    )));
 
     return {
         chapterId,

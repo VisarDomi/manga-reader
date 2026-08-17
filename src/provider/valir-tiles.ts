@@ -79,13 +79,16 @@ async function decryptValirPageUncached(pageId: string, width: number, height: n
     }
 
     const key = json.key;
+    const tiles = json.tiles as Array<Record<string, unknown>>;
     const canvas = document.createElement('canvas');
     canvas.width = width;
     canvas.height = height;
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('Canvas 2D context unavailable');
 
-    for (const entry of json.tiles as Array<Record<string, unknown>>) {
+    // All tiles of a page decrypt independently — run them in parallel and
+    // draw in index order once each bitmap is ready.
+    const bitmaps = await Promise.all(tiles.map(async entry => {
         const tile = entry as unknown as ValirTile;
         if (typeof tile.iv !== 'string' || typeof tile.data !== 'string') {
             throw new Error('Valir tile is missing iv or data');
@@ -95,7 +98,9 @@ async function decryptValirPageUncached(pageId: string, width: number, height: n
         }
         const tileKey = await deriveValirTileKey(key, tile.tileIndex);
         const plain = await decryptValirTile(tileKey, tile.iv, tile.data);
-        const bitmap = await createImageBitmap(new Blob([plain], { type: 'image/webp' }));
+        return { tile, bitmap: await createImageBitmap(new Blob([plain], { type: 'image/webp' })) };
+    }));
+    for (const { tile, bitmap } of bitmaps) {
         // x/y are tile-grid indices (512px cells); width/height are the
         // tile's own pixel size (edge tiles are narrower/shorter).
         ctx.drawImage(bitmap, tile.x * 512, tile.y * 512, tile.width, tile.height);
