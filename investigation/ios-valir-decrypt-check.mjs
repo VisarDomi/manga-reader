@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Valir reader probe: inject on a chapter and read the failure markers.
+// Valir reader with decrypted pages: images must load and show blob: srcs.
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { createController, createSession, sleep } from "userscript-ios-test/controller";
@@ -9,13 +9,13 @@ const bundle = await readFile(resolve(root, "dist/manga-reader.user.js"), "utf8"
 
 const controller = createController({
     root,
-    name: "manga-reader-valir-reader-probe",
+    name: "manga-reader-valir-decrypt",
     connectionTimeoutMs: 60_000,
-    commandTimeoutMs: 40_000,
+    commandTimeoutMs: 60_000,
     clientTimeoutMs: 30_000,
     settleMs: 2_000,
 });
-const session = createSession({ controller, sourceLabel: "manga-reader-valir-reader-probe.user.js" });
+const session = createSession({ controller, sourceLabel: "manga-reader-valir-decrypt.user.js" });
 
 function navigationMatches(actualUrl, expectedUrl) {
     if (actualUrl === expectedUrl) return true;
@@ -38,47 +38,24 @@ function injectCode(url) {
     const parts = [
         "history.replaceState(null, \"\", " + JSON.stringify(url) + ");\n",
         "const source = " + JSON.stringify(bundle) + ";\n",
-        "new Function(source + String.fromCharCode(10) + \"//# sourceURL=valir-reader-probe.user.js\")();\n",
+        "new Function(source + String.fromCharCode(10) + \"//# sourceURL=valir-decrypt.user.js\")();\n",
         "return { injectedBytes: source.length };",
     ];
     return parts.join("");
 }
 
-const TRACE = String.raw`
+const SNAPSHOT = String.raw`
+    const images = [...document.querySelectorAll(".hs-reader-img")];
     return {
-        title: document.title,
-        hasStyle: !!document.querySelector("style"),
-        hasReaderBody: !!document.querySelector(".hs-reader-body"),
+        readerBodies: document.querySelectorAll(".hs-reader-body").length,
         chapters: document.querySelectorAll(".hs-chapter").length,
-        images: document.querySelectorAll(".hs-reader-img").length,
+        images: images.length,
+        blobSrcs: images.filter(i => i.src.startsWith("blob:")).length,
+        loaded: images.filter(i => i.complete && i.naturalWidth > 0).length,
+        firstSrc: images[0]?.src.slice(0, 30) ?? null,
+        firstLoaded: images[0] ? images[0].complete && images[0].naturalWidth > 0 : false,
+        fatal: document.getElementById("hs-fatal-error")?.textContent ?? null,
         status: document.querySelector(".hs-status")?.textContent ?? null,
-        bodyLen: document.body ? document.body.innerHTML.length : -1,
-        href: location.href,
-    };
-`;
-
-const TILES_PROBE = String.raw`
-    const describe = v => {
-        if (v === null) return "null";
-        const t = typeof v;
-        if (t === "string") return "string(" + v.length + ") " + v.slice(0, 24);
-        if (t === "number" || t === "boolean") return t + ":" + v;
-        if (Array.isArray(v)) return "array(" + v.length + ")";
-        return "object keys=" + JSON.stringify(Object.keys(v).slice(0, 10));
-    };
-    const cookieDump = document.cookie.split(";").map(s => s.trim()).filter(Boolean).map(s => s.split("=")[0]).join(",");
-    const res = await fetch("/api/tiles/cmod278rq00095zqqzo0prcgf/all", { credentials: "same-origin", cache: "no-store" });
-    if (!res.ok) return { status: res.status, body: (await res.text()).slice(0, 160), cookies: cookieDump };
-    const json = await res.json();
-    const tiles = json.tiles;
-    const entries = Array.isArray(tiles) ? tiles.slice(0, 2) : Object.entries(tiles ?? {}).slice(0, 2);
-    return {
-        status: res.status,
-        topKeys: Object.keys(json).slice(0, 8),
-        key: describe(json.key),
-        tilesType: Array.isArray(tiles) ? "array(" + tiles.length + ")" : typeof tiles,
-        samples: entries.map(e => Array.isArray(e) ? describe(e[0]) + " => " + describe(e[1]) : describe(e)),
-        cookies: cookieDump,
     };
 `;
 
@@ -95,17 +72,15 @@ try {
     });
     await sleep(3000);
     const fg = await controller.foregroundClient();
-    log({ step: "foreground", client: fg.client.slice(0, 16), href: fg.href });
+    log({ step: "foreground", client: fg.client.slice(0, 16) });
 
     await controller.command(fg.client, injectCode(url), { expectResult: false });
     log({ step: "inject-posted" });
-    await sleep(4000);
+    await sleep(12000);
     const fg2 = await controller.foregroundClient();
-    log({ step: "trace-1", result: await controller.command(fg2.client, TRACE) });
-    await sleep(8000);
-    log({ step: "tiles-probe", result: await controller.command(fg2.client, TILES_PROBE) });
-    await sleep(4000);
-    log({ step: "trace-2", result: await controller.command(fg2.client, TRACE) });
+    log({ step: "snapshot-1", result: await controller.command(fg2.client, SNAPSHOT) });
+    await sleep(12000);
+    log({ step: "snapshot-2", result: await controller.command(fg2.client, SNAPSHOT) });
 } finally {
     await session.cleanup().catch(error => log({ step: "cleanup-warning", error: String(error) }));
     session.close();

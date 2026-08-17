@@ -12,6 +12,7 @@ import { isChapterUnavailable } from '../core/http';
 import { hashImageIndex } from '../core/page';
 import { fetchValirHome } from './valir-catalog';
 import { lastImageIndexFrom, percentImageIndexFrom } from './resume';
+import { decryptValirPage } from './valir-tiles';
 
 const DOMAIN = SITE_CONFIG['valirscans'].domain;
 const CHAPTER_RE = /^\/series\/comic\/([^/]+)\/chapter\/(\d+)/;
@@ -35,28 +36,14 @@ async function fetchValirChapter(slug: string, chapterId: string): Promise<Chapt
     const seriesId = seriesMatch[1];
     const seriesTitle = seriesMatch[2];
 
-    // A chapter's public RSC payload is the authoritative page source.
-    // Anchor on the complete page-record shape so nested fragment imageUrl
-    // fields cannot be mistaken for reader pages.
-    const pageDataRe = /\\"id\\":\s*\\"([^"\\]+)\\"\s*,\s*\\"pageNumber\\":\s*(\d+)\s*,\s*\\"imageUrl\\":\s*\\"([^"\\]+)\\"\s*,\s*\\"width\\":\s*(\d+)\s*,\s*\\"height\\":\s*(\d+)\s*,\s*\\"isEncrypted\\":\s*(?:true|false)/g;
-    const pages = [...html.matchAll(pageDataRe)]
-        .map(match => ({
-            pageNumber: parseInt(match[2], 10),
-            image: {
-                url: match[3],
-                width: parseInt(match[4], 10),
-                height: parseInt(match[5], 10),
-            } satisfies ChapterImage,
-        }))
-        .sort((left, right) => left.pageNumber - right.pageNumber);
+    const pages = parseValirPages(html);
 
-    if (pages.some((page, index) => page.pageNumber !== index + 1)) {
-        throw new Error('Chapter response contained invalid page ordering');
+    const images: ChapterImage[] = [];
+    for (const page of pages) {
+        images.push(page.encrypted
+            ? { url: await decryptValirPage(page.pageId, page.width, page.height), width: page.width, height: page.height }
+            : { url: page.url, width: page.width, height: page.height });
     }
-
-    const images = pages.map(page => page.image);
-
-    if (images.length === 0) throw new Error('Chapter response contained no images');
 
     return {
         chapterId,
@@ -66,6 +53,71 @@ async function fetchValirChapter(slug: string, chapterId: string): Promise<Chapt
         chapterApiId: numericId,
         images,
     };
+}
+
+interface ValirPageRecord {
+    pageId: string;
+    pageNumber: number;
+    url: string;
+    width: number;
+    height: number;
+    encrypted: boolean;
+}
+
+/**
+ * Extract the current chapter's page records from the RSC payload.
+ * The chapter record nests its pages: {"chapter":{"id":...,"pages":[...]}}.
+ * Field-level regexes are unsafe here (they can span from the chapter id
+ * into the nested pages), so the pages array is extracted with a balanced
+ * bracket scan and parsed as JSON.
+ */
+export function parseValirPages(html: string): ValirPageRecord[] {
+    const chapterMarker = '\\"chapter\\":{';
+    const pagesMarker = '\\"pages\\":';
+    const chapterStart = html.indexOf(chapterMarker);
+    if (chapterStart === -1) throw new Error('Could not find chapter data in page');
+    const pagesStart = html.indexOf(pagesMarker, chapterStart);
+    if (pagesStart === -1) throw new Error('Chapter response contained no pages');
+    const arrayText = jsonArrayAtEscaped(html, pagesStart + pagesMarker.length);
+    const rawPages = JSON.parse(arrayText.replace(/\\"/g, '"').replace(/\\\\/g, '\\')) as unknown;
+    if (!Array.isArray(rawPages) || rawPages.length === 0) {
+        throw new Error('Chapter response contained no images');
+    }
+    const pages = rawPages.map((entry, index) => {
+        if (typeof entry !== 'object' || entry === null) {
+            throw new Error('Valir page ' + index + ' is not an object');
+        }
+        const page = entry as {
+            id?: unknown;
+            pageNumber?: unknown;
+            imageUrl?: unknown;
+            width?: unknown;
+            height?: unknown;
+            isEncrypted?: unknown;
+        };
+        if (typeof page.id !== 'string' || page.id.length === 0) {
+            throw new Error('Valir page ' + index + ' has no id');
+        }
+        if (typeof page.pageNumber !== 'number' || !Number.isSafeInteger(page.pageNumber)) {
+            throw new Error('Valir page ' + index + ' has an invalid pageNumber');
+        }
+        if (typeof page.imageUrl !== 'string') {
+            throw new Error('Valir page ' + index + ' has no imageUrl');
+        }
+        return {
+            pageId: page.id,
+            pageNumber: page.pageNumber,
+            url: page.imageUrl,
+            width: typeof page.width === 'number' ? page.width : 800,
+            height: typeof page.height === 'number' ? page.height : 1200,
+            encrypted: page.isEncrypted === true,
+        };
+    }).sort((left, right) => left.pageNumber - right.pageNumber);
+
+    if (pages.some((page, index) => page.pageNumber !== index + 1)) {
+        throw new Error('Chapter response contained invalid page ordering');
+    }
+    return pages;
 }
 
 async function fetchValirChaptersNewestFirst(slug: string): Promise<ChapterMeta[]> {
@@ -136,6 +188,24 @@ function flightPayloads(html: string): string[] {
         }
     }
     return payloads;
+}
+
+
+/**
+ * Balanced-array extraction over the ESCAPED RSC text: \" sequences are
+ * string delimiters, and any character after a backslash is skipped so
+ * escaped quotes/backslashes cannot corrupt the bracket count.
+ */
+function jsonArrayAtEscaped(source: string, start: number): string {
+    if (source[start] !== '[') throw new Error('Expected a JSON array');
+    let depth = 0;
+    for (let index = start; index < source.length; index++) {
+        const character = source[index];
+        if (character === '\\') { index++; continue; }
+        if (character === '[') depth++;
+        else if (character === ']' && --depth === 0) return source.slice(start, index + 1);
+    }
+    throw new Error('JSON array was not terminated');
 }
 
 export function parseValirChapters(html: string): ChapterMeta[] {
