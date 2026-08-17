@@ -6,11 +6,9 @@ import type {
     Provider,
     RemoteSeriesHistory,
 } from '../provider';
-import {
-    getProviderProgress,
-    isChapterComplete,
-    type ChapterProgress,
-} from '../storage/progress';
+import { enqueue } from '../core/update-queue';
+import { resolveHistoryAsync } from '../core/compute/history-client';
+import type { CardResolution, CoverResumeModel } from '../core/compute/history';
 
 const POLITE_PAGE_DELAY_MS = 1_000;
 
@@ -58,19 +56,8 @@ function unlockCountdown(unlockAt: string): string {
     return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
 }
 
-function progressKey(seriesSlug: string, chapterId: string): string {
-    return `${seriesSlug}\u0000${chapterId}`;
-}
-
 function historyId(series: HomeSeries): string {
     return series.historyId ?? series.slug;
-}
-
-function chapterAtOrBefore(chapterId: string, boundaryId: string): boolean {
-    const chapter = Number(chapterId);
-    const boundary = Number(boundaryId);
-    if (Number.isFinite(chapter) && Number.isFinite(boundary)) return chapter <= boundary;
-    return chapterId === boundaryId;
 }
 
 function remoteImageIndex(percent: number, totalImages: number): number {
@@ -89,35 +76,26 @@ async function resumeRemotePage(
         : provider.readerUrl(seriesSlug, chapterId, String(remoteImageIndex(percent, chapter.images.length)));
 }
 
-function createProgressIndex(progress: ChapterProgress[]): Map<string, ChapterProgress> {
-    return new Map(progress.map(item => [progressKey(item.seriesSlug, item.chapterId), item]));
-}
-
-type CoverResume =
-    | { kind: 'none' }
-    | { kind: 'local-partial'; chapterId: string; imageIndex: number }
-    | { kind: 'remote-partial'; chapterId: string; percent: number }
-    | { kind: 'read'; readThroughChapterId?: string; locallyReadChapterIds: Set<string> };
-
-const coverResume = new WeakMap<HTMLAnchorElement, CoverResume>();
-
-function newestPartial(progress: ChapterProgress[]): ChapterProgress | undefined {
-    return progress
-        .filter(item => !isChapterComplete(item))
-        .sort((a, b) => b.updatedAt - a.updatedAt)[0];
-}
+const coverResume = new WeakMap<HTMLAnchorElement, CoverResumeModel>();
 
 function resumeAfterRead(
     chaptersNewestFirst: ChapterMeta[],
-    resume: Extract<CoverResume, { kind: 'read' }>,
+    resume: Extract<CoverResumeModel, { kind: 'read' }>,
 ): ChapterMeta | undefined {
     const firstUnread = [...chaptersNewestFirst].reverse().find(chapter => {
-        if (resume.locallyReadChapterIds.has(chapter.chapterId)) return false;
+        if (resume.locallyReadChapterIds.includes(chapter.chapterId)) return false;
         return resume.readThroughChapterId === undefined
             || !chapterAtOrBefore(chapter.chapterId, resume.readThroughChapterId);
     });
     if (firstUnread !== undefined) return firstUnread;
     return chaptersNewestFirst[0];
+}
+
+function chapterAtOrBefore(chapterId: string, boundaryId: string): boolean {
+    const chapter = Number(chapterId);
+    const boundary = Number(boundaryId);
+    if (Number.isFinite(chapter) && Number.isFinite(boundary)) return chapter <= boundary;
+    return chapterId === boundaryId;
 }
 
 function renderChapter(provider: Provider, series: HomeSeries, chapter: HomeChapter): HTMLAnchorElement {
@@ -252,127 +230,116 @@ function updateUnlockCountdowns(root: ParentNode): void {
     }
 }
 
-function applyHistory(
+function applyCardPatch(
     provider: Provider,
-    root: ParentNode,
-    history: RemoteSeriesHistory[],
-    progress: ChapterProgress[],
+    cards: Map<string, { series: HomeSeries; element: HTMLElement }>,
+    patch: CardResolution,
 ): void {
-    const remoteIndex = new Map(history.map(item => [item.seriesId, item]));
-    const localIndex = createProgressIndex(progress);
-    for (const card of root.querySelectorAll<HTMLElement>('.hs-home-card')) {
-        const seriesSlug = card.dataset.seriesSlug;
-        const remoteId = card.dataset.historyId;
-        if (!seriesSlug || !remoteId) continue;
-        const remote = remoteIndex.get(remoteId);
-        const seriesProgress = progress.filter(item => item.seriesSlug === seriesSlug);
-        const sameChapterLocalPartial = remote === undefined
-            ? undefined
-            : seriesProgress.find(item => (
-                item.chapterId === remote.resumeChapterId && !isChapterComplete(item)
-            ));
-        for (const chapter of card.querySelectorAll<HTMLAnchorElement>('.hs-home-chapter')) {
-            const chapterId = chapter.dataset.chapterId;
-            if (!chapterId) continue;
-            chapter.classList.remove('hs-home-chapter-read', 'hs-home-chapter-partial');
-            delete chapter.dataset.remoteResumePercent;
-            chapter.href = provider.readerUrl(seriesSlug, chapterId);
-            if (remote !== undefined) {
-                if (
-                    remote.readThroughChapterId !== undefined
-                    && chapterAtOrBefore(chapterId, remote.readThroughChapterId)
-                ) {
-                    chapter.classList.add('hs-home-chapter-read');
-                }
-                if (chapterId === remote.resumeChapterId && remote.resumePercent !== undefined) {
-                    chapter.classList.toggle('hs-home-chapter-partial', remote.resumePercent < 100);
-                    chapter.classList.toggle('hs-home-chapter-read', remote.resumePercent >= 100);
-                    chapter.dataset.remoteResumePercent = String(remote.resumePercent);
-                }
-            }
-            const saved = localIndex.get(progressKey(seriesSlug, chapterId));
-            const localCanOverride = remote === undefined
-                ? saved !== undefined
-                : saved === sameChapterLocalPartial;
-            if (!localCanOverride || saved === undefined) continue;
-            chapter.classList.toggle('hs-home-chapter-partial', !isChapterComplete(saved));
-            chapter.classList.toggle('hs-home-chapter-read', isChapterComplete(saved));
-            delete chapter.dataset.remoteResumePercent;
-            if (!chapter.classList.contains('hs-home-chapter-locked')) {
-                chapter.href = provider.readerUrl(seriesSlug, chapterId, String(saved.imageIndex));
-            }
+    const entry = cards.get(patch.seriesSlug);
+    if (!entry) return; // rendered later; the post-catalog refresh covers it
+    const card = entry.element;
+    for (const chapter of patch.chapters) {
+        const link = card.querySelector<HTMLAnchorElement>(`[data-chapter-id="${chapter.chapterId}"]`);
+        if (!link) continue;
+        link.classList.toggle('hs-home-chapter-read', chapter.read);
+        link.classList.toggle('hs-home-chapter-partial', chapter.partial);
+        if (chapter.remoteResumePercent !== undefined) {
+            link.dataset.remoteResumePercent = String(chapter.remoteResumePercent);
+        } else {
+            delete link.dataset.remoteResumePercent;
         }
+        if (chapter.localImageIndex !== undefined && !link.classList.contains('hs-home-chapter-locked')) {
+            link.href = provider.readerUrl(entry.series.slug, chapter.chapterId, String(chapter.localImageIndex));
+        } else {
+            link.href = provider.readerUrl(entry.series.slug, chapter.chapterId);
+        }
+    }
 
-        const cover = card.querySelector<HTMLAnchorElement>('.hs-home-cover');
-        if (!cover) continue;
-        delete cover.dataset.remoteResumeChapterId;
-        delete cover.dataset.remoteResumePercent;
-        if (sameChapterLocalPartial !== undefined) {
-            const resume: CoverResume = {
+    const cover = card.querySelector<HTMLAnchorElement>('.hs-home-cover');
+    if (!cover) return;
+    delete cover.dataset.remoteResumeChapterId;
+    delete cover.dataset.remoteResumePercent;
+    const resume = patch.cover;
+    switch (resume.kind) {
+        case 'local-partial':
+            coverResume.set(cover, {
                 kind: 'local-partial',
-                chapterId: sameChapterLocalPartial.chapterId,
-                imageIndex: sameChapterLocalPartial.imageIndex,
-            };
-            coverResume.set(cover, resume);
+                chapterId: resume.chapterId,
+                imageIndex: resume.imageIndex,
+            });
             cover.dataset.resume = 'local';
-            cover.href = provider.readerUrl(seriesSlug, resume.chapterId, String(resume.imageIndex));
-            continue;
-        }
-        if (remote !== undefined && remote.resumePercent !== undefined && remote.resumePercent < 100) {
-            const resume: CoverResume = {
+            cover.href = provider.readerUrl(entry.series.slug, resume.chapterId, String(resume.imageIndex));
+            return;
+        case 'remote-partial':
+            coverResume.set(cover, {
                 kind: 'remote-partial',
-                chapterId: remote.resumeChapterId,
-                percent: remote.resumePercent,
-            };
-            coverResume.set(cover, resume);
+                chapterId: resume.chapterId,
+                percent: resume.percent,
+            });
             cover.dataset.resume = 'remote';
             cover.dataset.remoteResumeChapterId = resume.chapterId;
             cover.dataset.remoteResumePercent = String(resume.percent);
-            cover.href = provider.readerUrl(seriesSlug, resume.chapterId);
-            continue;
-        }
-        if (remote !== undefined) {
-            const readThroughChapterId = remote.readThroughChapterId === undefined
-                ? remote.resumeChapterId
-                : remote.readThroughChapterId;
-            const resume: CoverResume = {
+            cover.href = provider.readerUrl(entry.series.slug, resume.chapterId);
+            return;
+        case 'read':
+            coverResume.set(cover, {
                 kind: 'read',
-                readThroughChapterId,
-                locallyReadChapterIds: new Set(),
-            };
-            coverResume.set(cover, resume);
+                readThroughChapterId: resume.readThroughChapterId,
+                locallyReadChapterIds: resume.locallyReadChapterIds,
+            });
             cover.dataset.resume = 'read';
-            cover.href = provider.readerUrl(seriesSlug, remote.resumeChapterId);
-            continue;
-        }
-
-        const localPartial = newestPartial(seriesProgress);
-        if (localPartial !== undefined) {
-            const resume: CoverResume = {
-                kind: 'local-partial',
-                chapterId: localPartial.chapterId,
-                imageIndex: localPartial.imageIndex,
-            };
-            coverResume.set(cover, resume);
-            cover.dataset.resume = 'local';
-            cover.href = provider.readerUrl(seriesSlug, resume.chapterId, String(resume.imageIndex));
-            continue;
-        }
-
-        const locallyReadChapterIds = new Set(
-            seriesProgress.filter(isChapterComplete).map(item => item.chapterId),
-        );
-        if (locallyReadChapterIds.size > 0) {
-            coverResume.set(cover, { kind: 'read', locallyReadChapterIds });
-            cover.dataset.resume = 'read';
-            cover.href = provider.seriesUrl(seriesSlug);
-            continue;
-        }
-
-        coverResume.set(cover, { kind: 'none' });
-        cover.dataset.resume = 'false';
-        cover.href = provider.seriesUrl(seriesSlug);
+            cover.href = resume.resumeChapterId !== undefined
+                ? provider.readerUrl(entry.series.slug, resume.resumeChapterId)
+                : provider.seriesUrl(entry.series.slug);
+            return;
+        case 'none':
+            coverResume.set(cover, { kind: 'none' });
+            cover.dataset.resume = 'false';
+            cover.href = provider.seriesUrl(entry.series.slug);
+            return;
     }
+}
+
+function queueHistoryRefresh(
+    provider: Provider,
+    cards: Map<string, { series: HomeSeries; element: HTMLElement }>,
+    remoteHistory: RemoteSeriesHistory[],
+): void {
+    const cardInputs = [...cards.values()].map(({ series }) => ({
+        seriesSlug: series.slug,
+        historyId: series.historyId ?? series.slug,
+        chapterIds: series.chapters.map(chapter => chapter.chapterId),
+    }));
+    void resolveHistoryAsync({ cards: cardInputs, remoteHistory })
+        .then(patches => {
+            enqueue('history', patches.map(patch => () => applyCardPatch(provider, cards, patch)));
+        })
+        .catch(error => console.error('History resolution failed', error));
+}
+
+function appendPageDeferred(
+    provider: Provider,
+    cards: Map<string, { series: HomeSeries; element: HTMLElement }>,
+    list: HTMLDivElement,
+    remoteHistory: RemoteSeriesHistory[],
+    page: HomePage,
+): void {
+    const steps: Array<() => void> = page.series.map(series => () => {
+        const current = cards.get(series.slug);
+        if (!current) {
+            const element = renderSeries(provider, series);
+            cards.set(series.slug, { series, element });
+            list.appendChild(element);
+            return;
+        }
+        const merged = mergeSeries(current.series, series);
+        if (merged.chapters.length === current.series.chapters.length) return;
+        const element = renderSeries(provider, merged);
+        current.element.replaceWith(element);
+        cards.set(series.slug, { series: merged, element });
+    });
+    steps.push(() => queueHistoryRefresh(provider, cards, remoteHistory));
+    enqueue('catalog', steps);
 }
 
 function statusText(loaded: number, total: number | undefined, loading: boolean): string {
@@ -443,7 +410,6 @@ export async function open(provider: Provider): Promise<void> {
     loading.className = 'hs-home-loading';
     loading.textContent = 'Loading latest updates…';
     document.body.appendChild(loading);
-    let progress = getProviderProgress(provider.key);
     let remoteHistory: RemoteSeriesHistory[] = [];
 
     let firstPage: HomePage;
@@ -468,35 +434,20 @@ export async function open(provider: Provider): Promise<void> {
 
     const cards = new Map<string, { series: HomeSeries; element: HTMLElement }>();
     let total = firstPage.total;
-    function appendPage(page: HomePage): void {
+    // First paint is synchronous by design; the history overlay lands one
+    // worker round trip later through the idle queue.
+    function appendFirstPage(page: HomePage): void {
         if (page.total !== undefined) total = page.total;
         for (const series of page.series) {
-            const current = cards.get(series.slug);
-            if (!current) {
-                const element = renderSeries(provider, series);
-                cards.set(series.slug, { series, element });
-                list.appendChild(element);
-                continue;
-            }
-            const merged = mergeSeries(current.series, series);
-            if (merged.chapters.length === current.series.chapters.length) continue;
-            const element = renderSeries(provider, merged);
-            current.element.replaceWith(element);
-            cards.set(series.slug, { series: merged, element });
+            const element = renderSeries(provider, series);
+            cards.set(series.slug, { series, element });
+            list.appendChild(element);
         }
-        applyHistory(provider, list, remoteHistory, progress);
+        status.textContent = statusText(cards.size, total, page.nextCursor !== null);
     }
-    appendPage(firstPage);
-    status.textContent = statusText(cards.size, total, firstPage.nextCursor !== null);
+    appendFirstPage(firstPage);
+    queueHistoryRefresh(provider, cards, remoteHistory);
 
-    function applyHistoryLayers(): void {
-        progress = getProviderProgress(provider.key);
-        applyHistory(provider, list, remoteHistory, progress);
-    }
-    function reconcileProgress(): void {
-        resetTransientCoverState(list);
-        applyHistoryLayers();
-    }
     let historyRequestGeneration = 0;
     let historyRequestLifecycle = -1;
     function reconcileRemoteHistory(): void {
@@ -507,12 +458,13 @@ export async function open(provider: Provider): Promise<void> {
             .then(history => {
                 if (generation !== historyRequestGeneration || !active) return;
                 remoteHistory = history;
-                applyHistoryLayers();
+                queueHistoryRefresh(provider, cards, remoteHistory);
             })
             .catch(error => console.error('Provider history sidecar failed', error));
     }
     function reconcilePageShow(): void {
-        reconcileProgress();
+        resetTransientCoverState(list);
+        queueHistoryRefresh(provider, cards, remoteHistory);
         reconcileRemoteHistory();
     }
     window.addEventListener('pageshow', reconcilePageShow);
@@ -533,7 +485,7 @@ export async function open(provider: Provider): Promise<void> {
         try {
             const page = await provider.fetchHome(requestCursor);
             seenCursors.add(requestCursor);
-            appendPage(page);
+            appendPageDeferred(provider, cards, list, remoteHistory, page);
             nextCursor = page.nextCursor;
             status.textContent = statusText(cards.size, total, nextCursor !== null);
         } catch (error) {

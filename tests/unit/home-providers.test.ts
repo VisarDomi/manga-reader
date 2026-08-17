@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Handler, type HomePage, type Provider } from '../../src/provider';
 import { createAngularProvider } from '../../src/provider/angular';
 import { asura } from '../../src/provider/asura';
@@ -13,6 +13,29 @@ import { violet } from '../../src/provider/violet';
 import { yaksha } from '../../src/provider/yaksha';
 import { open as openHome } from '../../src/routes/home';
 import { saveChapterProgress } from '../../src/storage/progress';
+import { resetQueue, setIdleScheduler } from '../../src/core/update-queue';
+
+// jsdom has no Worker: route the history client through the pure resolver,
+// reading test progress from localStorage like the old synchronous path did.
+vi.mock('../../src/core/compute/history-client', async () => {
+    const { resolveHistory } = await import('../../src/core/compute/history');
+    const { getProviderProgress } = await import('../../src/storage/progress');
+    return {
+        resolveHistoryAsync: (payload: {
+            cards: unknown;
+            remoteHistory: unknown;
+        }) => Promise.resolve(resolveHistory({
+            cards: payload.cards as never,
+            remoteHistory: payload.remoteHistory as never,
+            progress: getProviderProgress('test'),
+        })),
+    };
+});
+
+beforeEach(() => {
+    resetQueue();
+    setIdleScheduler(callback => queueMicrotask(callback));
+});
 
 afterEach(() => {
     vi.useRealTimers();
@@ -377,21 +400,24 @@ describe('home catalog rendering', () => {
         const chapterB5 = document.querySelector<HTMLElement>(
             '.hs-home-card[data-series-slug="series-b"] .hs-home-chapter[data-chapter-id="5"]',
         );
-        expect(chapterA3?.classList.contains('hs-home-chapter-partial')).toBe(true);
-        expect(chapterA3?.classList.contains('hs-home-chapter-read')).toBe(false);
-        expect(chapterA2?.classList.contains('hs-home-chapter-read')).toBe(true);
-        expect(chapterB5?.classList.contains('hs-home-chapter-read')).toBe(true);
-
         const coverA = document.querySelector<HTMLAnchorElement>(
             '.hs-home-card[data-series-slug="series-a"] .hs-home-cover',
         );
         const coverB = document.querySelector<HTMLAnchorElement>(
             '.hs-home-card[data-series-slug="series-b"] .hs-home-cover',
         );
-        expect(coverA?.href).toBe('https://example.test/series-a/3#1');
-        expect(coverA?.dataset.resume).toBe('local');
-        expect(coverB?.href).toBe('https://example.test/series-b/5');
-        expect(coverB?.dataset.resume).toBe('read');
+        // The history overlay now arrives through the idle queue (worker seam in
+        // tests), so poll until the queued pass has applied.
+        await vi.waitFor(() => {
+            expect(chapterA3?.classList.contains('hs-home-chapter-partial')).toBe(true);
+            expect(chapterA3?.classList.contains('hs-home-chapter-read')).toBe(false);
+            expect(chapterA2?.classList.contains('hs-home-chapter-read')).toBe(true);
+            expect(chapterB5?.classList.contains('hs-home-chapter-read')).toBe(true);
+            expect(coverA?.href).toBe('https://example.test/series-a/3#1');
+            expect(coverA?.dataset.resume).toBe('local');
+            expect(coverB?.href).toBe('https://example.test/series-b/5');
+            expect(coverB?.dataset.resume).toBe('read');
+        });
     });
 
     it('makes covers start, resume, continue, and fall back to the newest chapter', async () => {
@@ -428,8 +454,12 @@ describe('home catalog rendering', () => {
         const cover = (slug: string) => document.querySelector<HTMLAnchorElement>(
             `.hs-home-card[data-series-slug="${slug}"] .hs-home-cover`,
         )!;
-        expect(cover('partial-reader').dataset.resume).toBe('local');
-        expect(readerUrl).toHaveBeenCalledWith('partial-reader', '2', '1');
+        // The history overlay now arrives through the idle queue (worker seam in
+        // tests), so poll until the queued pass has applied.
+        await vi.waitFor(() => {
+            expect(cover('partial-reader').dataset.resume).toBe('local');
+            expect(readerUrl).toHaveBeenCalledWith('partial-reader', '2', '1');
+        });
 
         readerUrl.mockClear();
         cover('new-reader').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));

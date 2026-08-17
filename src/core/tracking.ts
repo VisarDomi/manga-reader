@@ -1,5 +1,5 @@
 import type { ChapterData, ChapterMeta, Provider } from '../provider';
-import { saveChapterProgress } from '../storage/progress';
+import { computeRequest } from './compute/transport';
 
 type TrackingProvider = Pick<Provider, 'trackPage' | 'trackChapter'>;
 
@@ -30,18 +30,16 @@ export function createReaderTracker(
             const pageKey = `${data.chapterId}:${imageIndex}`;
             if (local && !savedLocalPages.has(pageKey)) {
                 savedLocalPages.add(pageKey);
-                try {
-                    saveChapterProgress(
-                        local.providerKey,
-                        local.seriesSlug,
-                        data.chapterId,
-                        Number(imageIndex),
-                        data.images.length,
-                    );
-                } catch (error) {
+                void computeRequest('save-progress', {
+                    provider: local.providerKey,
+                    seriesSlug: local.seriesSlug,
+                    chapterId: data.chapterId,
+                    imageIndex: Number(imageIndex),
+                    totalImages: data.images.length,
+                }).catch(error => {
                     savedLocalPages.delete(pageKey);
                     local.onError?.(error);
-                }
+                });
             }
 
             // Valir needs the complete chapter list to mark older chapters.

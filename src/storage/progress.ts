@@ -1,4 +1,4 @@
-const PROGRESS_KEY = 'manga-reader-progress-v1';
+export const PROGRESS_KEY = 'manga-reader-progress-v1';
 
 export interface ChapterProgress {
     id: string;

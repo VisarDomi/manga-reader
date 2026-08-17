@@ -113,4 +113,24 @@ try {
   try { unlinkSync(STUB); } catch {}
 }
 
+// ── Inline worker cleanup ────────────────────────────────────────────
+// Vite's ?worker&inline wrapper prefixes the blob source with a line that
+// revokes the worker's own object URL:
+//   "(self.URL || self.webkitURL).revokeObjectURL(self.location.href);"
+// The real iOS worker killer turned out to be window.stop() during takeover
+// aborting in-flight blob-worker script loads (worker must spawn after the
+// takeover nuke — see src/core/compute/transport.ts). The self-revoke is
+// still stripped as a precaution: it adds nothing for a single-spawn worker
+// and risks a WebKit fetch/revoke race on slower devices. Strip the line.
+const REVOKE_LINE = '"(self.URL || self.webkitURL).revokeObjectURL(self.location.href);",';
+const outputFile = resolve(__dirname, '..', 'dist', buildName ? buildName + '.user.js' : 'manga-reader.user.js');
+let bundleText = readFileSync(outputFile, 'utf8');
+if (!bundleText.includes(REVOKE_LINE)) {
+  console.error('[build] Inline worker revoke line not found — Vite output changed, update the cleanup step');
+  process.exit(1);
+}
+bundleText = bundleText.split(REVOKE_LINE).join('"",');
+writeFileSync(outputFile, bundleText, 'utf8');
+console.log('[build] Stripped worker self-revoke line (WebKit blob fetch race)');
+
 console.log('[build] Done');
