@@ -1,10 +1,14 @@
-// Latest-wins coalescing update queue, drained one step at a time inside
-// requestIdleCallback. The main thread applies already-computed models here;
-// the browser decides the time budget, so no millisecond constants exist.
+// Latest-wins coalescing update queue, drained in small chunks so the main
+// thread always yields between steps. No millisecond constants exist: chunks
+// are bounded by a step COUNT, and the browser's event loop decides pacing.
 //
-// BFCache semantics: while hidden, idle callbacks never fire, so updates simply
-// wait; on restore they resume when the page is next idle. Enqueueing is O(1) —
-// the pageshow handler returns immediately.
+// Scheduling: requestIdleCallback when available; otherwise a MessageChannel
+// macrotask (WKWebView on iOS has no requestIdleCallback). Either way every
+// drain applies at most MAX_STEPS_PER_DRAIN steps and then yields.
+//
+// BFCache semantics: while hidden, the page is frozen so drains simply wait;
+// on restore they resume. Enqueueing is O(1) - the pageshow handler returns
+// immediately.
 
 type Step = () => void;
 
@@ -18,20 +22,39 @@ interface QueueItem {
 const items = new Map<string, QueueItem>();
 let running = false;
 
+/** Steps applied per drain. A count cap, never a time budget. */
+const MAX_STEPS_PER_DRAIN = 12;
+
 type IdleCallback = (callback: () => void) => void;
 
-let scheduleIdle: IdleCallback = callback => {
-    // requestIdleCallback exists on all supported targets (iOS 26+, modern
-    // Chrome/Firefox). Tests inject a synchronous scheduler instead.
-    if (typeof globalThis.requestIdleCallback !== 'function') {
-        throw new Error('requestIdleCallback is unavailable');
-    }
-    globalThis.requestIdleCallback(callback);
-};
+const messageChannel = typeof MessageChannel !== 'undefined'
+    ? new MessageChannel()
+    : null;
 
-/** Test seam: jsdom has no requestIdleCallback. */
+function defaultSchedule(callback: () => void): void {
+    if (typeof globalThis.requestIdleCallback === 'function') {
+        globalThis.requestIdleCallback(callback);
+        return;
+    }
+    if (messageChannel !== null) {
+        messageChannel.port1.onmessage = () => callback();
+        messageChannel.port2.postMessage(null);
+        return;
+    }
+    // Every environment has setTimeout.
+    globalThis.setTimeout(callback, 0);
+}
+
+let scheduleIdle: IdleCallback = defaultSchedule;
+
+/** Test seam: install a deterministic scheduler. */
 export function setIdleScheduler(scheduler: IdleCallback): void {
     scheduleIdle = scheduler;
+}
+
+/** Test seam: restore the production scheduler. */
+export function resetIdleScheduler(): void {
+    scheduleIdle = defaultSchedule;
 }
 
 function hasWork(): boolean {
@@ -42,23 +65,28 @@ function hasWork(): boolean {
 }
 
 function drain(): void {
-    // Snapshot kinds so enqueue during apply cannot disturb this pass.
     const kinds = [...items.keys()];
+    let applied = 0;
     for (const kind of kinds) {
+        if (applied >= MAX_STEPS_PER_DRAIN) break;
         const item = items.get(kind);
         if (item === undefined || item.superseded) {
             items.delete(kind);
             continue;
         }
         const deadline = getDeadline();
-        while (item.index < item.steps.length) {
+        while (
+            item.index < item.steps.length &&
+            applied < MAX_STEPS_PER_DRAIN &&
+            hasTimeLeft(deadline)
+        ) {
             if (item.superseded) {
                 items.delete(kind);
                 break;
             }
-            if (!hasTimeLeft(deadline)) break;
             item.steps[item.index]();
             item.index += 1;
+            applied += 1;
         }
         if (item.index >= item.steps.length) items.delete(kind);
     }
@@ -69,9 +97,9 @@ function drain(): void {
     }
 }
 
-// The real budget comes from the browser via IdleDeadline.timeRemaining().
-// Keeping it behind two tiny indirections so tests can exercise the queue
-// without a real IdleDeadline.
+// The real budget comes from the browser via IdleDeadline.timeRemaining()
+// when requestIdleCallback exists. Behind a tiny indirection so tests can
+// exercise the queue without a real IdleDeadline.
 let deadlineSource: () => { timeRemaining(): number } | null = () => {
     const deadline = (globalThis as { __idleDeadline?: { timeRemaining(): number } }).__idleDeadline;
     return deadline ?? null;

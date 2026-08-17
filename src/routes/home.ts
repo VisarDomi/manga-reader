@@ -8,6 +8,7 @@ import type {
 } from '../provider';
 import { enqueue } from '../core/update-queue';
 import { resolveHistoryAsync } from '../core/compute/history-client';
+import { registerImage } from '../core/image-retry';
 import type { CardResolution, CoverResumeModel } from '../core/compute/history';
 
 const POLITE_PAGE_DELAY_MS = 1_000;
@@ -153,6 +154,7 @@ function renderSeries(provider: Provider, series: HomeSeries): HTMLElement {
     cover.src = series.coverUrl;
     cover.alt = series.title;
     cover.loading = 'lazy';
+    registerImage(cover);
     coverLink.appendChild(cover);
     coverLink.addEventListener('click', event => {
         const resume = coverResume.get(coverLink);
@@ -300,10 +302,13 @@ function applyCardPatch(
     }
 }
 
+type HistoryErrorReporter = (message: string | null) => void;
+
 function queueHistoryRefresh(
     provider: Provider,
     cards: Map<string, { series: HomeSeries; element: HTMLElement }>,
     remoteHistory: RemoteSeriesHistory[],
+    reportHistoryError: HistoryErrorReporter,
 ): void {
     const cardInputs = [...cards.values()].map(({ series }) => ({
         seriesSlug: series.slug,
@@ -313,8 +318,12 @@ function queueHistoryRefresh(
     void resolveHistoryAsync({ cards: cardInputs, remoteHistory })
         .then(patches => {
             enqueue('history', patches.map(patch => () => applyCardPatch(provider, cards, patch)));
+            reportHistoryError(null);
         })
-        .catch(error => console.error('History resolution failed', error));
+        .catch(error => {
+            console.error('History resolution failed', error);
+            reportHistoryError(`History unavailable: ${error instanceof Error ? error.message : String(error)}`);
+        });
 }
 
 function appendPageDeferred(
@@ -322,6 +331,7 @@ function appendPageDeferred(
     cards: Map<string, { series: HomeSeries; element: HTMLElement }>,
     list: HTMLDivElement,
     remoteHistory: RemoteSeriesHistory[],
+    reportHistoryError: HistoryErrorReporter,
     page: HomePage,
 ): void {
     const steps: Array<() => void> = page.series.map(series => () => {
@@ -338,7 +348,7 @@ function appendPageDeferred(
         current.element.replaceWith(element);
         cards.set(series.slug, { series: merged, element });
     });
-    steps.push(() => queueHistoryRefresh(provider, cards, remoteHistory));
+    steps.push(() => queueHistoryRefresh(provider, cards, remoteHistory, reportHistoryError));
     enqueue('catalog', steps);
 }
 
@@ -434,6 +444,21 @@ export async function open(provider: Provider): Promise<void> {
 
     const cards = new Map<string, { series: HomeSeries; element: HTMLElement }>();
     let total = firstPage.total;
+
+    // One owned notice for history-pipeline failures: replaced on each
+    // failure, removed when a later pass succeeds. Never stacks.
+    let historyNotice: HTMLDivElement | null = null;
+    function reportHistoryError(message: string | null): void {
+        historyNotice?.remove();
+        historyNotice = null;
+        if (message === null) return;
+        const notice = document.createElement('div');
+        notice.className = 'hs-home-error';
+        notice.textContent = message;
+        historyNotice = notice;
+        list.appendChild(notice);
+    }
+
     // First paint is synchronous by design; the history overlay lands one
     // worker round trip later through the idle queue.
     function appendFirstPage(page: HomePage): void {
@@ -446,7 +471,7 @@ export async function open(provider: Provider): Promise<void> {
         status.textContent = statusText(cards.size, total, page.nextCursor !== null);
     }
     appendFirstPage(firstPage);
-    queueHistoryRefresh(provider, cards, remoteHistory);
+    queueHistoryRefresh(provider, cards, remoteHistory, reportHistoryError);
 
     let historyRequestGeneration = 0;
     let historyRequestLifecycle = -1;
@@ -458,13 +483,13 @@ export async function open(provider: Provider): Promise<void> {
             .then(history => {
                 if (generation !== historyRequestGeneration || !active) return;
                 remoteHistory = history;
-                queueHistoryRefresh(provider, cards, remoteHistory);
+                queueHistoryRefresh(provider, cards, remoteHistory, reportHistoryError);
             })
             .catch(error => console.error('Provider history sidecar failed', error));
     }
     function reconcilePageShow(): void {
         resetTransientCoverState(list);
-        queueHistoryRefresh(provider, cards, remoteHistory);
+        queueHistoryRefresh(provider, cards, remoteHistory, reportHistoryError);
         reconcileRemoteHistory();
     }
     window.addEventListener('pageshow', reconcilePageShow);
@@ -485,7 +510,7 @@ export async function open(provider: Provider): Promise<void> {
         try {
             const page = await provider.fetchHome(requestCursor);
             seenCursors.add(requestCursor);
-            appendPageDeferred(provider, cards, list, remoteHistory, page);
+            appendPageDeferred(provider, cards, list, remoteHistory, reportHistoryError, page);
             nextCursor = page.nextCursor;
             status.textContent = statusText(cards.size, total, nextCursor !== null);
         } catch (error) {

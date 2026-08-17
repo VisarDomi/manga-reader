@@ -1,6 +1,7 @@
 import type { ChapterData, ChapterMeta, Provider, RouteMatch } from '../provider';
 import { Handler } from '../provider';
 import { createReaderTracker } from '../core/tracking';
+import { registerImage } from '../core/image-retry';
 
 function imageLoaded(image: HTMLImageElement): boolean {
     return image.complete && image.naturalWidth > 0;
@@ -69,6 +70,7 @@ function renderChapterImages(
         img.addEventListener('load', reconcileAspectRatio);
         img.loading = 'lazy';
         img.src = imgData.url;
+        registerImage(img);
         if (imageLoaded(img)) reconcileAspectRatio();
         wrap.appendChild(img);
     }

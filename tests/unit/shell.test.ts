@@ -2,14 +2,27 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { startInit } from '../../src/core/shell';
+import { registeredImageCount, registerImage, resetImageRegistry } from '../../src/core/image-retry';
+
+function brokenImage(src: string): HTMLImageElement {
+    const image = document.createElement('img');
+    Object.defineProperties(image, {
+        complete: { configurable: true, value: true },
+        naturalWidth: { configurable: true, value: 0 },
+    });
+    image.src = src;
+    document.body.appendChild(image);
+    return image;
+}
 
 afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
+    resetImageRegistry();
     document.body?.replaceChildren();
 });
 
-describe('broken image retries', () => {
+describe('startInit lifecycle', () => {
     it('waits for the optional provider hook before replacing the document', async () => {
         vi.useFakeTimers();
         const calls: string[] = [];
@@ -56,56 +69,53 @@ describe('broken image retries', () => {
         window.dispatchEvent(new Event('pagehide'));
         expect(stopProviderServices).toHaveBeenCalledOnce();
     });
+});
 
-    it('ignores images with missing or empty sources', async () => {
+describe('image retry registry', () => {
+    it('drops images with missing or empty sources and stops tracking them', async () => {
         vi.useFakeTimers();
-        vi.spyOn(window, 'stop').mockImplementation(() => undefined);
-        vi.spyOn(document, 'open').mockImplementation(() => document);
-        vi.spyOn(document, 'close').mockImplementation(() => undefined);
-        void startInit('Test', {});
-
         const missingSource = document.createElement('img');
         missingSource.className = 'hs-reader-img';
         const emptySource = document.createElement('img');
         emptySource.setAttribute('src', '');
-        const coverLink = document.createElement('a');
-        coverLink.className = 'hs-home-cover';
-        coverLink.appendChild(emptySource);
         for (const image of [missingSource, emptySource]) {
             Object.defineProperties(image, {
                 complete: { configurable: true, value: true },
                 naturalWidth: { configurable: true, value: 0 },
             });
         }
-        document.body.append(missingSource, coverLink);
+        document.body.append(missingSource, emptySource);
+        registerImage(missingSource);
+        registerImage(emptySource);
+        expect(registeredImageCount()).toBe(2);
 
         await vi.advanceTimersByTimeAsync(1_000);
 
+        expect(registeredImageCount()).toBe(0);
         expect(missingSource.hasAttribute('src')).toBe(false);
         expect(emptySource.getAttribute('src')).toBe('');
     });
 
-    it('retries gallery images and manga covers after 1, 2, 4 second delays', async () => {
+    it('stops the timer entirely once every registered image resolved', async () => {
         vi.useFakeTimers();
-        vi.spyOn(window, 'stop').mockImplementation(() => undefined);
-        vi.spyOn(document, 'open').mockImplementation(() => document);
-        vi.spyOn(document, 'close').mockImplementation(() => undefined);
-        void startInit('Test', {});
+        const image = brokenImage(location.origin + '/image.webp');
+        registerImage(image);
 
-        const gallery = document.createElement('img');
-        gallery.className = 'hs-reader-img';
-        const cover = document.createElement('img');
-        const coverLink = document.createElement('a');
-        coverLink.className = 'hs-home-cover';
-        coverLink.appendChild(cover);
-        for (const image of [gallery, cover]) {
-            Object.defineProperties(image, {
-                complete: { configurable: true, value: true },
-                naturalWidth: { configurable: true, value: 0 },
-            });
-            image.src = `${location.origin}/image.webp`;
-        }
-        document.body.append(gallery, coverLink);
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(vi.getTimerCount()).toBe(1);
+
+        Object.defineProperty(image, 'naturalWidth', { configurable: true, value: 1200 });
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(registeredImageCount()).toBe(0);
+        expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('retries registered images after 1, 2, 4 second delays', async () => {
+        vi.useFakeTimers();
+        const gallery = brokenImage(location.origin + '/image.webp');
+        const cover = brokenImage(location.origin + '/cover.webp');
+        registerImage(gallery);
+        registerImage(cover);
 
         const retryValues = () => [gallery, cover].map(image => new URL(image.src).searchParams.get('retry'));
         await vi.advanceTimersByTimeAsync(999);
@@ -127,33 +137,16 @@ describe('broken image retries', () => {
         expect(retryValues()).not.toEqual(afterThreeSeconds);
     });
 
-    it('tracks exponential backoff independently for images in the same scope', async () => {
+    it('tracks exponential backoff independently per image', async () => {
         vi.useFakeTimers();
-        vi.spyOn(window, 'stop').mockImplementation(() => undefined);
-        vi.spyOn(document, 'open').mockImplementation(() => document);
-        vi.spyOn(document, 'close').mockImplementation(() => undefined);
-        void startInit('Test', {});
-
-        const first = document.createElement('img');
-        first.className = 'hs-reader-img';
-        Object.defineProperties(first, {
-            complete: { configurable: true, value: true },
-            naturalWidth: { configurable: true, value: 0 },
-        });
-        first.src = `${location.origin}/first.webp`;
-        document.body.appendChild(first);
+        const first = brokenImage(location.origin + '/first.webp');
+        registerImage(first);
 
         await vi.advanceTimersByTimeAsync(7_000);
         const firstAtSevenSeconds = first.src;
 
-        const second = document.createElement('img');
-        second.className = 'hs-reader-img';
-        Object.defineProperties(second, {
-            complete: { configurable: true, value: true },
-            naturalWidth: { configurable: true, value: 0 },
-        });
-        second.src = `${location.origin}/second.webp`;
-        document.body.appendChild(second);
+        const second = brokenImage(location.origin + '/second.webp');
+        registerImage(second);
 
         await vi.advanceTimersByTimeAsync(999);
         expect(new URL(second.src).searchParams.get('retry')).toBe(null);
