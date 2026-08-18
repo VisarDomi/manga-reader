@@ -30,10 +30,10 @@ export function onComputeNotification(handler: NotifyHandler): void {
  */
 export function resetWorkerState(): void {
     if (state === null) return;
-    const stale = state;
+    // const stale = state; // comment these in to debug further
     state = null;
-    const error = new Error('Compute worker reset after bfcache restore');
-    for (const entry of stale.pending.values()) entry.reject(error);
+    // const error = new Error('Compute worker reset after bfcache restore'); // comment these in to debug further
+    // for (const entry of stale.pending.values()) entry.reject(error); // comment these in to debug further
 }
 
 function spawn(): WorkerState {

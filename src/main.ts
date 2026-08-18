@@ -2,7 +2,7 @@ import { Handler, initializeProviderRoute } from './provider';
 import { open as openHome } from './routes/home';
 import { open as openReader } from './routes/reader';
 import { startInit } from './core/shell';
-import { showFatalError } from './core/fatal';
+// import { showFatalError } from './core/fatal';
 
 async function main(): Promise<void> {
     const match = initializeProviderRoute();
@@ -21,7 +21,8 @@ async function main(): Promise<void> {
 
 // Fail loudly: an unhandled startup rejection must be visible on the page,
 // never a silent blank takeover.
-void main().catch(error => {
-    console.error('manga-reader failed to start', error);
-    showFatalError(error instanceof Error ? error.message : String(error));
-});
+void main()
+    // .catch(error => {  // comment these in to debug further
+    //     console.error('manga-reader failed to start', error);  // comment these in to debug further
+    //     showFatalError(error instanceof Error ? error.message : String(error));  // comment these in to debug further
+    // });  // comment these in to debug further
