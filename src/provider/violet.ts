@@ -233,10 +233,12 @@ export const violet: Provider = {
             headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
             body,
         });
-        if (!res.ok) throw new Error(`Series catalog failed: ${res.status}`);
+        // Violet has no total count: the site signals the end with an empty
+        // (or failing) load-more page. Treat that as the catalog's end.
+        if (!res.ok) return { series: [], nextCursor: null };
         const document = new DOMParser().parseFromString(await res.text(), 'text/html');
         const series = [...document.querySelectorAll('.bs')].map(richHomeSeries);
-        if (series.length === 0) throw new Error(`Violet manga page ${page} is empty`);
+        if (series.length === 0) return { series: [], nextCursor: null };
         return {
             series,
             nextCursor: series.length < AJAX_PAGE_SIZE ? null : `ajax:${page + 1}`,
