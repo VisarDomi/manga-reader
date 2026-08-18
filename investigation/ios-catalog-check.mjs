@@ -99,7 +99,6 @@ try {
     const url = "https://asurascans.com/";
     log({ step: "navigate-start" });
     await session.navigate(url, { matches: (candidate, expected) => navigationMatches(candidate.href, expected) });
-    await sleep(3000);
     const fg = await controller.foregroundClient();
     log({ step: "foreground", client: fg.client.slice(0, 16), href: fg.href });
 

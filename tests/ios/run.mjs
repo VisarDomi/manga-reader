@@ -9,6 +9,7 @@ import {
     phaseBannerScript,
     runBuildSteps,
     runCaseMatrix,
+    sleep,
 } from "userscript-ios-test/controller";
 
 const root = resolve(import.meta.dirname, "../..");
@@ -103,16 +104,21 @@ function injectCode(bundle, url, { trackAsura = false } = {}) {
 function positionSnapshot() {
     return `
         const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+        // "Current image" = the one whose rect CONTAINS the viewport's top
+        // edge (top <= 0 <= bottom). Sorting by |top| misidentifies the image
+        // one pixel above the fold when iOS settles a scroll ±1px off — the
+        // classic straddle flake. Poll until the viewport has settled on one.
         const current = () => Array.from(document.querySelectorAll(".hs-reader-img"))
             .filter(image => image.complete && image.naturalWidth > 0)
             .map(image => ({
                 image,
+                rect: image.getBoundingClientRect(),
                 top: image.getBoundingClientRect().top,
             }))
-            .sort((a, b) => Math.abs(a.top) - Math.abs(b.top))[0];
+            .find(item => item.rect.top <= 1 && item.rect.bottom >= 1);
         for (let i = 0; i < 360; i++) {
             const item = current();
-            if (item && Math.abs(item.top) <= 1) break;
+            if (item) break;
             await wait(250);
         }
         const item = current();
@@ -449,12 +455,112 @@ async function runTrackingCase(testCase, bundle) {
     return result;
 }
 
+function homeAssertions() {
+    return `
+        const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+        const snapshot = () => {
+            const covers = [...document.querySelectorAll(".hs-home-cover")];
+            return {
+                hasHome: !!document.querySelector(".hs-home"),
+                cards: document.querySelectorAll(".hs-home-card").length,
+                statusText: document.querySelector(".hs-home-catalog-status")?.textContent ?? null,
+                homeError: document.querySelector(".hs-home-error")?.textContent ?? null,
+                coversWithResume: covers.filter(c => c.dataset.resume !== undefined).length,
+                coversResumeStates: covers.map(c => c.dataset.resume ?? null)
+                    .filter(Boolean)
+                    .reduce((acc, value) => (acc[value] = (acc[value] ?? 0) + 1, acc), {}),
+            };
+        };
+        for (let i = 0; i < 120; i++) {
+            if (document.querySelector(".hs-home-card")) break;
+            await wait(250);
+        }
+        const before = snapshot();
+
+        // History/resume must pause on scroll: keep the page in continuous
+        // motion, sample, then stop and let the burst apply.
+        for (let i = 0; i < 8; i++) {
+            scrollTo(0, scrollY + 400);
+            await wait(120);
+        }
+        const during = snapshot();
+        await wait(800);
+        const afterPause = snapshot();
+
+        // Autopaginate: scroll through the catalog until it completes
+        // (the status loses "loading more").
+        let rounds = 0;
+        let stalls = 0;
+        let lastCards = afterPause.cards;
+        for (let i = 0; i < 80; i++) {
+            const settled = new Promise(resolve => addEventListener("scrollend", resolve, { once: true }));
+            scrollTo(0, document.documentElement.scrollHeight);
+            await Promise.race([settled, wait(3000)]);
+            await wait(600);
+            const now = snapshot();
+            rounds++;
+            if (now.statusText !== null && !now.statusText.includes("loading more")) break;
+            if (now.cards === lastCards) {
+                stalls++;
+                if (stalls >= 4) break;
+            } else {
+                stalls = 0;
+                lastCards = now.cards;
+            }
+        }
+        const final = snapshot();
+        return { before, during, afterPause, final, rounds };
+    `;
+}
+function assertHome(result) {
+    const failures = [];
+    if (!result.before.hasHome) failures.push("home did not take over");
+    if (result.before.cards === 0) failures.push("no catalog cards rendered");
+    if (result.before.homeError) failures.push("home error: " + result.before.homeError);
+    if (result.afterPause.coversWithResume < result.during.coversWithResume) {
+        failures.push("resume overlay shrank after the scroll pause");
+    }
+    // Pagination growth only applies to multi-page catalogs; some providers
+    // (e.g. lua) return every entry in a single call.
+    const expectsPagination = result.before.statusText !== null
+        && result.before.statusText.includes("loading more");
+    if (expectsPagination && result.final.cards <= result.before.cards) {
+        failures.push("catalog did not grow past the first page");
+    }
+    if (expectsPagination && result.final.statusText !== null && result.final.statusText.includes("loading more")) {
+        failures.push("catalog never completed pagination: " + result.final.statusText);
+    }
+    if (result.final.homeError) failures.push("home error during pagination: " + result.final.homeError);
+    if (failures.length) throw new Error("home: " + failures.join("; "));
+}
+async function runHomeCase(testCase, bundle) {
+    await navigateClaimedTab(testCase);
+    // The proven home flow: re-claim the live foreground client (the page may
+    // self-reload after navigation), inject fire-and-forget immediately, and
+    // let the assertions poll the takeover DOM.
+    const fg = await controller.foregroundClient();
+    // controller.command targets THIS client directly; the session.command
+    // wrapper would route to the stale adopted client after a self-reload.
+    await controller.command(fg.client, injectCode(bundle, testCase.url), { expectResult: false });
+    // The page may self-reload right after the takeover: settle, then
+    // re-claim the live client before the assertions (proven probe flow).
+    await sleep(2500);
+    const fg2 = await controller.foregroundClient();
+    const result = await controller.command(fg2.client, homeAssertions());
+    assertHome(result);
+    await controller.command(fg2.client, `
+        globalThis.__mangaReaderTestPhase?.("HOME TEST SUCCESSFUL", "success");
+        return true;
+    `);
+    return result;
+}
+
 async function main() {
     const selection = parseSelection(process.argv.slice(2));
     const testName = selection.test;
     const siteName = selection.site;
-    if (!["full", "tracking"].includes(testName)) {
-        throw new Error(`Unknown test "${testName}". Expected "full" or "tracking".`);
+    if (!["full", "tracking", "home"].includes(testName)) {
+        throw new Error(`Unknown test "${testName}". Expected "full", "tracking", or "home".`);
     }
     if (testName === "tracking" && siteName !== "asura") {
         throw new Error('The "tracking" test requires --site asura.');
@@ -522,11 +628,16 @@ async function main() {
             if (testName === "tracking") {
                 return runTrackingCase(testCase, bundle);
             }
+            if (testName === "home") {
+                return runHomeCase(testCase, bundle);
+            }
             return runCase(testCase, bundle);
         },
         formatPass: result => testName === "tracking"
             ? `PASS (tracked once each: ${result.chapterIds.slice(0, 2).join(" → ")})`
-            : `PASS (${result.chapters.final.join(" → ")}, saved ${result.saved.chapterId}${result.saved.imageId} restored)`,
+            : testName === "home"
+                ? `PASS (home ${result.before.cards} cards, resume states: ${JSON.stringify(result.before.coversResumeStates)})`
+                : `PASS (${result.chapters.final.join(" → ")}, saved ${result.saved.chapterId}${result.saved.imageId} restored)`,
         onFailure: async ({ message }) => {
             if (session.client) {
                 try {

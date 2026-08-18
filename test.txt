@@ -1,5 +1,6 @@
 Features:
 
+Reader:
 1. Newer chapter loading
 - On scrollend + 100 ms, each visible chapter may append its immediate newer chapter exactly once.
 - Tracking happens exactly once per chapter
@@ -8,6 +9,18 @@ Features:
 - On scrollend + 100 ms, save the current loaded image in the page URL.
 - Providers own page URL recognition and construction.
 - Opening or refreshing a saved URL restores the corresponding image.
+
+Home:
+1. show entries
+2. autopaginate
+3. have history and resume functionality which pauses on scroll
+4. clicking on cover resumes
+5. clicking on chapters resumes the chapter (unread - start, read - end, partial - partial).
+6. local trumps server on the same chapter
+
+Special feature:
+1. bfcache - going back (swipe back) from reader to home loads home from cache
+2. image self register to retry in case they fail to load
 
 Test URLs for testing reader:
 
@@ -29,17 +42,3 @@ https://violetscans.org
 https://ezmanga.org
 https://qimanga.com
 https://yakshacomics.com
-
-Test URLs for showing all manga:
-https://asurascans.com/browse?page=2
-https://valirscans.org/series?type=Manhwa%2CManhua%2CManga%2CWebtoon&page=2
-https://scythescans.com/
-https://scythescans.com/manga/?order=update&page=2
-https://luacomic.org/series
-https://violetscans.org/
-https://violetscans.org/comics/?page=2
-https://ezmanga.org/
-https://ezmanga.org/browse?page=2
-https://qimanga.com/
-https://qimanga.com/browse?page=2
-https://yakshacomics.com/page/2/
