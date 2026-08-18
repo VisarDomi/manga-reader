@@ -68,11 +68,11 @@ export function resolveHistory(input: ResolveHistoryInput): CardResolution[] {
 
     return input.cards.map(card => {
         const remote = remoteIndex.get(card.historyId);
-        const seriesProgress = bySeries.get(card.seriesSlug) ?? [];
+        const seriesProgress = bySeries.get(card.historyId ?? card.seriesSlug) ?? [];
 
         const chapters: ChapterStateModel[] = card.chapterIds.map(chapterId => {
             const state: ChapterStateModel = { chapterId, read: false, partial: false };
-            const saved = byChapter.get(progressKey(card.seriesSlug, chapterId));
+            const saved = byChapter.get(progressKey(card.historyId ?? card.seriesSlug, chapterId));
             if (saved !== undefined) {
                 // Local trumps server: the reader keeps the server fresh, so
                 // any local entry is the most recent truth for this chapter.

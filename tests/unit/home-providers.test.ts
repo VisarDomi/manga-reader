@@ -402,7 +402,7 @@ describe('home catalog rendering', () => {
         };
 
         await openHome(provider);
-        saveChapterProgress('test', 'series-a', '3', 1, 5);
+        saveChapterProgress('test', 'remote-a', '3', 1, 5);
         resolveHistory([
             { seriesId: 'remote-a', readThroughChapterId: '3', resumeChapterId: '3' },
             { seriesId: 'series-b', readThroughChapterId: '5', resumeChapterId: '5' },

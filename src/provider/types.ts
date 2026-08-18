@@ -23,6 +23,10 @@ export interface ChapterData extends ChapterMeta {
     seriesTitle: string;
     /** Canonical catalog slug used for history and chapter-list requests. */
     seriesSlug: string;
+    /** Provider-owned identity for LOCAL history keys. May differ from
+     * seriesSlug (e.g. asura drops the rotating URL hex). The core never
+     * derives it and never inspects its meaning. */
+    historyId?: string;
     /** Internal API ID for the series, used for tracking on some providers. */
     seriesApiId?: number | string;
     images: ChapterImage[];

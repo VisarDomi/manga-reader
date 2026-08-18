@@ -8,6 +8,8 @@ export interface ReaderTracker {
 export interface LocalTrackingContext {
     providerKey: string;
     seriesSlug: string;
+    /** Provider-owned history identity; falls back to seriesSlug. */
+    historyId?: string;
     onError?(error: unknown): void;
 }
 
@@ -35,7 +37,7 @@ export function createReaderTracker(
                 savedLocalPages.add(pageKey);
                 void computeRequest('save-progress', {
                     provider: local.providerKey,
-                    seriesSlug: local.seriesSlug,
+                    seriesSlug: local.historyId ?? local.seriesSlug,
                     chapterId: data.chapterId,
                     imageIndex: Number(imageIndex),
                     totalImages: data.images.length,

@@ -130,6 +130,9 @@ if (!bundleText.includes(REVOKE_LINE)) {
   process.exit(1);
 }
 bundleText = bundleText.split(REVOKE_LINE).join('"",');
+// Runtime errors from our code carry this filename; the fatal trap filters
+// out the site's errors (e.g. module imports aborted by the takeover nuke).
+bundleText += '\n//# sourceURL=manga-reader.user.js\n';
 writeFileSync(outputFile, bundleText, 'utf8');
 console.log('[build] Stripped worker self-revoke line (WebKit blob fetch race)');
 

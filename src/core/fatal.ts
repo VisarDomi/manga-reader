@@ -34,14 +34,35 @@ export function showFatalError(message: string): void {
  * nothing and the failure looks like a hang.
  */
 export function trapUncaughtErrors(): void {
-    const report = (error: unknown): void => {
-        console.error('manga-reader uncaught error', error);
-        showFatalError(error instanceof Error ? error.message : String(error));
-    };
+    // INSTRUMENTATION: report every error with its full identity — message,
+    // filename, target, and stack — so the banner itself proves where a
+    // failure comes from. No filtering, no fixes until the offender is known.
     window.addEventListener('error', event => {
-        report(event.error ?? event.message);
+        const details = {
+            message: event.message,
+            filename: event.filename ?? null,
+            target: event.target === window ? 'window' : String(event.target),
+            errorName: event.error instanceof Error ? event.error.name : null,
+        };
+        console.error('manga-reader window error', details, event.error);
+        const stack = event.error instanceof Error && event.error.stack
+            ? String(event.error.stack).slice(0, 800)
+            : '';
+        showFatalError('window error: ' + JSON.stringify(details) + (stack ? '\n' + stack : ''));
     });
     window.addEventListener('unhandledrejection', event => {
-        report(event.reason);
+        const reason = event.reason instanceof Error
+            ? event.reason.name + ': ' + event.reason.message + '\n' + String(event.reason.stack ?? '').slice(0, 800)
+            : String(event.reason);
+        // Only OUR rejections are app failures. The takeover nuke aborts the
+        // site's in-flight module scripts, and their rejections reach this
+        // window listener — banner them and we'd be blaming ourselves for
+        // the site's casualty of our own window.stop().
+        if (!reason.includes('manga-reader.user.js')) {
+            console.error('manga-reader foreign rejection (not ours)', event.reason);
+            return;
+        }
+        console.error('manga-reader unhandled rejection', event.reason);
+        showFatalError('unhandled rejection: ' + reason);
     });
 }

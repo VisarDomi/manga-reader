@@ -1,6 +1,7 @@
 // Worker-safe catalog fetch for asurascans. No DOM, no token manager.
 import { SITE_CONFIG } from '../core/sites';
 import type { HomePage } from './types';
+import { asuraHistoryId } from './asura';
 
 const DOMAIN = SITE_CONFIG.asurascans.domain;
 const API_BASE = SITE_CONFIG.asurascans.apiBase!;
@@ -56,7 +57,7 @@ export async function fetchAsuraHome(cursor: string | null, referrer?: string): 
         nextCursor: response.meta.has_more ? String(page + 1) : null,
         series: response.data.map(series => ({
             slug: publicSlug(series.public_url),
-            historyId: series.slug,
+            historyId: asuraHistoryId(series.slug),
             title: series.title,
             coverUrl: coverUrl(series.cover),
             chapters: series.latest_chapters.slice(0, 5).map(chapter => {

@@ -150,6 +150,7 @@ export async function open(
     const tracker = createReaderTracker({
         providerKey: provider.key,
         seriesSlug: slug,
+        historyId: data.historyId,
         onError(error) {
             if (localTrackingErrorShown) return;
             localTrackingErrorShown = true;

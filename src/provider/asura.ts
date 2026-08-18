@@ -17,6 +17,14 @@ const CHAPTER_RE = /^\/comics\/([^/]+)\/chapter\/(\d+)/;
 const DOMAIN = SITE_CONFIG.asurascans.domain;
 const API_BASE = SITE_CONFIG.asurascans.apiBase!;
 
+/** The site rotates a trailing hex hash on frontend URL slugs; the API slug
+ * (and stable local-history identity) is the slug without it. */
+const HEX_SUFFIX = /-[0-9a-f]{8}$/i;
+
+export function asuraHistoryId(slug: string): string {
+    return slug.replace(HEX_SUFFIX, '');
+}
+
 async function fetchAsuraChapter(slug: string, chapterId: string): Promise<ChapterData | null> {
     const res = await fetch(`${API_BASE}/series/${slug}/chapters/${chapterId}`);
     if (isChapterUnavailable(res)) return null;
@@ -33,6 +41,7 @@ async function fetchAsuraChapter(slug: string, chapterId: string): Promise<Chapt
     return {
         chapterId,
         seriesSlug: slug,
+        historyId: asuraHistoryId(slug),
         seriesTitle: data.series.title,
         seriesApiId: data.series.id,
         chapterApiId: data.chapter.id,
