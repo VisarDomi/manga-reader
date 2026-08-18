@@ -71,11 +71,10 @@ describe('update queue (scrollend + 100ms)', () => {
         expect(applied).toEqual(['x']);
     });
 
-    it('pageshow arms the burst (bfcache restore applies without a scroll)', async () => {
+    it('enqueue itself arms the burst (a bfcache restore applies without a scroll)', async () => {
         vi.useFakeTimers();
         const applied: string[] = [];
         enqueue('history', [() => applied.push('x')]);
-        window.dispatchEvent(new Event('pageshow'));
         await vi.advanceTimersByTimeAsync(99);
         expect(applied).toEqual([]);
         await vi.advanceTimersByTimeAsync(1);

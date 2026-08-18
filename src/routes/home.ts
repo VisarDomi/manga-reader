@@ -430,7 +430,8 @@ export async function open(provider: Provider): Promise<void> {
         for (const resume of waiters) resume();
     }
     window.addEventListener('pagehide', pause);
-    window.addEventListener('pageshow', resume);
+    // bfcache-specific: the pagehide above paused the loop; a restore resumes it.
+    window.addEventListener('pagereveal', resume);
     document.addEventListener('visibilitychange', () => {
         if (document.hidden) pause();
         else resume();
@@ -530,7 +531,9 @@ export async function open(provider: Provider): Promise<void> {
         queueHistoryRefresh(provider, cards, remoteHistory, reportHistoryError);
         reconcileRemoteHistory();
     }
-    window.addEventListener('pageshow', reconcilePageShow);
+    // bfcache-specific: after a swipe-back the overlay is stale (the DOM
+    // revived from cache carries the pre-read state); re-resolve on restore.
+    window.addEventListener('pagereveal', reconcilePageShow);
     reconcileRemoteHistory();
     window.setInterval(() => updateUnlockCountdowns(section), 60_000);
 

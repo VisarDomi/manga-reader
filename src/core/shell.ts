@@ -1,6 +1,6 @@
 import css from '../style.css?inline';
 import type { Provider } from '../provider/types';
-import { computeRequest, onComputeNotification } from './compute/transport';
+import { computeRequest, onComputeNotification, resetWorkerState } from './compute/transport';
 import { trapUncaughtErrors } from './fatal';
 
 export async function startInit(
@@ -35,6 +35,13 @@ export async function startInit(
     };
     syncContext();
     window.addEventListener('pageshow', syncContext);
+    // bfcache is specific: pagereveal fires ONLY on a bfcache/prerender
+    // restore (never on a fresh load). The revived blob worker is dead —
+    // drop it so the next op respawns a live one (gallery-reader pattern).
+    window.addEventListener('pagereveal', () => {
+        resetWorkerState();
+        syncContext();
+    });
     document.addEventListener('visibilitychange', () => {
         void computeRequest('lifecycle', { hidden: document.hidden });
     });

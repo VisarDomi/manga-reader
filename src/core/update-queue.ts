@@ -1,7 +1,7 @@
 // Latest-wins coalescing update queue.
 //
 // Work is applied as ONE synchronous pass 100ms after the page goes quiet:
-// - enqueue, scrollend, and pageshow all arm the 100ms timer;
+// - enqueue and scrollend arm the 100ms timer;
 // - when the timer fires, a scroll event in the last 100ms postpones it
 //   (re-arm) instead of interrupting scrolling.
 //
@@ -33,7 +33,6 @@ function ensureListeners(): void {
     if (listenersInstalled) return;
     listenersInstalled = true;
     window.addEventListener('scrollend', scheduleDrain);
-    window.addEventListener('pageshow', scheduleDrain);
     window.addEventListener('scroll', () => {
         lastScrollAt = Date.now();
     });

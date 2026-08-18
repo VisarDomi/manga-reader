@@ -22,6 +22,20 @@ export function onComputeNotification(handler: NotifyHandler): void {
     notifyHandler = handler;
 }
 
+/**
+ * Drop the current worker. A blob worker does not survive bfcache on iOS:
+ * after a swipe-back the revived Worker object silently swallows postMessage
+ * and its requests hang forever (no crash event). On a persisted pageshow the
+ * shell resets the state so the next op spawns a live worker.
+ */
+export function resetWorkerState(): void {
+    if (state === null) return;
+    const stale = state;
+    state = null;
+    const error = new Error('Compute worker reset after bfcache restore');
+    for (const entry of stale.pending.values()) entry.reject(error);
+}
+
 function spawn(): WorkerState {
     const worker = new WorkerConstructor();
     const instance: WorkerState = { worker, pending: new Map() };

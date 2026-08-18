@@ -218,7 +218,8 @@ export async function open(
         }, 100);
     }
     window.addEventListener('scrollend', scrollEndOneHundred);
-    window.addEventListener('pageshow', scrollEndOneHundred);
+    // bfcache-specific: after a swipe-back restore, save the current position.
+    window.addEventListener('pagereveal', scrollEndOneHundred);
     window.addEventListener('load', scrollEndOneHundred, { once: true });
     firstWrap.querySelector<HTMLImageElement>('.hs-reader-img')
         ?.addEventListener('load', scrollEndOneHundred, { once: true });
