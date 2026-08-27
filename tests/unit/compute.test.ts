@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { CoverResumeKind, resolveHistory } from '../../src/core/compute/history';
 import { createChapterProgress } from '../../src/core/compute/progress';
+import {
+    migrateProgress,
+    ProgressSchemaVersion,
+} from '../../src/core/compute/migrations';
 
 const card = (chapterIds: string[]) => ({
     seriesSlug: 'series-a',
@@ -15,6 +19,28 @@ describe('local resume position', () => {
         expect(chapterTwo.id).toBe(chapterFive.id);
         expect(chapterTwo.id).not.toBe(createChapterProgress('test', 'series-b', '2', 0, 5).id);
         expect(chapterTwo.id).not.toBe(createChapterProgress('other', 'series-a', '2', 0, 5).id);
+    });
+
+    it('preserves the last visited position when migrating per-chapter history', () => {
+        const oldChapterTwo = {
+            ...createChapterProgress('test', 'series-a', '2', 1, 5, 100),
+            id: 'test\u0000series-a\u00002',
+        };
+        const oldChapterFive = {
+            ...createChapterProgress('test', 'series-a', '5', 3, 6, 200),
+            id: 'test\u0000series-a\u00005',
+        };
+
+        const result = migrateProgress(
+            [oldChapterTwo, oldChapterFive],
+            ProgressSchemaVersion.PerChapter,
+        );
+
+        expect(result.entries).toEqual([
+            createChapterProgress('test', 'series-a', '5', 3, 6, 200),
+        ]);
+        expect(result.schemaVersion).toBe(ProgressSchemaVersion.ResumePosition);
+        expect(result.needsCommit).toBe(true);
     });
 
     it('uses the local position even when server resume names another chapter', () => {

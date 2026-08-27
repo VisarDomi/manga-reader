@@ -6,12 +6,10 @@ import type { ComputeRequest, ComputeResponse } from './messages';
 import type { RemoteSeriesHistory } from '../../provider/types';
 import {
     createChapterProgress,
-    normalizeProgress,
-    progressNeedsNormalization,
     type ChapterProgress,
 } from './progress';
 import { resolveHistory, type CardInput } from './history';
-import { progressGetAll, progressPut, progressReplaceAll } from './store';
+import { loadProgress, progressPut } from './store';
 import {
     fetchProviderHome,
     fetchProviderRemoteHistory,
@@ -32,10 +30,7 @@ let state: WorkerState | null = null;
 
 async function ensureState(): Promise<WorkerState> {
     if (state !== null) return state;
-    const stored = await progressGetAll();
-    const progress = normalizeProgress(stored);
-    if (progressNeedsNormalization(stored, progress)) await progressReplaceAll(progress);
-    state = { progress };
+    state = { progress: await loadProgress() };
     return state;
 }
 

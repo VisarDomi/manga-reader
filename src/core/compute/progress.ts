@@ -43,34 +43,9 @@ export function createChapterProgress(
     };
 }
 
-/**
- * Collapse legacy per-chapter records to the last position visited in each
- * provider/series. This preserves intentional backscrolling during migration.
- */
-export function normalizeProgress(entries: ChapterProgress[]): ChapterProgress[] {
-    const byIdentity = new Map<string, ChapterProgress>();
-    for (const entry of entries) {
-        const id = progressId(entry.provider, entry.seriesSlug);
-        const normalized = entry.id === id ? entry : { ...entry, id };
-        const current = byIdentity.get(id);
-        if (current === undefined || normalized.updatedAt >= current.updatedAt) {
-            byIdentity.set(id, normalized);
-        }
-    }
-    return [...byIdentity.values()];
-}
-
-export function progressNeedsNormalization(
-    stored: ChapterProgress[],
-    normalized: ChapterProgress[],
-): boolean {
-    if (stored.length !== normalized.length) return true;
-    return stored.some(entry => entry.id !== progressId(entry.provider, entry.seriesSlug));
-}
-
 /** Indexed by provider-owned series identity within the current site origin. */
 export function progressBySeries(entries: ChapterProgress[]): Map<string, ChapterProgress> {
     const result = new Map<string, ChapterProgress>();
-    for (const entry of normalizeProgress(entries)) result.set(entry.seriesSlug, entry);
+    for (const entry of entries) result.set(entry.seriesSlug, entry);
     return result;
 }
