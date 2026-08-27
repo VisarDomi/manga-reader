@@ -6,3 +6,4 @@ filters-hitomi.txt
 /.repomixignore
 /repomix.config.json
 /repomix-output.txt
+tmp/

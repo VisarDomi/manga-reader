@@ -4,10 +4,7 @@
 
 import type { ComputeRequest, ComputeResponse } from './messages';
 import type { RemoteSeriesHistory } from '../../provider/types';
-import {
-    createChapterProgress,
-    type ChapterProgress,
-} from './progress';
+import { createChapterProgress } from './progress';
 import { resolveHistory, type CardInput } from './history';
 import { loadProgress } from './migrations';
 import { progressPut } from './store';
@@ -19,21 +16,9 @@ import {
 import { setWorkerContext } from './context';
 import type { ChapterData } from '../../provider/types';
 
-interface WorkerState {
-    progress: ChapterProgress[];
-}
-
 type Outcome =
     | { ok: true; value: unknown }
     | { ok: false; error: string };
-
-let state: WorkerState | null = null;
-
-async function ensureState(): Promise<WorkerState> {
-    if (state !== null) return state;
-    state = { progress: await loadProgress() };
-    return state;
-}
 
 async function handle(request: ComputeRequest): Promise<Outcome> {
     try {
@@ -49,7 +34,6 @@ async function handle(request: ComputeRequest): Promise<Outcome> {
                 ) {
                     throw new Error('save-progress requires complete progress data');
                 }
-                const current = await ensureState();
                 const entry = createChapterProgress(
                     payload.provider,
                     payload.seriesSlug,
@@ -58,9 +42,6 @@ async function handle(request: ComputeRequest): Promise<Outcome> {
                     payload.totalImages,
                 );
                 await progressPut(entry);
-                const next = current.progress.filter(item => item.id !== entry.id);
-                next.push(entry);
-                state = { progress: next };
                 return { ok: true, value: entry };
             }
 
@@ -112,11 +93,10 @@ async function handle(request: ComputeRequest): Promise<Outcome> {
                 if (!Array.isArray(payload?.cards) || !Array.isArray(payload?.remoteHistory)) {
                     throw new Error('history-resolve requires cards and remoteHistory arrays');
                 }
-                const current = await ensureState();
                 const result = resolveHistory({
                     cards: payload.cards,
                     remoteHistory: payload.remoteHistory,
-                    progress: current.progress,
+                    progress: await loadProgress(),
                 });
                 return { ok: true, value: result };
             }
