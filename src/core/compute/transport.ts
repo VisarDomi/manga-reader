@@ -17,19 +17,31 @@ let state: WorkerState | null = null;
 let nextRequestId = 1;
 let notifyHandler: NotifyHandler | null = null;
 
+export class ComputeWorkerResetError extends Error {
+    constructor() {
+        super('Compute worker was reset after page restoration');
+        this.name = 'ComputeWorkerResetError';
+    }
+}
+
 /** Register the handler for unsolicited worker notifications (cookie write-backs). */
 export function onComputeNotification(handler: NotifyHandler): void {
     notifyHandler = handler;
 }
 
 /**
- * Drop the current worker. A blob worker does not survive bfcache on iOS:
+ * Terminate the current worker and reject its pending requests. A blob worker
+ * does not survive bfcache on iOS:
  * after a swipe-back the revived Worker object silently swallows postMessage
  * and its requests hang forever (no crash event). On a persisted pageshow the
  * shell resets the state so the next op spawns a live worker.
  */
 export function resetWorkerState(): void {
     if (state === null) return;
+    const error = new ComputeWorkerResetError();
+    state.worker.terminate();
+    for (const entry of state.pending.values()) entry.reject(error);
+    state.pending.clear();
     state = null;
 }
 
@@ -47,7 +59,7 @@ function spawn(): WorkerState {
         if (!entry) return;
         instance.pending.delete(response.id);
         if (response.ok) entry.resolve(response.value);
-        else entry.reject(new Error(response.error ?? 'Compute worker rejected the request'));
+        else entry.reject(new Error(response.error));
     };
     worker.onerror = (event: ErrorEvent) => {
         // Only THIS instance's requests fail. A crash never poisons a newer
@@ -60,6 +72,7 @@ function spawn(): WorkerState {
             `Compute worker crashed: ${event.message || '(no message)'}${location}`,
         );
         for (const entry of instance.pending.values()) entry.reject(error);
+        instance.pending.clear();
         if (state === instance) state = null;
     };
     return instance;
@@ -67,7 +80,7 @@ function spawn(): WorkerState {
 
 export function computeRequest<K extends keyof OpTypes>(
     op: K,
-    payload?: OpTypes[K]['payload'],
+    payload: OpTypes[K]['payload'],
 ): Promise<OpTypes[K]['result']> {
     const id = nextRequestId++;
     return new Promise((resolve, reject) => {

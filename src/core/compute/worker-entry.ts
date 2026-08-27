@@ -25,11 +25,9 @@ interface WorkerState {
     bySeries: Map<string, ChapterProgress[]>;
 }
 
-interface Outcome {
-    ok: boolean;
-    value?: unknown;
-    error?: string;
-}
+type Outcome =
+    | { ok: true; value: unknown }
+    | { ok: false; error: string };
 
 let state: WorkerState | null = null;
 
@@ -51,13 +49,22 @@ async function handle(request: ComputeRequest): Promise<Outcome> {
         switch (request.op) {
             case 'save-progress': {
                 const payload = request.payload as Record<string, unknown> | undefined;
+                if (
+                    typeof payload?.provider !== 'string'
+                    || typeof payload.seriesSlug !== 'string'
+                    || typeof payload.chapterId !== 'string'
+                    || typeof payload.imageIndex !== 'number'
+                    || typeof payload.totalImages !== 'number'
+                ) {
+                    throw new Error('save-progress requires complete progress data');
+                }
                 const current = await ensureState();
                 const entry = createChapterProgress(
-                    String(payload?.provider),
-                    String(payload?.seriesSlug),
-                    String(payload?.chapterId),
-                    Number(payload?.imageIndex),
-                    Number(payload?.totalImages),
+                    payload.provider,
+                    payload.seriesSlug,
+                    payload.chapterId,
+                    payload.imageIndex,
+                    payload.totalImages,
                 );
                 await progressPut(entry);
                 const next = current.progress.filter(item => item.id !== entry.id);
@@ -68,9 +75,12 @@ async function handle(request: ComputeRequest): Promise<Outcome> {
 
             case 'cookie-snapshot': {
                 const payload = request.payload as { cookies?: unknown; href?: unknown } | undefined;
+                if (typeof payload?.cookies !== 'string' || typeof payload.href !== 'string') {
+                    throw new Error('cookie-snapshot requires cookies and href');
+                }
                 setWorkerContext({
-                    cookies: typeof payload?.cookies === 'string' ? payload.cookies : '',
-                    href: typeof payload?.href === 'string' ? payload.href : '',
+                    cookies: payload.cookies,
+                    href: payload.href,
                 });
                 return { ok: true, value: undefined };
             }
@@ -95,9 +105,10 @@ async function handle(request: ComputeRequest): Promise<Outcome> {
                 if (typeof payload?.provider !== 'string') {
                     throw new Error('fetch-home requires a provider key');
                 }
-                const cursor = payload.cursor === null || payload.cursor === undefined
-                    ? null
-                    : String(payload.cursor);
+                if (payload.cursor !== null && typeof payload.cursor !== 'string') {
+                    throw new Error('fetch-home requires a string or null cursor');
+                }
+                const cursor = payload.cursor;
                 const page = await fetchProviderHome(payload.provider, cursor);
                 return { ok: true, value: page };
             }
@@ -131,7 +142,9 @@ async function handle(request: ComputeRequest): Promise<Outcome> {
 }
 
 function respond(id: number, outcome: Outcome): void {
-    const response: ComputeResponse = { id, ok: outcome.ok, value: outcome.value, error: outcome.error };
+    const response: ComputeResponse = outcome.ok
+        ? { id, ok: true, value: outcome.value }
+        : { id, ok: false, error: outcome.error };
     (self as unknown as Worker).postMessage(response);
 }
 
@@ -143,28 +156,14 @@ const WRITE_OPS: ReadonlySet<string> = new Set([
     'track-chapter',
 ]);
 
-function opFailure(error: unknown): { ok: false; error: string } {
-    return {
-        ok: false,
-        error: error instanceof Error ? error.message : String(error),
-    };
-}
-
 self.onmessage = (event: MessageEvent<ComputeRequest>) => {
     const request = event.data;
     const task = async (): Promise<void> => {
         respond(request.id, await handle(request));
     };
     if (WRITE_OPS.has(request.op)) {
-        const chain = writeQueue === null ? Promise.resolve() : writeQueue.catch(() => {});
-        writeQueue = chain
-            .then(task)
-            .catch(error => {
-                respond(request.id, opFailure(error));
-            });
+        writeQueue = (writeQueue ?? Promise.resolve()).then(task);
     } else {
-        void task().catch(error => {
-            respond(request.id, opFailure(error));
-        });
+        void task();
     }
 };

@@ -15,12 +15,9 @@ export interface ComputeRequest {
     payload?: unknown;
 }
 
-export interface ComputeResponse {
-    id: number;
-    ok: boolean;
-    value?: unknown;
-    error?: string;
-}
+export type ComputeResponse =
+    | { id: number; ok: true; value: unknown }
+    | { id: number; ok: false; error: string };
 
 export interface SaveProgressPayload {
     provider: string;

@@ -448,6 +448,30 @@ describe('home catalog rendering', () => {
         expect(chapter.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))).toBe(false);
     });
 
+    it('moves failed cover resolution out of loading into an explicit retryable state', async () => {
+        const provider: Provider = {
+            ...testProvider(async () => ({
+                nextCursor: null,
+                series: [{
+                    slug: 'series-a',
+                    title: 'Series A',
+                    coverUrl: 'https://example.test/a.webp',
+                    chapters: [],
+                }],
+            })),
+            resolveHomeDestination: async () => { throw new Error('destination failed'); },
+        };
+
+        await openHome(provider);
+        const cover = document.querySelector<HTMLAnchorElement>('.hs-home-cover')!;
+        cover.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+        await vi.waitFor(() => expect(cover.dataset.requestState).toBe('failed'));
+        expect(cover.classList.contains('hs-home-cover-loading')).toBe(false);
+        expect(cover.classList.contains('hs-home-link-failed')).toBe(true);
+        expect(cover.title).toBe('Failed to open series');
+    });
+
     it('uses remote history as the base and reapplies same-chapter local partial progress', async () => {
         let resolveHistory!: (history: RemoteSeriesHistory[]) => void;
         const remoteHistory = new Promise<RemoteSeriesHistory[]>(

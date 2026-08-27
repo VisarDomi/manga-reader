@@ -4,9 +4,12 @@ import { createReaderTracker } from '../../src/core/tracking';
 
 // jsdom has no Worker: observe the ops the tracker dispatches.
 const calls: Array<{ op: string; payload: unknown }> = [];
+let saveProgressFails = false;
 vi.mock('../../src/core/compute/transport', () => ({
+    ComputeWorkerResetError: class ComputeWorkerResetError extends Error {},
     computeRequest: vi.fn(async (op: string, payload: unknown) => {
         calls.push({ op, payload });
+        if (op === 'save-progress' && saveProgressFails) throw new Error('storage failed');
     }),
     onComputeNotification: vi.fn(),
 }));
@@ -26,6 +29,7 @@ const payloadFor = (op: string) => calls
 
 beforeEach(() => {
     calls.length = 0;
+    saveProgressFails = false;
 });
 
 afterEach(() => {
@@ -47,7 +51,7 @@ describe('reader tracking', () => {
             readerUrl: () => '/chapter',
             seriesUrl: () => '/series',
         };
-        const tracker = createReaderTracker(provider, { seriesSlug: 'series' });
+        const tracker = createReaderTracker(provider, { seriesSlug: 'series', onError: vi.fn() });
         const chapterOne = chapter('1');
         const chapterTwo = chapter('2');
 
@@ -64,5 +68,28 @@ describe('reader tracking', () => {
             ['2', 0],
         ]);
         expect(trackChapter.mock.calls.map(([data]) => data.chapterId)).toEqual(['1', '2']);
+    });
+
+    it('moves a failed page save into a terminal error state', async () => {
+        saveProgressFails = true;
+        const onError = vi.fn();
+        const provider: Provider = {
+            key: 'test',
+            documentTitle: 'Test',
+            matchRoute: () => ({ handler: Handler.Home }),
+            fetchHome: async () => ({ series: [], nextCursor: null }),
+            loadChapter: async () => ({ kind: 'stop' }),
+            resolveHomeDestination: async () => '/series',
+            fetchChaptersNewestFirst: async () => [],
+            readerUrl: () => '/chapter',
+            seriesUrl: () => '/series',
+        };
+        const tracker = createReaderTracker(provider, { seriesSlug: 'series', onError });
+
+        tracker.track(chapter('1'), '0');
+        await vi.waitFor(() => expect(onError).toHaveBeenCalledOnce());
+        tracker.track(chapter('1'), '0');
+
+        expect(payloadFor('save-progress')).toHaveLength(1);
     });
 });

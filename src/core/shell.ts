@@ -1,6 +1,11 @@
 import css from '../style.css?inline';
 import type { Provider } from '../provider/types';
-import { computeRequest, onComputeNotification, resetWorkerState } from './compute/transport';
+import {
+    ComputeWorkerResetError,
+    computeRequest,
+    onComputeNotification,
+    resetWorkerState,
+} from './compute/transport';
 
 export async function startInit(
     documentTitle: string,
@@ -29,6 +34,9 @@ export async function startInit(
         void computeRequest('cookie-snapshot', {
             cookies: document.cookie,
             href: location.href,
+        }).catch(error => {
+            if (error instanceof ComputeWorkerResetError) return;
+            throw error;
         });
     };
     syncContext();

@@ -13,10 +13,11 @@ import type { CardResolution, CoverResumeModel } from '../core/compute/history';
 const POLITE_PAGE_DELAY_MS = 1_000;
 
 function settleBeforePause<T>(
-    operation: Promise<T>,
+    start: () => Promise<T>,
     signal: AbortSignal,
 ): Promise<{ kind: 'complete'; value: T } | { kind: 'paused' }> {
     if (signal.aborted) return Promise.resolve({ kind: 'paused' });
+    const operation = start();
     return new Promise((resolve, reject) => {
         let settled = false;
         const onPause = (): void => {
@@ -46,8 +47,38 @@ function createLink(className: string, href: string, text?: string): HTMLAnchorE
     const link = document.createElement('a');
     link.className = className;
     link.href = href;
+    link.dataset.requestState = 'idle';
     if (text !== undefined) link.textContent = text;
     return link;
+}
+
+type LinkRequestState = 'idle' | 'loading' | 'failed';
+
+function beginLinkRequest(link: HTMLAnchorElement): boolean {
+    const state = link.dataset.requestState;
+    if (state === 'loading') return false;
+    if (state !== 'idle' && state !== 'failed') {
+        throw new Error(`Invalid link request state: ${String(state)}`);
+    }
+    setLinkRequestState(link, 'loading');
+    return true;
+}
+
+function setLinkRequestState(
+    link: HTMLAnchorElement,
+    state: LinkRequestState,
+    failureTitle?: string,
+): void {
+    link.dataset.requestState = state;
+    link.classList.toggle('hs-home-link-loading', state === 'loading');
+    link.classList.toggle('hs-home-cover-loading', state === 'loading' && link.classList.contains('hs-home-cover'));
+    link.classList.toggle('hs-home-link-failed', state === 'failed');
+    if (state === 'failed') {
+        if (failureTitle === undefined) throw new Error('Failed link state requires a title');
+        link.title = failureTitle;
+    } else {
+        link.removeAttribute('title');
+    }
 }
 
 function lockIcon(): SVGSVGElement {
@@ -127,8 +158,7 @@ function renderChapter(provider: Provider, series: HomeSeries, chapter: HomeChap
         ) {
             // Server-read without a local page: jump to the last image.
             event.preventDefault();
-            if (link.dataset.loading === 'true') return;
-            link.dataset.loading = 'true';
+            if (!beginLinkRequest(link)) return;
             void provider.resolveHomeDestination({
                 kind: 'resume',
                 seriesSlug: series.slug,
@@ -137,9 +167,8 @@ function renderChapter(provider: Provider, series: HomeSeries, chapter: HomeChap
                 .then(url => {
                     window.location.href = url;
                 })
-                .catch(error => {
-                    link.title = error instanceof Error ? error.message : String(error);
-                    link.dataset.loading = 'false';
+                .catch(() => {
+                    setLinkRequestState(link, 'failed', 'Failed to open chapter');
                 });
         }
     });
@@ -154,6 +183,8 @@ function renderSeries(provider: Provider, series: HomeSeries): HTMLElement {
 
     const coverLink = createLink('hs-home-cover', provider.seriesUrl(series.slug));
     coverLink.dataset.seriesSlug = series.slug;
+    coverLink.dataset.resume = 'false';
+    coverResume.set(coverLink, { kind: 'none' });
     const cover = document.createElement('img');
     cover.src = series.coverUrl;
     cover.alt = series.title;
@@ -167,9 +198,7 @@ function renderSeries(provider: Provider, series: HomeSeries): HTMLElement {
         }
         if (resume.kind === 'local-partial') return;
         event.preventDefault();
-        if (coverLink.dataset.loading === 'true') return;
-        coverLink.dataset.loading = 'true';
-        coverLink.classList.add('hs-home-cover-loading');
+        if (!beginLinkRequest(coverLink)) return;
         void (async () => {
                 if (resume.kind === 'read') {
                     // End of the last-read chapter: the reader then loads the
@@ -196,14 +225,10 @@ function renderSeries(provider: Provider, series: HomeSeries): HTMLElement {
                 return provider.resolveHomeDestination({ kind: 'start', seriesSlug: series.slug });
             })()
             .then(destinationUrl => {
-                coverLink.dataset.loading = 'false';
-                coverLink.classList.remove('hs-home-cover-loading');
                 window.location.href = destinationUrl;
             })
-            .catch(error => {
-                coverLink.dataset.loading = 'false';
-                coverLink.classList.remove('hs-home-cover-loading');
-                coverLink.title = error instanceof Error ? error.message : String(error);
+            .catch(() => {
+                setLinkRequestState(coverLink, 'failed', 'Failed to open series');
             });
     });
 
@@ -228,9 +253,9 @@ function renderSeries(provider: Provider, series: HomeSeries): HTMLElement {
 function updateUnlockCountdowns(root: ParentNode): void {
     for (const chapter of root.querySelectorAll<HTMLAnchorElement>('.hs-home-chapter-locked[data-unlock-at]')) {
         const unlockAt = chapter.dataset.unlockAt;
-        if (!unlockAt) continue;
+        if (!unlockAt) throw new Error('Locked countdown has no unlock time');
         const time = chapter.querySelector('time');
-        if (!time) continue;
+        if (!time) throw new Error('Locked chapter has no time element');
         if (new Date(unlockAt).getTime() > Date.now()) {
             time.textContent = unlockCountdown(unlockAt);
             continue;
@@ -245,11 +270,11 @@ function applyCardPatch(
     patch: CardResolution,
 ): void {
     const entry = cards.get(patch.seriesSlug);
-    if (!entry) return; // rendered later; the post-catalog refresh covers it
+    if (!entry) throw new Error(`History patch references missing series ${patch.seriesSlug}`);
     const card = entry.element;
     for (const chapter of patch.chapters) {
         const link = card.querySelector<HTMLAnchorElement>(`[data-chapter-id="${chapter.chapterId}"]`);
-        if (!link) continue;
+        if (!link) throw new Error(`History patch references missing chapter ${chapter.chapterId}`);
         link.classList.toggle('hs-home-chapter-read', chapter.read);
         link.classList.toggle('hs-home-chapter-partial', chapter.partial);
         if (chapter.localImageIndex !== undefined && !link.classList.contains('hs-home-chapter-locked')) {
@@ -260,7 +285,7 @@ function applyCardPatch(
     }
 
     const cover = card.querySelector<HTMLAnchorElement>('.hs-home-cover');
-    if (!cover) return;
+    if (!cover) throw new Error(`Series ${patch.seriesSlug} has no cover link`);
     const resume = patch.cover;
     switch (resume.kind) {
         case 'local-partial':
@@ -292,27 +317,25 @@ function applyCardPatch(
     }
 }
 
-type HistoryErrorReporter = (message: string | null) => void;
-
 function queueHistoryRefresh(
     provider: Provider,
     cards: Map<string, { series: HomeSeries; element: HTMLElement }>,
     remoteHistory: RemoteSeriesHistory[],
-    reportHistoryError: HistoryErrorReporter,
+    signal: AbortSignal,
+    isCurrent: () => boolean,
 ): void {
     const cardInputs = [...cards.values()].map(({ series }) => ({
         seriesSlug: series.slug,
         historyId: series.historyId ?? series.slug,
         chapterIds: series.chapters.map(chapter => chapter.chapterId),
     }));
-    void resolveHistoryAsync({ cards: cardInputs, remoteHistory })
-        .then(patches => {
-            enqueue('history', patches.map(patch => () => applyCardPatch(provider, cards, patch)));
-            reportHistoryError(null);
-        })
-        .catch(error => {
-            console.error('History resolution failed', error);
-            reportHistoryError(`History unavailable: ${error instanceof Error ? error.message : String(error)}`);
+    void settleBeforePause(() => resolveHistoryAsync({ cards: cardInputs, remoteHistory }), signal)
+        .then(outcome => {
+            if (outcome.kind === 'paused' || !isCurrent()) return;
+            enqueue('history', outcome.value.map(patch => () => {
+                if (!isCurrent()) return;
+                applyCardPatch(provider, cards, patch);
+            }));
         });
 }
 
@@ -320,8 +343,6 @@ function appendPageWhenIdle(
     provider: Provider,
     cards: Map<string, { series: HomeSeries; element: HTMLElement }>,
     list: HTMLDivElement,
-    remoteHistory: RemoteSeriesHistory[],
-    reportHistoryError: HistoryErrorReporter,
     page: HomePage,
 ): Promise<void> {
     // The pagination loop awaits this batch, so catalog pages cannot
@@ -343,7 +364,6 @@ function appendPageWhenIdle(
                     current.element.replaceWith(element);
                     cards.set(series.slug, { series: merged, element });
                 }
-                queueHistoryRefresh(provider, cards, remoteHistory, reportHistoryError);
                 resolve();
             } catch (error) {
                 reject(error);
@@ -368,10 +388,9 @@ function mergeSeries(current: HomeSeries, incoming: HomeSeries): HomeSeries {
     return { ...current, chapters: chapters.slice(0, 5) };
 }
 
-function resetTransientCoverState(root: ParentNode): void {
-    for (const cover of root.querySelectorAll<HTMLAnchorElement>('.hs-home-cover-loading')) {
-        cover.dataset.loading = 'false';
-        cover.classList.remove('hs-home-cover-loading');
+function resetTransientLinkState(root: ParentNode): void {
+    for (const link of root.querySelectorAll<HTMLAnchorElement>('.hs-home-link-loading')) {
+        setLinkRequestState(link, 'idle');
     }
 }
 
@@ -418,7 +437,7 @@ export async function open(provider: Provider): Promise<void> {
         for (;;) {
             if (politeDelay) await waitForNextRequest();
             else await waitUntilActive();
-            const outcome = await settleBeforePause(provider.fetchHome(cursor), activePeriod.signal);
+            const outcome = await settleBeforePause(() => provider.fetchHome(cursor), activePeriod.signal);
             if (outcome.kind === 'complete') return outcome.value;
         }
     }
@@ -445,19 +464,16 @@ export async function open(provider: Provider): Promise<void> {
 
     const cards = new Map<string, { series: HomeSeries; element: HTMLElement }>();
     let total = firstPage.total;
-
-    // One owned notice for history-pipeline failures: replaced on each
-    // failure, removed when a later pass succeeds. Never stacks.
-    let historyNotice: HTMLDivElement | null = null;
-    function reportHistoryError(message: string | null): void {
-        historyNotice?.remove();
-        historyNotice = null;
-        if (message === null) return;
-        const notice = document.createElement('div');
-        notice.className = 'hs-home-error';
-        notice.textContent = message;
-        historyNotice = notice;
-        list.appendChild(notice);
+    let historyResolutionGeneration = 0;
+    function refreshHistory(): void {
+        const generation = ++historyResolutionGeneration;
+        queueHistoryRefresh(
+            provider,
+            cards,
+            remoteHistory,
+            activePeriod.signal,
+            () => generation === historyResolutionGeneration,
+        );
     }
 
     // First paint is synchronous by design; the history overlay lands one
@@ -465,6 +481,7 @@ export async function open(provider: Provider): Promise<void> {
     function appendFirstPage(page: HomePage): void {
         if (page.total !== undefined) total = page.total;
         for (const series of page.series) {
+            if (cards.has(series.slug)) throw new Error(`First home page repeats series ${series.slug}`);
             const element = renderSeries(provider, series);
             cards.set(series.slug, { series, element });
             list.appendChild(element);
@@ -472,25 +489,26 @@ export async function open(provider: Provider): Promise<void> {
         status.textContent = statusText(cards.size, total, page.nextCursor !== null);
     }
     appendFirstPage(firstPage);
-    queueHistoryRefresh(provider, cards, remoteHistory, reportHistoryError);
+    refreshHistory();
 
     let historyRequestGeneration = 0;
     let historyRequestLifecycle = -1;
     function reconcileRemoteHistory(): void {
-        if (!active || provider.fetchRemoteHistory === undefined || historyRequestLifecycle === lifecycleVersion) return;
+        const fetchRemoteHistory = provider.fetchRemoteHistory;
+        if (!active || fetchRemoteHistory === undefined || historyRequestLifecycle === lifecycleVersion) return;
         historyRequestLifecycle = lifecycleVersion;
         const generation = ++historyRequestGeneration;
-        void provider.fetchRemoteHistory()
-            .then(history => {
+        void settleBeforePause(() => fetchRemoteHistory(), activePeriod.signal)
+            .then(outcome => {
+                if (outcome.kind === 'paused') return;
                 if (generation !== historyRequestGeneration || !active) return;
-                remoteHistory = history;
-                queueHistoryRefresh(provider, cards, remoteHistory, reportHistoryError);
-            })
-            .catch(error => console.error('Provider history sidecar failed', error));
+                remoteHistory = outcome.value;
+                refreshHistory();
+            });
     }
     function reconcilePageShow(): void {
-        resetTransientCoverState(list);
-        queueHistoryRefresh(provider, cards, remoteHistory, reportHistoryError);
+        resetTransientLinkState(list);
+        refreshHistory();
         reconcileRemoteHistory();
     }
     // bfcache-specific: after a swipe-back the overlay is stale (the DOM
@@ -508,7 +526,8 @@ export async function open(provider: Provider): Promise<void> {
         seenCursors.add(nextCursor);
         const page = await fetchPageWhileActive(nextCursor, true);
         if (page.total !== undefined) total = page.total;
-        await appendPageWhenIdle(provider, cards, list, remoteHistory, reportHistoryError, page);
+        await appendPageWhenIdle(provider, cards, list, page);
+        refreshHistory();
         nextCursor = page.nextCursor;
         status.textContent = statusText(cards.size, total, nextCursor !== null);
     }

@@ -28,7 +28,8 @@ async function restoreScroll(
     const images = Array.from(wrap.querySelectorAll<HTMLImageElement>('.hs-reader-img'));
     const targetIndex = images.indexOf(target);
     const firstImage = images[0];
-    if (!firstImage) return;
+    if (!firstImage) throw new Error('Cannot restore a chapter with no images');
+    if (targetIndex === -1) throw new Error('Scroll target does not belong to the chapter');
     await waitForImage(firstImage);
     window.scrollTo(0, firstImage.offsetTop);
 
@@ -88,11 +89,26 @@ function createStatus(text: string, className: string): HTMLDivElement {
     return div;
 }
 
-function findNewerChapter(chaptersNewestFirst: ChapterMeta[], currentChapterId: string): ChapterMeta | undefined {
-    const currentIdx = chaptersNewestFirst.findIndex(chapter => chapter.chapterId === currentChapterId);
-    if (currentIdx === -1) return undefined;
-    return chaptersNewestFirst[currentIdx - 1];
+function setStatus(status: HTMLDivElement, text: string, className: string): void {
+    status.className = `hs-status ${className}`;
+    status.textContent = text;
 }
+
+function findNewerChapter(chaptersNewestFirst: ChapterMeta[], currentChapterId: string): ChapterMeta | null {
+    const currentIdx = chaptersNewestFirst.findIndex(chapter => chapter.chapterId === currentChapterId);
+    if (currentIdx === -1) throw new Error(`Chapter list does not contain ${currentChapterId}`);
+    if (currentIdx === 0) return null;
+    const chapter = chaptersNewestFirst[currentIdx - 1];
+    if (chapter === undefined) throw new Error('Chapter ordering invariant failed');
+    return chapter;
+}
+
+type ChapterListState =
+    | { kind: 'loading'; pendingScrollEnd: boolean }
+    | { kind: 'ready'; chapters: ChapterMeta[] }
+    | { kind: 'failed' };
+
+type ChapterLoadState = 'loading' | 'loaded' | 'unavailable' | 'failed';
 
 // ── main ─────────────────────────────────────────────────────────────
 
@@ -120,7 +136,7 @@ export async function open(
     renderChapterImages(firstWrap, data);
     wrapper.appendChild(firstWrap);
 
-    const chapterData: Record<string, ChapterData> = { [data.chapterId]: data };
+    const chapterData = new Map<string, ChapterData>([[data.chapterId, data]]);
 
     // 2. Restore scroll position
     const target = route.imageIndex
@@ -129,38 +145,49 @@ export async function open(
     let restoring = Boolean(target);
 
     // 3. Async: fetch chapter list
-    let chaptersNewestFirst: ChapterMeta[] = [];
-    const loaded = new Set([data.chapterId]);
-    let chapterListLoading = true;
-    let pendingScrollEnd = false;
+    let chapterListState: ChapterListState = { kind: 'loading', pendingScrollEnd: false };
+    const chapterLoadStates = new Map<string, ChapterLoadState>([[data.chapterId, 'loaded']]);
 
     const chaptersLoadingStatus = createStatus('Loading chapters...', 'hs-loading');
     wrapper.appendChild(chaptersLoadingStatus);
-    provider.fetchChaptersNewestFirst(slug)
-        .then(chapters => { chaptersNewestFirst = chapters; })
-        .catch(() => { wrapper.appendChild(createStatus('Failed to load chapter list', 'hs-error')); })
-        .finally(() => {
+    void provider.fetchChaptersNewestFirst(slug).then(
+        chapters => {
+            if (chapterListState.kind !== 'loading') {
+                throw new Error(`Cannot finish chapter list from ${chapterListState.kind} state`);
+            }
+            const chapterIds = new Set<string>();
+            for (const chapter of chapters) {
+                if (chapterIds.has(chapter.chapterId)) {
+                    throw new Error(`Chapter list repeats ${chapter.chapterId}`);
+                }
+                chapterIds.add(chapter.chapterId);
+            }
+            if (!chapterIds.has(data.chapterId)) {
+                throw new Error(`Chapter list does not contain the loaded chapter ${data.chapterId}`);
+            }
+            const { pendingScrollEnd } = chapterListState;
+            chapterListState = { kind: 'ready', chapters };
             chaptersLoadingStatus.remove();
-            chapterListLoading = false;
             if (pendingScrollEnd) {
-                pendingScrollEnd = false;
                 scrollEndOneHundred();
             }
-        });
+        },
+        () => {
+            chapterListState = { kind: 'failed' };
+            setStatus(chaptersLoadingStatus, 'Failed to load chapter list', 'hs-error');
+        },
+    );
 
     // 4. Scroll handler
     let lastSavedImage = '';
-    let localTrackingErrorShown = false;
+    let trackingState: 'healthy' | 'failed' = 'healthy';
     const tracker = createReaderTracker(provider, {
         seriesSlug: slug,
         historyId: data.historyId,
-        onError(error) {
-            if (localTrackingErrorShown) return;
-            localTrackingErrorShown = true;
-            wrapper.appendChild(createStatus(
-                `Progress sync failed: ${error instanceof Error ? error.message : String(error)}`,
-                'hs-error',
-            ));
+        onError() {
+            if (trackingState === 'failed') return;
+            trackingState = 'failed';
+            wrapper.appendChild(createStatus('Progress sync failed', 'hs-error'));
         },
     });
     function scrollEndOneHundred() {
@@ -175,46 +202,64 @@ export async function open(
                 .sort((a, b) => b.top - a.top)[0]?.image;
             if (!saveImg) return;
             const chapterWrap = saveImg.closest<HTMLDivElement>('.hs-chapter');
-            if (!chapterWrap) return;
-            const visibleChapter = chapterWrap.dataset.chapter as string;
+            if (!chapterWrap) throw new Error('Reader image is outside a chapter wrapper');
+            const visibleChapter = chapterWrap.dataset.chapter;
+            if (visibleChapter === undefined) throw new Error('Chapter wrapper has no chapter identity');
 
-            const imageIndex = saveImg.id.split('#')[1];
+            const imageIndex = /^#(\d+)$/.exec(saveImg.id)?.[1];
+            if (imageIndex === undefined) throw new Error(`Invalid reader image identity: ${saveImg.id}`);
+            const visibleData = chapterData.get(visibleChapter);
+            if (visibleData === undefined) throw new Error(`Missing data for visible chapter ${visibleChapter}`);
             const imageKey = `${visibleChapter}:${imageIndex}`;
             if (lastSavedImage !== imageKey) {
                 lastSavedImage = imageKey;
                 history.replaceState(null, '', provider.readerUrl(slug, visibleChapter, imageIndex));
-                const visibleData = chapterData[visibleChapter];
                 document.title = `${visibleData.chapterId} ${visibleData.seriesTitle}`;
             }
 
-            tracker.track(chapterData[visibleChapter], imageIndex);
+            tracker.track(visibleData, imageIndex);
 
-            if (chapterListLoading) {
-                pendingScrollEnd = true;
-                return;
+            switch (chapterListState.kind) {
+                case 'loading':
+                    chapterListState = { kind: 'loading', pendingScrollEnd: true };
+                    return;
+                case 'failed':
+                    return;
+                case 'ready':
+                    break;
             }
 
             const chapterWraps = wrapper.querySelectorAll<HTMLDivElement>('.hs-chapter');
             if (chapterWrap !== chapterWraps[chapterWraps.length - 1]) return;
 
-            const newerChapter = findNewerChapter(chaptersNewestFirst, visibleChapter);
-            if (!newerChapter || loaded.has(newerChapter.chapterId)) return;
+            const newerChapter = findNewerChapter(chapterListState.chapters, visibleChapter);
+            if (newerChapter === null || chapterLoadStates.has(newerChapter.chapterId)) return;
 
-            loaded.add(newerChapter.chapterId);
+            chapterLoadStates.set(newerChapter.chapterId, 'loading');
             const newerChapterLoadingStatus = createStatus('Loading newer chapter...', 'hs-loading');
             wrapper.appendChild(newerChapterLoadingStatus);
-            provider.loadChapter({ slug, chapterId: newerChapter.chapterId, intent: 'append' })
-                .then(result => {
-                    if (result.kind === 'stop') return;
-                    chapterData[newerChapter.chapterId] = result.data;
-                    const wrapEl = createChapterWrapper(newerChapter.chapterId);
+            void provider.loadChapter({ slug, chapterId: newerChapter.chapterId, intent: 'append' }).then(
+                result => {
+                    if (result.kind === 'stop') {
+                        chapterLoadStates.set(newerChapter.chapterId, 'unavailable');
+                        setStatus(newerChapterLoadingStatus, 'Chapter unavailable', 'hs-error');
+                        return;
+                    }
+                    if (result.data.chapterId !== newerChapter.chapterId) {
+                        throw new Error(`Loaded chapter ${result.data.chapterId} for ${newerChapter.chapterId}`);
+                    }
+                    chapterLoadStates.set(newerChapter.chapterId, 'loaded');
+                    chapterData.set(newerChapter.chapterId, result.data);
+                    const wrapEl = createChapterWrapper(result.data.chapterId);
                     renderChapterImages(wrapEl, result.data);
                     wrapper.appendChild(wrapEl);
-                })
-                .catch(() => { wrapper.appendChild(createStatus('Failed to load chapter', 'hs-error')); })
-                .finally(() => {
                     newerChapterLoadingStatus.remove();
-                });
+                },
+                () => {
+                    chapterLoadStates.set(newerChapter.chapterId, 'failed');
+                    setStatus(newerChapterLoadingStatus, 'Failed to load chapter', 'hs-error');
+                },
+            );
         }, 100);
     }
     window.addEventListener('scrollend', scrollEndOneHundred);

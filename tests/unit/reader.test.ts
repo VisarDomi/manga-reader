@@ -33,6 +33,7 @@ function chapter(images: ChapterData['images']): ChapterData {
 }
 
 afterEach(() => {
+    vi.useRealTimers();
     document.body.replaceChildren();
     vi.restoreAllMocks();
 });
@@ -66,5 +67,52 @@ describe('reader image sizing', () => {
         const image = document.querySelector<HTMLImageElement>('.hs-reader-img')!;
         expect(image.style.height).toBe('');
         expect(image.style.aspectRatio).toBe('800/1200');
+    });
+});
+
+describe('reader loading states', () => {
+    it('keeps a failed chapter list as an explicit terminal status', async () => {
+        const data = chapter([{ url: 'https://example.test/page.webp' }]);
+        const provider: Provider = {
+            ...providerFor(data),
+            fetchChaptersNewestFirst: async () => { throw new Error('list failed'); },
+        };
+
+        await open(provider, { handler: Handler.Reader, slug: 'series', chapterId: '1' });
+
+        await vi.waitFor(() => expect(document.querySelector('.hs-error')?.textContent)
+            .toBe('Failed to load chapter list'));
+        expect(document.querySelector('.hs-loading')).toBeNull();
+    });
+
+    it('moves an appended chapter failure out of loading and does not retry implicitly', async () => {
+        vi.useFakeTimers();
+        const data = chapter([{ url: 'https://example.test/page.webp' }]);
+        const loadChapter = vi.fn(async (request: { intent: 'open' | 'append' }) => {
+            if (request.intent === 'open') return { kind: 'chapter' as const, data };
+            throw new Error('append failed');
+        }) as Provider['loadChapter'];
+        const provider: Provider = {
+            ...providerFor(data),
+            loadChapter,
+            fetchChaptersNewestFirst: async () => [{ chapterId: '2' }, { chapterId: '1' }],
+        };
+
+        await open(provider, { handler: Handler.Reader, slug: 'series', chapterId: '1' });
+        await Promise.resolve();
+        const image = document.querySelector<HTMLImageElement>('.hs-reader-img')!;
+        Object.defineProperties(image, {
+            complete: { configurable: true, value: true },
+            naturalWidth: { configurable: true, value: 800 },
+            naturalHeight: { configurable: true, value: 1200 },
+        });
+
+        await vi.advanceTimersByTimeAsync(100);
+        expect(document.querySelector('.hs-error')?.textContent).toBe('Failed to load chapter');
+        expect(document.querySelector('.hs-loading')).toBeNull();
+
+        window.dispatchEvent(new Event('scrollend'));
+        await vi.advanceTimersByTimeAsync(100);
+        expect(loadChapter).toHaveBeenCalledTimes(2);
     });
 });

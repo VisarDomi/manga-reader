@@ -62,6 +62,11 @@ body {
     text-align: center;
 }
 
+.hs-home-link-failed {
+    outline: 1px solid #ff6b6b;
+    outline-offset: -1px;
+}
+
 .hs-home-details {
     display: flex;
     flex-direction: column;
@@ -147,8 +152,7 @@ body {
     text-align: center;
 }
 
-.hs-home-loading,
-.hs-home-error {
+.hs-home-loading {
     display: flex;
     min-height: 100svh;
     align-items: center;
@@ -157,10 +161,6 @@ body {
     padding: 24px;
     background: #000;
     color: rgba(255, 255, 255, 0.65);
-}
-
-.hs-home-error {
-    color: #ff6b6b;
 }
 
 .hs-reader-body {

@@ -6,10 +6,12 @@ import { registeredImageCount, registerImage, resetImageRegistry } from '../../s
 
 const ops: Array<{ op: string; payload: unknown }> = [];
 vi.mock('../../src/core/compute/transport', () => ({
+    ComputeWorkerResetError: class ComputeWorkerResetError extends Error {},
     computeRequest: vi.fn(async (op: string, payload: unknown) => {
         ops.push({ op, payload });
     }),
     onComputeNotification: vi.fn(),
+    resetWorkerState: vi.fn(),
 }));
 
 function brokenImage(src: string): HTMLImageElement {
