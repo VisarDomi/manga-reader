@@ -14,7 +14,6 @@
 type Step = () => void;
 
 interface QueueItem {
-    kind: string;
     steps: Step[];
     superseded: boolean;
 }
@@ -73,31 +72,9 @@ export function enqueue(kind: string, steps: Step[]): void {
     ensureListeners();
     const previous = items.get(kind);
     if (previous !== undefined) previous.superseded = true;
-    items.set(kind, { kind, steps, superseded: false });
+    items.set(kind, { steps, superseded: false });
     // Arm now: an idle page drains without waiting for a scroll.
     scheduleDrain();
-}
-
-/** True while a batch of this kind is pending. */
-export function isPending(kind: string): boolean {
-    const item = items.get(kind);
-    return item !== undefined && !item.superseded;
-}
-
-export function pendingKinds(): string[] {
-    return [...items.keys()].filter(kind => {
-        const item = items.get(kind);
-        return item !== undefined && !item.superseded;
-    });
-}
-
-/** Test seam: run the pending burst synchronously. */
-export function runPendingDrain(): void {
-    if (drainTimer !== null) {
-        window.clearTimeout(drainTimer);
-        drainTimer = null;
-    }
-    drainNow();
 }
 
 /** Test seam: reset all state. */

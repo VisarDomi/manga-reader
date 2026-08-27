@@ -28,11 +28,6 @@ export function registerImage(image: HTMLImageElement): void {
     scheduleRetry();
 }
 
-/** Test/diagnostic seam: how many images are currently tracked. */
-export function registeredImageCount(): number {
-    return trackedImages.size;
-}
-
 /** Test seam: clear all tracked images and any pending timer. */
 export function resetImageRegistry(): void {
     trackedImages.clear();
