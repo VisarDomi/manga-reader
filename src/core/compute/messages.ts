@@ -60,9 +60,17 @@ export interface OpTypes {
     'track-chapter': { payload: TrackPayload; result: undefined };
 }
 
+export enum ComputeNotificationKind {
+    Notify,
+}
+
+export enum ComputeNotificationName {
+    CookieWrite,
+}
+
 /** Unsolicited worker → main notification (e.g. cookie write-backs). */
 export interface ComputeNotification {
-    kind: 'notify';
-    name: 'cookie-write';
+    kind: ComputeNotificationKind.Notify;
+    name: ComputeNotificationName.CookieWrite;
     value: string;
 }

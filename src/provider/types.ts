@@ -3,6 +3,22 @@ export enum Handler {
     Reader,
 }
 
+export enum ChapterLoadIntent {
+    Open,
+    Append,
+}
+
+export enum ChapterLoadResultKind {
+    Chapter,
+    Navigate,
+    Stop,
+}
+
+export enum HomeDestinationKind {
+    Start,
+    Resume,
+}
+
 export type RouteMatch =
     | { handler: Handler.Home }
     | {
@@ -36,17 +52,17 @@ export interface ChapterMeta {
     chapterId: string;
 }
 
-export type ChapterOpenRequest = { slug: string; chapterId: string; intent: 'open' };
-export type ChapterAppendRequest = { slug: string; chapterId: string; intent: 'append' };
+export type ChapterOpenRequest = { slug: string; chapterId: string; intent: ChapterLoadIntent.Open };
+export type ChapterAppendRequest = { slug: string; chapterId: string; intent: ChapterLoadIntent.Append };
 export type ChapterLoadRequest = ChapterOpenRequest | ChapterAppendRequest;
 
 export type ChapterOpenResult =
-    | { kind: 'chapter'; data: ChapterData }
-    | { kind: 'navigate'; url: string };
+    | { kind: ChapterLoadResultKind.Chapter; data: ChapterData }
+    | { kind: ChapterLoadResultKind.Navigate; url: string };
 
 export type ChapterAppendResult =
-    | { kind: 'chapter'; data: ChapterData }
-    | { kind: 'stop' };
+    | { kind: ChapterLoadResultKind.Chapter; data: ChapterData }
+    | { kind: ChapterLoadResultKind.Stop };
 
 export interface ChapterLoader {
     (request: ChapterOpenRequest): Promise<ChapterOpenResult>;
@@ -54,8 +70,8 @@ export interface ChapterLoader {
 }
 
 export type HomeDestinationRequest =
-    | { kind: 'start'; seriesSlug: string }
-    | { kind: 'resume'; seriesSlug: string; chapterId: string; imageIndex?: string };
+    | { kind: HomeDestinationKind.Start; seriesSlug: string }
+    | { kind: HomeDestinationKind.Resume; seriesSlug: string; chapterId: string; imageIndex?: string };
 
 export interface HomeChapter {
     chapterId: string;

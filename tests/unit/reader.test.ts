@@ -1,7 +1,13 @@
 // @vitest-environment jsdom
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { Handler, type ChapterData, type Provider } from '../../src/provider';
+import {
+    ChapterLoadIntent,
+    ChapterLoadResultKind,
+    Handler,
+    type ChapterData,
+    type Provider,
+} from '../../src/provider';
 import { open } from '../../src/routes/reader';
 
 vi.mock('../../src/core/image-retry', () => ({ registerImage: vi.fn() }));
@@ -15,7 +21,7 @@ function providerFor(data: ChapterData): Provider {
         documentTitle: 'Test',
         matchRoute: () => ({ handler: Handler.Home }),
         fetchHome: async () => ({ series: [], nextCursor: null }),
-        loadChapter: async () => ({ kind: 'chapter', data }),
+        loadChapter: async () => ({ kind: ChapterLoadResultKind.Chapter, data }),
         resolveHomeDestination: async () => '/series/series',
         fetchChaptersNewestFirst: async () => [{ chapterId: data.chapterId }],
         readerUrl: (_slug, chapterId, imageIndex) => `/${chapterId}${imageIndex ? `#${imageIndex}` : ''}`,
@@ -88,8 +94,10 @@ describe('reader loading states', () => {
     it('moves an appended chapter failure out of loading and does not retry implicitly', async () => {
         vi.useFakeTimers();
         const data = chapter([{ url: 'https://example.test/page.webp' }]);
-        const loadChapter = vi.fn(async (request: { intent: 'open' | 'append' }) => {
-            if (request.intent === 'open') return { kind: 'chapter' as const, data };
+        const loadChapter = vi.fn(async (request: { intent: ChapterLoadIntent }) => {
+            if (request.intent === ChapterLoadIntent.Open) {
+                return { kind: ChapterLoadResultKind.Chapter, data };
+            }
             throw new Error('append failed');
         }) as Provider['loadChapter'];
         const provider: Provider = {

@@ -1,7 +1,12 @@
 // @vitest-environment jsdom
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { ChapterData, Provider } from '../../src/provider';
+import {
+    ChapterLoadIntent,
+    ChapterLoadResultKind,
+    type ChapterData,
+    type Provider,
+} from '../../src/provider';
 import { lua } from '../../src/provider/lua';
 import { scythe } from '../../src/provider/scythe';
 import { defaultReaderImages } from '../../src/provider/ts-reader';
@@ -11,8 +16,10 @@ import { yaksha } from '../../src/provider/yaksha';
 afterEach(() => vi.unstubAllGlobals());
 
 async function loadChapter(provider: Provider, slug: string, chapterId: string): Promise<ChapterData> {
-    const result = await provider.loadChapter({ slug, chapterId, intent: 'open' });
-    if (result.kind !== 'chapter') throw new Error(`Expected chapter result, received ${result.kind}`);
+    const result = await provider.loadChapter({ slug, chapterId, intent: ChapterLoadIntent.Open });
+    if (result.kind !== ChapterLoadResultKind.Chapter) {
+        throw new Error(`Expected chapter result, received ${ChapterLoadResultKind[result.kind]}`);
+    }
     return result.data;
 }
 

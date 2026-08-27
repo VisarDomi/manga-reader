@@ -6,6 +6,10 @@ import { workerContext } from '../core/compute/context';
 import { parseAsuraRemoteHistory } from './asura-remote';
 import type { ChapterData, RemoteSeriesHistory } from './types';
 import { SITE_CONFIG } from '../core/sites';
+import {
+    ComputeNotificationKind,
+    ComputeNotificationName,
+} from '../core/compute/messages';
 
 const ASURA_API = SITE_CONFIG.asurascans.apiBase!;
 
@@ -14,7 +18,11 @@ function cookiePresent(name: string): boolean {
 }
 
 function notifyCookieWrite(value: string): void {
-    (self as unknown as Worker).postMessage({ kind: 'notify', name: 'cookie-write', value });
+    (self as unknown as Worker).postMessage({
+        kind: ComputeNotificationKind.Notify,
+        name: ComputeNotificationName.CookieWrite,
+        value,
+    });
 }
 
 function providerFetch(input: string, init: RequestInit = {}): Promise<Response> {

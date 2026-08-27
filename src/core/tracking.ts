@@ -12,7 +12,11 @@ export interface LocalTrackingContext {
     onError(): void;
 }
 
-type SyncState = 'pending' | 'saved' | 'failed';
+enum SyncState {
+    Pending,
+    Saved,
+    Failed,
+}
 
 export function createReaderTracker(
     provider: Provider,
@@ -25,7 +29,7 @@ export function createReaderTracker(
         track(data, imageIndex) {
             const pageKey = `${data.chapterId}:${imageIndex}`;
             if (!localPages.has(pageKey)) {
-                localPages.set(pageKey, 'pending');
+                localPages.set(pageKey, SyncState.Pending);
                 void computeRequest('save-progress', {
                     provider: provider.key,
                     seriesSlug: local.historyId ?? local.seriesSlug,
@@ -33,9 +37,9 @@ export function createReaderTracker(
                     imageIndex: Number(imageIndex),
                     totalImages: data.images.length,
                 }).then(
-                    () => { localPages.set(pageKey, 'saved'); },
+                    () => { localPages.set(pageKey, SyncState.Saved); },
                     () => {
-                        localPages.set(pageKey, 'failed');
+                        localPages.set(pageKey, SyncState.Failed);
                         local.onError();
                     },
                 );
@@ -45,11 +49,11 @@ export function createReaderTracker(
                 provider.trackChapter
                 && !providerChapters.has(data.chapterId)
             ) {
-                providerChapters.set(data.chapterId, 'pending');
+                providerChapters.set(data.chapterId, SyncState.Pending);
                 void provider.trackChapter(data).then(
-                    () => { providerChapters.set(data.chapterId, 'saved'); },
+                    () => { providerChapters.set(data.chapterId, SyncState.Saved); },
                     () => {
-                        providerChapters.set(data.chapterId, 'failed');
+                        providerChapters.set(data.chapterId, SyncState.Failed);
                         local.onError();
                     },
                 );

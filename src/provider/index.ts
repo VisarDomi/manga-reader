@@ -1,4 +1,9 @@
-export { Handler } from './types';
+export {
+    ChapterLoadIntent,
+    ChapterLoadResultKind,
+    Handler,
+    HomeDestinationKind,
+} from './types';
 export type {
     Provider,
     RouteMatch,

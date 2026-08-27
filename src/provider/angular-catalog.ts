@@ -18,6 +18,11 @@ interface AngularHomeSeries {
     chapters?: AngularHomeChapter[];
 }
 
+enum AngularHomeSource {
+    Latest,
+    Catalog,
+}
+
 function homeChapter(chapter: AngularHomeChapter): HomeChapter {
     const freeAt = chapter.becameFreeAt === null ? null : new Date(chapter.becameFreeAt).getTime();
     const locked = chapter.price > 0 && (freeAt === null || freeAt > Date.now());
@@ -39,20 +44,23 @@ function homeSeries(series: AngularHomeSeries): HomeSeries {
     };
 }
 
-function homeCursor(cursor: string | null): { source: 'latest' | 'catalog'; page: number } {
-    if (cursor === null) return { source: 'latest', page: 1 };
+function homeCursor(cursor: string | null): { source: AngularHomeSource; page: number } {
+    if (cursor === null) return { source: AngularHomeSource.Latest, page: 1 };
     const match = /^(latest|catalog):(\d+)$/.exec(cursor);
     const page = Number(match?.[2]);
     if (!match || !Number.isSafeInteger(page) || page < 1) {
         throw new Error(`Invalid home cursor: ${cursor}`);
     }
-    return { source: match[1] as 'latest' | 'catalog', page };
+    return {
+        source: match[1] === 'latest' ? AngularHomeSource.Latest : AngularHomeSource.Catalog,
+        page,
+    };
 }
 
 export async function fetchAngularHome(site: Site, cursor: string | null, referrer?: string): Promise<HomePage> {
     const { apiBase } = SITE_CONFIG[site];
     const { source, page } = homeCursor(cursor);
-    if (source === 'latest') {
+    if (source === AngularHomeSource.Latest) {
         const res = await fetch(`${apiBase}/home/latest?page=${page}&perPage=50`, referrer ? { referrer } : undefined);
         if (!res.ok) throw new Error(`Latest series failed: ${res.status}`);
         const data = await res.json() as {

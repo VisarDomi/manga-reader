@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resolveHistory } from '../../src/core/compute/history';
+import { CoverResumeKind, resolveHistory } from '../../src/core/compute/history';
 import {
     buildProgressIndex,
     createChapterProgress,
@@ -26,7 +26,7 @@ describe('resolveHistory', () => {
             ['2', true],
         ]);
         expect(result.cover).toEqual({
-            kind: 'read',
+            kind: CoverResumeKind.Read,
             resumeChapterId: '3',
             locallyReadChapterIds: [],
         });
@@ -41,7 +41,11 @@ describe('resolveHistory', () => {
         });
         const seven = result.chapters.find(chapter => chapter.chapterId === '7');
         expect(seven).toMatchObject({ read: false, partial: true, localImageIndex: 1 });
-        expect(result.cover).toEqual({ kind: 'local-partial', chapterId: '7', imageIndex: 1 });
+        expect(result.cover).toEqual({
+            kind: CoverResumeKind.LocalPartial,
+            chapterId: '7',
+            imageIndex: 1,
+        });
     });
 
     it('local progress trumps server for chapters beyond the resume point', () => {
@@ -71,7 +75,11 @@ describe('resolveHistory', () => {
             partial: true,
             localImageIndex: 1,
         });
-        expect(result.cover).toEqual({ kind: 'local-partial', chapterId: '2', imageIndex: 1 });
+        expect(result.cover).toEqual({
+            kind: CoverResumeKind.LocalPartial,
+            chapterId: '2',
+            imageIndex: 1,
+        });
     });
 
     it('marks every complete chapter read with no remote history', () => {
@@ -85,7 +93,7 @@ describe('resolveHistory', () => {
             progress,
         });
         expect(result.cover).toEqual({
-            kind: 'read',
+            kind: CoverResumeKind.Read,
             locallyReadChapterIds: expect.arrayContaining(['3', '2']),
             latestLocalComplete: { chapterId: '3', imageIndex: 4 },
         });

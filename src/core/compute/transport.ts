@@ -1,4 +1,5 @@
 import WorkerConstructor from './worker-entry?worker&inline';
+import { ComputeNotificationKind } from './messages';
 import type { ComputeNotification, ComputeRequest, ComputeResponse, OpTypes } from './messages';
 
 interface Pending {
@@ -27,7 +28,7 @@ function spawn(): WorkerState {
     const instance: WorkerState = { worker, pending: new Map() };
     worker.onmessage = (event: MessageEvent<ComputeResponse | ComputeNotification>) => {
         const message = event.data;
-        if ((message as ComputeNotification).kind === 'notify') {
+        if ((message as ComputeNotification).kind === ComputeNotificationKind.Notify) {
             notifyHandler?.(message as ComputeNotification);
             return;
         }

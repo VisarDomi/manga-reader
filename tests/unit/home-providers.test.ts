@@ -1,7 +1,14 @@
 // @vitest-environment jsdom
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Handler, type HomePage, type Provider, type RemoteSeriesHistory } from '../../src/provider';
+import {
+    ChapterLoadResultKind,
+    Handler,
+    HomeDestinationKind,
+    type HomePage,
+    type Provider,
+    type RemoteSeriesHistory,
+} from '../../src/provider';
 import { createAngularProvider } from '../../src/provider/angular';
 import { fetchAngularHome } from '../../src/provider/angular-catalog';
 import { asura } from '../../src/provider/asura';
@@ -11,7 +18,11 @@ import { createQiscansProvider } from '../../src/provider/qiscans';
 import { scythe } from '../../src/provider/scythe';
 import { violet } from '../../src/provider/violet';
 import { yaksha } from '../../src/provider/yaksha';
-import { open as openHome } from '../../src/routes/home';
+import {
+    CoverResumeDatasetState,
+    LinkRequestState,
+    open as openHome,
+} from '../../src/routes/home';
 import { saveChapterProgress } from '../../src/storage/progress';
 import { resetQueue } from '../../src/core/update-queue';
 
@@ -295,8 +306,8 @@ describe('home catalog rendering', () => {
             documentTitle: 'Test',
             matchRoute: () => ({ handler: Handler.Home }),
             fetchHome,
-            loadChapter: async () => ({ kind: 'stop' }),
-            resolveHomeDestination: async request => request.kind === 'resume'
+            loadChapter: async () => ({ kind: ChapterLoadResultKind.Stop }),
+            resolveHomeDestination: async request => request.kind === HomeDestinationKind.Resume
                 ? readerUrl(request.seriesSlug, request.chapterId, request.imageIndex)
                 : seriesUrl(request.seriesSlug),
             fetchChaptersNewestFirst: async () => [],
@@ -466,7 +477,7 @@ describe('home catalog rendering', () => {
         const cover = document.querySelector<HTMLAnchorElement>('.hs-home-cover')!;
         cover.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
 
-        await vi.waitFor(() => expect(cover.dataset.requestState).toBe('failed'));
+        await vi.waitFor(() => expect(cover.dataset.requestState).toBe(LinkRequestState.Failed));
         expect(cover.classList.contains('hs-home-cover-loading')).toBe(false);
         expect(cover.classList.contains('hs-home-link-failed')).toBe(true);
         expect(cover.title).toBe('Failed to open series');
@@ -536,9 +547,9 @@ describe('home catalog rendering', () => {
             expect(chapterA2?.classList.contains('hs-home-chapter-read')).toBe(true);
             expect(chapterB5?.classList.contains('hs-home-chapter-read')).toBe(true);
             expect(coverA?.href).toBe('https://example.test/series-a/3#1');
-            expect(coverA?.dataset.resume).toBe('local');
+            expect(coverA?.dataset.resume).toBe(CoverResumeDatasetState.Local);
             expect(coverB?.href).toBe('https://example.test/series-b/5');
-            expect(coverB?.dataset.resume).toBe('read');
+            expect(coverB?.dataset.resume).toBe(CoverResumeDatasetState.Read);
         });
     });
 
@@ -565,7 +576,7 @@ describe('home catalog rendering', () => {
                 chapterLists.get(slug)?.map(chapterId => ({ chapterId })) ?? []
             ),
             resolveHomeDestination: async request => {
-                if (request.kind === 'resume') {
+                if (request.kind === HomeDestinationKind.Resume) {
                     return readerUrl(request.seriesSlug, request.chapterId, request.imageIndex);
                 }
                 const first = chapterLists.get(request.seriesSlug)?.at(-1);
@@ -588,7 +599,7 @@ describe('home catalog rendering', () => {
         // The history overlay now arrives through the idle queue (worker seam in
         // tests), so poll until the queued pass has applied.
         await vi.waitFor(() => {
-            expect(cover('partial-reader').dataset.resume).toBe('local');
+            expect(cover('partial-reader').dataset.resume).toBe(CoverResumeDatasetState.Local);
             expect(readerUrl).toHaveBeenCalledWith('partial-reader', '2', '1');
         });
 
@@ -634,7 +645,7 @@ describe('home catalog rendering', () => {
         await openHome(provider);
         await vi.waitFor(() => expect(
             document.querySelector<HTMLAnchorElement>('.hs-home-cover')?.dataset.resume,
-        ).toBe('local'));
+        ).toBe(CoverResumeDatasetState.Local));
 
         const chapterTwo = document.querySelector<HTMLAnchorElement>('[data-chapter-id="2"]')!;
         expect(chapterTwo.classList.contains('hs-home-chapter-read')).toBe(false);

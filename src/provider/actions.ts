@@ -1,4 +1,9 @@
 import { computeRequest } from '../core/compute/transport';
+import {
+    ChapterLoadIntent,
+    ChapterLoadResultKind,
+    HomeDestinationKind,
+} from './types';
 import type {
     ChapterAppendRequest,
     ChapterAppendResult,
@@ -26,10 +31,10 @@ export function chapterLoader(
     async function load(request: ChapterAppendRequest): Promise<ChapterAppendResult>;
     async function load(request: ChapterLoadRequest): Promise<ChapterOpenResult | ChapterAppendResult> {
         const data = await fetchChapter(request.slug, request.chapterId);
-        if (data !== null) return { kind: 'chapter', data };
-        return request.intent === 'open'
-            ? { kind: 'navigate', url: seriesUrl(request.slug) }
-            : { kind: 'stop' };
+        if (data !== null) return { kind: ChapterLoadResultKind.Chapter, data };
+        return request.intent === ChapterLoadIntent.Open
+            ? { kind: ChapterLoadResultKind.Navigate, url: seriesUrl(request.slug) }
+            : { kind: ChapterLoadResultKind.Stop };
     }
     return load;
 }
@@ -41,7 +46,7 @@ export function homeDestinationResolver(options: {
     seriesUrl: SeriesUrl;
 }): (request: HomeDestinationRequest) => Promise<string> {
     return async request => {
-        if (request.kind === 'start') {
+        if (request.kind === HomeDestinationKind.Start) {
             const chapters = await options.fetchChaptersNewestFirst(request.seriesSlug);
             const first = chapters.at(-1);
             return first === undefined

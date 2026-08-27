@@ -5,26 +5,37 @@ import type {
     Provider,
     RemoteSeriesHistory,
 } from '../provider';
+import { HomeDestinationKind } from '../provider';
 import { enqueue } from '../core/update-queue';
 import { resolveHistoryAsync } from '../core/compute/history-client';
 import { registerImage } from '../core/image-retry';
+import { CoverResumeKind } from '../core/compute/history';
 import type { CardResolution, CoverResumeModel } from '../core/compute/history';
 import { onBfcacheRestore } from '../core/lifecycle';
 
 const POLITE_PAGE_DELAY_MS = 1_000;
 
+enum PauseOutcomeKind {
+    Complete,
+    Paused,
+}
+
+type PauseOutcome<T> =
+    | { kind: PauseOutcomeKind.Complete; value: T }
+    | { kind: PauseOutcomeKind.Paused };
+
 function settleBeforePause<T>(
     start: () => Promise<T>,
     signal: AbortSignal,
-): Promise<{ kind: 'complete'; value: T } | { kind: 'paused' }> {
-    if (signal.aborted) return Promise.resolve({ kind: 'paused' });
+): Promise<PauseOutcome<T>> {
+    if (signal.aborted) return Promise.resolve({ kind: PauseOutcomeKind.Paused });
     const operation = start();
     return new Promise((resolve, reject) => {
         let settled = false;
         const onPause = (): void => {
             if (settled) return;
             settled = true;
-            resolve({ kind: 'paused' });
+            resolve({ kind: PauseOutcomeKind.Paused });
         };
         signal.addEventListener('abort', onPause, { once: true });
         operation.then(
@@ -32,7 +43,7 @@ function settleBeforePause<T>(
                 if (settled) return;
                 settled = true;
                 signal.removeEventListener('abort', onPause);
-                resolve({ kind: 'complete', value });
+                resolve({ kind: PauseOutcomeKind.Complete, value });
             },
             error => {
                 if (settled) return;
@@ -48,20 +59,30 @@ function createLink(className: string, href: string, text?: string): HTMLAnchorE
     const link = document.createElement('a');
     link.className = className;
     link.href = href;
-    link.dataset.requestState = 'idle';
+    link.dataset.requestState = LinkRequestState.Idle;
     if (text !== undefined) link.textContent = text;
     return link;
 }
 
-type LinkRequestState = 'idle' | 'loading' | 'failed';
+export enum LinkRequestState {
+    Idle = 'idle',
+    Loading = 'loading',
+    Failed = 'failed',
+}
+
+export enum CoverResumeDatasetState {
+    None = 'false',
+    Local = 'local',
+    Read = 'read',
+}
 
 function beginLinkRequest(link: HTMLAnchorElement): boolean {
     const state = link.dataset.requestState;
-    if (state === 'loading') return false;
-    if (state !== 'idle' && state !== 'failed') {
+    if (state === LinkRequestState.Loading) return false;
+    if (state !== LinkRequestState.Idle && state !== LinkRequestState.Failed) {
         throw new Error(`Invalid link request state: ${String(state)}`);
     }
-    setLinkRequestState(link, 'loading');
+    setLinkRequestState(link, LinkRequestState.Loading);
     return true;
 }
 
@@ -71,10 +92,13 @@ function setLinkRequestState(
     failureTitle?: string,
 ): void {
     link.dataset.requestState = state;
-    link.classList.toggle('hs-home-link-loading', state === 'loading');
-    link.classList.toggle('hs-home-cover-loading', state === 'loading' && link.classList.contains('hs-home-cover'));
-    link.classList.toggle('hs-home-link-failed', state === 'failed');
-    if (state === 'failed') {
+    link.classList.toggle('hs-home-link-loading', state === LinkRequestState.Loading);
+    link.classList.toggle(
+        'hs-home-cover-loading',
+        state === LinkRequestState.Loading && link.classList.contains('hs-home-cover'),
+    );
+    link.classList.toggle('hs-home-link-failed', state === LinkRequestState.Failed);
+    if (state === LinkRequestState.Failed) {
         if (failureTitle === undefined) throw new Error('Failed link state requires a title');
         link.title = failureTitle;
     } else {
@@ -161,7 +185,7 @@ function renderChapter(provider: Provider, series: HomeSeries, chapter: HomeChap
             event.preventDefault();
             if (!beginLinkRequest(link)) return;
             void provider.resolveHomeDestination({
-                kind: 'resume',
+                kind: HomeDestinationKind.Resume,
                 seriesSlug: series.slug,
                 chapterId: chapter.chapterId,
             })
@@ -169,7 +193,7 @@ function renderChapter(provider: Provider, series: HomeSeries, chapter: HomeChap
                     window.location.href = url;
                 })
                 .catch(() => {
-                    setLinkRequestState(link, 'failed', 'Failed to open chapter');
+                    setLinkRequestState(link, LinkRequestState.Failed, 'Failed to open chapter');
                 });
         }
     });
@@ -184,8 +208,8 @@ function renderSeries(provider: Provider, series: HomeSeries): HTMLElement {
 
     const coverLink = createLink('hs-home-cover', provider.seriesUrl(series.slug));
     coverLink.dataset.seriesSlug = series.slug;
-    coverLink.dataset.resume = 'false';
-    coverResume.set(coverLink, { kind: 'none' });
+    coverLink.dataset.resume = CoverResumeDatasetState.None;
+    coverResume.set(coverLink, { kind: CoverResumeKind.None });
     const cover = document.createElement('img');
     cover.src = series.coverUrl;
     cover.alt = series.title;
@@ -197,17 +221,20 @@ function renderSeries(provider: Provider, series: HomeSeries): HTMLElement {
         if (resume === undefined) {
             throw new Error(`Cover resume state was not initialized for ${series.slug}`);
         }
-        if (resume.kind === 'local-partial') return;
+        if (resume.kind === CoverResumeKind.LocalPartial) return;
         event.preventDefault();
         if (!beginLinkRequest(coverLink)) return;
         void (async () => {
-                if (resume.kind === 'read') {
+                if (resume.kind === CoverResumeKind.Read) {
                     // End of the last-read chapter: the reader then loads the
                     // next one as the user continues.
                     const lastChapterId = resume.latestLocalComplete?.chapterId
                         ?? resume.resumeChapterId;
                     if (lastChapterId === undefined) {
-                        return provider.resolveHomeDestination({ kind: 'start', seriesSlug: series.slug });
+                        return provider.resolveHomeDestination({
+                            kind: HomeDestinationKind.Start,
+                            seriesSlug: series.slug,
+                        });
                     }
                     let imageIndex: string | undefined;
                     if (
@@ -217,19 +244,22 @@ function renderSeries(provider: Provider, series: HomeSeries): HTMLElement {
                         imageIndex = String(resume.latestLocalComplete.imageIndex);
                     }
                     return provider.resolveHomeDestination({
-                        kind: 'resume',
+                        kind: HomeDestinationKind.Resume,
                         seriesSlug: series.slug,
                         chapterId: lastChapterId,
                         imageIndex,
                     });
                 }
-                return provider.resolveHomeDestination({ kind: 'start', seriesSlug: series.slug });
+                return provider.resolveHomeDestination({
+                    kind: HomeDestinationKind.Start,
+                    seriesSlug: series.slug,
+                });
             })()
             .then(destinationUrl => {
                 window.location.href = destinationUrl;
             })
             .catch(() => {
-                setLinkRequestState(coverLink, 'failed', 'Failed to open series');
+                setLinkRequestState(coverLink, LinkRequestState.Failed, 'Failed to open series');
             });
     });
 
@@ -289,30 +319,30 @@ function applyCardPatch(
     if (!cover) throw new Error(`Series ${patch.seriesSlug} has no cover link`);
     const resume = patch.cover;
     switch (resume.kind) {
-        case 'local-partial':
+        case CoverResumeKind.LocalPartial:
             coverResume.set(cover, {
-                kind: 'local-partial',
+                kind: CoverResumeKind.LocalPartial,
                 chapterId: resume.chapterId,
                 imageIndex: resume.imageIndex,
             });
-            cover.dataset.resume = 'local';
+            cover.dataset.resume = CoverResumeDatasetState.Local;
             cover.href = provider.readerUrl(entry.series.slug, resume.chapterId, String(resume.imageIndex));
             return;
-        case 'read':
+        case CoverResumeKind.Read:
             coverResume.set(cover, {
-                kind: 'read',
+                kind: CoverResumeKind.Read,
                 resumeChapterId: resume.resumeChapterId,
                 locallyReadChapterIds: resume.locallyReadChapterIds,
                 latestLocalComplete: resume.latestLocalComplete,
             });
-            cover.dataset.resume = 'read';
+            cover.dataset.resume = CoverResumeDatasetState.Read;
             cover.href = resume.resumeChapterId !== undefined
                 ? provider.readerUrl(entry.series.slug, resume.resumeChapterId)
                 : provider.seriesUrl(entry.series.slug);
             return;
-        case 'none':
-            coverResume.set(cover, { kind: 'none' });
-            cover.dataset.resume = 'false';
+        case CoverResumeKind.None:
+            coverResume.set(cover, { kind: CoverResumeKind.None });
+            cover.dataset.resume = CoverResumeDatasetState.None;
             cover.href = provider.seriesUrl(entry.series.slug);
             return;
     }
@@ -332,7 +362,7 @@ function queueHistoryRefresh(
     }));
     void settleBeforePause(() => resolveHistoryAsync({ cards: cardInputs, remoteHistory }), signal)
         .then(outcome => {
-            if (outcome.kind === 'paused' || !isCurrent()) return;
+            if (outcome.kind === PauseOutcomeKind.Paused || !isCurrent()) return;
             enqueue('history', outcome.value.map(patch => () => {
                 if (!isCurrent()) return;
                 applyCardPatch(provider, cards, patch);
@@ -391,7 +421,7 @@ function mergeSeries(current: HomeSeries, incoming: HomeSeries): HomeSeries {
 
 function resetTransientLinkState(root: ParentNode): void {
     for (const link of root.querySelectorAll<HTMLAnchorElement>('.hs-home-link-loading')) {
-        setLinkRequestState(link, 'idle');
+        setLinkRequestState(link, LinkRequestState.Idle);
     }
 }
 
@@ -438,7 +468,7 @@ export async function open(provider: Provider): Promise<void> {
             if (politeDelay) await waitForNextRequest();
             else await waitUntilActive();
             const outcome = await settleBeforePause(() => provider.fetchHome(cursor), activePeriod.signal);
-            if (outcome.kind === 'complete') return outcome.value;
+            if (outcome.kind === PauseOutcomeKind.Complete) return outcome.value;
         }
     }
 
@@ -500,7 +530,7 @@ export async function open(provider: Provider): Promise<void> {
         const generation = ++historyRequestGeneration;
         void settleBeforePause(() => fetchRemoteHistory(), activePeriod.signal)
             .then(outcome => {
-                if (outcome.kind === 'paused') return;
+                if (outcome.kind === PauseOutcomeKind.Paused) return;
                 if (generation !== historyRequestGeneration || !active) return;
                 remoteHistory = outcome.value;
                 refreshHistory();

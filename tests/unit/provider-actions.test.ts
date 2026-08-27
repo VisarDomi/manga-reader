@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import { chapterLoader, homeDestinationResolver } from '../../src/provider/actions';
-import type { ChapterData } from '../../src/provider';
+import {
+    ChapterLoadIntent,
+    ChapterLoadResultKind,
+    HomeDestinationKind,
+    type ChapterData,
+} from '../../src/provider';
 
 function chapter(chapterId = '2'): ChapterData {
     return {
@@ -22,12 +27,20 @@ describe('provider actions', () => {
             slug => `https://example.test/series/${slug}`,
         );
 
-        await expect(load({ slug: 'series', chapterId: '2', intent: 'open' })).resolves.toEqual({
-            kind: 'navigate',
+        await expect(load({
+            slug: 'series',
+            chapterId: '2',
+            intent: ChapterLoadIntent.Open,
+        })).resolves.toEqual({
+            kind: ChapterLoadResultKind.Navigate,
             url: 'https://example.test/series/series',
         });
-        await expect(load({ slug: 'series', chapterId: '2', intent: 'append' })).resolves.toEqual({
-            kind: 'stop',
+        await expect(load({
+            slug: 'series',
+            chapterId: '2',
+            intent: ChapterLoadIntent.Append,
+        })).resolves.toEqual({
+            kind: ChapterLoadResultKind.Stop,
         });
     });
 
@@ -35,8 +48,12 @@ describe('provider actions', () => {
         const data = chapter();
         const load = chapterLoader(async () => data, () => '/series');
 
-        await expect(load({ slug: 'series', chapterId: '2', intent: 'open' })).resolves.toEqual({
-            kind: 'chapter',
+        await expect(load({
+            slug: 'series',
+            chapterId: '2',
+            intent: ChapterLoadIntent.Open,
+        })).resolves.toEqual({
+            kind: ChapterLoadResultKind.Chapter,
             data,
         });
     });
@@ -55,9 +72,13 @@ describe('provider actions', () => {
             seriesUrl: slug => `https://example.test/series/${slug}`,
         });
 
-        await expect(resolve({ kind: 'start', seriesSlug: 'series' }))
+        await expect(resolve({ kind: HomeDestinationKind.Start, seriesSlug: 'series' }))
             .resolves.toBe('https://example.test/read/series/1');
-        await expect(resolve({ kind: 'resume', seriesSlug: 'series', chapterId: '2' }))
+        await expect(resolve({
+            kind: HomeDestinationKind.Resume,
+            seriesSlug: 'series',
+            chapterId: '2',
+        }))
             .resolves.toBe('https://example.test/read/series/2#2');
         expect(fetchChapter).toHaveBeenCalledOnce();
     });
@@ -70,8 +91,13 @@ describe('provider actions', () => {
             seriesUrl: slug => `/series/${slug}`,
         });
 
-        await expect(resolve({ kind: 'start', seriesSlug: 'empty' })).resolves.toBe('/series/empty');
-        await expect(resolve({ kind: 'resume', seriesSlug: 'empty', chapterId: '2' }))
+        await expect(resolve({ kind: HomeDestinationKind.Start, seriesSlug: 'empty' }))
+            .resolves.toBe('/series/empty');
+        await expect(resolve({
+            kind: HomeDestinationKind.Resume,
+            seriesSlug: 'empty',
+            chapterId: '2',
+        }))
             .resolves.toBe('/series/empty');
     });
 });

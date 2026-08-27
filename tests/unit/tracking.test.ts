@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Handler, type ChapterData, type Provider } from '../../src/provider';
+import {
+    ChapterLoadResultKind,
+    Handler,
+    type ChapterData,
+    type Provider,
+} from '../../src/provider';
 import { createReaderTracker } from '../../src/core/tracking';
 
 // jsdom has no Worker: observe the ops the tracker dispatches.
@@ -43,7 +48,7 @@ describe('reader tracking', () => {
             documentTitle: 'Asura',
             matchRoute: () => ({ handler: Handler.Home }),
             fetchHome: async () => ({ series: [], nextCursor: null }),
-            loadChapter: async () => ({ kind: 'stop' }),
+            loadChapter: async () => ({ kind: ChapterLoadResultKind.Stop }),
             resolveHomeDestination: async () => '/series',
             trackChapter,
             fetchChaptersNewestFirst: async () => [],
@@ -77,7 +82,7 @@ describe('reader tracking', () => {
             documentTitle: 'Test',
             matchRoute: () => ({ handler: Handler.Home }),
             fetchHome: async () => ({ series: [], nextCursor: null }),
-            loadChapter: async () => ({ kind: 'stop' }),
+            loadChapter: async () => ({ kind: ChapterLoadResultKind.Stop }),
             resolveHomeDestination: async () => '/series',
             fetchChaptersNewestFirst: async () => [],
             readerUrl: () => '/chapter',

@@ -19,11 +19,17 @@ export interface CardInput {
     chapterIds: string[];
 }
 
+export enum CoverResumeKind {
+    None,
+    LocalPartial,
+    Read,
+}
+
 export type CoverResumeModel =
-    | { kind: 'none' }
-    | { kind: 'local-partial'; chapterId: string; imageIndex: number }
+    | { kind: CoverResumeKind.None }
+    | { kind: CoverResumeKind.LocalPartial; chapterId: string; imageIndex: number }
     | {
-        kind: 'read';
+        kind: CoverResumeKind.Read;
         /** Present when remote history drives the resume; links straight to it. */
         resumeChapterId?: string;
         locallyReadChapterIds: string[];
@@ -88,13 +94,13 @@ export function resolveHistory(input: ResolveHistoryInput): CardResolution[] {
         const localPartial = newestPartial(seriesProgress);
         if (localPartial !== undefined) {
             cover = {
-                kind: 'local-partial',
+                kind: CoverResumeKind.LocalPartial,
                 chapterId: localPartial.chapterId,
                 imageIndex: localPartial.imageIndex,
             };
         } else if (latestLocalComplete !== undefined) {
             cover = {
-                kind: 'read',
+                kind: CoverResumeKind.Read,
                 locallyReadChapterIds,
                 latestLocalComplete: {
                     chapterId: latestLocalComplete.chapterId,
@@ -103,12 +109,12 @@ export function resolveHistory(input: ResolveHistoryInput): CardResolution[] {
             };
         } else if (remote !== undefined) {
             cover = {
-                kind: 'read',
+                kind: CoverResumeKind.Read,
                 resumeChapterId: remote.resumeChapterId,
                 locallyReadChapterIds: [],
             };
         } else {
-            cover = { kind: 'none' };
+            cover = { kind: CoverResumeKind.None };
         }
 
         return { seriesSlug: card.seriesSlug, cover, chapters };

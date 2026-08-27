@@ -2,6 +2,7 @@ import css from '../style.css?inline';
 import type { Provider } from '../provider/types';
 import { computeRequest, onComputeNotification } from './compute/transport';
 import { onBfcacheRestore } from './lifecycle';
+import { ComputeNotificationName } from './compute/messages';
 
 export async function startInit(
     documentTitle: string,
@@ -22,7 +23,7 @@ export async function startInit(
     // Cookie write-backs flow back as notifications; the main thread applies
     // them without deciding anything.
     onComputeNotification(notification => {
-        if (notification.name === 'cookie-write') {
+        if (notification.name === ComputeNotificationName.CookieWrite) {
             document.cookie = notification.value;
         }
     });

@@ -1,5 +1,5 @@
 import type { ChapterData, ChapterMeta, Provider, RouteMatch } from '../provider';
-import { Handler } from '../provider';
+import { ChapterLoadIntent, ChapterLoadResultKind, Handler } from '../provider';
 import { createReaderTracker } from '../core/tracking';
 import { registerImage } from '../core/image-retry';
 import { onBfcacheRestore } from '../core/lifecycle';
@@ -109,11 +109,27 @@ function findNewerChapter(chaptersNewestFirst: ChapterMeta[], currentChapterId: 
 }
 
 type ChapterListState =
-    | { kind: 'loading'; pendingScrollEnd: boolean }
-    | { kind: 'ready'; chapters: ChapterMeta[] }
-    | { kind: 'failed' };
+    | { kind: ChapterListStateKind.Loading; pendingScrollEnd: boolean }
+    | { kind: ChapterListStateKind.Ready; chapters: ChapterMeta[] }
+    | { kind: ChapterListStateKind.Failed };
 
-type ChapterLoadState = 'loading' | 'loaded' | 'unavailable' | 'failed';
+enum ChapterListStateKind {
+    Loading,
+    Ready,
+    Failed,
+}
+
+enum ChapterLoadState {
+    Loading,
+    Loaded,
+    Unavailable,
+    Failed,
+}
+
+enum TrackingState {
+    Healthy,
+    Failed,
+}
 
 // ── main ─────────────────────────────────────────────────────────────
 
@@ -123,13 +139,17 @@ export async function open(
 ): Promise<void> {
     const { slug: routeSlug, chapterId } = route;
     // 1. Load the current chapter
-    const initialState = await provider.loadChapter({ slug: routeSlug, chapterId, intent: 'open' });
+    const initialState = await provider.loadChapter({
+        slug: routeSlug,
+        chapterId,
+        intent: ChapterLoadIntent.Open,
+    });
     let data: ChapterData;
     switch (initialState.kind) {
-        case 'chapter':
+        case ChapterLoadResultKind.Chapter:
             data = initialState.data;
             break;
-        case 'navigate':
+        case ChapterLoadResultKind.Navigate:
             window.location.href = initialState.url;
             return;
         default:
@@ -156,15 +176,20 @@ export async function open(
     let restoring = Boolean(target);
 
     // 3. Async: fetch chapter list
-    let chapterListState: ChapterListState = { kind: 'loading', pendingScrollEnd: false };
-    const chapterLoadStates = new Map<string, ChapterLoadState>([[data.chapterId, 'loaded']]);
+    let chapterListState: ChapterListState = {
+        kind: ChapterListStateKind.Loading,
+        pendingScrollEnd: false,
+    };
+    const chapterLoadStates = new Map<string, ChapterLoadState>([[data.chapterId, ChapterLoadState.Loaded]]);
 
     const chaptersLoadingStatus = createStatus('Loading chapters...', 'hs-loading');
     wrapper.appendChild(chaptersLoadingStatus);
     void provider.fetchChaptersNewestFirst(slug).then(
         chapters => {
-            if (chapterListState.kind !== 'loading') {
-                throw new Error(`Cannot finish chapter list from ${chapterListState.kind} state`);
+            if (chapterListState.kind !== ChapterListStateKind.Loading) {
+                throw new Error(
+                    `Cannot finish chapter list from ${ChapterListStateKind[chapterListState.kind]} state`,
+                );
             }
             const chapterIds = new Set<string>();
             for (const chapter of chapters) {
@@ -177,27 +202,27 @@ export async function open(
                 throw new Error(`Chapter list does not contain the loaded chapter ${data.chapterId}`);
             }
             const { pendingScrollEnd } = chapterListState;
-            chapterListState = { kind: 'ready', chapters };
+            chapterListState = { kind: ChapterListStateKind.Ready, chapters };
             chaptersLoadingStatus.remove();
             if (pendingScrollEnd) {
                 scrollEndOneHundred();
             }
         },
         () => {
-            chapterListState = { kind: 'failed' };
+            chapterListState = { kind: ChapterListStateKind.Failed };
             setStatus(chaptersLoadingStatus, 'Failed to load chapter list', 'hs-error');
         },
     );
 
     // 4. Scroll handler
     let lastSavedImage = '';
-    let trackingState: 'healthy' | 'failed' = 'healthy';
+    let trackingState = TrackingState.Healthy;
     const tracker = createReaderTracker(provider, {
         seriesSlug: slug,
         historyId: data.historyId,
         onError() {
-            if (trackingState === 'failed') return;
-            trackingState = 'failed';
+            if (trackingState === TrackingState.Failed) return;
+            trackingState = TrackingState.Failed;
             wrapper.appendChild(createStatus('Progress sync failed', 'hs-error'));
         },
     });
@@ -231,12 +256,12 @@ export async function open(
             tracker.track(visibleData, imageIndex);
 
             switch (chapterListState.kind) {
-                case 'loading':
-                    chapterListState = { kind: 'loading', pendingScrollEnd: true };
+                case ChapterListStateKind.Loading:
+                    chapterListState = { kind: ChapterListStateKind.Loading, pendingScrollEnd: true };
                     return;
-                case 'failed':
+                case ChapterListStateKind.Failed:
                     return;
-                case 'ready':
+                case ChapterListStateKind.Ready:
                     break;
             }
 
@@ -246,20 +271,24 @@ export async function open(
             const newerChapter = findNewerChapter(chapterListState.chapters, visibleChapter);
             if (newerChapter === null || chapterLoadStates.has(newerChapter.chapterId)) return;
 
-            chapterLoadStates.set(newerChapter.chapterId, 'loading');
+            chapterLoadStates.set(newerChapter.chapterId, ChapterLoadState.Loading);
             const newerChapterLoadingStatus = createStatus('Loading newer chapter...', 'hs-loading');
             wrapper.appendChild(newerChapterLoadingStatus);
-            void provider.loadChapter({ slug, chapterId: newerChapter.chapterId, intent: 'append' }).then(
+            void provider.loadChapter({
+                slug,
+                chapterId: newerChapter.chapterId,
+                intent: ChapterLoadIntent.Append,
+            }).then(
                 result => {
-                    if (result.kind === 'stop') {
-                        chapterLoadStates.set(newerChapter.chapterId, 'unavailable');
+                    if (result.kind === ChapterLoadResultKind.Stop) {
+                        chapterLoadStates.set(newerChapter.chapterId, ChapterLoadState.Unavailable);
                         setStatus(newerChapterLoadingStatus, 'Chapter unavailable', 'hs-error');
                         return;
                     }
                     if (result.data.chapterId !== newerChapter.chapterId) {
                         throw new Error(`Loaded chapter ${result.data.chapterId} for ${newerChapter.chapterId}`);
                     }
-                    chapterLoadStates.set(newerChapter.chapterId, 'loaded');
+                    chapterLoadStates.set(newerChapter.chapterId, ChapterLoadState.Loaded);
                     chapterData.set(newerChapter.chapterId, result.data);
                     const wrapEl = createChapterWrapper(result.data.chapterId);
                     renderChapterImages(wrapEl, result.data);
@@ -267,7 +296,7 @@ export async function open(
                     newerChapterLoadingStatus.remove();
                 },
                 () => {
-                    chapterLoadStates.set(newerChapter.chapterId, 'failed');
+                    chapterLoadStates.set(newerChapter.chapterId, ChapterLoadState.Failed);
                     setStatus(newerChapterLoadingStatus, 'Failed to load chapter', 'hs-error');
                 },
             );

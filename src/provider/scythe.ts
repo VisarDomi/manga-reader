@@ -18,6 +18,11 @@ import { chapterLoader, homeDestinationResolver } from './actions';
 const CHAPTER_SUFFIX_RE = /-chapter-(\d+(?:\.\d+)?)(?:-\d+)?$/;
 const DOMAIN = SITE_CONFIG['scythescans'].domain;
 
+enum ScytheHomeSource {
+    Home,
+    Catalog,
+}
+
 function text(element: Element | null): string {
     return element?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
 }
@@ -92,14 +97,17 @@ function catalogSeries(card: Element): HomePage['series'][number] {
     };
 }
 
-function homeCursor(cursor: string | null): { source: 'home' | 'catalog'; page: number } {
-    if (cursor === null) return { source: 'home', page: 1 };
+function homeCursor(cursor: string | null): { source: ScytheHomeSource; page: number } {
+    if (cursor === null) return { source: ScytheHomeSource.Home, page: 1 };
     const match = /^(home|catalog):(\d+)$/.exec(cursor);
     const page = Number(match?.[2]);
     if (!match || !Number.isSafeInteger(page) || page < 1) {
         throw new Error(`Invalid Scythe home cursor: ${cursor}`);
     }
-    return { source: match[1] as 'home' | 'catalog', page };
+    return {
+        source: match[1] === 'home' ? ScytheHomeSource.Home : ScytheHomeSource.Catalog,
+        page,
+    };
 }
 
 async function fetchScytheChapter(slug: string, chapterId: string): Promise<ChapterData | null> {
@@ -188,7 +196,7 @@ export const scythe: Provider = {
 
     async fetchHome(cursor: string | null): Promise<HomePage> {
         const { source, page } = homeCursor(cursor);
-        if (source === 'home') {
+        if (source === ScytheHomeSource.Home) {
             const url = page === 1 ? `https://${DOMAIN}/` : `https://${DOMAIN}/page/${page}/`;
             const res = await fetch(url);
             if (!res.ok) throw new Error(`Latest series failed: ${res.status}`);

@@ -49,7 +49,7 @@ function scheduleRetry(): void {
 
 function runRetry(): void {
     retryTimer = null;
-    if (document.visibilityState === 'hidden') {
+    if (document.hidden) {
         // Frozen (bfcache) or backgrounded: do nothing, keep waiting.
         scheduleRetry();
         return;
