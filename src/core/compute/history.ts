@@ -22,7 +22,6 @@ export interface CardInput {
 export type CoverResumeModel =
     | { kind: 'none' }
     | { kind: 'local-partial'; chapterId: string; imageIndex: number }
-    | { kind: 'remote-partial'; chapterId: string; percent: number }
     | {
         kind: 'read';
         readThroughChapterId?: string;
@@ -37,8 +36,6 @@ export interface ChapterStateModel {
     chapterId: string;
     read: boolean;
     partial: boolean;
-    /** Remote resume percentage when the provider drives this chapter's state. */
-    remoteResumePercent?: number;
     /** Local saved page when local progress overrides; main skips it on locked chapters. */
     localImageIndex?: number;
 }
@@ -86,11 +83,6 @@ export function resolveHistory(input: ResolveHistoryInput): CardResolution[] {
                 ) {
                     state.read = true;
                 }
-                if (chapterId === remote.resumeChapterId && remote.resumePercent !== undefined) {
-                    state.partial = remote.resumePercent < 100;
-                    state.read = remote.resumePercent >= 100;
-                    state.remoteResumePercent = remote.resumePercent;
-                }
             }
             return state;
         });
@@ -111,12 +103,6 @@ export function resolveHistory(input: ResolveHistoryInput): CardResolution[] {
                 kind: 'local-partial',
                 chapterId: localPartial.chapterId,
                 imageIndex: localPartial.imageIndex,
-            };
-        } else if (remote !== undefined && remote.resumePercent !== undefined && remote.resumePercent < 100) {
-            cover = {
-                kind: 'remote-partial',
-                chapterId: remote.resumeChapterId,
-                percent: remote.resumePercent,
             };
         } else if (latestLocalComplete !== undefined) {
             cover = {

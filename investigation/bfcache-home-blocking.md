@@ -11,19 +11,16 @@ home page this synchronously and asynchronously triggers several "update" pipeli
 1. `resume()` (src/routes/home.ts:417-429) — wakes the catalog pagination loop
    (`while (nextCursor !== null)`, home.ts:524-548). After ~1s the loop resumes
    `fetchHome` and keeps churning **until the entire catalog is loaded**, one
-   `appendPage` per page (50 series/page asura, 100 valir — src/provider/asura.ts:126,
-   src/provider/valir.ts:179).
+   `appendPage` per page (50 series/page for Asura).
 2. `reconcilePageShow` (home.ts:514-518) — synchronous on every pageshow:
    - `reconcileProgress` → `applyHistoryLayers` → `getProviderProgress` →
      `readProgress()` (src/storage/progress.ts:28-36): `localStorage.getItem` +
      `JSON.parse` + per-entry validation of the **entire** progress store.
    - `applyHistory` (home.ts:255-376): full-catalog DOM pass.
-   - `reconcileRemoteHistory` (home.ts:502-513): async fetch (asura
-     /me/read-chapters, valir /api/continue-reading); on completion runs
+   - `reconcileRemoteHistory` (home.ts:502-513): async Asura
+     `/me/read-chapters` fetch; on completion runs
      `applyHistoryLayers` again — a second full pass.
-3. Token managers `pageshow` handlers (src/provider/asura-token-manager.ts:103,
-   src/provider/valir-token-manager.ts:131) — async refreshes (minor).
-4. Perpetual 1s image-retry loops (src/core/shell.ts:48-51, 68-69) — the
+3. Perpetual 1s image-retry loops (src/core/shell.ts:48-51, 68-69) — the
    `.hs-home-cover img` loop scans **every cover** every 1000 ms forever (even with
    zero failures) and resets `img.src` on broken covers each tick.
 

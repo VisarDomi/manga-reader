@@ -11,7 +11,7 @@ import { SITE_CONFIG } from '../core/sites';
 import { isChapterUnavailable } from '../core/http';
 import { hashImageIndex } from '../core/page';
 import { defaultReaderImages } from './ts-reader';
-import { lastImageIndexFrom, percentImageIndexFrom } from './resume';
+import { lastImageIndexFrom } from './resume';
 
 // WordPress may append a numeric collision suffix after the public chapter number.
 // Example: /worlds-strongest-troll-chapter-194-2/ is Chapter 194.
@@ -199,7 +199,6 @@ export const scythe: Provider = {
     },
 
     lastReadImageIndex: lastImageIndexFrom(fetchScytheChapter),
-    resumeImageIndex: percentImageIndexFrom(fetchScytheChapter),
 
     async fetchChaptersNewestFirst(slug: string): Promise<ChapterMeta[]> {
         const url = `https://${DOMAIN}/manga/${slug}/`;

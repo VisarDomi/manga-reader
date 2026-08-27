@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { parseAsuraRemoteHistory } from '../../src/provider/asura-remote';
-import { parseValirRemoteHistory } from '../../src/provider/valir-remote';
 
 describe('remote reading history', () => {
     it('normalizes Asura chapter history into a provider-owned read boundary', () => {
@@ -23,29 +22,7 @@ describe('remote reading history', () => {
         ]);
     });
 
-    it('uses Valir last-chapter progress without confusing it with overall series progress', () => {
-        expect(parseValirRemoteHistory({
-            series: [{
-                slug: 'internal-slug',
-                urlSlug: 'public-slug',
-                highestChapter: 12,
-                progressPercent: 40,
-                lastChapter: { number: 11, progress: 63 },
-            }],
-        })).toEqual([{
-            seriesId: 'public-slug',
-            readThroughChapterId: '12',
-            resumeChapterId: '11',
-            resumePercent: 63,
-        }]);
-    });
-
     it('rejects malformed provider history instead of treating it as empty', () => {
         expect(() => parseAsuraRemoteHistory({ data: { broken: [] } })).toThrow('is empty');
-        expect(() => parseValirRemoteHistory({ series: [{
-            slug: 'series',
-            highestChapter: 2,
-            lastChapter: { number: 2, progress: 101 },
-        }] })).toThrow('lastChapter.progress is invalid');
     });
 });

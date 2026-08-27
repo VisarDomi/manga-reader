@@ -11,7 +11,7 @@ import { SITE_CONFIG } from '../core/sites';
 import { isChapterUnavailable } from '../core/http';
 import { hashImageIndex } from '../core/page';
 import { fetchLuaHome } from './lua-catalog';
-import { lastImageIndexFrom, percentImageIndexFrom } from './resume';
+import { lastImageIndexFrom } from './resume';
 
 const CHAPTER_RE = /^\/series\/([^/]+)\/(chapter-\d+)\/?$/;
 const DOMAIN = SITE_CONFIG['luacomic'].domain;
@@ -68,7 +68,6 @@ export const lua: Provider = {
     },
 
     lastReadImageIndex: lastImageIndexFrom(fetchLuaChapter),
-    resumeImageIndex: percentImageIndexFrom(fetchLuaChapter),
 
     async fetchChaptersNewestFirst(slug: string): Promise<ChapterMeta[]> {
         // Get series ID from the series API

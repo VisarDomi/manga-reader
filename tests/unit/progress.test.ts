@@ -14,7 +14,7 @@ describe('local page progress', () => {
         saveChapterProgress('asurascans', 'series-a', '7', 1, 4);
         saveChapterProgress('asurascans', 'series-a', '7', 3, 4);
         saveChapterProgress('asurascans', 'series-a', '8', 0, 5);
-        saveChapterProgress('valirscans', 'series-a', '7', 0, 2);
+        saveChapterProgress('scythescans', 'series-a', '7', 0, 2);
 
         const progress = getProviderProgress('asurascans');
         expect(progress).toHaveLength(2);

@@ -11,7 +11,7 @@ import { SITE_CONFIG } from '../core/sites';
 import { isChapterUnavailable } from '../core/http';
 import { hashImageIndex } from '../core/page';
 import { defaultReaderImages } from './ts-reader';
-import { lastImageIndexFrom, percentImageIndexFrom } from './resume';
+import { lastImageIndexFrom } from './resume';
 
 const CHAPTER_RE = /\/(.+)-chapter-([^/]+)\/?$/;
 const DOMAIN = SITE_CONFIG['violetscans'].domain;
@@ -251,7 +251,6 @@ export const violet: Provider = {
     },
 
     lastReadImageIndex: lastImageIndexFrom(fetchVioletChapter),
-    resumeImageIndex: percentImageIndexFrom(fetchVioletChapter),
 
     async fetchChaptersNewestFirst(slug: string): Promise<ChapterMeta[]> {
         const seriesSlug = canonicalSeriesSlug(slug);

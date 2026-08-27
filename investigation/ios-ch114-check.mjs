@@ -28,14 +28,11 @@ const CHECK = String.raw`
         series: link.dataset.seriesSlug,
         classes: [...link.classList],
         href: link.getAttribute("href"),
-        remotePercent: link.dataset.remoteResumePercent ?? null,
     } : null;
     const coverState = cover ? {
         series: cover.dataset.seriesSlug,
         resume: cover.dataset.resume ?? null,
         href: cover.getAttribute("href"),
-        remotePercent: cover.dataset.remoteResumePercent ?? null,
-        remoteChapter: cover.dataset.remoteResumeChapterId ?? null,
     } : null;
 
     // 2. The app's own IndexedDB progress for chapter 114 of this series.

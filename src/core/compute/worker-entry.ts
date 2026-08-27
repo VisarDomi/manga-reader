@@ -14,13 +14,10 @@ import { progressGetAll, progressPut } from './store';
 import { fetchCatalogHome } from './catalog';
 import {
     fetchAsuraRemoteHistory,
-    fetchValirRemoteHistory,
-    startWorkerTokenManagers,
     trackAsuraChapter,
-    trackValirPage,
 } from './token';
 import { setWorkerContext } from './context';
-import type { ChapterData, ChapterMeta } from '../../provider/types';
+import type { ChapterData } from '../../provider/types';
 
 interface WorkerState {
     progress: ChapterProgress[];
@@ -70,18 +67,11 @@ async function handle(request: ComputeRequest): Promise<Outcome> {
             }
 
             case 'cookie-snapshot': {
-                const payload = request.payload as { cookies?: unknown; pathname?: unknown; href?: unknown } | undefined;
+                const payload = request.payload as { cookies?: unknown; href?: unknown } | undefined;
                 setWorkerContext({
                     cookies: typeof payload?.cookies === 'string' ? payload.cookies : '',
-                    pathname: typeof payload?.pathname === 'string' ? payload.pathname : '/',
                     href: typeof payload?.href === 'string' ? payload.href : '',
                 });
-                return { ok: true, value: undefined };
-            }
-
-            case 'lifecycle': {
-                const payload = request.payload as { hidden?: unknown } | undefined;
-                setWorkerContext({ hidden: payload?.hidden === true });
                 return { ok: true, value: undefined };
             }
 
@@ -90,10 +80,7 @@ async function handle(request: ComputeRequest): Promise<Outcome> {
                 if (payload?.provider === 'asurascans') {
                     return { ok: true, value: await fetchAsuraRemoteHistory() };
                 }
-                if (payload?.provider === 'valirscans') {
-                    return { ok: true, value: await fetchValirRemoteHistory() };
-                }
-                throw new Error('remote-history requires an asura/valir provider key');
+                throw new Error('remote-history requires the asura provider key');
             }
 
             case 'track-chapter': {
@@ -102,24 +89,6 @@ async function handle(request: ComputeRequest): Promise<Outcome> {
                     throw new Error('track-chapter requires asura provider data');
                 }
                 await trackAsuraChapter(payload.data);
-                return { ok: true, value: undefined };
-            }
-
-            case 'track-page': {
-                const payload = request.payload as {
-                    provider?: unknown;
-                    data?: ChapterData;
-                    imageIndex?: string;
-                    chaptersNewestFirst?: ChapterMeta[];
-                } | undefined;
-                if (payload?.provider !== 'valirscans' || !payload?.data) {
-                    throw new Error('track-page requires valir provider data');
-                }
-                await trackValirPage(
-                    payload.data,
-                    payload.imageIndex ?? '0',
-                    payload.chaptersNewestFirst ?? [],
-                );
                 return { ok: true, value: undefined };
             }
 
@@ -169,14 +138,10 @@ function respond(id: number, outcome: Outcome): void {
 }
 
 // Ops run per their nature: READS in parallel (as fast as the device goes),
-// WRITES serialized (deterministic IDB ordering). Token managers start on
-// the first session signal — nothing else runs at module scope.
+// WRITES serialized (deterministic IDB ordering).
 let writeQueue: Promise<void> | null = null;
-let tokenManagersStarted = false;
-
 const WRITE_OPS: ReadonlySet<string> = new Set([
     'save-progress',
-    'track-page',
     'track-chapter',
 ]);
 
@@ -189,10 +154,6 @@ function opFailure(error: unknown): { ok: false; error: string } {
 
 self.onmessage = (event: MessageEvent<ComputeRequest>) => {
     const request = event.data;
-    if (request.op === 'cookie-snapshot' && !tokenManagersStarted) {
-        tokenManagersStarted = true;
-        startWorkerTokenManagers();
-    }
     const task = async (): Promise<void> => {
         respond(request.id, await handle(request));
     };

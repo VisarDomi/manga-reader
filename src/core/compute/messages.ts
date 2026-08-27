@@ -3,7 +3,6 @@
 
 import type {
     ChapterData,
-    ChapterMeta,
     HomePage,
     RemoteSeriesHistory,
 } from '../../provider/types';
@@ -43,7 +42,6 @@ export interface FetchHomePayload {
 
 export interface SnapshotPayload {
     cookies: string;
-    pathname: string;
     href: string;
 }
 
@@ -54,8 +52,6 @@ export interface RemoteHistoryPayload {
 export interface TrackPayload {
     provider: string;
     data: ChapterData;
-    imageIndex?: string;
-    chaptersNewestFirst?: ChapterMeta[];
 }
 
 export interface OpTypes {
@@ -63,9 +59,7 @@ export interface OpTypes {
     'history-resolve': { payload: HistoryResolvePayload; result: CardResolution[] };
     'fetch-home': { payload: FetchHomePayload; result: HomePage };
     'cookie-snapshot': { payload: SnapshotPayload; result: undefined };
-    'lifecycle': { payload: { hidden: boolean }; result: undefined };
     'remote-history': { payload: RemoteHistoryPayload; result: RemoteSeriesHistory[] };
-    'track-page': { payload: TrackPayload; result: undefined };
     'track-chapter': { payload: TrackPayload; result: undefined };
 }
 

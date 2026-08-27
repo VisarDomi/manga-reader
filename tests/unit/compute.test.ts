@@ -33,27 +33,15 @@ describe('resolveHistory', () => {
         });
     });
 
-    it('exposes remote partial resume on the resume chapter', () => {
-        const [result] = resolveHistory({
-            cards: [card(['7', '6'])],
-            remoteHistory: [{ seriesId: 'series-a', readThroughChapterId: '6', resumeChapterId: '7', resumePercent: 40 }],
-            progress: [],
-        });
-        const seven = result.chapters.find(chapter => chapter.chapterId === '7');
-        expect(seven).toMatchObject({ read: false, partial: true, remoteResumePercent: 40 });
-        expect(result.cover).toEqual({ kind: 'remote-partial', chapterId: '7', percent: 40 });
-    });
-
-    it('lets local partial progress override the remote resume chapter', () => {
+    it('lets local partial progress override remote chapter history', () => {
         const progress = [createChapterProgress('test', 'series-a', '7', 1, 5, 100)];
         const [result] = resolveHistory({
             cards: [card(['7', '6'])],
-            remoteHistory: [{ seriesId: 'series-a', readThroughChapterId: '6', resumeChapterId: '7', resumePercent: 40 }],
+            remoteHistory: [{ seriesId: 'series-a', readThroughChapterId: '6', resumeChapterId: '7' }],
             progress,
         });
         const seven = result.chapters.find(chapter => chapter.chapterId === '7');
         expect(seven).toMatchObject({ read: false, partial: true, localImageIndex: 1 });
-        expect(seven?.remoteResumePercent).toBeUndefined();
         expect(result.cover).toEqual({ kind: 'local-partial', chapterId: '7', imageIndex: 1 });
     });
 

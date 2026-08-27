@@ -17,8 +17,8 @@ export async function startInit(
     style.textContent = css;
     document.head.appendChild(style);
 
-    // The compute worker owns the token managers (asura/valir). Feed it the
-    // pieces it cannot reach: cookies, the page path, and visibility.
+    // The compute worker owns authenticated Asura requests. Feed it the
+    // pieces it cannot reach: cookies and the page URL.
     // Cookie write-backs flow back as notifications; the main thread applies
     // them without deciding anything.
     onComputeNotification(notification => {
@@ -29,7 +29,6 @@ export async function startInit(
     const syncContext = (): void => {
         void computeRequest('cookie-snapshot', {
             cookies: document.cookie,
-            pathname: location.pathname,
             href: location.href,
         });
     };
@@ -42,12 +41,5 @@ export async function startInit(
         resetWorkerState();
         syncContext();
     });
-    document.addEventListener('visibilitychange', () => {
-        void computeRequest('lifecycle', { hidden: document.hidden });
-    });
-    window.addEventListener('pagehide', () => {
-        void computeRequest('lifecycle', { hidden: true });
-    });
-
     trapUncaughtErrors();
 }

@@ -63,9 +63,6 @@ describe('startInit lifecycle', () => {
         expect(calls).toEqual(['wait', 'stop', 'open', 'close']);
         // Post-nuke worker context sync happens exactly once.
         expect(ops.filter(op => op.op === 'cookie-snapshot')).toHaveLength(1);
-
-        window.dispatchEvent(new Event('pagehide'));
-        expect(ops.filter(op => op.op === 'lifecycle' && (op.payload as { hidden: boolean }).hidden)).toHaveLength(1);
     });
 });
 

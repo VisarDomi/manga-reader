@@ -10,7 +10,7 @@ import {
 import { SITE_CONFIG } from '../core/sites';
 import { isChapterUnavailable } from '../core/http';
 import { hashImageIndex } from '../core/page';
-import { lastImageIndexFrom, percentImageIndexFrom } from './resume';
+import { lastImageIndexFrom } from './resume';
 
 const CHAPTER_RE = /^\/manga\/([^/]+)\/([^/]+)\/?$/;
 const DOMAIN = SITE_CONFIG['yakshacomics'].domain;
@@ -106,7 +106,6 @@ export const yaksha: Provider = {
     },
 
     lastReadImageIndex: lastImageIndexFrom(fetchYakshaChapter),
-    resumeImageIndex: percentImageIndexFrom(fetchYakshaChapter),
 
     async fetchChaptersNewestFirst(slug: string): Promise<ChapterMeta[]> {
         const url = `https://${DOMAIN}/manga/${slug}/`;

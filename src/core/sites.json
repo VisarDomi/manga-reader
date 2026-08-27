@@ -36,10 +36,5 @@
     "domain": "violetscans.org",
     "provider": "violet",
     "documentTitle": "Violet Scans"
-  },
-  "valirscans": {
-    "domain": "valirscans.org",
-    "provider": "valir",
-    "documentTitle": "ValirScans"
   }
 }

@@ -8,7 +8,6 @@ import { createEzmangaProvider } from '../../src/provider/ezmanga';
 import { lua } from '../../src/provider/lua';
 import { createQiscansProvider } from '../../src/provider/qiscans';
 import { scythe } from '../../src/provider/scythe';
-import { valir } from '../../src/provider/valir';
 import { violet } from '../../src/provider/violet';
 import { yaksha } from '../../src/provider/yaksha';
 import { open as openHome } from '../../src/routes/home';
@@ -60,7 +59,7 @@ afterEach(() => {
 
 describe('provider home routes', () => {
     it('takes over only the exact root path for every provider', () => {
-        for (const provider of [asura, valir, scythe, lua, violet, createEzmangaProvider(), createQiscansProvider(), yaksha]) {
+        for (const provider of [asura, scythe, lua, violet, createEzmangaProvider(), createQiscansProvider(), yaksha]) {
             expect(provider.documentTitle.trim()).not.toBe('');
             expect(provider.matchRoute('/', '')).toEqual({ handler: Handler.Home });
             expect(provider.matchRoute('/browse', '')).not.toEqual({ handler: Handler.Home });
@@ -539,71 +538,6 @@ describe('home catalog rendering', () => {
         await vi.waitFor(() => expect(readerUrl).not.toHaveBeenCalled());
     });
 
-
-    it('remote partial clicks go through the provider percent capability or degrade', async () => {
-        const readerUrl = vi.fn((slug: string, chapterId: string, index?: string) =>
-            `https://example.test/${slug}/${chapterId}${index === undefined ? '' : `#${index}`}`);
-        const withCapability = {
-            ...testProvider(async () => ({
-                nextCursor: null,
-                series: [{
-                    slug: 'percent-a',
-                    title: 'Percent A',
-                    coverUrl: 'https://example.test/a.webp',
-                    chapters: [{ chapterId: '7', label: 'Chapter 7', uploadedAt: null, locked: false, unlockAt: null }],
-                }],
-            })),
-            readerUrl,
-            remoteHistoryInWorker: true,
-            resumeImageIndex: async (_slug, chapterId, percent) => `${percent}` + '-' + chapterId,
-        };
-        remoteSeam.pending = Promise.resolve([{
-            seriesId: 'percent-a',
-            readThroughChapterId: '6',
-            resumeChapterId: '7',
-            resumePercent: 40,
-        }]);
-
-        await openHome(withCapability);
-        const cover = document.querySelector<HTMLAnchorElement>('.hs-home-cover')!;
-        await vi.waitFor(() => expect(cover.dataset.resume).toBe('remote'));
-
-        readerUrl.mockClear();
-        cover.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-        await vi.waitFor(() => expect(readerUrl).toHaveBeenCalledWith('percent-a', '7', '40-7'));
-    });
-
-    it('remote partial without the capability degrades to the chapter start', async () => {
-        const readerUrl = vi.fn((slug: string, chapterId: string, index?: string) =>
-            `https://example.test/${slug}/${chapterId}${index === undefined ? '' : `#${index}`}`);
-        const withoutCapability: Provider = {
-            ...testProvider(async () => ({
-                nextCursor: null,
-                series: [{
-                    slug: 'percent-b',
-                    title: 'Percent B',
-                    coverUrl: 'https://example.test/b.webp',
-                    chapters: [{ chapterId: '7', label: 'Chapter 7', uploadedAt: null, locked: false, unlockAt: null }],
-                }],
-            })),
-            readerUrl,
-            remoteHistoryInWorker: true,
-        };
-        remoteSeam.pending = Promise.resolve([{
-            seriesId: 'percent-b',
-            readThroughChapterId: '6',
-            resumeChapterId: '7',
-            resumePercent: 40,
-        }]);
-
-        await openHome(withoutCapability);
-        const cover = document.querySelector<HTMLAnchorElement>('.hs-home-cover')!;
-        await vi.waitFor(() => expect(cover.dataset.resume).toBe('remote'));
-
-        readerUrl.mockClear();
-        cover.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-        await vi.waitFor(() => expect(readerUrl).toHaveBeenCalledWith('percent-b', '7'));
-    });
 
     it('retries an interrupted bulk request after BFCache restoration', async () => {
         vi.useFakeTimers();

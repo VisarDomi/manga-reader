@@ -184,7 +184,7 @@ export async function open(
                 document.title = `${visibleData.chapterId} ${visibleData.seriesTitle}`;
             }
 
-            tracker.track(chapterData[visibleChapter], imageIndex, chaptersNewestFirst);
+            tracker.track(chapterData[visibleChapter], imageIndex);
 
             if (chapterListLoading) {
                 pendingScrollEnd = true;

@@ -11,7 +11,7 @@ import { SITE_CONFIG } from '../core/sites';
 import { isChapterUnavailable } from '../core/http';
 import { hashImageIndex } from '../core/page';
 import { fetchAsuraHome } from './asura-catalog';
-import { lastImageIndexFrom, percentImageIndexFrom } from './resume';
+import { lastImageIndexFrom } from './resume';
 
 const CHAPTER_RE = /^\/comics\/([^/]+)\/chapter\/(\d+)/;
 const DOMAIN = SITE_CONFIG.asurascans.domain;
@@ -97,7 +97,6 @@ export const asura: Provider = {
     },
 
     lastReadImageIndex: lastImageIndexFrom(fetchAsuraChapter),
-    resumeImageIndex: percentImageIndexFrom(fetchAsuraChapter),
 
     async fetchChaptersNewestFirst(slug: string): Promise<ChapterMeta[]> {
         const res = await fetch(`${API_BASE}/series/${slug}/chapters`);

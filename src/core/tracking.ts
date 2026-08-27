@@ -1,8 +1,8 @@
-import type { ChapterData, ChapterMeta } from '../provider';
+import type { ChapterData } from '../provider';
 import { computeRequest } from './compute/transport';
 
 export interface ReaderTracker {
-    track(data: ChapterData, imageIndex: string, chaptersNewestFirst: ChapterMeta[]): void;
+    track(data: ChapterData, imageIndex: string): void;
 }
 
 export interface LocalTrackingContext {
@@ -27,11 +27,10 @@ export function createReaderTracker(
     local?: LocalTrackingContext,
 ): ReaderTracker {
     const savedLocalPages = new Set<string>();
-    const trackedProviderPages = new Set<string>();
     const trackedChapters = new Set<string>();
 
     return {
-        track(data, imageIndex, chaptersNewestFirst) {
+        track(data, imageIndex) {
             const pageKey = `${data.chapterId}:${imageIndex}`;
             if (local && !savedLocalPages.has(pageKey)) {
                 savedLocalPages.add(pageKey);
@@ -45,23 +44,6 @@ export function createReaderTracker(
                     savedLocalPages.delete(pageKey);
                     local.onError?.(error);
                 });
-            }
-
-            // Valir needs the complete chapter list to mark older chapters.
-            // Keep this dedupe separate from the always-immediate local write.
-            if (
-                local
-                && local.providerKey === 'valirscans'
-                && chaptersNewestFirst.length > 0
-                && !trackedProviderPages.has(pageKey)
-            ) {
-                trackedProviderPages.add(pageKey);
-                void computeRequest('track-page', {
-                    provider: local.providerKey,
-                    data,
-                    imageIndex,
-                    chaptersNewestFirst,
-                }).catch(error => reportSidecarError(local, error));
             }
 
             if (

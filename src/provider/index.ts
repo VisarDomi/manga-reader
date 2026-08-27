@@ -17,7 +17,6 @@ import { asura } from './asura';
 import { scythe } from './scythe';
 import { lua } from './lua';
 import { violet } from './violet';
-import { valir } from './valir';
 import { yaksha } from './yaksha';
 import { createEzmangaProvider } from './ezmanga';
 import { createQiscansProvider } from './qiscans';
@@ -39,7 +38,6 @@ function getProviders(): ProviderMap {
         scythe,
         lua,
         violet,
-        valir,
     };
     return providers;
 }

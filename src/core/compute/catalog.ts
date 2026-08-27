@@ -3,14 +3,12 @@
 import type { HomePage } from '../../provider/types';
 import type { Site } from '../../core/sites';
 import { fetchAsuraHome } from '../../provider/asura-catalog';
-import { fetchValirHome } from '../../provider/valir-catalog';
 import { fetchAngularHome } from '../../provider/angular-catalog';
 import { fetchLuaHome } from '../../provider/lua-catalog';
 import { workerContext } from './context';
 
 const WORKER_CATALOGS: Record<string, (cursor: string | null, referrer?: string) => Promise<HomePage>> = {
     asurascans: fetchAsuraHome,
-    valirscans: fetchValirHome,
     ezmanga: (cursor, referrer) => fetchAngularHome('ezmanga' as Site, cursor, referrer),
     qimanga: (cursor, referrer) => fetchAngularHome('qimanga' as Site, cursor, referrer),
     luacomic: fetchLuaHome,

@@ -48,7 +48,6 @@ const CHECK = String.raw`
         link: link ? {
             classes: [...link.classList],
             href: link.getAttribute("href"),
-            remotePercent: link.dataset.remoteResumePercent ?? null,
         } : null,
         cover: cover ? {
             slug: cover.dataset.seriesSlug,

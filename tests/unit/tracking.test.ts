@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ChapterData, ChapterMeta } from '../../src/provider';
+import type { ChapterData } from '../../src/provider';
 import { createReaderTracker } from '../../src/core/tracking';
 
 // jsdom has no Worker: observe the ops the tracker dispatches.
@@ -35,18 +35,14 @@ afterEach(() => {
 describe('reader tracking', () => {
     it('saves each page once and tracks each chapter once (asura)', () => {
         const tracker = createReaderTracker({ providerKey: 'asurascans', seriesSlug: 'series' });
-        const chapters: ChapterMeta[] = [
-            { chapterId: '2' },
-            { chapterId: '1' },
-        ];
         const chapterOne = chapter('1');
         const chapterTwo = chapter('2');
 
-        tracker.track(chapterOne, '0', chapters);
-        tracker.track(chapterOne, '0', chapters);
-        tracker.track(chapterOne, '1', chapters);
-        tracker.track(chapterOne, '0', chapters);
-        tracker.track(chapterTwo, '0', chapters);
+        tracker.track(chapterOne, '0');
+        tracker.track(chapterOne, '0');
+        tracker.track(chapterOne, '1');
+        tracker.track(chapterOne, '0');
+        tracker.track(chapterTwo, '0');
 
         const saves = payloadFor('save-progress') as Array<{ chapterId: string; imageIndex: number }>;
         expect(saves.map(save => [save.chapterId, save.imageIndex])).toEqual([
@@ -56,18 +52,5 @@ describe('reader tracking', () => {
         ]);
         const chapterTracks = payloadFor('track-chapter') as Array<{ data: ChapterData }>;
         expect(chapterTracks.map(track => track.data.chapterId)).toEqual(['1', '2']);
-    });
-
-    it('waits for chapter metadata before deduplicating provider page tracking (valir)', async () => {
-        const tracker = createReaderTracker({ providerKey: 'valirscans', seriesSlug: 'series' });
-        const data = chapter('1');
-        const chapters = [{ chapterId: '2' }, { chapterId: '1' }];
-
-        tracker.track(data, '0', []);
-        tracker.track(data, '0', chapters);
-        tracker.track(data, '0', chapters);
-
-        await Promise.resolve();
-        expect(payloadFor('track-page')).toHaveLength(1);
     });
 });

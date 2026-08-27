@@ -9,7 +9,7 @@ import { SITE_CONFIG } from '../core/sites';
 import { isChapterUnavailable } from '../core/http';
 import { hashImageIndex } from '../core/page';
 import { fetchAngularHome } from './angular-catalog';
-import { lastImageIndexFrom, percentImageIndexFrom } from './resume';
+import { lastImageIndexFrom } from './resume';
 
 export function createAngularProvider(site: keyof typeof SITE_CONFIG): Provider {
     const { domain, apiBase, documentTitle } = SITE_CONFIG[site];
@@ -56,7 +56,6 @@ export function createAngularProvider(site: keyof typeof SITE_CONFIG): Provider 
         },
 
         lastReadImageIndex: lastImageIndexFrom(fetchAngularChapter),
-        resumeImageIndex: percentImageIndexFrom(fetchAngularChapter),
 
         async fetchChaptersNewestFirst(slug: string): Promise<ChapterMeta[]> {
             const chapters: ChapterMeta[] = [];

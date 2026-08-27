@@ -62,22 +62,6 @@ function historyId(series: HomeSeries): string {
     return series.historyId ?? series.slug;
 }
 
-async function resumeRemotePage(
-    provider: Provider,
-    seriesSlug: string,
-    chapterId: string,
-    percent: number,
-): Promise<void> {
-    // The percentage's meaning is provider knowledge. Without the capability,
-    // degrade gracefully to the chapter's start.
-    if (provider.resumeImageIndex === undefined) {
-        window.location.href = provider.readerUrl(seriesSlug, chapterId);
-        return;
-    }
-    const imageIndex = await provider.resumeImageIndex(seriesSlug, chapterId, percent);
-    window.location.href = provider.readerUrl(seriesSlug, chapterId, imageIndex);
-}
-
 const coverResume = new WeakMap<HTMLAnchorElement, CoverResumeModel>();
 
 function renderChapter(provider: Provider, series: HomeSeries, chapter: HomeChapter): HTMLAnchorElement {
@@ -107,19 +91,6 @@ function renderChapter(provider: Provider, series: HomeSeries, chapter: HomeChap
     link.addEventListener('click', event => {
         if (link.classList.contains('hs-home-chapter-locked')) {
             event.preventDefault();
-            return;
-        }
-        const remotePercent = link.dataset.remoteResumePercent;
-        if (remotePercent !== undefined) {
-            // Server partial: jump to the partial position.
-            event.preventDefault();
-            if (link.dataset.loading === 'true') return;
-            link.dataset.loading = 'true';
-            void resumeRemotePage(provider, series.slug, chapter.chapterId, Number(remotePercent))
-                .catch(error => {
-                    link.title = error instanceof Error ? error.message : String(error);
-                    link.dataset.loading = 'false';
-                });
             return;
         }
         if (
@@ -164,19 +135,6 @@ function renderSeries(provider: Provider, series: HomeSeries): HTMLElement {
             throw new Error(`Cover resume state was not initialized for ${series.slug}`);
         }
         if (resume.kind === 'local-partial') return;
-        if (resume.kind === 'remote-partial') {
-            event.preventDefault();
-            if (coverLink.dataset.loading === 'true') return;
-            coverLink.dataset.loading = 'true';
-            coverLink.classList.add('hs-home-cover-loading');
-            void resumeRemotePage(provider, series.slug, resume.chapterId, resume.percent)
-                .catch(error => {
-                    coverLink.dataset.loading = 'false';
-                    coverLink.classList.remove('hs-home-cover-loading');
-                    coverLink.title = error instanceof Error ? error.message : String(error);
-                });
-            return;
-        }
         event.preventDefault();
         if (coverLink.dataset.loading === 'true') return;
         coverLink.dataset.loading = 'true';
@@ -267,11 +225,6 @@ function applyCardPatch(
         if (!link) continue;
         link.classList.toggle('hs-home-chapter-read', chapter.read);
         link.classList.toggle('hs-home-chapter-partial', chapter.partial);
-        if (chapter.remoteResumePercent !== undefined) {
-            link.dataset.remoteResumePercent = String(chapter.remoteResumePercent);
-        } else {
-            delete link.dataset.remoteResumePercent;
-        }
         if (chapter.localImageIndex !== undefined && !link.classList.contains('hs-home-chapter-locked')) {
             link.href = provider.readerUrl(entry.series.slug, chapter.chapterId, String(chapter.localImageIndex));
         } else {
@@ -281,8 +234,6 @@ function applyCardPatch(
 
     const cover = card.querySelector<HTMLAnchorElement>('.hs-home-cover');
     if (!cover) return;
-    delete cover.dataset.remoteResumeChapterId;
-    delete cover.dataset.remoteResumePercent;
     const resume = patch.cover;
     switch (resume.kind) {
         case 'local-partial':
@@ -293,17 +244,6 @@ function applyCardPatch(
             });
             cover.dataset.resume = 'local';
             cover.href = provider.readerUrl(entry.series.slug, resume.chapterId, String(resume.imageIndex));
-            return;
-        case 'remote-partial':
-            coverResume.set(cover, {
-                kind: 'remote-partial',
-                chapterId: resume.chapterId,
-                percent: resume.percent,
-            });
-            cover.dataset.resume = 'remote';
-            cover.dataset.remoteResumeChapterId = resume.chapterId;
-            cover.dataset.remoteResumePercent = String(resume.percent);
-            cover.href = provider.readerUrl(entry.series.slug, resume.chapterId);
             return;
         case 'read':
             coverResume.set(cover, {
