@@ -666,7 +666,9 @@ describe('home catalog rendering', () => {
         window.dispatchEvent(new Event('pagehide'));
         rejectInterrupted(new Error('navigation interrupted the request'));
         await Promise.resolve();
-        window.dispatchEvent(new Event('pagereveal'));
+        const restored = new Event('pageshow');
+        Object.defineProperty(restored, 'persisted', { value: true });
+        window.dispatchEvent(restored);
         await vi.advanceTimersByTimeAsync(1_200);
         await opening;
 

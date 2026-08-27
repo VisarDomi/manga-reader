@@ -17,32 +17,9 @@ let state: WorkerState | null = null;
 let nextRequestId = 1;
 let notifyHandler: NotifyHandler | null = null;
 
-export class ComputeWorkerResetError extends Error {
-    constructor() {
-        super('Compute worker was reset after page restoration');
-        this.name = 'ComputeWorkerResetError';
-    }
-}
-
 /** Register the handler for unsolicited worker notifications (cookie write-backs). */
 export function onComputeNotification(handler: NotifyHandler): void {
     notifyHandler = handler;
-}
-
-/**
- * Terminate the current worker and reject its pending requests. A blob worker
- * does not survive bfcache on iOS:
- * after a swipe-back the revived Worker object silently swallows postMessage
- * and its requests hang forever (no crash event). On a persisted pageshow the
- * shell resets the state so the next op spawns a live worker.
- */
-export function resetWorkerState(): void {
-    if (state === null) return;
-    const error = new ComputeWorkerResetError();
-    state.worker.terminate();
-    for (const entry of state.pending.values()) entry.reject(error);
-    state.pending.clear();
-    state = null;
 }
 
 function spawn(): WorkerState {

@@ -2,6 +2,11 @@ import type { ChapterData, ChapterMeta, Provider, RouteMatch } from '../provider
 import { Handler } from '../provider';
 import { createReaderTracker } from '../core/tracking';
 import { registerImage } from '../core/image-retry';
+import { onBfcacheRestore } from '../core/lifecycle';
+
+function invalidInitialChapterState(state: never): never {
+    throw new Error(`Invalid initial chapter state: ${String(state)}`);
+}
 
 function imageLoaded(image: HTMLImageElement): boolean {
     return image.complete && image.naturalWidth > 0;
@@ -118,12 +123,18 @@ export async function open(
 ): Promise<void> {
     const { slug: routeSlug, chapterId } = route;
     // 1. Load the current chapter
-    const initial = await provider.loadChapter({ slug: routeSlug, chapterId, intent: 'open' });
-    if (initial.kind === 'navigate') {
-        window.location.href = initial.url;
-        return; // just for visuals, location.href redirects the page making further execution impossible
+    const initialState = await provider.loadChapter({ slug: routeSlug, chapterId, intent: 'open' });
+    let data: ChapterData;
+    switch (initialState.kind) {
+        case 'chapter':
+            data = initialState.data;
+            break;
+        case 'navigate':
+            window.location.href = initialState.url;
+            return;
+        default:
+            return invalidInitialChapterState(initialState);
     }
-    const data = initial.data;
     const slug = data.seriesSlug;
 
     document.title = `${data.chapterId} ${data.seriesTitle}`;
@@ -263,8 +274,7 @@ export async function open(
         }, 100);
     }
     window.addEventListener('scrollend', scrollEndOneHundred);
-    // bfcache-specific: after a swipe-back restore, save the current position.
-    window.addEventListener('pagereveal', scrollEndOneHundred);
+    onBfcacheRestore(scrollEndOneHundred);
     window.addEventListener('load', scrollEndOneHundred, { once: true });
     firstWrap.querySelector<HTMLImageElement>('.hs-reader-img')
         ?.addEventListener('load', scrollEndOneHundred, { once: true });

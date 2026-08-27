@@ -6,7 +6,6 @@ import { createReaderTracker } from '../../src/core/tracking';
 const calls: Array<{ op: string; payload: unknown }> = [];
 let saveProgressFails = false;
 vi.mock('../../src/core/compute/transport', () => ({
-    ComputeWorkerResetError: class ComputeWorkerResetError extends Error {},
     computeRequest: vi.fn(async (op: string, payload: unknown) => {
         calls.push({ op, payload });
         if (op === 'save-progress' && saveProgressFails) throw new Error('storage failed');

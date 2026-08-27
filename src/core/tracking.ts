@@ -1,5 +1,5 @@
 import type { ChapterData, Provider } from '../provider';
-import { ComputeWorkerResetError, computeRequest } from './compute/transport';
+import { computeRequest } from './compute/transport';
 
 export interface ReaderTracker {
     track(data: ChapterData, imageIndex: string): void;
@@ -34,11 +34,7 @@ export function createReaderTracker(
                     totalImages: data.images.length,
                 }).then(
                     () => { localPages.set(pageKey, 'saved'); },
-                    error => {
-                        if (error instanceof ComputeWorkerResetError) {
-                            localPages.delete(pageKey);
-                            return;
-                        }
+                    () => {
                         localPages.set(pageKey, 'failed');
                         local.onError();
                     },
@@ -52,11 +48,7 @@ export function createReaderTracker(
                 providerChapters.set(data.chapterId, 'pending');
                 void provider.trackChapter(data).then(
                     () => { providerChapters.set(data.chapterId, 'saved'); },
-                    error => {
-                        if (error instanceof ComputeWorkerResetError) {
-                            providerChapters.delete(data.chapterId);
-                            return;
-                        }
+                    () => {
                         providerChapters.set(data.chapterId, 'failed');
                         local.onError();
                     },

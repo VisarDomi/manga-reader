@@ -9,6 +9,7 @@ import { enqueue } from '../core/update-queue';
 import { resolveHistoryAsync } from '../core/compute/history-client';
 import { registerImage } from '../core/image-retry';
 import type { CardResolution, CoverResumeModel } from '../core/compute/history';
+import { onBfcacheRestore } from '../core/lifecycle';
 
 const POLITE_PAGE_DELAY_MS = 1_000;
 
@@ -415,8 +416,7 @@ export async function open(provider: Provider): Promise<void> {
         for (const resume of waiters) resume();
     }
     window.addEventListener('pagehide', pause);
-    // bfcache-specific: the pagehide above paused the loop; a restore resumes it.
-    window.addEventListener('pagereveal', resume);
+    onBfcacheRestore(resume);
     document.addEventListener('visibilitychange', () => {
         if (document.hidden) pause();
         else resume();
@@ -511,9 +511,8 @@ export async function open(provider: Provider): Promise<void> {
         refreshHistory();
         reconcileRemoteHistory();
     }
-    // bfcache-specific: after a swipe-back the overlay is stale (the DOM
-    // revived from cache carries the pre-read state); re-resolve on restore.
-    window.addEventListener('pagereveal', reconcilePageShow);
+    // A restored DOM carries the history overlay from before the reader was opened.
+    onBfcacheRestore(reconcilePageShow);
     reconcileRemoteHistory();
     window.setInterval(() => updateUnlockCountdowns(section), 60_000);
 

@@ -6,13 +6,17 @@ import { registeredImageCount, registerImage, resetImageRegistry } from '../../s
 
 const ops: Array<{ op: string; payload: unknown }> = [];
 vi.mock('../../src/core/compute/transport', () => ({
-    ComputeWorkerResetError: class ComputeWorkerResetError extends Error {},
     computeRequest: vi.fn(async (op: string, payload: unknown) => {
         ops.push({ op, payload });
     }),
     onComputeNotification: vi.fn(),
-    resetWorkerState: vi.fn(),
 }));
+
+function dispatchPageShow(persisted: boolean): void {
+    const event = new Event('pageshow');
+    Object.defineProperty(event, 'persisted', { value: persisted });
+    window.dispatchEvent(event);
+}
 
 function brokenImage(src: string): HTMLImageElement {
     const image = document.createElement('img');
@@ -65,6 +69,12 @@ describe('startInit lifecycle', () => {
         expect(calls).toEqual(['wait', 'stop', 'open', 'close']);
         // Post-nuke worker context sync happens exactly once.
         expect(ops.filter(op => op.op === 'cookie-snapshot')).toHaveLength(1);
+
+        dispatchPageShow(false);
+        expect(ops.filter(op => op.op === 'cookie-snapshot')).toHaveLength(1);
+
+        dispatchPageShow(true);
+        expect(ops.filter(op => op.op === 'cookie-snapshot')).toHaveLength(2);
     });
 });
 

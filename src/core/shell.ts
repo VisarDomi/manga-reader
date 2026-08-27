@@ -1,11 +1,7 @@
 import css from '../style.css?inline';
 import type { Provider } from '../provider/types';
-import {
-    ComputeWorkerResetError,
-    computeRequest,
-    onComputeNotification,
-    resetWorkerState,
-} from './compute/transport';
+import { computeRequest, onComputeNotification } from './compute/transport';
+import { onBfcacheRestore } from './lifecycle';
 
 export async function startInit(
     documentTitle: string,
@@ -34,16 +30,8 @@ export async function startInit(
         void computeRequest('cookie-snapshot', {
             cookies: document.cookie,
             href: location.href,
-        }).catch(error => {
-            if (error instanceof ComputeWorkerResetError) return;
-            throw error;
         });
     };
     syncContext();
-    window.addEventListener('pageshow', syncContext);
-    // pagereveal fires ONLY on a bfcache
-    window.addEventListener('pagereveal', () => {
-        resetWorkerState();
-        syncContext();
-    });
+    onBfcacheRestore(syncContext);
 }
