@@ -161,7 +161,7 @@ describe('HTML home enrichment', () => {
         vi.stubGlobal('fetch', fetchMock);
 
         const opening = openHome(scythe);
-        await vi.advanceTimersByTimeAsync(1_000);
+        await vi.advanceTimersByTimeAsync(1_200);
         await opening;
 
         expect(fetchMock.mock.calls.map(([input]) => String(input))).toEqual([
@@ -346,7 +346,7 @@ describe('home catalog rendering', () => {
         const provider = testProvider(async cursor => pages.get(cursor)!);
 
         const opening = openHome(provider);
-        await vi.advanceTimersByTimeAsync(1_000);
+        await vi.advanceTimersByTimeAsync(1_200);
         await opening;
 
         // The deferred catalog batch drains at scrollend + 100ms.
@@ -364,6 +364,62 @@ describe('home catalog rendering', () => {
         expect(chapters[0].querySelector('time')?.textContent).toBe('2 hours ago');
         expect(document.querySelector('.hs-home-card[data-series-slug="empty"] .hs-home-no-chapters')?.textContent)
             .toBe('No chapters available');
+    });
+
+    it('eagerly fetches and renders every catalog page in cursor order', async () => {
+        vi.useFakeTimers();
+        const pages = new Map<string | null, HomePage>([
+            [null, {
+                nextCursor: 'page:2',
+                series: [{
+                    slug: 'series-1',
+                    title: 'Series 1',
+                    coverUrl: 'https://example.test/1.webp',
+                    chapters: [],
+                }],
+            }],
+            ['page:2', {
+                nextCursor: 'page:3',
+                series: [{
+                    slug: 'series-2',
+                    title: 'Series 2',
+                    coverUrl: 'https://example.test/2.webp',
+                    chapters: [],
+                }],
+            }],
+            ['page:3', {
+                nextCursor: null,
+                series: [{
+                    slug: 'series-3',
+                    title: 'Series 3',
+                    coverUrl: 'https://example.test/3.webp',
+                    chapters: [],
+                }],
+            }],
+        ]);
+        const fetchHome = vi.fn(async (cursor: string | null) => pages.get(cursor)!);
+        const opening = openHome(testProvider(fetchHome));
+
+        await vi.advanceTimersByTimeAsync(2_400);
+        await opening;
+
+        expect(fetchHome.mock.calls.map(([cursor]) => cursor)).toEqual([null, 'page:2', 'page:3']);
+        expect([...document.querySelectorAll<HTMLElement>('.hs-home-card')]
+            .map(card => card.dataset.seriesSlug)).toEqual(['series-1', 'series-2', 'series-3']);
+        expect(document.querySelector('.hs-home-catalog-status')?.textContent).toBe('Loaded 3 series');
+    });
+
+    it('rejects a repeated provider cursor instead of converting it into UI state', async () => {
+        vi.useFakeTimers();
+        const fetchHome = vi.fn(async (cursor: string | null): Promise<HomePage> => ({
+            series: [],
+            nextCursor: cursor === null ? 'repeated' : 'repeated',
+        }));
+        const opening = openHome(testProvider(fetchHome));
+        const rejection = expect(opening).rejects.toThrow('Provider repeated catalog cursor repeated');
+
+        await vi.advanceTimersByTimeAsync(1_200);
+        await rejection;
     });
 
     it('keeps provider-reported locks authoritative after their countdown reaches zero', async () => {
@@ -587,10 +643,10 @@ describe('home catalog rendering', () => {
         rejectInterrupted(new Error('navigation interrupted the request'));
         await Promise.resolve();
         window.dispatchEvent(new Event('pagereveal'));
-        await vi.advanceTimersByTimeAsync(1_000);
+        await vi.advanceTimersByTimeAsync(1_200);
         await opening;
 
         expect(fetchHome.mock.calls.map(([cursor]) => cursor)).toEqual([null, 'catalog:1', 'catalog:1']);
-        expect(document.querySelector('.hs-home-catalog-status')?.classList.contains('hs-home-catalog-error')).toBe(false);
+        expect(document.querySelector('.hs-home-catalog-status')?.textContent).toBe('Loaded 0 series');
     });
 });

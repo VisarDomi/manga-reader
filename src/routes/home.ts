@@ -12,6 +12,36 @@ import type { CardResolution, CoverResumeModel } from '../core/compute/history';
 
 const POLITE_PAGE_DELAY_MS = 1_000;
 
+function settleBeforePause<T>(
+    operation: Promise<T>,
+    signal: AbortSignal,
+): Promise<{ kind: 'complete'; value: T } | { kind: 'paused' }> {
+    if (signal.aborted) return Promise.resolve({ kind: 'paused' });
+    return new Promise((resolve, reject) => {
+        let settled = false;
+        const onPause = (): void => {
+            if (settled) return;
+            settled = true;
+            resolve({ kind: 'paused' });
+        };
+        signal.addEventListener('abort', onPause, { once: true });
+        operation.then(
+            value => {
+                if (settled) return;
+                settled = true;
+                signal.removeEventListener('abort', onPause);
+                resolve({ kind: 'complete', value });
+            },
+            error => {
+                if (settled) return;
+                settled = true;
+                signal.removeEventListener('abort', onPause);
+                reject(error);
+            },
+        );
+    });
+}
+
 function createLink(className: string, href: string, text?: string): HTMLAnchorElement {
     const link = document.createElement('a');
     link.className = className;
@@ -286,37 +316,40 @@ function queueHistoryRefresh(
         });
 }
 
-function appendPageDeferred(
+function appendPageWhenIdle(
     provider: Provider,
     cards: Map<string, { series: HomeSeries; element: HTMLElement }>,
     list: HTMLDivElement,
     remoteHistory: RemoteSeriesHistory[],
     reportHistoryError: HistoryErrorReporter,
     page: HomePage,
-    onBatchApplied: () => void,
-): void {
-    const steps: Array<() => void> = page.series.map(series => () => {
-        const current = cards.get(series.slug);
-        if (!current) {
-            const element = renderSeries(provider, series);
-            cards.set(series.slug, { series, element });
-            list.appendChild(element);
-            return;
-        }
-        const merged = mergeSeries(current.series, series);
-        if (merged.chapters.length === current.series.chapters.length) return;
-        const element = renderSeries(provider, merged);
-        current.element.replaceWith(element);
-        cards.set(series.slug, { series: merged, element });
+): Promise<void> {
+    // The pagination loop awaits this batch, so catalog pages cannot
+    // supersede one another in the latest-wins update queue.
+    return new Promise((resolve, reject) => {
+        enqueue('catalog', [() => {
+            try {
+                for (const series of page.series) {
+                    const current = cards.get(series.slug);
+                    if (!current) {
+                        const element = renderSeries(provider, series);
+                        cards.set(series.slug, { series, element });
+                        list.appendChild(element);
+                        continue;
+                    }
+                    const merged = mergeSeries(current.series, series);
+                    if (merged.chapters.length === current.series.chapters.length) continue;
+                    const element = renderSeries(provider, merged);
+                    current.element.replaceWith(element);
+                    cards.set(series.slug, { series: merged, element });
+                }
+                queueHistoryRefresh(provider, cards, remoteHistory, reportHistoryError);
+                resolve();
+            } catch (error) {
+                reject(error);
+            }
+        }]);
     });
-    // The counter must reflect the batch that actually rendered: refresh it
-    // after the deferred steps apply (the loop's own status write shows the
-    // pre-batch count).
-    steps.push(() => {
-        queueHistoryRefresh(provider, cards, remoteHistory, reportHistoryError);
-        onBatchApplied();
-    });
-    enqueue('catalog', steps);
 }
 
 function statusText(loaded: number, total: number | undefined, loading: boolean): string {
@@ -345,15 +378,19 @@ function resetTransientCoverState(root: ParentNode): void {
 export async function open(provider: Provider): Promise<void> {
     let active = !document.hidden;
     let lifecycleVersion = 0;
+    let activePeriod = new AbortController();
+    if (!active) activePeriod.abort();
     let resumeWaiters: Array<() => void> = [];
     function pause(): void {
         if (!active) return;
         active = false;
         lifecycleVersion += 1;
+        activePeriod.abort();
     }
     function resume(): void {
         if (active) return;
         active = true;
+        activePeriod = new AbortController();
         const waiters = resumeWaiters;
         resumeWaiters = [];
         for (const resume of waiters) resume();
@@ -377,13 +414,22 @@ export async function open(provider: Provider): Promise<void> {
         await waitUntilActive();
     }
 
+    async function fetchPageWhileActive(cursor: string | null, politeDelay: boolean): Promise<HomePage> {
+        for (;;) {
+            if (politeDelay) await waitForNextRequest();
+            else await waitUntilActive();
+            const outcome = await settleBeforePause(provider.fetchHome(cursor), activePeriod.signal);
+            if (outcome.kind === 'complete') return outcome.value;
+        }
+    }
+
     const loading = document.createElement('div');
     loading.className = 'hs-home-loading';
     loading.textContent = 'Loading latest updates…';
     document.body.appendChild(loading);
     let remoteHistory: RemoteSeriesHistory[] = [];
 
-    const firstPage = await provider.fetchHome(null);
+    const firstPage = await fetchPageWhileActive(null, false);
 
     const main = document.createElement('main');
     main.className = 'hs-home';
@@ -457,29 +503,13 @@ export async function open(provider: Provider): Promise<void> {
     let nextCursor = firstPage.nextCursor;
     while (nextCursor !== null) {
         if (seenCursors.has(nextCursor)) {
-            status.classList.add('hs-home-catalog-error');
-            status.textContent = `Stopped loading: provider repeated catalog cursor ${nextCursor}`;
-            return;
+            throw new Error(`Provider repeated catalog cursor ${nextCursor}`);
         }
-        await waitForNextRequest();
-        const requestCursor = nextCursor;
-        const requestLifecycle = lifecycleVersion;
-        try {
-            const page = await provider.fetchHome(requestCursor);
-            seenCursors.add(requestCursor);
-            appendPageDeferred(provider, cards, list, remoteHistory, reportHistoryError, page, () => {
-                status.textContent = statusText(cards.size, total, page.nextCursor !== null);
-            });
-            nextCursor = page.nextCursor;
-            status.textContent = statusText(cards.size, total, nextCursor !== null);
-        } catch (error) {
-            if (requestLifecycle !== lifecycleVersion) {
-                await waitUntilActive();
-                continue;
-            }
-            status.classList.add('hs-home-catalog-error');
-            status.textContent = `Loaded ${cards.size} series; more could not be loaded: ${error instanceof Error ? error.message : String(error)}`;
-            return;
-        }
+        seenCursors.add(nextCursor);
+        const page = await fetchPageWhileActive(nextCursor, true);
+        if (page.total !== undefined) total = page.total;
+        await appendPageWhenIdle(provider, cards, list, remoteHistory, reportHistoryError, page);
+        nextCursor = page.nextCursor;
+        status.textContent = statusText(cards.size, total, nextCursor !== null);
     }
 }

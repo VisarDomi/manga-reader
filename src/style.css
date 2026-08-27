@@ -147,10 +147,6 @@ body {
     text-align: center;
 }
 
-.hs-home-catalog-error {
-    color: #ff9f9f;
-}
-
 .hs-home-loading,
 .hs-home-error {
     display: flex;
