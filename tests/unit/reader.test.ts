@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
     ChapterLoadIntent,
     ChapterLoadResultKind,
@@ -11,7 +11,6 @@ import {
 import { open } from '../../src/routes/reader';
 
 const tracking = vi.hoisted(() => ({ track: vi.fn() }));
-vi.mock('../../src/core/image-retry', () => ({ registerImage: vi.fn() }));
 vi.mock('../../src/core/tracking', () => ({
     createReaderTracker: () => tracking,
 }));
@@ -50,7 +49,12 @@ function loadImage(image: HTMLImageElement): void {
     image.dispatchEvent(new Event('load'));
 }
 
+beforeEach(() => {
+    vi.useFakeTimers();
+});
+
 afterEach(() => {
+    vi.clearAllTimers();
     vi.useRealTimers();
     vi.restoreAllMocks();
     tracking.track.mockClear();
@@ -58,6 +62,25 @@ afterEach(() => {
 });
 
 describe('Reader behavior', () => {
+    it('self-registers rendered images for retry after a failed load', async () => {
+        const data = chapter('1');
+        data.images[0].url = `${location.origin}/image.webp`;
+
+        await open(
+            providerFor(data),
+            { handler: Handler.Reader, slug: 'series', chapterId: '1' },
+        );
+
+        const image = document.querySelector<HTMLImageElement>('.hs-reader-img')!;
+        Object.defineProperties(image, {
+            complete: { configurable: true, value: true },
+            naturalWidth: { configurable: true, value: 0 },
+        });
+        await vi.advanceTimersByTimeAsync(1_000);
+
+        expect(new URL(image.src).searchParams.get('retry')).toBeTruthy();
+    });
+
     it('uses 1000px without provider height, then replaces it with the loaded ratio', async () => {
         await open(
             providerFor(chapter('1')),
@@ -72,7 +95,6 @@ describe('Reader behavior', () => {
     });
 
     it('updates the URL and tracking, then appends the immediate newer chapter once', async () => {
-        vi.useFakeTimers();
         const first = chapter('1');
         const second = chapter('2');
         const loadChapter = vi.fn(async (request: { intent: ChapterLoadIntent }) => (

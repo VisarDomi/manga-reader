@@ -13,76 +13,68 @@
 
 type Step = () => void;
 
-interface QueueItem {
-    steps: Step[];
-    superseded: boolean;
-}
-
-const items = new Map<string, QueueItem>();
 const DRAIN_DELAY_MS = 100;
-let drainTimer: number | null = null;
-let lastScrollAt = 0;
-let listenersInstalled = false;
 
-// Listeners are installed on FIRST ENQUEUE, never at module load: the first
-// enqueue always happens after the takeover nuke (window.stop/document.open),
-// and on iOS the nuke wipes listeners registered before it. The reader's
-// scrollend listener works because it is registered post-nuke, inside open().
-function ensureListeners(): void {
-    if (listenersInstalled) return;
-    listenersInstalled = true;
-    window.addEventListener('scrollend', scheduleDrain);
-    window.addEventListener('scroll', () => {
-        lastScrollAt = Date.now();
-    });
+export enum UpdateKind {
+    History,
+    Catalog,
 }
 
-function scheduleDrain(): void {
-    // Each trigger re-arms: the burst runs 100ms after the LAST one.
-    if (drainTimer !== null) window.clearTimeout(drainTimer);
-    drainTimer = window.setTimeout(() => {
-        drainTimer = null;
-        if (Date.now() - lastScrollAt < DRAIN_DELAY_MS) {
-            // Scrolled very recently: postpone rather than interrupt.
-            scheduleDrain();
-            return;
-        }
-        drainNow();
-    }, DRAIN_DELAY_MS);
-}
+export class UpdateQueue {
+    private readonly items = new Map<UpdateKind, Step[]>();
+    private drainTimer: number | null = null;
+    private lastScrollAt = 0;
+    private listenersInstalled = false;
 
-function drainNow(): void {
-    for (const kind of [...items.keys()]) {
-        const item = items.get(kind);
-        if (item === undefined) continue;
-        items.delete(kind);
-        if (item.superseded) continue;
-        for (const step of item.steps) {
-            if (item.superseded) break;
-            step();
-        }
+    private readonly recordScroll = (): void => {
+        this.lastScrollAt = Date.now();
+    };
+
+    private readonly scheduleDrain = (): void => {
+        // Each trigger re-arms: the burst runs 100ms after the LAST one.
+        if (this.drainTimer !== null) window.clearTimeout(this.drainTimer);
+        this.drainTimer = window.setTimeout(() => {
+            this.drainTimer = null;
+            if (Date.now() - this.lastScrollAt < DRAIN_DELAY_MS) {
+                // Scrolled very recently: postpone rather than interrupt.
+                this.scheduleDrain();
+                return;
+            }
+            this.drainNow();
+        }, DRAIN_DELAY_MS);
+    };
+
+    // Installed on first enqueue, after the takeover nuke. Once the queue is
+    // empty they are released; a later enqueue installs them again.
+    private ensureListeners(): void {
+        if (this.listenersInstalled) return;
+        this.listenersInstalled = true;
+        window.addEventListener('scrollend', this.scheduleDrain);
+        window.addEventListener('scroll', this.recordScroll);
     }
-}
 
-/**
- * Enqueue a batch of steps under a kind. A newer batch of the same kind
- * supersedes any pending batch (latest-wins).
- */
-export function enqueue(kind: string, steps: Step[]): void {
-    ensureListeners();
-    const previous = items.get(kind);
-    if (previous !== undefined) previous.superseded = true;
-    items.set(kind, { steps, superseded: false });
-    // Arm now: an idle page drains without waiting for a scroll.
-    scheduleDrain();
-}
-
-/** Test seam: reset all state. */
-export function resetQueue(): void {
-    items.clear();
-    if (drainTimer !== null) {
-        window.clearTimeout(drainTimer);
-        drainTimer = null;
+    private releaseListeners(): void {
+        if (!this.listenersInstalled) return;
+        window.removeEventListener('scrollend', this.scheduleDrain);
+        window.removeEventListener('scroll', this.recordScroll);
+        this.listenersInstalled = false;
     }
-    lastScrollAt = 0;
+
+    private drainNow(): void {
+        for (const kind of [...this.items.keys()]) {
+            const steps = this.items.get(kind);
+            if (steps === undefined) continue;
+            this.items.delete(kind);
+            for (const step of steps) step();
+        }
+        if (this.items.size === 0) this.releaseListeners();
+    }
+
+    /** A newer pending batch of the same kind replaces the previous batch. */
+    enqueue(kind: UpdateKind, steps: Step[]): void {
+        this.ensureListeners();
+        this.items.set(kind, steps);
+        // Arm now: an idle page drains without waiting for a scroll.
+        this.scheduleDrain();
+    }
 }

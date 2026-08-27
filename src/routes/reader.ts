@@ -1,7 +1,7 @@
 import type { ChapterData, ChapterMeta, Provider, RouteMatch } from '../provider';
 import { ChapterLoadIntent, ChapterLoadResultKind, Handler } from '../provider';
 import { createReaderTracker } from '../core/tracking';
-import { registerImage } from '../core/image-retry';
+import { ImageRetryRegistry } from '../core/image-retry';
 import { onBfcacheRestore } from '../core/lifecycle';
 
 function invalidInitialChapterState(state: never): never {
@@ -59,6 +59,7 @@ function createChapterWrapper(chapterId: string): HTMLDivElement {
 function renderChapterImages(
     wrap: HTMLDivElement,
     data: ChapterData,
+    imageRetry: ImageRetryRegistry,
 ): void {
     for (let i = 0; i < data.images.length; i++) {
         const img = document.createElement('img');
@@ -79,7 +80,7 @@ function renderChapterImages(
         img.addEventListener('load', reconcileAspectRatio);
         img.loading = 'lazy';
         img.src = imgData.url;
-        registerImage(img);
+        imageRetry.register(img);
         if (imageLoaded(img)) reconcileAspectRatio();
         wrap.appendChild(img);
     }
@@ -156,6 +157,7 @@ export async function open(
             return invalidInitialChapterState(initialState);
     }
     const slug = data.seriesSlug;
+    const imageRetry = new ImageRetryRegistry();
 
     document.title = `${data.chapterId} ${data.seriesTitle}`;
 
@@ -164,7 +166,7 @@ export async function open(
     document.body.appendChild(wrapper);
 
     const firstWrap = createChapterWrapper(data.chapterId);
-    renderChapterImages(firstWrap, data);
+    renderChapterImages(firstWrap, data, imageRetry);
     wrapper.appendChild(firstWrap);
 
     const chapterData = new Map<string, ChapterData>([[data.chapterId, data]]);
@@ -291,7 +293,7 @@ export async function open(
                     chapterLoadStates.set(newerChapter.chapterId, ChapterLoadState.Loaded);
                     chapterData.set(newerChapter.chapterId, result.data);
                     const wrapEl = createChapterWrapper(result.data.chapterId);
-                    renderChapterImages(wrapEl, result.data);
+                    renderChapterImages(wrapEl, result.data, imageRetry);
                     wrapper.appendChild(wrapEl);
                     newerChapterLoadingStatus.remove();
                 },

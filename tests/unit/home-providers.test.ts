@@ -11,7 +11,6 @@ import {
     type RemoteSeriesHistory,
 } from '../../src/provider';
 import { createChapterProgress } from '../../src/core/compute/progress';
-import { resetQueue } from '../../src/core/update-queue';
 import { open as openHome } from '../../src/routes/home';
 
 const historyState = vi.hoisted(() => ({ progress: [] as unknown[] }));
@@ -27,8 +26,6 @@ vi.mock('../../src/core/compute/history-client', async () => {
         ),
     };
 });
-vi.mock('../../src/core/image-retry', () => ({ registerImage: vi.fn() }));
-
 function homeSeries(slug: string, chapters: string[] = []): HomeSeries {
     return {
         slug,
@@ -78,13 +75,12 @@ async function settleHistory(): Promise<void> {
 
 beforeEach(() => {
     vi.useFakeTimers();
-    resetQueue();
     historyState.progress = [];
 });
 
 afterEach(() => {
+    vi.clearAllTimers();
     vi.useRealTimers();
-    resetQueue();
     document.body.replaceChildren();
 });
 

@@ -6,9 +6,9 @@ import type {
     RemoteSeriesHistory,
 } from '../provider';
 import { HomeDestinationKind } from '../provider';
-import { enqueue } from '../core/update-queue';
+import { UpdateKind, UpdateQueue } from '../core/update-queue';
 import { resolveHistoryAsync } from '../core/compute/history-client';
-import { registerImage } from '../core/image-retry';
+import { ImageRetryRegistry } from '../core/image-retry';
 import { CoverResumeKind } from '../core/compute/history';
 import type { CardResolution, CoverResumeModel } from '../core/compute/history';
 import { onBfcacheRestore } from '../core/lifecycle';
@@ -200,7 +200,11 @@ function renderChapter(provider: Provider, series: HomeSeries, chapter: HomeChap
     return link;
 }
 
-function renderSeries(provider: Provider, series: HomeSeries): HTMLElement {
+function renderSeries(
+    provider: Provider,
+    series: HomeSeries,
+    imageRetry: ImageRetryRegistry,
+): HTMLElement {
     const card = document.createElement('article');
     card.className = 'hs-home-card';
     card.dataset.seriesSlug = series.slug;
@@ -214,7 +218,7 @@ function renderSeries(provider: Provider, series: HomeSeries): HTMLElement {
     cover.src = series.coverUrl;
     cover.alt = series.title;
     cover.loading = 'lazy';
-    registerImage(cover);
+    imageRetry.register(cover);
     coverLink.appendChild(cover);
     coverLink.addEventListener('click', event => {
         const resume = coverResume.get(coverLink);
@@ -349,6 +353,7 @@ function applyCardPatch(
 }
 
 function queueHistoryRefresh(
+    updates: UpdateQueue,
     provider: Provider,
     cards: Map<string, { series: HomeSeries; element: HTMLElement }>,
     remoteHistory: RemoteSeriesHistory[],
@@ -363,7 +368,7 @@ function queueHistoryRefresh(
     void settleBeforePause(() => resolveHistoryAsync({ cards: cardInputs, remoteHistory }), signal)
         .then(outcome => {
             if (outcome.kind === PauseOutcomeKind.Paused || !isCurrent()) return;
-            enqueue('history', outcome.value.map(patch => () => {
+            updates.enqueue(UpdateKind.History, outcome.value.map(patch => () => {
                 if (!isCurrent()) return;
                 applyCardPatch(provider, cards, patch);
             }));
@@ -371,6 +376,8 @@ function queueHistoryRefresh(
 }
 
 function appendPageWhenIdle(
+    updates: UpdateQueue,
+    imageRetry: ImageRetryRegistry,
     provider: Provider,
     cards: Map<string, { series: HomeSeries; element: HTMLElement }>,
     list: HTMLDivElement,
@@ -379,19 +386,19 @@ function appendPageWhenIdle(
     // The pagination loop awaits this batch, so catalog pages cannot
     // supersede one another in the latest-wins update queue.
     return new Promise((resolve, reject) => {
-        enqueue('catalog', [() => {
+        updates.enqueue(UpdateKind.Catalog, [() => {
             try {
                 for (const series of page.series) {
                     const current = cards.get(series.slug);
                     if (!current) {
-                        const element = renderSeries(provider, series);
+                        const element = renderSeries(provider, series, imageRetry);
                         cards.set(series.slug, { series, element });
                         list.appendChild(element);
                         continue;
                     }
                     const merged = mergeSeries(current.series, series);
                     if (merged.chapters.length === current.series.chapters.length) continue;
-                    const element = renderSeries(provider, merged);
+                    const element = renderSeries(provider, merged, imageRetry);
                     current.element.replaceWith(element);
                     cards.set(series.slug, { series: merged, element });
                 }
@@ -426,6 +433,8 @@ function resetTransientLinkState(root: ParentNode): void {
 }
 
 export async function open(provider: Provider): Promise<void> {
+    const updates = new UpdateQueue();
+    const imageRetry = new ImageRetryRegistry();
     let active = !document.hidden;
     let lifecycleVersion = 0;
     let activePeriod = new AbortController();
@@ -498,6 +507,7 @@ export async function open(provider: Provider): Promise<void> {
     function refreshHistory(): void {
         const generation = ++historyResolutionGeneration;
         queueHistoryRefresh(
+            updates,
             provider,
             cards,
             remoteHistory,
@@ -512,7 +522,7 @@ export async function open(provider: Provider): Promise<void> {
         if (page.total !== undefined) total = page.total;
         for (const series of page.series) {
             if (cards.has(series.slug)) throw new Error(`First home page repeats series ${series.slug}`);
-            const element = renderSeries(provider, series);
+            const element = renderSeries(provider, series, imageRetry);
             cards.set(series.slug, { series, element });
             list.appendChild(element);
         }
@@ -555,7 +565,7 @@ export async function open(provider: Provider): Promise<void> {
         seenCursors.add(nextCursor);
         const page = await fetchPageWhileActive(nextCursor, true);
         if (page.total !== undefined) total = page.total;
-        await appendPageWhenIdle(provider, cards, list, page);
+        await appendPageWhenIdle(updates, imageRetry, provider, cards, list, page);
         refreshHistory();
         nextCursor = page.nextCursor;
         status.textContent = statusText(cards.size, total, nextCursor !== null);

@@ -1,5 +1,5 @@
-// Worker-owned IndexedDB layer. This module must only ever run inside the
-// compute worker (or a test seam); the main thread never touches IndexedDB.
+// Worker-owned IndexedDB layer. This module runs inside the compute worker;
+// the main thread never touches IndexedDB.
 
 import type { ChapterProgress } from './progress';
 import {
