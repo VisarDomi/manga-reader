@@ -5,13 +5,17 @@ import {
     type ChapterData,
     type ChapterMeta,
     type ChapterImage,
-    type HomePage,
 } from './types';
 import { SITE_CONFIG } from '../core/sites';
 import { isChapterUnavailable } from '../core/http';
 import { hashImageIndex } from '../core/page';
-import { fetchAsuraHome } from './asura-catalog';
-import { lastImageIndexFrom } from './resume';
+import {
+    chapterLoader,
+    homeDestinationResolver,
+    workerChapterTracker,
+    workerHome,
+    workerRemoteHistory,
+} from './actions';
 
 const CHAPTER_RE = /^\/comics\/([^/]+)\/chapter\/(\d+)/;
 const DOMAIN = SITE_CONFIG.asurascans.domain;
@@ -43,8 +47,7 @@ async function fetchAsuraChapter(slug: string, chapterId: string): Promise<Chapt
         seriesSlug: slug,
         historyId: asuraHistoryId(slug),
         seriesTitle: data.series.title,
-        seriesApiId: data.series.id,
-        chapterApiId: data.chapter.id,
+        providerData: { seriesId: data.series.id, chapterId: data.chapter.id },
         images,
     };
 }
@@ -70,10 +73,23 @@ interface AsuraChapterResponse {
     is_locked: boolean;
 }
 
+async function fetchAsuraChaptersNewestFirst(slug: string): Promise<ChapterMeta[]> {
+    const res = await fetch(`${API_BASE}/series/${slug}/chapters`);
+    if (!res.ok) throw new Error(`Chapter list failed: ${res.status}`);
+    const response = await res.json() as { data: Array<{ number: number }> };
+    return response.data.map(chapter => ({ chapterId: String(chapter.number) }));
+}
+
+function asuraReaderUrl(slug: string, chapterId: string, imageIndex?: string): string {
+    return `https://${DOMAIN}/comics/${slug}/chapter/${chapterId}${imageIndex ? `#${imageIndex}` : ''}`;
+}
+
+function asuraSeriesUrl(slug: string): string {
+    return `https://${DOMAIN}/comics/${slug}`;
+}
+
 export const asura: Provider = {
     key: 'asurascans',
-    catalogInWorker: true,
-    remoteHistoryInWorker: true,
     documentTitle: SITE_CONFIG.asurascans.documentTitle,
 
     matchRoute(pathname: string, hash: string): RouteMatch | null {
@@ -88,32 +104,18 @@ export const asura: Provider = {
         };
     },
 
-    async fetchHome(cursor: string | null): Promise<HomePage> {
-        return fetchAsuraHome(cursor);
-    },
-
-    async fetchChapter(slug: string, chapterId: string): Promise<ChapterData | null> {
-        return fetchAsuraChapter(slug, chapterId);
-    },
-
-    lastReadImageIndex: lastImageIndexFrom(fetchAsuraChapter),
-
-    async fetchChaptersNewestFirst(slug: string): Promise<ChapterMeta[]> {
-        const res = await fetch(`${API_BASE}/series/${slug}/chapters`);
-        if (!res.ok) throw new Error(`Chapter list failed: ${res.status}`);
-        const response = await res.json() as { data: Array<{ id?: number; number: number }> };
-        return response.data.map(chapter => ({
-            chapterId: String(chapter.number),
-            chapterApiId: chapter.id,
-        }));
-    },
-
-    readerUrl(slug: string, chapterId: string, imageIndex?: string): string {
-        return `https://${DOMAIN}/comics/${slug}/chapter/${chapterId}${imageIndex ? `#${imageIndex}` : ''}`;
-    },
-
-    seriesUrl(slug: string): string {
-        return `https://${DOMAIN}/comics/${slug}`;
-    },
+    fetchHome: workerHome('asurascans'),
+    fetchRemoteHistory: workerRemoteHistory('asurascans'),
+    loadChapter: chapterLoader(fetchAsuraChapter, asuraSeriesUrl),
+    resolveHomeDestination: homeDestinationResolver({
+        fetchChapter: fetchAsuraChapter,
+        fetchChaptersNewestFirst: fetchAsuraChaptersNewestFirst,
+        readerUrl: asuraReaderUrl,
+        seriesUrl: asuraSeriesUrl,
+    }),
+    trackChapter: workerChapterTracker('asurascans'),
+    fetchChaptersNewestFirst: fetchAsuraChaptersNewestFirst,
+    readerUrl: asuraReaderUrl,
+    seriesUrl: asuraSeriesUrl,
 
 };

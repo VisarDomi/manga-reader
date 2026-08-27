@@ -14,10 +14,10 @@ const card = (chapterIds: string[]) => ({
 });
 
 describe('resolveHistory', () => {
-    it('marks chapters at or before the remote read-through boundary', () => {
+    it('marks the exact chapters reported by remote history', () => {
         const [result] = resolveHistory({
             cards: [card(['4', '3', '2'])],
-            remoteHistory: [{ seriesId: 'series-a', readThroughChapterId: '3', resumeChapterId: '3' }],
+            remoteHistory: [{ seriesId: 'series-a', readChapterIds: ['3', '2'], resumeChapterId: '3' }],
             progress: [],
         });
         expect(result.chapters.map(chapter => [chapter.chapterId, chapter.read])).toEqual([
@@ -27,7 +27,6 @@ describe('resolveHistory', () => {
         ]);
         expect(result.cover).toEqual({
             kind: 'read',
-            readThroughChapterId: '3',
             resumeChapterId: '3',
             locallyReadChapterIds: [],
         });
@@ -37,7 +36,7 @@ describe('resolveHistory', () => {
         const progress = [createChapterProgress('test', 'series-a', '7', 1, 5, 100)];
         const [result] = resolveHistory({
             cards: [card(['7', '6'])],
-            remoteHistory: [{ seriesId: 'series-a', readThroughChapterId: '6', resumeChapterId: '7' }],
+            remoteHistory: [{ seriesId: 'series-a', readChapterIds: ['6'], resumeChapterId: '7' }],
             progress,
         });
         const seven = result.chapters.find(chapter => chapter.chapterId === '7');
@@ -49,7 +48,7 @@ describe('resolveHistory', () => {
         const progress = [createChapterProgress('test', 'series-a', '4', 0, 5, 100)];
         const [result] = resolveHistory({
             cards: [card(['4', '3'])],
-            remoteHistory: [{ seriesId: 'series-a', readThroughChapterId: '3', resumeChapterId: '3' }],
+            remoteHistory: [{ seriesId: 'series-a', readChapterIds: ['3'], resumeChapterId: '3' }],
             progress,
         });
         const four = result.chapters.find(chapter => chapter.chapterId === '4');

@@ -7,8 +7,6 @@ import type {
 } from '../provider';
 import { enqueue } from '../core/update-queue';
 import { resolveHistoryAsync } from '../core/compute/history-client';
-import { fetchRemoteHistoryAsync } from '../core/compute/remote-history-client';
-import { computeRequest } from '../core/compute/transport';
 import { registerImage } from '../core/image-retry';
 import type { CardResolution, CoverResumeModel } from '../core/compute/history';
 
@@ -96,15 +94,18 @@ function renderChapter(provider: Provider, series: HomeSeries, chapter: HomeChap
         if (
             link.classList.contains('hs-home-chapter-read')
             && link.hash === ''
-            && provider.lastReadImageIndex !== undefined
         ) {
             // Server-read without a local page: jump to the last image.
             event.preventDefault();
             if (link.dataset.loading === 'true') return;
             link.dataset.loading = 'true';
-            void provider.lastReadImageIndex(series.slug, chapter.chapterId)
-                .then(imageIndex => {
-                    window.location.href = provider.readerUrl(series.slug, chapter.chapterId, imageIndex);
+            void provider.resolveHomeDestination({
+                kind: 'resume',
+                seriesSlug: series.slug,
+                chapterId: chapter.chapterId,
+            })
+                .then(url => {
+                    window.location.href = url;
                 })
                 .catch(error => {
                     link.title = error instanceof Error ? error.message : String(error);
@@ -139,33 +140,32 @@ function renderSeries(provider: Provider, series: HomeSeries): HTMLElement {
         if (coverLink.dataset.loading === 'true') return;
         coverLink.dataset.loading = 'true';
         coverLink.classList.add('hs-home-cover-loading');
-        void provider.fetchChaptersNewestFirst(series.slug)
-            .then(async chapters => {
-                let destinationUrl: string;
+        void (async () => {
                 if (resume.kind === 'read') {
                     // End of the last-read chapter: the reader then loads the
                     // next one as the user continues.
                     const lastChapterId = resume.latestLocalComplete?.chapterId
-                        ?? resume.resumeChapterId
-                        ?? resume.readThroughChapterId;
+                        ?? resume.resumeChapterId;
+                    if (lastChapterId === undefined) {
+                        return provider.resolveHomeDestination({ kind: 'start', seriesSlug: series.slug });
+                    }
                     let imageIndex: string | undefined;
                     if (
                         resume.latestLocalComplete !== undefined
                         && resume.latestLocalComplete.chapterId === lastChapterId
                     ) {
                         imageIndex = String(resume.latestLocalComplete.imageIndex);
-                    } else if (lastChapterId !== undefined && provider.lastReadImageIndex !== undefined) {
-                        imageIndex = await provider.lastReadImageIndex(series.slug, lastChapterId);
                     }
-                    destinationUrl = lastChapterId !== undefined
-                        ? provider.readerUrl(series.slug, lastChapterId, imageIndex)
-                        : provider.seriesUrl(series.slug);
-                } else {
-                    const first = chapters.at(-1);
-                    destinationUrl = first !== undefined
-                        ? provider.readerUrl(series.slug, first.chapterId)
-                        : provider.seriesUrl(series.slug);
+                    return provider.resolveHomeDestination({
+                        kind: 'resume',
+                        seriesSlug: series.slug,
+                        chapterId: lastChapterId,
+                        imageIndex,
+                    });
                 }
+                return provider.resolveHomeDestination({ kind: 'start', seriesSlug: series.slug });
+            })()
+            .then(destinationUrl => {
                 coverLink.dataset.loading = 'false';
                 coverLink.classList.remove('hs-home-cover-loading');
                 window.location.href = destinationUrl;
@@ -205,10 +205,7 @@ function updateUnlockCountdowns(root: ParentNode): void {
             time.textContent = unlockCountdown(unlockAt);
             continue;
         }
-        chapter.classList.remove('hs-home-chapter-locked');
-        chapter.querySelector('.hs-home-lock')?.remove();
-        time.classList.remove('hs-home-unlock');
-        time.textContent = formatUploadedAt(chapter.dataset.uploadedAt ?? null);
+        time.textContent = '0m';
     }
 }
 
@@ -248,7 +245,6 @@ function applyCardPatch(
         case 'read':
             coverResume.set(cover, {
                 kind: 'read',
-                readThroughChapterId: resume.readThroughChapterId,
                 resumeChapterId: resume.resumeChapterId,
                 locallyReadChapterIds: resume.locallyReadChapterIds,
                 latestLocalComplete: resume.latestLocalComplete,
@@ -328,13 +324,6 @@ function statusText(loaded: number, total: number | undefined, loading: boolean)
     return loading ? `Loaded ${count} series · loading more…` : `Loaded ${count} series`;
 }
 
-function renderError(error: unknown): void {
-    const message = document.createElement('div');
-    message.className = 'hs-home-error';
-    message.textContent = error instanceof Error ? error.message : String(error);
-    document.body.replaceChildren(message);
-}
-
 function mergeSeries(current: HomeSeries, incoming: HomeSeries): HomeSeries {
     const chapterIds = new Set(current.chapters.map(chapter => chapter.chapterId));
     const chapters = [...current.chapters];
@@ -394,20 +383,7 @@ export async function open(provider: Provider): Promise<void> {
     document.body.appendChild(loading);
     let remoteHistory: RemoteSeriesHistory[] = [];
 
-    function fetchPage(cursor: string | null): Promise<HomePage> {
-        if (provider.catalogInWorker) {
-            return computeRequest('fetch-home', { provider: provider.key, cursor });
-        }
-        return provider.fetchHome(cursor);
-    }
-
-    let firstPage: HomePage;
-    try {
-        firstPage = await fetchPage(null);
-    } catch (error) {
-        renderError(error);
-        return;
-    }
+    const firstPage = await provider.fetchHome(null);
 
     const main = document.createElement('main');
     main.className = 'hs-home';
@@ -455,10 +431,10 @@ export async function open(provider: Provider): Promise<void> {
     let historyRequestGeneration = 0;
     let historyRequestLifecycle = -1;
     function reconcileRemoteHistory(): void {
-        if (!active || !provider.remoteHistoryInWorker || historyRequestLifecycle === lifecycleVersion) return;
+        if (!active || provider.fetchRemoteHistory === undefined || historyRequestLifecycle === lifecycleVersion) return;
         historyRequestLifecycle = lifecycleVersion;
         const generation = ++historyRequestGeneration;
-        void fetchRemoteHistoryAsync({ provider: provider.key })
+        void provider.fetchRemoteHistory()
             .then(history => {
                 if (generation !== historyRequestGeneration || !active) return;
                 remoteHistory = history;
@@ -489,7 +465,7 @@ export async function open(provider: Provider): Promise<void> {
         const requestCursor = nextCursor;
         const requestLifecycle = lifecycleVersion;
         try {
-            const page = await fetchPage(requestCursor);
+            const page = await provider.fetchHome(requestCursor);
             seenCursors.add(requestCursor);
             appendPageDeferred(provider, cards, list, remoteHistory, reportHistoryError, page, () => {
                 status.textContent = statusText(cards.size, total, page.nextCursor !== null);

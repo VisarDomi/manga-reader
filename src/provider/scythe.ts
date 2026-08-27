@@ -11,7 +11,7 @@ import { SITE_CONFIG } from '../core/sites';
 import { isChapterUnavailable } from '../core/http';
 import { hashImageIndex } from '../core/page';
 import { defaultReaderImages } from './ts-reader';
-import { lastImageIndexFrom } from './resume';
+import { chapterLoader, homeDestinationResolver } from './actions';
 
 // WordPress may append a numeric collision suffix after the public chapter number.
 // Example: /worlds-strongest-troll-chapter-194-2/ is Chapter 194.
@@ -144,6 +144,32 @@ async function fetchScytheChapter(slug: string, chapterId: string): Promise<Chap
     };
 }
 
+async function fetchScytheChaptersNewestFirst(slug: string): Promise<ChapterMeta[]> {
+    const url = `https://${DOMAIN}/manga/${slug}/`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Manga page not found: ${res.status}`);
+    const document = new DOMParser().parseFromString(await res.text(), 'text/html');
+    const chapters: ChapterMeta[] = [];
+    const seen = new Set<string>();
+    for (const link of document.querySelectorAll<HTMLAnchorElement>('#chapterlist a[href]')) {
+        const route = chapterRoute(new URL(link.href, `https://${DOMAIN}`).pathname);
+        if (!route || route.slug !== slug) throw new Error(`Invalid Scythe chapter-list URL: ${link.href}`);
+        if (seen.has(route.chapterId)) continue;
+        seen.add(route.chapterId);
+        chapters.push({ chapterId: route.chapterId });
+    }
+    if (chapters.length === 0) throw new Error('Scythe chapter list is empty');
+    return chapters;
+}
+
+function scytheReaderUrl(_slug: string, chapterId: string, imageIndex?: string): string {
+    return `https://${DOMAIN}/${chapterId}/${imageIndex ? `#${imageIndex}` : ''}`;
+}
+
+function scytheSeriesUrl(slug: string): string {
+    return `https://${DOMAIN}/manga/${slug}/`;
+}
+
 export const scythe: Provider = {
     key: 'scythescans',
     documentTitle: SITE_CONFIG.scythescans.documentTitle,
@@ -194,37 +220,14 @@ export const scythe: Provider = {
     },
 
 
-    async fetchChapter(slug: string, chapterId: string): Promise<ChapterData | null> {
-        return fetchScytheChapter(slug, chapterId);
-    },
-
-    lastReadImageIndex: lastImageIndexFrom(fetchScytheChapter),
-
-    async fetchChaptersNewestFirst(slug: string): Promise<ChapterMeta[]> {
-        const url = `https://${DOMAIN}/manga/${slug}/`;
-        const res = await fetch(url);
-        if (!res.ok) throw new Error(`Manga page not found: ${res.status}`);
-        const document = new DOMParser().parseFromString(await res.text(), 'text/html');
-        const chapters: ChapterMeta[] = [];
-        const seen = new Set<string>();
-        for (const link of document.querySelectorAll<HTMLAnchorElement>('#chapterlist a[href]')) {
-            const route = chapterRoute(new URL(link.href, `https://${DOMAIN}`).pathname);
-            if (!route || route.slug !== slug) {
-                throw new Error(`Invalid Scythe chapter-list URL: ${link.href}`);
-            }
-            if (seen.has(route.chapterId)) continue;
-            seen.add(route.chapterId);
-            chapters.push({ chapterId: route.chapterId });
-        }
-        if (chapters.length === 0) throw new Error('Scythe chapter list is empty');
-        return chapters;
-    },
-
-    readerUrl(_slug: string, chapterId: string, imageIndex?: string): string {
-        return `https://${DOMAIN}/${chapterId}/${imageIndex ? `#${imageIndex}` : ''}`;
-    },
-
-    seriesUrl(slug: string): string {
-        return `https://${DOMAIN}/manga/${slug}/`;
-    },
+    loadChapter: chapterLoader(fetchScytheChapter, scytheSeriesUrl),
+    resolveHomeDestination: homeDestinationResolver({
+        fetchChapter: fetchScytheChapter,
+        fetchChaptersNewestFirst: fetchScytheChaptersNewestFirst,
+        readerUrl: scytheReaderUrl,
+        seriesUrl: scytheSeriesUrl,
+    }),
+    fetchChaptersNewestFirst: fetchScytheChaptersNewestFirst,
+    readerUrl: scytheReaderUrl,
+    seriesUrl: scytheSeriesUrl,
 };

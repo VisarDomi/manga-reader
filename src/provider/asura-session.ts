@@ -1,13 +1,11 @@
-// Worker-owned authenticated provider requests. Asura tokens live in the
-// IndexedDB 'tokens' store, and document cookies arrive via snapshots pushed
-// from the main thread ('cookie-snapshot'), with write-backs sent back as
-// 'cookie-write' notifications (workers cannot touch document.cookie).
+// Worker-owned authenticated Asura requests. Tokens live in IndexedDB;
+// document cookies and the current page URL arrive through worker context.
 
-import { tokensGet, tokensPut } from './store';
-import { workerContext } from './context';
-import { parseAsuraRemoteHistory } from '../../provider/asura-remote';
-import type { ChapterData, RemoteSeriesHistory } from '../../provider/types';
-import { SITE_CONFIG } from '../../core/sites';
+import { tokensGet, tokensPut } from '../core/compute/store';
+import { workerContext } from '../core/compute/context';
+import { parseAsuraRemoteHistory } from './asura-remote';
+import type { ChapterData, RemoteSeriesHistory } from './types';
+import { SITE_CONFIG } from '../core/sites';
 
 const ASURA_API = SITE_CONFIG.asurascans.apiBase!;
 
@@ -19,14 +17,10 @@ function notifyCookieWrite(value: string): void {
     (self as unknown as Worker).postMessage({ kind: 'notify', name: 'cookie-write', value });
 }
 
-/** All worker-side provider fetches carry the page URL as the referrer:
- * Cloudflare-fronted APIs can reject requests whose Referer is not the page. */
 function providerFetch(input: string, init: RequestInit = {}): Promise<Response> {
     const referrer = workerContext().href;
     return fetch(input, referrer ? { ...init, referrer } : init);
 }
-
-// ── asura ────────────────────────────────────────────────────────────
 
 interface AsuraState {
     refreshInFlight: Promise<string> | null;
@@ -104,17 +98,29 @@ export async function fetchAsuraRemoteHistory(): Promise<RemoteSeriesHistory[]> 
 }
 
 export async function trackAsuraChapter(data: ChapterData): Promise<void> {
-    if (!data.seriesApiId || !data.chapterApiId || !await asuraHasSession()) return;
+    if (typeof data.providerData !== 'object' || data.providerData === null || Array.isArray(data.providerData)) {
+        throw new Error('Asura chapter tracking data is missing');
+    }
+    const tracking = data.providerData as Record<string, unknown>;
+    const seriesId = tracking.seriesId;
+    const chapterApiId = tracking.chapterId;
+    if (
+        (typeof seriesId !== 'number' && typeof seriesId !== 'string')
+        || (typeof chapterApiId !== 'number' && typeof chapterApiId !== 'string')
+    ) {
+        throw new Error('Asura chapter tracking data is invalid');
+    }
+    if (!await asuraHasSession()) return;
     const headers = { 'Content-Type': 'application/json' };
     const responses = await Promise.all([
-        asuraAuthedFetch(ASURA_API + '/bookmarks/' + data.seriesApiId + '/read/' + data.chapterId, {
+        asuraAuthedFetch(ASURA_API + '/bookmarks/' + seriesId + '/read/' + data.chapterId, {
             method: 'POST',
             headers,
         }),
         asuraAuthedFetch(ASURA_API + '/views/chapter', {
             method: 'POST',
             headers,
-            body: JSON.stringify({ chapter_id: data.chapterApiId, series_id: data.seriesApiId }),
+            body: JSON.stringify({ chapter_id: chapterApiId, series_id: seriesId }),
         }),
     ]);
     for (const response of responses) {

@@ -11,11 +11,11 @@ import {
 } from './progress';
 import { resolveHistory, type CardInput } from './history';
 import { progressGetAll, progressPut } from './store';
-import { fetchCatalogHome } from './catalog';
 import {
-    fetchAsuraRemoteHistory,
-    trackAsuraChapter,
-} from './token';
+    fetchProviderHome,
+    fetchProviderRemoteHistory,
+    trackProviderChapter,
+} from '../../provider/worker';
 import { setWorkerContext } from './context';
 import type { ChapterData } from '../../provider/types';
 
@@ -77,18 +77,16 @@ async function handle(request: ComputeRequest): Promise<Outcome> {
 
             case 'remote-history': {
                 const payload = request.payload as { provider?: unknown } | undefined;
-                if (payload?.provider === 'asurascans') {
-                    return { ok: true, value: await fetchAsuraRemoteHistory() };
-                }
-                throw new Error('remote-history requires the asura provider key');
+                if (typeof payload?.provider !== 'string') throw new Error('remote-history requires a provider key');
+                return { ok: true, value: await fetchProviderRemoteHistory(payload.provider) };
             }
 
             case 'track-chapter': {
                 const payload = request.payload as { provider?: unknown; data?: ChapterData } | undefined;
-                if (payload?.provider !== 'asurascans' || !payload?.data) {
-                    throw new Error('track-chapter requires asura provider data');
+                if (typeof payload?.provider !== 'string' || !payload.data) {
+                    throw new Error('track-chapter requires provider data');
                 }
-                await trackAsuraChapter(payload.data);
+                await trackProviderChapter(payload.provider, payload.data);
                 return { ok: true, value: undefined };
             }
 
@@ -100,7 +98,7 @@ async function handle(request: ComputeRequest): Promise<Outcome> {
                 const cursor = payload.cursor === null || payload.cursor === undefined
                     ? null
                     : String(payload.cursor);
-                const page = await fetchCatalogHome(payload.provider, cursor);
+                const page = await fetchProviderHome(payload.provider, cursor);
                 return { ok: true, value: page };
             }
 

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { ChapterData, Provider } from '../../src/provider';
 import { lua } from '../../src/provider/lua';
 import { scythe } from '../../src/provider/scythe';
 import { defaultReaderImages } from '../../src/provider/ts-reader';
@@ -8,6 +9,12 @@ import { violet } from '../../src/provider/violet';
 import { yaksha } from '../../src/provider/yaksha';
 
 afterEach(() => vi.unstubAllGlobals());
+
+async function loadChapter(provider: Provider, slug: string, chapterId: string): Promise<ChapterData> {
+    const result = await provider.loadChapter({ slug, chapterId, intent: 'open' });
+    if (result.kind !== 'chapter') throw new Error(`Expected chapter result, received ${result.kind}`);
+    return result.data;
+}
 
 describe('ts_reader source selection', () => {
     it('uses the declared default source rather than array order', () => {
@@ -37,7 +44,7 @@ describe('series title contracts', () => {
         vi.stubGlobal('fetch', vi.fn(async () => new Response(
             `<script defer src="data:text/javascript;base64,${reader}"></script>`,
         )));
-        await expect(scythe.fetchChapter('series', 'series-chapter-1'))
+        await expect(loadChapter(scythe, 'series', 'series-chapter-1'))
             .rejects.toThrow('series title');
     });
 
@@ -46,7 +53,7 @@ describe('series title contracts', () => {
             '<div class="allc"><a href="https://violetscans.org/comics/series/">Series</a></div>'
             + '<script>ts_reader.run({"defaultSource":"Server 1","sources":[{"source":"Server 1","images":["one.webp"]}]});</script>',
         )));
-        await expect(violet.fetchChapter('series', '1')).rejects.toThrow('history data');
+        await expect(loadChapter(violet, 'series', '1')).rejects.toThrow('history data');
     });
 
     it('keeps Violet canonical series slugs when chapter permalinks use an alias', async () => {
@@ -56,7 +63,7 @@ describe('series title contracts', () => {
             <script>HISTORY.push(1, {"manga_title":"Canonical Series"});</script>
         `)));
 
-        await expect(violet.fetchChapter('old-series-name', '7')).resolves.toMatchObject({
+        await expect(loadChapter(violet, 'old-series-name', '7')).resolves.toMatchObject({
             chapterId: '7',
             seriesSlug: 'canonical-series',
             seriesTitle: 'Canonical Series',
@@ -76,7 +83,7 @@ describe('series title contracts', () => {
         `;
         const fetchMock = vi.fn(async () => new Response(chapterPayload));
         vi.stubGlobal('fetch', fetchMock);
-        await expect(violet.fetchChapter('missing-series-identity', '1'))
+        await expect(loadChapter(violet, 'missing-series-identity', '1'))
             .rejects.toThrow('did not contain a Violet series URL');
 
         fetchMock.mockResolvedValue(new Response(`
@@ -86,7 +93,7 @@ describe('series title contracts', () => {
             </div>
             ${chapterPayload}
         `));
-        await expect(violet.fetchChapter('ambiguous-series-identity', '1'))
+        await expect(loadChapter(violet, 'ambiguous-series-identity', '1'))
             .rejects.toThrow('ambiguous Violet series URLs');
     });
 
@@ -108,7 +115,7 @@ describe('series title contracts', () => {
         });
         vi.stubGlobal('fetch', fetchMock);
 
-        await violet.fetchChapter('old-list-name', '1');
+        await loadChapter(violet, 'old-list-name', '1');
         await expect(violet.fetchChaptersNewestFirst('canonical-list-series')).resolves.toEqual([
             { chapterId: '2' },
         ]);
@@ -127,13 +134,13 @@ describe('series title contracts', () => {
         vi.stubGlobal('fetch', vi.fn(async () => new Response(
             '<img src="https://media.luacomic.org/file/a/uploads/series/one.webp">',
         )));
-        await expect(lua.fetchChapter('series', 'chapter-1')).rejects.toThrow('series title');
+        await expect(loadChapter(lua, 'series', 'chapter-1')).rejects.toThrow('series title');
     });
 
     it('requires Yaksha breadcrumb metadata', async () => {
         vi.stubGlobal('fetch', vi.fn(async () => new Response(
             '<img class="wp-manga-chapter-img" src="https://example.test/one.webp">',
         )));
-        await expect(yaksha.fetchChapter('series', 'chapter-1')).rejects.toThrow('series title');
+        await expect(loadChapter(yaksha, 'series', 'chapter-1')).rejects.toThrow('series title');
     });
 });

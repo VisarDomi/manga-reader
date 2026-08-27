@@ -102,11 +102,12 @@ export async function open(
 ): Promise<void> {
     const { slug: routeSlug, chapterId } = route;
     // 1. Load the current chapter
-    const data = await provider.fetchChapter(routeSlug, chapterId);
-    if (!data) {
-        window.location.href = provider.seriesUrl(routeSlug);
+    const initial = await provider.loadChapter({ slug: routeSlug, chapterId, intent: 'open' });
+    if (initial.kind === 'navigate') {
+        window.location.href = initial.url;
         return; // just for visuals, location.href redirects the page making further execution impossible
     }
+    const data = initial.data;
     const slug = data.seriesSlug;
 
     document.title = `${data.chapterId} ${data.seriesTitle}`;
@@ -115,11 +116,11 @@ export async function open(
     wrapper.className = 'hs-reader-body';
     document.body.appendChild(wrapper);
 
-    const firstWrap = createChapterWrapper(chapterId);
+    const firstWrap = createChapterWrapper(data.chapterId);
     renderChapterImages(firstWrap, data);
     wrapper.appendChild(firstWrap);
 
-    const chapterData: Record<string, ChapterData> = { [chapterId]: data };
+    const chapterData: Record<string, ChapterData> = { [data.chapterId]: data };
 
     // 2. Restore scroll position
     const target = route.imageIndex
@@ -129,7 +130,7 @@ export async function open(
 
     // 3. Async: fetch chapter list
     let chaptersNewestFirst: ChapterMeta[] = [];
-    const loaded = new Set([chapterId]);
+    const loaded = new Set([data.chapterId]);
     let chapterListLoading = true;
     let pendingScrollEnd = false;
 
@@ -150,8 +151,7 @@ export async function open(
     // 4. Scroll handler
     let lastSavedImage = '';
     let localTrackingErrorShown = false;
-    const tracker = createReaderTracker({
-        providerKey: provider.key,
+    const tracker = createReaderTracker(provider, {
         seriesSlug: slug,
         historyId: data.historyId,
         onError(error) {
@@ -203,15 +203,12 @@ export async function open(
             loaded.add(newerChapter.chapterId);
             const newerChapterLoadingStatus = createStatus('Loading newer chapter...', 'hs-loading');
             wrapper.appendChild(newerChapterLoadingStatus);
-            provider.fetchChapter(slug, newerChapter.chapterId)
-                .then(newerChapterData => {
-                    if (!newerChapterData) {
-                        wrapper.appendChild(createStatus('Chapter unavailable', 'hs-error'));
-                        return;
-                    }
-                    chapterData[newerChapter.chapterId] = newerChapterData;
+            provider.loadChapter({ slug, chapterId: newerChapter.chapterId, intent: 'append' })
+                .then(result => {
+                    if (result.kind === 'stop') return;
+                    chapterData[newerChapter.chapterId] = result.data;
                     const wrapEl = createChapterWrapper(newerChapter.chapterId);
-                    renderChapterImages(wrapEl, newerChapterData);
+                    renderChapterImages(wrapEl, result.data);
                     wrapper.appendChild(wrapEl);
                 })
                 .catch(() => { wrapper.appendChild(createStatus('Failed to load chapter', 'hs-error')); })

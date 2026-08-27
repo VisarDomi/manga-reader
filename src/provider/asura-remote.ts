@@ -26,10 +26,11 @@ export function parseAsuraRemoteHistory(value: unknown): RemoteSeriesHistory[] {
     return Object.entries(data).map(([historySlug, raw]) => {
         const values = Array.isArray(raw) ? raw : [raw];
         if (values.length === 0) throw new Error(`Asura read history for ${historySlug} is empty`);
-        const latest = Math.max(...values.map(item => historyChapter(item, historySlug)));
+        const chapters = values.map(item => historyChapter(item, historySlug));
+        const latest = Math.max(...chapters);
         return {
             seriesId: historySlug,
-            readThroughChapterId: String(latest),
+            readChapterIds: [...new Set(chapters.map(String))],
             resumeChapterId: String(latest),
         };
     });

@@ -16,7 +16,7 @@ export async function startInit(
     style.textContent = css;
     document.head.appendChild(style);
 
-    // The compute worker owns authenticated Asura requests. Feed it the
+    // The compute worker owns authenticated provider requests. Feed it the
     // pieces it cannot reach: cookies and the page URL.
     // Cookie write-backs flow back as notifications; the main thread applies
     // them without deciding anything.

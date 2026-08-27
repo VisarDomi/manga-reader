@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ChapterData } from '../../src/provider';
+import { Handler, type ChapterData, type Provider } from '../../src/provider';
 import { createReaderTracker } from '../../src/core/tracking';
 
 // jsdom has no Worker: observe the ops the tracker dispatches.
@@ -34,7 +34,20 @@ afterEach(() => {
 
 describe('reader tracking', () => {
     it('saves each page once and tracks each chapter once (asura)', () => {
-        const tracker = createReaderTracker({ providerKey: 'asurascans', seriesSlug: 'series' });
+        const trackChapter = vi.fn(async () => {});
+        const provider: Provider = {
+            key: 'asurascans',
+            documentTitle: 'Asura',
+            matchRoute: () => ({ handler: Handler.Home }),
+            fetchHome: async () => ({ series: [], nextCursor: null }),
+            loadChapter: async () => ({ kind: 'stop' }),
+            resolveHomeDestination: async () => '/series',
+            trackChapter,
+            fetchChaptersNewestFirst: async () => [],
+            readerUrl: () => '/chapter',
+            seriesUrl: () => '/series',
+        };
+        const tracker = createReaderTracker(provider, { seriesSlug: 'series' });
         const chapterOne = chapter('1');
         const chapterTwo = chapter('2');
 
@@ -50,7 +63,6 @@ describe('reader tracking', () => {
             ['1', 1],
             ['2', 0],
         ]);
-        const chapterTracks = payloadFor('track-chapter') as Array<{ data: ChapterData }>;
-        expect(chapterTracks.map(track => track.data.chapterId)).toEqual(['1', '2']);
+        expect(trackChapter.mock.calls.map(([data]) => data.chapterId)).toEqual(['1', '2']);
     });
 });

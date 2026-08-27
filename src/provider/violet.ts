@@ -11,7 +11,7 @@ import { SITE_CONFIG } from '../core/sites';
 import { isChapterUnavailable } from '../core/http';
 import { hashImageIndex } from '../core/page';
 import { defaultReaderImages } from './ts-reader';
-import { lastImageIndexFrom } from './resume';
+import { chapterLoader, homeDestinationResolver } from './actions';
 
 const CHAPTER_RE = /\/(.+)-chapter-([^/]+)\/?$/;
 const DOMAIN = SITE_CONFIG['violetscans'].domain;
@@ -200,6 +200,49 @@ async function fetchVioletChapter(slug: string, chapterId: string): Promise<Chap
     };
 }
 
+async function fetchVioletChaptersNewestFirst(slug: string): Promise<ChapterMeta[]> {
+    const seriesSlug = canonicalSeriesSlug(slug);
+    const url = `https://${DOMAIN}/comics/${seriesSlug}/`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Series page not found: ${res.status}`);
+    const document = new DOMParser().parseFromString(await res.text(), 'text/html');
+    const chapterList = document.querySelector('#chapterlist > ul');
+    if (!chapterList) throw new Error('Violet series page did not contain a chapter list');
+    const chapters: ChapterMeta[] = [];
+    const chapterIds = new Set<string>();
+    for (const item of chapterList.children) {
+        if (!(item instanceof HTMLLIElement)) throw new Error('Violet chapter list contained a non-list item');
+        const chapterId = item.getAttribute('data-num');
+        if (!chapterId) throw new Error('Violet chapter list item has no chapter number');
+        const link = item.querySelector<HTMLAnchorElement>(':scope > a');
+        if (!link) throw new Error(`Violet chapter ${chapterId} has no link element`);
+        const href = link.getAttribute('href');
+        if (href === null) {
+            if (link.dataset.bsTarget !== '#lockedChapterModal' || !link.dataset.id || !link.dataset.coin) {
+                throw new Error(`Violet chapter ${chapterId} has neither a URL nor lock metadata`);
+            }
+            continue;
+        }
+        const match = CHAPTER_RE.exec(new URL(href, `https://${DOMAIN}`).pathname);
+        if (!match) throw new Error(`Invalid Violet series chapter URL: ${href}`);
+        if (match[2] !== chapterId) throw new Error(`Violet chapter URL ${href} does not match chapter ${chapterId}`);
+        if (chapterIds.has(chapterId)) throw new Error(`Violet chapter list repeats chapter ${chapterId}`);
+        chapterIds.add(chapterId);
+        rememberChapterRoute(seriesSlug, chapterId, match[1]);
+        chapters.push({ chapterId });
+    }
+    return chapters;
+}
+
+function violetReaderUrl(slug: string, chapterId: string, imageIndex?: string): string {
+    const routeSlug = chapterRouteSlug(slug, chapterId);
+    return `https://${DOMAIN}/${routeSlug}-chapter-${chapterId}/${imageIndex ? `#${imageIndex}` : ''}`;
+}
+
+function violetSeriesUrl(slug: string): string {
+    return `https://${DOMAIN}/comics/${canonicalSeriesSlug(slug)}/`;
+}
+
 export const violet: Provider = {
     key: 'violetscans',
     documentTitle: SITE_CONFIG.violetscans.documentTitle,
@@ -246,54 +289,14 @@ export const violet: Provider = {
     },
 
 
-    async fetchChapter(slug: string, chapterId: string): Promise<ChapterData | null> {
-        return fetchVioletChapter(slug, chapterId);
-    },
-
-    lastReadImageIndex: lastImageIndexFrom(fetchVioletChapter),
-
-    async fetchChaptersNewestFirst(slug: string): Promise<ChapterMeta[]> {
-        const seriesSlug = canonicalSeriesSlug(slug);
-        const url = `https://${DOMAIN}/comics/${seriesSlug}/`;
-        const res = await fetch(url);
-        if (!res.ok) throw new Error(`Series page not found: ${res.status}`);
-        const document = new DOMParser().parseFromString(await res.text(), 'text/html');
-        const chapterList = document.querySelector('#chapterlist > ul');
-        if (!chapterList) throw new Error('Violet series page did not contain a chapter list');
-        const chapters: ChapterMeta[] = [];
-        const chapterIds = new Set<string>();
-        for (const item of chapterList.children) {
-            if (!(item instanceof HTMLLIElement)) throw new Error('Violet chapter list contained a non-list item');
-            const chapterId = item.getAttribute('data-num');
-            if (!chapterId) throw new Error('Violet chapter list item has no chapter number');
-            const link = item.querySelector<HTMLAnchorElement>(':scope > a');
-            if (!link) throw new Error(`Violet chapter ${chapterId} has no link element`);
-            const href = link.getAttribute('href');
-            if (href === null) {
-                if (link.dataset.bsTarget !== '#lockedChapterModal' || !link.dataset.id || !link.dataset.coin) {
-                    throw new Error(`Violet chapter ${chapterId} has neither a URL nor lock metadata`);
-                }
-                continue;
-            }
-            const match = CHAPTER_RE.exec(new URL(href, `https://${DOMAIN}`).pathname);
-            if (!match) throw new Error(`Invalid Violet series chapter URL: ${href}`);
-            if (match[2] !== chapterId) {
-                throw new Error(`Violet chapter URL ${href} does not match chapter ${chapterId}`);
-            }
-            if (chapterIds.has(chapterId)) throw new Error(`Violet chapter list repeats chapter ${chapterId}`);
-            chapterIds.add(chapterId);
-            rememberChapterRoute(seriesSlug, chapterId, match[1]);
-            chapters.push({ chapterId });
-        }
-        return chapters;
-    },
-
-    readerUrl(slug: string, chapterId: string, imageIndex?: string): string {
-        const routeSlug = chapterRouteSlug(slug, chapterId);
-        return `https://${DOMAIN}/${routeSlug}-chapter-${chapterId}/${imageIndex ? `#${imageIndex}` : ''}`;
-    },
-
-    seriesUrl(slug: string): string {
-        return `https://${DOMAIN}/comics/${canonicalSeriesSlug(slug)}/`;
-    },
+    loadChapter: chapterLoader(fetchVioletChapter, violetSeriesUrl),
+    resolveHomeDestination: homeDestinationResolver({
+        fetchChapter: fetchVioletChapter,
+        fetchChaptersNewestFirst: fetchVioletChaptersNewestFirst,
+        readerUrl: violetReaderUrl,
+        seriesUrl: violetSeriesUrl,
+    }),
+    fetchChaptersNewestFirst: fetchVioletChaptersNewestFirst,
+    readerUrl: violetReaderUrl,
+    seriesUrl: violetSeriesUrl,
 };

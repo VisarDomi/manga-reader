@@ -3,6 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Handler, type HomePage, type Provider, type RemoteSeriesHistory } from '../../src/provider';
 import { createAngularProvider } from '../../src/provider/angular';
+import { fetchAngularHome } from '../../src/provider/angular-catalog';
 import { asura } from '../../src/provider/asura';
 import { createEzmangaProvider } from '../../src/provider/ezmanga';
 import { lua } from '../../src/provider/lua';
@@ -30,12 +31,6 @@ vi.mock('../../src/core/compute/history-client', async () => {
         })),
     };
 });
-
-// The remote-history fetch is a worker op; tests drive it through this seam.
-const remoteSeam = vi.hoisted(() => ({ pending: Promise.resolve([] as never[]) }));
-vi.mock('../../src/core/compute/remote-history-client', () => ({
-    fetchRemoteHistoryAsync: () => remoteSeam.pending,
-}));
 
 let scrollendInterval: ReturnType<typeof setInterval> | null = null;
 
@@ -77,7 +72,6 @@ describe('provider home routes', () => {
 
 describe('Angular catalog completion', () => {
     it('traverses every rich latest page before the complete catalog', async () => {
-        const provider = createAngularProvider('qimanga');
         const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
             const url = String(input);
             if (url.includes('/home/latest')) {
@@ -107,9 +101,9 @@ describe('Angular catalog completion', () => {
         });
         vi.stubGlobal('fetch', fetchMock);
 
-        const latest = await provider.fetchHome(null);
-        const moreLatest = await provider.fetchHome(latest.nextCursor);
-        const catalog = await provider.fetchHome(moreLatest.nextCursor);
+        const latest = await fetchAngularHome('qimanga', null);
+        const moreLatest = await fetchAngularHome('qimanga', latest.nextCursor);
+        const catalog = await fetchAngularHome('qimanga', moreLatest.nextCursor);
 
         expect(latest.nextCursor).toBe('latest:2');
         expect(moreLatest.nextCursor).toBe('catalog:1');
@@ -293,16 +287,21 @@ describe('HTML home enrichment', () => {
 
 describe('home catalog rendering', () => {
     function testProvider(fetchHome: Provider['fetchHome']): Provider {
+        const readerUrl = (slug: string, chapterId: string, imageIndex?: string) =>
+            `https://example.test/${slug}/${chapterId}${imageIndex === undefined ? '' : `#${imageIndex}`}`;
+        const seriesUrl = (slug: string) => `https://example.test/${slug}`;
         return {
             key: 'test',
             documentTitle: 'Test',
             matchRoute: () => ({ handler: Handler.Home }),
             fetchHome,
-            fetchChapter: async () => null,
+            loadChapter: async () => ({ kind: 'stop' }),
+            resolveHomeDestination: async request => request.kind === 'resume'
+                ? readerUrl(request.seriesSlug, request.chapterId, request.imageIndex)
+                : seriesUrl(request.seriesSlug),
             fetchChaptersNewestFirst: async () => [],
-            readerUrl: (slug, chapterId, imageIndex) =>
-                `https://example.test/${slug}/${chapterId}${imageIndex === undefined ? '' : `#${imageIndex}`}`,
-            seriesUrl: slug => `https://example.test/${slug}`,
+            readerUrl,
+            seriesUrl,
         };
     }
 
@@ -367,12 +366,37 @@ describe('home catalog rendering', () => {
             .toBe('No chapters available');
     });
 
+    it('keeps provider-reported locks authoritative after their countdown reaches zero', async () => {
+        const provider = testProvider(async () => ({
+            nextCursor: null,
+            series: [{
+                slug: 'locked-series',
+                title: 'Locked Series',
+                coverUrl: 'https://example.test/locked.webp',
+                chapters: [{
+                    chapterId: '3',
+                    label: 'Chapter 3',
+                    uploadedAt: null,
+                    locked: true,
+                    unlockAt: '2000-01-01T00:00:00.000Z',
+                }],
+            }],
+        }));
+
+        await openHome(provider);
+
+        const chapter = document.querySelector<HTMLAnchorElement>('.hs-home-chapter')!;
+        expect(chapter.classList.contains('hs-home-chapter-locked')).toBe(true);
+        expect(chapter.querySelector('.hs-home-lock')).not.toBeNull();
+        expect(chapter.querySelector('time')?.textContent).toBe('0m');
+        expect(chapter.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))).toBe(false);
+    });
+
     it('uses remote history as the base and reapplies same-chapter local partial progress', async () => {
         let resolveHistory!: (history: RemoteSeriesHistory[]) => void;
         const remoteHistory = new Promise<RemoteSeriesHistory[]>(
             resolve => { resolveHistory = resolve; },
         );
-        remoteSeam.pending = remoteHistory;
         const provider: Provider = {
             ...testProvider(async () => ({
                 nextCursor: null,
@@ -397,14 +421,14 @@ describe('home catalog rendering', () => {
                     },
                 ],
             })),
-            remoteHistoryInWorker: true,
+            fetchRemoteHistory: () => remoteHistory,
         };
 
         await openHome(provider);
         saveChapterProgress('test', 'remote-a', '3', 1, 5);
         resolveHistory([
-            { seriesId: 'remote-a', readThroughChapterId: '3', resumeChapterId: '3' },
-            { seriesId: 'series-b', readThroughChapterId: '5', resumeChapterId: '5' },
+            { seriesId: 'remote-a', readChapterIds: ['3', '2'], resumeChapterId: '3' },
+            { seriesId: 'series-b', readChapterIds: ['5'], resumeChapterId: '5' },
         ]);
         await remoteHistory;
         await Promise.resolve();
@@ -460,6 +484,15 @@ describe('home catalog rendering', () => {
             fetchChaptersNewestFirst: async slug => (
                 chapterLists.get(slug)?.map(chapterId => ({ chapterId })) ?? []
             ),
+            resolveHomeDestination: async request => {
+                if (request.kind === 'resume') {
+                    return readerUrl(request.seriesSlug, request.chapterId, request.imageIndex);
+                }
+                const first = chapterLists.get(request.seriesSlug)?.at(-1);
+                return first === undefined
+                    ? `https://example.test/${request.seriesSlug}`
+                    : readerUrl(request.seriesSlug, first);
+            },
         };
         saveChapterProgress('test', 'partial-reader', '2', 1, 5);
         saveChapterProgress('test', 'continuing-reader', '1', 4, 5);
@@ -492,7 +525,7 @@ describe('home catalog rendering', () => {
         await vi.waitFor(() => expect(readerUrl).toHaveBeenCalledWith('finished-reader', '3', '4'));
     });
 
-    it('local progress trumps server for a chapter beyond the read-through boundary', async () => {
+    it('local partial progress trumps an exact server-read chapter', async () => {
         const readerUrl = vi.fn((slug: string, chapterId: string, index?: string) =>
             `https://example.test/${slug}/${chapterId}${index ? `#${index}` : ''}`);
         const provider: Provider = {
@@ -510,16 +543,14 @@ describe('home catalog rendering', () => {
                 }],
             })),
             readerUrl,
-            remoteHistoryInWorker: true,
+            fetchRemoteHistory: async () => [{
+                seriesId: 'series-a',
+                readChapterIds: ['3', '2', '1'],
+                resumeChapterId: '3',
+            }],
             fetchChaptersNewestFirst: async () => ['5', '4', '3', '2', '1'].map(chapterId => ({ chapterId })),
         };
         saveChapterProgress('test', 'series-a', '2', 1, 5);
-        remoteSeam.pending = Promise.resolve([{
-            seriesId: 'series-a',
-            readThroughChapterId: '3',
-            resumeChapterId: '3',
-        }]);
-
         await openHome(provider);
         await vi.waitFor(() => expect(
             document.querySelector<HTMLAnchorElement>('.hs-home-cover')?.dataset.resume,

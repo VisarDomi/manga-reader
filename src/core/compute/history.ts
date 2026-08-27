@@ -24,7 +24,6 @@ export type CoverResumeModel =
     | { kind: 'local-partial'; chapterId: string; imageIndex: number }
     | {
         kind: 'read';
-        readThroughChapterId?: string;
         /** Present when remote history drives the resume; links straight to it. */
         resumeChapterId?: string;
         locallyReadChapterIds: string[];
@@ -52,19 +51,13 @@ export interface ResolveHistoryInput {
     progress: ChapterProgress[];
 }
 
-function chapterAtOrBefore(chapterId: string, boundaryId: string): boolean {
-    const chapter = Number(chapterId);
-    const boundary = Number(boundaryId);
-    if (Number.isFinite(chapter) && Number.isFinite(boundary)) return chapter <= boundary;
-    return chapterId === boundaryId;
-}
-
 export function resolveHistory(input: ResolveHistoryInput): CardResolution[] {
     const remoteIndex = new Map(input.remoteHistory.map(item => [item.seriesId, item]));
     const { byChapter, bySeries } = buildProgressIndex(input.progress);
 
     return input.cards.map(card => {
         const remote = remoteIndex.get(card.historyId);
+        const remotelyRead = new Set(remote?.readChapterIds ?? []);
         const seriesProgress = bySeries.get(card.historyId ?? card.seriesSlug) ?? [];
 
         const chapters: ChapterStateModel[] = card.chapterIds.map(chapterId => {
@@ -76,13 +69,8 @@ export function resolveHistory(input: ResolveHistoryInput): CardResolution[] {
                 state.partial = !isChapterComplete(saved);
                 state.read = isChapterComplete(saved);
                 state.localImageIndex = saved.imageIndex;
-            } else if (remote !== undefined) {
-                if (
-                    remote.readThroughChapterId !== undefined
-                    && chapterAtOrBefore(chapterId, remote.readThroughChapterId)
-                ) {
-                    state.read = true;
-                }
+            } else if (remotelyRead.has(chapterId)) {
+                state.read = true;
             }
             return state;
         });
@@ -116,9 +104,6 @@ export function resolveHistory(input: ResolveHistoryInput): CardResolution[] {
         } else if (remote !== undefined) {
             cover = {
                 kind: 'read',
-                readThroughChapterId: remote.readThroughChapterId === undefined
-                    ? remote.resumeChapterId
-                    : remote.readThroughChapterId,
                 resumeChapterId: remote.resumeChapterId,
                 locallyReadChapterIds: [],
             };

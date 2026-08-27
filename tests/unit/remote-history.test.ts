@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { parseAsuraRemoteHistory } from '../../src/provider/asura-remote';
 
 describe('remote reading history', () => {
-    it('normalizes Asura chapter history into a provider-owned read boundary', () => {
+    it('preserves Asura read chapter identities explicitly', () => {
         expect(parseAsuraRemoteHistory({
             data: {
                 'internal-series-a': [7, '8', 7.5],
@@ -11,12 +11,12 @@ describe('remote reading history', () => {
         })).toEqual([
             {
                 seriesId: 'internal-series-a',
-                readThroughChapterId: '8',
+                readChapterIds: ['7', '8', '7.5'],
                 resumeChapterId: '8',
             },
             {
                 seriesId: 'internal-series-b',
-                readThroughChapterId: '3',
+                readChapterIds: ['3'],
                 resumeChapterId: '3',
             },
         ]);

@@ -3,6 +3,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Handler } from '../../src/provider';
 import { asura } from '../../src/provider/asura';
+import { fetchAsuraHome } from '../../src/provider/asura-catalog';
 
 afterEach(() => {
     vi.useRealTimers();
@@ -38,7 +39,7 @@ describe('Asura home catalog', () => {
         })));
         vi.stubGlobal('fetch', fetchMock);
 
-        await expect(asura.fetchHome('2')).resolves.toEqual({
+        await expect(fetchAsuraHome('2')).resolves.toEqual({
             total: 21,
             nextCursor: '3',
             series: [{

@@ -27,16 +27,35 @@ export interface ChapterData extends ChapterMeta {
      * seriesSlug (e.g. asura drops the rotating URL hex). The core never
      * derives it and never inspects its meaning. */
     historyId?: string;
-    /** Internal API ID for the series, used for tracking on some providers. */
-    seriesApiId?: number | string;
+    /** Opaque provider-owned data carried back to provider callbacks. */
+    providerData?: unknown;
     images: ChapterImage[];
 }
 
 export interface ChapterMeta {
     chapterId: string;
-    /** Internal API ID for tracking on some providers. */
-    chapterApiId?: string | number;
 }
+
+export type ChapterOpenRequest = { slug: string; chapterId: string; intent: 'open' };
+export type ChapterAppendRequest = { slug: string; chapterId: string; intent: 'append' };
+export type ChapterLoadRequest = ChapterOpenRequest | ChapterAppendRequest;
+
+export type ChapterOpenResult =
+    | { kind: 'chapter'; data: ChapterData }
+    | { kind: 'navigate'; url: string };
+
+export type ChapterAppendResult =
+    | { kind: 'chapter'; data: ChapterData }
+    | { kind: 'stop' };
+
+export interface ChapterLoader {
+    (request: ChapterOpenRequest): Promise<ChapterOpenResult>;
+    (request: ChapterAppendRequest): Promise<ChapterAppendResult>;
+}
+
+export type HomeDestinationRequest =
+    | { kind: 'start'; seriesSlug: string }
+    | { kind: 'resume'; seriesSlug: string; chapterId: string; imageIndex?: string };
 
 export interface HomeChapter {
     chapterId: string;
@@ -66,8 +85,8 @@ export interface HomePage {
 export interface RemoteSeriesHistory {
     /** Matches HomeSeries.historyId, or HomeSeries.slug when no separate identity is needed. */
     seriesId: string;
-    /** Every chapter through this provider-defined boundary has been read. */
-    readThroughChapterId?: string;
+    /** Exact provider-owned chapter identities known to be read. */
+    readChapterIds: string[];
     /** The chapter the provider considers the current resume point. */
     resumeChapterId: string;
 }
@@ -75,21 +94,16 @@ export interface RemoteSeriesHistory {
 export interface Provider {
     /** Stable storage namespace for local progress. */
     key: string;
-    /** When true, the compute worker performs the catalog fetch + mapping. */
-    catalogInWorker?: boolean;
     /** Title used when takeover happens before the provider page supplies one. */
     documentTitle: string;
     /** Wait until this provider's document is safe to replace. */
     waitForTakeover?: () => Promise<void>;
-    /** Authenticated history and tracking run in the compute worker. */
-    remoteHistoryInWorker?: boolean;
     matchRoute(pathname: string, hash: string): RouteMatch | null;
     fetchHome(cursor: string | null): Promise<HomePage>;
-    fetchChapter(slug: string, chapterId: string): Promise<ChapterData | null>;
-    /** The image index of a chapter's LAST page, for resuming at the end of a
-     * read chapter when only server history exists. Provider-specific: the
-     * core never derives page counts from chapter data itself. */
-    lastReadImageIndex?(slug: string, chapterId: string): Promise<string | undefined>;
+    fetchRemoteHistory?(): Promise<RemoteSeriesHistory[]>;
+    loadChapter: ChapterLoader;
+    resolveHomeDestination(request: HomeDestinationRequest): Promise<string>;
+    trackChapter?(data: ChapterData): Promise<void>;
     fetchChaptersNewestFirst(slug: string): Promise<ChapterMeta[]>;
     readerUrl(slug: string, chapterId: string, imageIndex?: string): string;
     seriesUrl(slug: string): string;

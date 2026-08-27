@@ -10,7 +10,7 @@ import {
 import { SITE_CONFIG } from '../core/sites';
 import { isChapterUnavailable } from '../core/http';
 import { hashImageIndex } from '../core/page';
-import { lastImageIndexFrom } from './resume';
+import { chapterLoader, homeDestinationResolver } from './actions';
 
 const CHAPTER_RE = /^\/manga\/([^/]+)\/([^/]+)\/?$/;
 const DOMAIN = SITE_CONFIG['yakshacomics'].domain;
@@ -42,6 +42,25 @@ async function fetchYakshaChapter(slug: string, chapterId: string): Promise<Chap
         seriesTitle: seriesTitle,
         images,
     };
+}
+
+async function fetchYakshaChaptersNewestFirst(slug: string): Promise<ChapterMeta[]> {
+    const url = `https://${DOMAIN}/manga/${slug}/`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Manga page not found: ${res.status}`);
+    const html = await res.text();
+    const chapters: ChapterMeta[] = [];
+    const liRe = /<li class="wp-manga-chapter[^"]*">[\s\S]*?<a href="([^"]+)">[\s\S]*?Chapter\s+([\d.]+)\s*<\/a>/g;
+    for (const m of html.matchAll(liRe)) chapters.push({ chapterId: `chapter-${m[2]}` });
+    return chapters;
+}
+
+function yakshaReaderUrl(slug: string, chapterId: string, imageIndex?: string): string {
+    return `https://${DOMAIN}/manga/${slug}/${chapterId}/${imageIndex ? `#${imageIndex}` : ''}`;
+}
+
+function yakshaSeriesUrl(slug: string): string {
+    return `https://${DOMAIN}/manga/${slug}/`;
 }
 
 export const yaksha: Provider = {
@@ -101,31 +120,14 @@ export const yaksha: Provider = {
     },
 
 
-    async fetchChapter(slug: string, chapterId: string): Promise<ChapterData | null> {
-        return fetchYakshaChapter(slug, chapterId);
-    },
-
-    lastReadImageIndex: lastImageIndexFrom(fetchYakshaChapter),
-
-    async fetchChaptersNewestFirst(slug: string): Promise<ChapterMeta[]> {
-        const url = `https://${DOMAIN}/manga/${slug}/`;
-        const res = await fetch(url);
-        if (!res.ok) throw new Error(`Manga page not found: ${res.status}`);
-        const html = await res.text();
-
-        const chapters: ChapterMeta[] = [];
-        const liRe = /<li class="wp-manga-chapter[^"]*">[\s\S]*?<a href="([^"]+)">[\s\S]*?Chapter\s+([\d.]+)\s*<\/a>/g;
-        for (const m of html.matchAll(liRe)) {
-            chapters.push({ chapterId: `chapter-${m[2]}` });
-        }
-        return chapters;
-    },
-
-    readerUrl(_slug: string, chapterId: string, imageIndex?: string): string {
-        return `https://${DOMAIN}/manga/${_slug}/${chapterId}/${imageIndex ? `#${imageIndex}` : ''}`;
-    },
-
-    seriesUrl(slug: string): string {
-        return `https://${DOMAIN}/manga/${slug}/`;
-    },
+    loadChapter: chapterLoader(fetchYakshaChapter, yakshaSeriesUrl),
+    resolveHomeDestination: homeDestinationResolver({
+        fetchChapter: fetchYakshaChapter,
+        fetchChaptersNewestFirst: fetchYakshaChaptersNewestFirst,
+        readerUrl: yakshaReaderUrl,
+        seriesUrl: yakshaSeriesUrl,
+    }),
+    fetchChaptersNewestFirst: fetchYakshaChaptersNewestFirst,
+    readerUrl: yakshaReaderUrl,
+    seriesUrl: yakshaSeriesUrl,
 };

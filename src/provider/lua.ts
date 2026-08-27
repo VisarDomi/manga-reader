@@ -5,13 +5,11 @@ import {
     type ChapterData,
     type ChapterMeta,
     type ChapterImage,
-    type HomePage,
 } from './types';
 import { SITE_CONFIG } from '../core/sites';
 import { isChapterUnavailable } from '../core/http';
 import { hashImageIndex } from '../core/page';
-import { fetchLuaHome } from './lua-catalog';
-import { lastImageIndexFrom } from './resume';
+import { chapterLoader, homeDestinationResolver, workerHome } from './actions';
 
 const CHAPTER_RE = /^\/series\/([^/]+)\/(chapter-\d+)\/?$/;
 const DOMAIN = SITE_CONFIG['luacomic'].domain;
@@ -46,9 +44,39 @@ async function fetchLuaChapter(slug: string, chapterId: string): Promise<Chapter
 }
 const API_BASE = `https://api.${DOMAIN}`;
 
+async function fetchLuaChaptersNewestFirst(slug: string): Promise<ChapterMeta[]> {
+    const seriesRes = await fetch(`${API_BASE}/series/${slug}`);
+    if (!seriesRes.ok) throw new Error(`Series not found: ${seriesRes.status}`);
+    const seriesData = await seriesRes.json() as { id: number };
+    const chapters: ChapterMeta[] = [];
+    let page = 1;
+    let hasMore = true;
+    while (hasMore) {
+        const res = await fetch(
+            `${API_BASE}/chapter/query?page=${page}&perPage=100&order=desc&series_id=${seriesData.id}`
+        );
+        if (!res.ok) throw new Error(`Chapter list failed: ${res.status}`);
+        const data = await res.json() as {
+            meta: { last_page: number };
+            data: Array<{ chapter_slug: string }>;
+        };
+        for (const item of data.data) chapters.push({ chapterId: item.chapter_slug });
+        hasMore = page < data.meta.last_page;
+        page++;
+    }
+    return chapters;
+}
+
+function luaReaderUrl(slug: string, chapterId: string, imageIndex?: string): string {
+    return `https://${DOMAIN}/series/${slug}/${chapterId}${imageIndex ? `#${imageIndex}` : ''}`;
+}
+
+function luaSeriesUrl(slug: string): string {
+    return `https://${DOMAIN}/series/${slug}`;
+}
+
 export const lua: Provider = {
     key: 'luacomic',
-    catalogInWorker: true,
     documentTitle: SITE_CONFIG.luacomic.documentTitle,
 
     matchRoute(pathname: string, hash: string): RouteMatch | null {
@@ -58,50 +86,15 @@ export const lua: Provider = {
         return { handler: Handler.Reader, slug: m[1], chapterId: m[2], imageIndex: hashImageIndex(hash) };
     },
 
-    async fetchHome(cursor: string | null): Promise<HomePage> {
-        return fetchLuaHome(cursor);
-    },
-
-
-    async fetchChapter(slug: string, chapterId: string): Promise<ChapterData | null> {
-        return fetchLuaChapter(slug, chapterId);
-    },
-
-    lastReadImageIndex: lastImageIndexFrom(fetchLuaChapter),
-
-    async fetchChaptersNewestFirst(slug: string): Promise<ChapterMeta[]> {
-        // Get series ID from the series API
-        const seriesRes = await fetch(`${API_BASE}/series/${slug}`);
-        if (!seriesRes.ok) throw new Error(`Series not found: ${seriesRes.status}`);
-        const seriesData = await seriesRes.json() as { id: number };
-        const seriesId = seriesData.id;
-
-        const chapters: ChapterMeta[] = [];
-        let page = 1;
-        let hasMore = true;
-        while (hasMore) {
-            const res = await fetch(
-                `${API_BASE}/chapter/query?page=${page}&perPage=100&order=desc&series_id=${seriesId}`
-            );
-            if (!res.ok) throw new Error(`Chapter list failed: ${res.status}`);
-            const data = await res.json() as {
-                meta: { total: number; last_page: number };
-                data: Array<{ chapter_slug: string }>;
-            };
-            for (const item of data.data) {
-                chapters.push({ chapterId: item.chapter_slug });
-            }
-            hasMore = page < data.meta.last_page;
-            page++;
-        }
-        return chapters;
-    },
-
-    readerUrl(_slug: string, chapterId: string, imageIndex?: string): string {
-        return `https://${DOMAIN}/series/${_slug}/${chapterId}${imageIndex ? `#${imageIndex}` : ''}`;
-    },
-
-    seriesUrl(slug: string): string {
-        return `https://${DOMAIN}/series/${slug}`;
-    },
+    fetchHome: workerHome('luacomic'),
+    loadChapter: chapterLoader(fetchLuaChapter, luaSeriesUrl),
+    resolveHomeDestination: homeDestinationResolver({
+        fetchChapter: fetchLuaChapter,
+        fetchChaptersNewestFirst: fetchLuaChaptersNewestFirst,
+        readerUrl: luaReaderUrl,
+        seriesUrl: luaSeriesUrl,
+    }),
+    fetchChaptersNewestFirst: fetchLuaChaptersNewestFirst,
+    readerUrl: luaReaderUrl,
+    seriesUrl: luaSeriesUrl,
 };

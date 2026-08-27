@@ -1,4 +1,4 @@
-import type { ChapterData } from '../provider';
+import type { ChapterData, Provider } from '../provider';
 import { computeRequest } from './compute/transport';
 
 export interface ReaderTracker {
@@ -6,7 +6,6 @@ export interface ReaderTracker {
 }
 
 export interface LocalTrackingContext {
-    providerKey: string;
     seriesSlug: string;
     /** Provider-owned history identity; falls back to seriesSlug. */
     historyId?: string;
@@ -24,6 +23,7 @@ function reportSidecarError(local: LocalTrackingContext | undefined, error: unkn
 }
 
 export function createReaderTracker(
+    provider: Provider,
     local?: LocalTrackingContext,
 ): ReaderTracker {
     const savedLocalPages = new Set<string>();
@@ -35,7 +35,7 @@ export function createReaderTracker(
             if (local && !savedLocalPages.has(pageKey)) {
                 savedLocalPages.add(pageKey);
                 void computeRequest('save-progress', {
-                    provider: local.providerKey,
+                    provider: provider.key,
                     seriesSlug: local.historyId ?? local.seriesSlug,
                     chapterId: data.chapterId,
                     imageIndex: Number(imageIndex),
@@ -47,15 +47,11 @@ export function createReaderTracker(
             }
 
             if (
-                local
-                && local.providerKey === 'asurascans'
+                provider.trackChapter
                 && !trackedChapters.has(data.chapterId)
             ) {
                 trackedChapters.add(data.chapterId);
-                void computeRequest('track-chapter', {
-                    provider: local.providerKey,
-                    data,
-                }).catch(error => reportSidecarError(local, error));
+                void provider.trackChapter(data).catch(error => reportSidecarError(local, error));
             }
         },
     };
