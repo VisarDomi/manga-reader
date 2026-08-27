@@ -215,7 +215,7 @@ export const scythe: Provider = {
             };
         }
 
-        const res = await fetch(`https://${DOMAIN}/manga/?order=update&page=${page}`);
+        const res = await fetch(`https://${DOMAIN}/manga/?status&type&order=update&page=${page}`);
         if (!res.ok) throw new Error(`Series catalog failed: ${res.status}`);
         const document = new DOMParser().parseFromString(await res.text(), 'text/html');
         const series = [...document.querySelectorAll('.listupd .bs')].map(catalogSeries);

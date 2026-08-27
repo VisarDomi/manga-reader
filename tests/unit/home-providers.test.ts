@@ -177,7 +177,7 @@ describe('HTML home enrichment', () => {
 
         expect(fetchMock.mock.calls.map(([input]) => String(input))).toEqual([
             'https://scythescans.com/',
-            'https://scythescans.com/manga/?order=update&page=1',
+            'https://scythescans.com/manga/?status&type&order=update&page=1',
         ]);
         expect([...document.querySelectorAll('.hs-home-chapter')].map(chapter => ({
             href: (chapter as HTMLAnchorElement).href,
