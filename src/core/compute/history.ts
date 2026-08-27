@@ -1,7 +1,5 @@
-// Pure, worker-safe resolution of per-card history state. This is the decision
-// half of the old synchronous applyHistory pass in src/routes/home.ts: it computes
-// WHAT the UI should show; the main thread mechanically applies the returned
-// models to DOM elements.
+// Pure, worker-safe resolution of per-card history state. The main thread
+// mechanically applies the returned models to DOM elements.
 
 import type { RemoteSeriesHistory } from '../../provider/types';
 import {
@@ -30,12 +28,11 @@ export type CoverResumeModel =
         kind: CoverResumeKind.Read;
         /** Present when remote history drives the resume; links straight to it. */
         resumeChapterId?: string;
-        locallyReadChapterIds: string[];
         /** Most recent local complete — the precise last page. */
         latestLocalComplete?: { chapterId: string; imageIndex: number };
       };
 
-export interface ChapterStateModel {
+interface ChapterStateModel {
     chapterId: string;
     read: boolean;
     partial: boolean;
@@ -49,7 +46,7 @@ export interface CardResolution {
     chapters: ChapterStateModel[];
 }
 
-export interface ResolveHistoryInput {
+interface ResolveHistoryInput {
     cards: CardInput[];
     remoteHistory: RemoteSeriesHistory[];
     progress: ChapterProgress[];
@@ -62,7 +59,7 @@ export function resolveHistory(input: ResolveHistoryInput): CardResolution[] {
     return input.cards.map(card => {
         const remote = remoteIndex.get(card.historyId);
         const remotelyRead = new Set(remote?.readChapterIds ?? []);
-        const local = localIndex.get(card.historyId ?? card.seriesSlug);
+        const local = localIndex.get(card.historyId);
         const localChapterIndex = local === undefined
             ? -1
             : card.chapterIds.indexOf(local.chapterId);
@@ -90,12 +87,8 @@ export function resolveHistory(input: ResolveHistoryInput): CardResolution[] {
                 imageIndex: local.imageIndex,
             };
         } else if (local !== undefined) {
-            const locallyReadChapterIds = localChapterIndex === -1
-                ? [local.chapterId]
-                : card.chapterIds.slice(localChapterIndex);
             cover = {
                 kind: CoverResumeKind.Read,
-                locallyReadChapterIds,
                 latestLocalComplete: {
                     chapterId: local.chapterId,
                     imageIndex: local.imageIndex,
@@ -105,7 +98,6 @@ export function resolveHistory(input: ResolveHistoryInput): CardResolution[] {
             cover = {
                 kind: CoverResumeKind.Read,
                 resumeChapterId: remote.resumeChapterId,
-                locallyReadChapterIds: [],
             };
         } else {
             cover = { kind: CoverResumeKind.None };

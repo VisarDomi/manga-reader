@@ -36,13 +36,20 @@ import { createQiscansProvider } from './qiscans';
 // Keyed by PROVIDER name (site.provider), not by site key.
 type ProviderMap = Record<string, Provider>;
 
-// Built at runtime, inside a function — importing this module performs no
-// construction. The Angular providers (ezmanga/qimanga) are factories so
-// nothing executes at module scope.
-let providers: ProviderMap | null = null;
+interface InitializedProviderRoute {
+    provider: Provider;
+    route: RouteMatch;
+    documentTitle: string;
+}
 
-function getProviders(): ProviderMap {
-    providers ??= {
+export function initializeProviderRoute(url: URL): InitializedProviderRoute | null {
+    const { pathname, hostname, hash } = url;
+    const site = Object.values(SITE_CONFIG).find(cfg =>
+        hostname === cfg.domain,
+    );
+    if (!site) throw new Error('Unable to select provider');
+
+    const providers: ProviderMap = {
         ezmanga: createEzmangaProvider(),
         qiscans: createQiscansProvider(),
         yaksha,
@@ -51,33 +58,10 @@ function getProviders(): ProviderMap {
         lua,
         violet,
     };
-    return providers;
-}
-
-/** Pure lookup by provider name — used by route resolution and tests. */
-export function providerForSite(providerName: string): Provider | undefined {
-    return getProviders()[providerName];
-}
-
-export interface InitializedProviderRoute {
-    provider: Provider;
-    route: RouteMatch;
-    documentTitle: string;
-}
-
-export function initializeProviderRoute(): InitializedProviderRoute | null {
-    const { pathname, hostname, hash } = window.location;
-    const site = Object.values(SITE_CONFIG).find(cfg =>
-        hostname === cfg.domain,
-    );
-    if (!site) throw new Error('Unable to select provider');
-
-    const provider = providerForSite(site.provider);
+    const provider = providers[site.provider];
     if (!provider) throw new Error('Unknown provider: ' + site.provider);
 
     const route = provider.matchRoute(pathname, hash);
     if (!route) return null;
-    const documentTitle = document.title.trim() || provider.documentTitle;
-
-    return { provider, route, documentTitle };
+    return { provider, route, documentTitle: site.documentTitle };
 }

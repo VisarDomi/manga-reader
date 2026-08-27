@@ -4,10 +4,10 @@ import { open as openReader } from './routes/reader';
 import { startInit } from './core/shell';
 
 async function main(): Promise<void> {
-    const match = initializeProviderRoute();
+    const match = initializeProviderRoute(new URL(window.location.href));
     if (!match) return;
 
-    await startInit(match.documentTitle, match.provider);
+    startInit(document.title.trim() || match.documentTitle);
     switch (match.route.handler) {
         case Handler.Home:
             await openHome(match.provider);

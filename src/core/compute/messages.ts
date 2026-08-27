@@ -19,7 +19,7 @@ export type ComputeResponse =
     | { id: number; ok: true; value: unknown }
     | { id: number; ok: false; error: string };
 
-export interface SaveProgressPayload {
+interface SaveProgressPayload {
     provider: string;
     seriesSlug: string;
     chapterId: string;
@@ -27,26 +27,26 @@ export interface SaveProgressPayload {
     totalImages: number;
 }
 
-export interface HistoryResolvePayload {
+interface HistoryResolvePayload {
     cards: CardInput[];
     remoteHistory: RemoteSeriesHistory[];
 }
 
-export interface FetchHomePayload {
+interface FetchHomePayload {
     provider: string;
     cursor: string | null;
 }
 
-export interface SnapshotPayload {
+interface SnapshotPayload {
     cookies: string;
     href: string;
 }
 
-export interface RemoteHistoryPayload {
+interface RemoteHistoryPayload {
     provider: string;
 }
 
-export interface TrackPayload {
+interface TrackPayload {
     provider: string;
     data: ChapterData;
 }

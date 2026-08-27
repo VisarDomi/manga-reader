@@ -65,7 +65,6 @@ function yakshaSeriesUrl(slug: string): string {
 
 export const yaksha: Provider = {
     key: 'yakshacomics',
-    documentTitle: SITE_CONFIG.yakshacomics.documentTitle,
 
     matchRoute(pathname: string, hash: string): RouteMatch | null {
         if (pathname === '/') return { handler: Handler.Home };

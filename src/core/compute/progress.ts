@@ -17,7 +17,7 @@ export function progressId(provider: string, seriesSlug: string): string {
 }
 
 export function isChapterComplete(progress: ChapterProgress): boolean {
-    return progress.totalImages > 0 && progress.imageIndex >= progress.totalImages - 1;
+    return progress.imageIndex >= progress.totalImages - 1;
 }
 
 export function createChapterProgress(

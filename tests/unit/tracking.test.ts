@@ -27,7 +27,6 @@ function chapter(chapterId: string): ChapterData {
 function provider(trackChapter?: Provider['trackChapter']): Provider {
     return {
         key: 'test',
-        documentTitle: 'Test',
         matchRoute: () => ({ handler: Handler.Home }),
         fetchHome: async () => ({ series: [], nextCursor: null }),
         loadChapter: async () => ({ kind: ChapterLoadResultKind.Stop }),

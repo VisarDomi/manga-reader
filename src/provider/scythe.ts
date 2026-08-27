@@ -180,7 +180,6 @@ function scytheSeriesUrl(slug: string): string {
 
 export const scythe: Provider = {
     key: 'scythescans',
-    documentTitle: SITE_CONFIG.scythescans.documentTitle,
 
     matchRoute(pathname: string, hash: string): RouteMatch | null {
         if (pathname === '/') return { handler: Handler.Home };

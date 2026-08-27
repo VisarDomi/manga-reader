@@ -7,7 +7,7 @@ import type {
 } from '../provider';
 import { HomeDestinationKind } from '../provider';
 import { UpdateKind, UpdateQueue } from '../core/update-queue';
-import { resolveHistoryAsync } from '../core/compute/history-client';
+import { computeRequest } from '../core/compute/transport';
 import { ImageRetryRegistry } from '../core/image-retry';
 import { CoverResumeKind } from '../core/compute/history';
 import type { CardResolution, CoverResumeModel } from '../core/compute/history';
@@ -64,16 +64,10 @@ function createLink(className: string, href: string, text?: string): HTMLAnchorE
     return link;
 }
 
-export enum LinkRequestState {
+enum LinkRequestState {
     Idle = 'idle',
     Loading = 'loading',
     Failed = 'failed',
-}
-
-export enum CoverResumeDatasetState {
-    None = 'false',
-    Local = 'local',
-    Read = 'read',
 }
 
 function beginLinkRequest(link: HTMLAnchorElement): boolean {
@@ -142,19 +136,13 @@ function unlockCountdown(unlockAt: string): string {
     return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
 }
 
-function historyId(series: HomeSeries): string {
-    return series.historyId ?? series.slug;
-}
-
 const coverResume = new WeakMap<HTMLAnchorElement, CoverResumeModel>();
 
 function renderChapter(provider: Provider, series: HomeSeries, chapter: HomeChapter): HTMLAnchorElement {
     const classes = ['hs-home-chapter'];
     if (chapter.locked) classes.push('hs-home-chapter-locked');
     const link = createLink(classes.join(' '), provider.readerUrl(series.slug, chapter.chapterId));
-    link.dataset.seriesSlug = series.slug;
     link.dataset.chapterId = chapter.chapterId;
-    link.dataset.uploadedAt = chapter.uploadedAt ?? '';
     if (chapter.unlockAt !== null) link.dataset.unlockAt = chapter.unlockAt;
 
     const label = document.createElement('span');
@@ -207,12 +195,8 @@ function renderSeries(
 ): HTMLElement {
     const card = document.createElement('article');
     card.className = 'hs-home-card';
-    card.dataset.seriesSlug = series.slug;
-    card.dataset.historyId = historyId(series);
 
     const coverLink = createLink('hs-home-cover', provider.seriesUrl(series.slug));
-    coverLink.dataset.seriesSlug = series.slug;
-    coverLink.dataset.resume = CoverResumeDatasetState.None;
     coverResume.set(coverLink, { kind: CoverResumeKind.None });
     const cover = document.createElement('img');
     cover.src = series.coverUrl;
@@ -329,24 +313,20 @@ function applyCardPatch(
                 chapterId: resume.chapterId,
                 imageIndex: resume.imageIndex,
             });
-            cover.dataset.resume = CoverResumeDatasetState.Local;
             cover.href = provider.readerUrl(entry.series.slug, resume.chapterId, String(resume.imageIndex));
             return;
         case CoverResumeKind.Read:
             coverResume.set(cover, {
                 kind: CoverResumeKind.Read,
                 resumeChapterId: resume.resumeChapterId,
-                locallyReadChapterIds: resume.locallyReadChapterIds,
                 latestLocalComplete: resume.latestLocalComplete,
             });
-            cover.dataset.resume = CoverResumeDatasetState.Read;
             cover.href = resume.resumeChapterId !== undefined
                 ? provider.readerUrl(entry.series.slug, resume.resumeChapterId)
                 : provider.seriesUrl(entry.series.slug);
             return;
         case CoverResumeKind.None:
             coverResume.set(cover, { kind: CoverResumeKind.None });
-            cover.dataset.resume = CoverResumeDatasetState.None;
             cover.href = provider.seriesUrl(entry.series.slug);
             return;
     }
@@ -365,7 +345,7 @@ function queueHistoryRefresh(
         historyId: series.historyId ?? series.slug,
         chapterIds: series.chapters.map(chapter => chapter.chapterId),
     }));
-    void settleBeforePause(() => resolveHistoryAsync({ cards: cardInputs, remoteHistory }), signal)
+    void settleBeforePause(() => computeRequest('history-resolve', { cards: cardInputs, remoteHistory }), signal)
         .then(outcome => {
             if (outcome.kind === PauseOutcomeKind.Paused || !isCurrent()) return;
             updates.enqueue(UpdateKind.History, outcome.value.map(patch => () => {

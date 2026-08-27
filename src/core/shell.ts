@@ -1,15 +1,9 @@
 import css from '../style.css?inline';
-import type { Provider } from '../provider/types';
 import { computeRequest, onComputeNotification } from './compute/transport';
 import { onBfcacheRestore } from './lifecycle';
 import { ComputeNotificationName } from './compute/messages';
 
-export async function startInit(
-    documentTitle: string,
-    provider: Pick<Provider, 'waitForTakeover' | 'key'>,
-): Promise<void> {
-    if (provider.waitForTakeover) await provider.waitForTakeover();
-
+export function startInit(documentTitle: string): void {
     window.stop();
     document.open();
     document.close();

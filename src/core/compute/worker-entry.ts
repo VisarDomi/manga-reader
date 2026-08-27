@@ -9,7 +9,8 @@ import {
     type ChapterProgress,
 } from './progress';
 import { resolveHistory, type CardInput } from './history';
-import { loadProgress, progressPut } from './store';
+import { loadProgress } from './migrations';
+import { progressPut } from './store';
 import {
     fetchProviderHome,
     fetchProviderRemoteHistory,
@@ -32,10 +33,6 @@ async function ensureState(): Promise<WorkerState> {
     if (state !== null) return state;
     state = { progress: await loadProgress() };
     return state;
-}
-
-function rebuildState(progress: ChapterProgress[]): void {
-    state = { progress };
 }
 
 async function handle(request: ComputeRequest): Promise<Outcome> {
@@ -63,7 +60,7 @@ async function handle(request: ComputeRequest): Promise<Outcome> {
                 await progressPut(entry);
                 const next = current.progress.filter(item => item.id !== entry.id);
                 next.push(entry);
-                rebuildState(next);
+                state = { progress: next };
                 return { ok: true, value: entry };
             }
 

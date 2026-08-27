@@ -14,10 +14,10 @@ import { createChapterProgress } from '../../src/core/compute/progress';
 import { open as openHome } from '../../src/routes/home';
 
 const historyState = vi.hoisted(() => ({ progress: [] as unknown[] }));
-vi.mock('../../src/core/compute/history-client', async () => {
+vi.mock('../../src/core/compute/transport', async () => {
     const { resolveHistory } = await import('../../src/core/compute/history');
     return {
-        resolveHistoryAsync: (payload: { cards: unknown; remoteHistory: unknown }) => Promise.resolve(
+        computeRequest: (_op: string, payload: { cards: unknown; remoteHistory: unknown }) => Promise.resolve(
             resolveHistory({
                 cards: payload.cards as never,
                 remoteHistory: payload.remoteHistory as never,
@@ -48,7 +48,6 @@ function testProvider(options: {
 }): Provider {
     return {
         key: 'test',
-        documentTitle: 'Test',
         matchRoute: () => ({ handler: Handler.Home }),
         fetchHome: options.fetchHome,
         fetchRemoteHistory: options.fetchRemoteHistory,
@@ -98,8 +97,8 @@ describe('Home behavior', () => {
         await vi.advanceTimersByTimeAsync(2_400);
         await opening;
 
-        expect([...document.querySelectorAll<HTMLElement>('.hs-home-card')]
-            .map(card => card.dataset.seriesSlug)).toEqual(['series-1', 'series-2', 'series-3']);
+        expect([...document.querySelectorAll<HTMLImageElement>('.hs-home-card img')]
+            .map(cover => cover.alt)).toEqual(['series-1', 'series-2', 'series-3']);
         expect(document.querySelector('.hs-home-catalog-status')?.textContent).toBe('Loaded 3 series');
     });
 

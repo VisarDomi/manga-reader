@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { SITE_CONFIG } from '../../src/core/sites';
-import { Handler, providerForSite } from '../../src/provider';
+import { Handler, initializeProviderRoute } from '../../src/provider';
 
 const readerUrls = [
     'https://asurascans.com/comics/chronicles-of-the-lazy-sovereign-f886a8af/chapter/50#3',
@@ -12,19 +12,11 @@ const readerUrls = [
     'https://yakshacomics.com/manga/who-allowed-him-to-cultivate-immortality/chapter-16/#3',
 ];
 
-function providerForUrl(url: URL) {
-    const site = Object.values(SITE_CONFIG).find(config => config.domain === url.hostname);
-    if (site === undefined) throw new Error(`No test provider for ${url.hostname}`);
-    const provider = providerForSite(site.provider);
-    if (provider === undefined) throw new Error(`Missing provider ${site.provider}`);
-    return provider;
-}
-
 describe('test.txt URLs', () => {
     it('recognizes every reader URL and its saved image', () => {
         for (const href of readerUrls) {
             const url = new URL(href);
-            const route = providerForUrl(url).matchRoute(url.pathname, url.hash);
+            const route = initializeProviderRoute(url)?.route;
             expect(route?.handler, href).toBe(Handler.Reader);
             if (route?.handler === Handler.Reader) {
                 expect(route.imageIndex, href).toBe(url.hash.slice(1));
@@ -34,8 +26,8 @@ describe('test.txt URLs', () => {
 
     it('recognizes every provider root as Home', () => {
         for (const config of Object.values(SITE_CONFIG)) {
-            const provider = providerForSite(config.provider);
-            expect(provider?.matchRoute('/', ''), config.domain).toEqual({ handler: Handler.Home });
+            const route = initializeProviderRoute(new URL(`https://${config.domain}/`))?.route;
+            expect(route, config.domain).toEqual({ handler: Handler.Home });
         }
     });
 });

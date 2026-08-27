@@ -11,8 +11,6 @@
     "tests:single": "node tests/ios/run.mjs"
   },
   "devDependencies": {
-    "@types/tampermonkey": "^5.0.4",
-    "@vitest/ui": "^4.1.9",
     "jsdom": "^29.1.1",
     "typescript": "^5.9.3",
     "userscript-ios-test": "file:../../userscript-ios-test",

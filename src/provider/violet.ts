@@ -245,7 +245,6 @@ function violetSeriesUrl(slug: string): string {
 
 export const violet: Provider = {
     key: 'violetscans',
-    documentTitle: SITE_CONFIG.violetscans.documentTitle,
 
     matchRoute(pathname: string, hash: string): RouteMatch | null {
         if (pathname === '/') return { handler: Handler.Home };

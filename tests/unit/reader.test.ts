@@ -29,7 +29,6 @@ function chapter(chapterId: string, imageCount = 1): ChapterData {
 function providerFor(data: ChapterData): Provider {
     return {
         key: 'test',
-        documentTitle: 'Test',
         matchRoute: () => ({ handler: Handler.Home }),
         fetchHome: async () => ({ series: [], nextCursor: null }),
         loadChapter: async () => ({ kind: ChapterLoadResultKind.Chapter, data }),

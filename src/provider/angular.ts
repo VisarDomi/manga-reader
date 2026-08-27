@@ -10,7 +10,7 @@ import { hashImageIndex } from '../core/page';
 import { chapterLoader, homeDestinationResolver, workerHome } from './actions';
 
 export function createAngularProvider(site: keyof typeof SITE_CONFIG): Provider {
-    const { domain, apiBase, documentTitle } = SITE_CONFIG[site];
+    const { domain, apiBase } = SITE_CONFIG[site];
     const CHAPTER_RE = /\/([^/]+)\/([^/]+)\/([^/]+)$/;
 
     async function fetchAngularChapter(slug: string, chapterId: string): Promise<import('./types').ChapterData | null> {
@@ -59,7 +59,6 @@ export function createAngularProvider(site: keyof typeof SITE_CONFIG): Provider 
 
     return {
         key: site,
-        documentTitle,
 
         matchRoute(pathname: string, hash: string): RouteMatch | null {
             if (pathname === '/') return { handler: Handler.Home };

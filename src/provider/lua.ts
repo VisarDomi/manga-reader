@@ -77,7 +77,6 @@ function luaSeriesUrl(slug: string): string {
 
 export const lua: Provider = {
     key: 'luacomic',
-    documentTitle: SITE_CONFIG.luacomic.documentTitle,
 
     matchRoute(pathname: string, hash: string): RouteMatch | null {
         if (pathname === '/') return { handler: Handler.Home };

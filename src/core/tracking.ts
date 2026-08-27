@@ -1,11 +1,11 @@
 import type { ChapterData, Provider } from '../provider';
 import { computeRequest } from './compute/transport';
 
-export interface ReaderTracker {
+interface ReaderTracker {
     track(data: ChapterData, imageIndex: string): void;
 }
 
-export interface LocalTrackingContext {
+interface LocalTrackingContext {
     seriesSlug: string;
     /** Provider-owned history identity; falls back to seriesSlug. */
     historyId?: string;

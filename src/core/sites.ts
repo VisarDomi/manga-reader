@@ -2,7 +2,7 @@ import config from './sites.json';
 
 export type Site = keyof typeof config;
 
-export interface SiteConfig {
+interface SiteConfig {
   domain: string;
   apiBase?: string;
   provider: string;

@@ -2,24 +2,30 @@ import {
     progressId,
     type ChapterProgress,
 } from './progress';
+import {
+    progressSnapshot,
+    replaceProgress,
+} from './store';
 
 /** Stored progress shapes. Add one value for each durable format change. */
-export enum ProgressSchemaVersion {
+enum ProgressSchemaVersion {
     PerChapter = 1,
     ResumePosition = 2,
+    CanonicalProviderIdentity = 3,
 }
 
-export const CURRENT_PROGRESS_SCHEMA = ProgressSchemaVersion.ResumePosition;
-export const PROGRESS_SCHEMA_METADATA_KEY = 'progress-schema-version';
+const CURRENT_PROGRESS_SCHEMA = ProgressSchemaVersion.CanonicalProviderIdentity;
+const PROGRESS_SCHEMA_METADATA_KEY = 'progress-schema-version';
 
-/** Seeds the progress version when IndexedDB first gains migration metadata. */
-export function initialProgressSchema(databaseOldVersion: number): ProgressSchemaVersion {
-    if (databaseOldVersion === 0) return CURRENT_PROGRESS_SCHEMA;
-    if (databaseOldVersion === 1) return ProgressSchemaVersion.PerChapter;
-    throw new Error(`Cannot identify progress schema from database version ${databaseOldVersion}`);
+/** Identifies unversioned storage created before migration metadata existed. */
+function initialProgressSchema(entries: ChapterProgress[]): ProgressSchemaVersion {
+    if (entries.length === 0) return CURRENT_PROGRESS_SCHEMA;
+    return entries.some(entry => entry.id !== progressId(entry.provider, entry.seriesSlug))
+        ? ProgressSchemaVersion.PerChapter
+        : ProgressSchemaVersion.ResumePosition;
 }
 
-export interface ProgressMigrationResult {
+interface ProgressMigrationResult {
     entries: ChapterProgress[];
     schemaVersion: ProgressSchemaVersion;
     needsCommit: boolean;
@@ -50,6 +56,9 @@ function chapterProgress(value: unknown): ChapterProgress {
 function schemaVersion(value: unknown): ProgressSchemaVersion {
     if (value === ProgressSchemaVersion.PerChapter) return ProgressSchemaVersion.PerChapter;
     if (value === ProgressSchemaVersion.ResumePosition) return ProgressSchemaVersion.ResumePosition;
+    if (value === ProgressSchemaVersion.CanonicalProviderIdentity) {
+        return ProgressSchemaVersion.CanonicalProviderIdentity;
+    }
     throw new Error(`Unsupported progress schema version: ${String(value)}`);
 }
 
@@ -67,6 +76,23 @@ function perChapterToResumePosition(entries: ChapterProgress[]): ChapterProgress
     return [...bySeries.values()];
 }
 
+/** One-time v2 -> v3 transform: fold old Asura URL slugs into its history identity. */
+function canonicalProviderIdentities(entries: ChapterProgress[]): ChapterProgress[] {
+    const byIdentity = new Map<string, ChapterProgress>();
+    for (const entry of entries) {
+        const seriesSlug = entry.provider === 'asurascans'
+            ? entry.seriesSlug.replace(/-[0-9a-f]{8}$/i, '')
+            : entry.seriesSlug;
+        const id = progressId(entry.provider, seriesSlug);
+        const migrated = { ...entry, id, seriesSlug };
+        const current = byIdentity.get(id);
+        if (current === undefined || migrated.updatedAt >= current.updatedAt) {
+            byIdentity.set(id, migrated);
+        }
+    }
+    return [...byIdentity.values()];
+}
+
 function assertResumePositions(entries: ChapterProgress[]): void {
     const identities = new Set<string>();
     for (const entry of entries) {
@@ -77,31 +103,52 @@ function assertResumePositions(entries: ChapterProgress[]): void {
     }
 }
 
-/**
- * Converts an IndexedDB snapshot to the current in-memory contract. The
- * caller commits the returned snapshot and schema version in one transaction.
- */
-export function migrateProgress(
-    storedEntries: unknown[],
+/** Converts an IndexedDB snapshot to the current in-memory contract. */
+function migrateProgress(
+    storedEntries: ChapterProgress[],
     storedSchemaVersion: unknown,
 ): ProgressMigrationResult {
-    let entries = storedEntries.map(chapterProgress);
+    let entries = storedEntries;
     let version = schemaVersion(storedSchemaVersion);
     let needsCommit = false;
 
-    switch (version) {
-        case ProgressSchemaVersion.PerChapter:
-            entries = perChapterToResumePosition(entries);
-            version = ProgressSchemaVersion.ResumePosition;
-            needsCommit = true;
-            break;
-        case ProgressSchemaVersion.ResumePosition:
-            break;
-    }
-
-    if (version !== CURRENT_PROGRESS_SCHEMA) {
-        throw new Error(`No migration to current progress schema from version ${version}`);
+    while (version !== CURRENT_PROGRESS_SCHEMA) {
+        switch (version) {
+            case ProgressSchemaVersion.PerChapter:
+                entries = perChapterToResumePosition(entries);
+                version = ProgressSchemaVersion.ResumePosition;
+                needsCommit = true;
+                break;
+            case ProgressSchemaVersion.ResumePosition:
+                entries = canonicalProviderIdentities(entries);
+                version = ProgressSchemaVersion.CanonicalProviderIdentity;
+                needsCommit = true;
+                break;
+            default:
+                throw new Error(`No migration to current progress schema from version ${version}`);
+        }
     }
     assertResumePositions(entries);
     return { entries, schemaVersion: version, needsCommit };
+}
+
+/** The only progress-loading boundary exposed to the worker. */
+export async function loadProgress(): Promise<ChapterProgress[]> {
+    const snapshot = await progressSnapshot(PROGRESS_SCHEMA_METADATA_KEY);
+    const entries = snapshot.entries.map(chapterProgress);
+    let storedSchemaVersion = snapshot.metadata;
+    let needsCommit = false;
+    if (storedSchemaVersion === undefined) {
+        storedSchemaVersion = initialProgressSchema(entries);
+        needsCommit = true;
+    }
+    const result = migrateProgress(entries, storedSchemaVersion);
+    if (needsCommit || result.needsCommit) {
+        await replaceProgress(
+            result.entries,
+            PROGRESS_SCHEMA_METADATA_KEY,
+            result.schemaVersion,
+        );
+    }
+    return result.entries;
 }

@@ -90,7 +90,6 @@ function asuraSeriesUrl(slug: string): string {
 
 export const asura: Provider = {
     key: 'asurascans',
-    documentTitle: SITE_CONFIG.asurascans.documentTitle,
 
     matchRoute(pathname: string, hash: string): RouteMatch | null {
         if (pathname === '/') return { handler: Handler.Home };

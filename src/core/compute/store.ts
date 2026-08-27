@@ -2,12 +2,6 @@
 // the main thread never touches IndexedDB.
 
 import type { ChapterProgress } from './progress';
-import {
-    initialProgressSchema,
-    migrateProgress,
-    PROGRESS_SCHEMA_METADATA_KEY,
-    ProgressSchemaVersion,
-} from './migrations';
 
 const DB_NAME = 'manga-reader-compute';
 const DB_VERSION = 2;
@@ -24,7 +18,7 @@ function openDatabase(): Promise<IDBDatabase> {
     if (database !== null) return database;
     database = new Promise((resolve, reject) => {
         const request = self.indexedDB.open(DB_NAME, DB_VERSION);
-        request.onupgradeneeded = event => {
+        request.onupgradeneeded = () => {
             const db = request.result;
             if (!db.objectStoreNames.contains(STORE_PROGRESS)) {
                 db.createObjectStore(STORE_PROGRESS, { keyPath: 'id' });
@@ -33,11 +27,7 @@ function openDatabase(): Promise<IDBDatabase> {
                 db.createObjectStore(STORE_TOKENS, { keyPath: 'key' });
             }
             if (!db.objectStoreNames.contains(STORE_METADATA)) {
-                const metadata = db.createObjectStore(STORE_METADATA, { keyPath: 'key' });
-                metadata.put({
-                    key: PROGRESS_SCHEMA_METADATA_KEY,
-                    value: initialProgressSchema(event.oldVersion),
-                });
+                db.createObjectStore(STORE_METADATA, { keyPath: 'key' });
             }
         };
         request.onsuccess = () => {
@@ -109,9 +99,10 @@ function awaitTransaction(transaction: IDBTransaction): Promise<void> {
     });
 }
 
-async function commitProgressMigration(
+export async function replaceProgress(
     entries: ChapterProgress[],
-    schemaVersion: ProgressSchemaVersion,
+    metadataKey: string,
+    metadataValue: unknown,
 ): Promise<void> {
     const db = await openDatabase();
     const transaction = db.transaction(
@@ -123,30 +114,27 @@ async function commitProgressMigration(
     progress.clear();
     for (const entry of entries) progress.put(entry);
     transaction.objectStore(STORE_METADATA).put({
-        key: PROGRESS_SCHEMA_METADATA_KEY,
-        value: schemaVersion,
+        key: metadataKey,
+        value: metadataValue,
     });
     await awaitTransaction(transaction);
 }
 
-/** Returns only current-schema positions; migration never leaks past storage. */
-export async function loadProgress(): Promise<ChapterProgress[]> {
+export async function progressSnapshot(
+    metadataKey: string,
+): Promise<{ entries: unknown[]; metadata: unknown }> {
     const db = await openDatabase();
     const transaction = db.transaction([STORE_PROGRESS, STORE_METADATA], 'readonly');
     const entriesRequest = transaction.objectStore(STORE_PROGRESS).getAll();
-    const schemaRequest = transaction.objectStore(STORE_METADATA).get(PROGRESS_SCHEMA_METADATA_KEY);
-    const [storedEntries, storedSchema] = await Promise.all([
+    const metadataRequest = transaction.objectStore(STORE_METADATA).get(metadataKey);
+    const [entries, metadata] = await Promise.all([
         withTimeout(entriesRequest),
-        withTimeout(schemaRequest),
+        withTimeout(metadataRequest),
     ]);
-    const result = migrateProgress(
-        storedEntries,
-        (storedSchema as { value?: unknown } | undefined)?.value,
-    );
-    if (result.needsCommit) {
-        await commitProgressMigration(result.entries, result.schemaVersion);
-    }
-    return result.entries;
+    return {
+        entries,
+        metadata: (metadata as { value?: unknown } | undefined)?.value,
+    };
 }
 
 /** Progress saves use strict durability: transaction success means disk flush. */
