@@ -22,14 +22,15 @@ export function createReaderTracker(
     provider: Provider,
     local: LocalTrackingContext,
 ): ReaderTracker {
-    const localPages = new Map<string, SyncState>();
+    let localPosition: { pageKey: string; state: SyncState } | null = null;
     const providerChapters = new Map<string, SyncState>();
 
     return {
         track(data, imageIndex) {
             const pageKey = `${data.chapterId}:${imageIndex}`;
-            if (!localPages.has(pageKey)) {
-                localPages.set(pageKey, SyncState.Pending);
+            if (localPosition?.pageKey !== pageKey) {
+                const request = { pageKey, state: SyncState.Pending };
+                localPosition = request;
                 void computeRequest('save-progress', {
                     provider: provider.key,
                     seriesSlug: local.historyId ?? local.seriesSlug,
@@ -37,9 +38,9 @@ export function createReaderTracker(
                     imageIndex: Number(imageIndex),
                     totalImages: data.images.length,
                 }).then(
-                    () => { localPages.set(pageKey, SyncState.Saved); },
+                    () => { request.state = SyncState.Saved; },
                     () => {
-                        localPages.set(pageKey, SyncState.Failed);
+                        request.state = SyncState.Failed;
                         local.onError();
                     },
                 );

@@ -103,6 +103,16 @@ export async function progressPut(entry: ChapterProgress): Promise<void> {
     await awaitTransaction(transaction);
 }
 
+/** Atomically replaces legacy per-chapter records with normalized positions. */
+export async function progressReplaceAll(entries: ChapterProgress[]): Promise<void> {
+    const db = await openDatabase();
+    const transaction = db.transaction(STORE_PROGRESS, 'readwrite', { durability: 'strict' });
+    const store = transaction.objectStore(STORE_PROGRESS);
+    store.clear();
+    for (const entry of entries) store.put(entry);
+    await awaitTransaction(transaction);
+}
+
 export async function tokensGet(key: string): Promise<unknown> {
     const db = await openDatabase();
     const transaction = db.transaction(STORE_TOKENS, 'readonly');

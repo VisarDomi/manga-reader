@@ -1,6 +1,5 @@
-// Pure, worker-safe progress-store logic. No DOM, no storage APIs here:
-// persistence lives in the worker's IndexedDB layer; the main thread only ever
-// ships raw data in and receives resolved models out.
+// Pure, worker-safe local resume-position logic. Persistence lives in the
+// worker's IndexedDB layer; the main thread only ships raw page positions.
 
 export interface ChapterProgress {
     id: string;
@@ -12,12 +11,9 @@ export interface ChapterProgress {
     updatedAt: number;
 }
 
-export function progressId(provider: string, seriesSlug: string, chapterId: string): string {
-    return `${provider}\u0000${seriesSlug}\u0000${chapterId}`;
-}
-
-export function progressKey(seriesSlug: string, chapterId: string): string {
-    return `${seriesSlug}\u0000${chapterId}`;
+/** One durable identity per provider and series; chapter/page are its value. */
+export function progressId(provider: string, seriesSlug: string): string {
+    return `${provider}\u0000${seriesSlug}`;
 }
 
 export function isChapterComplete(progress: ChapterProgress): boolean {
@@ -37,7 +33,7 @@ export function createChapterProgress(
         throw new Error('Cannot save progress outside the chapter page range');
     }
     return {
-        id: progressId(provider, seriesSlug, chapterId),
+        id: progressId(provider, seriesSlug),
         provider,
         seriesSlug,
         chapterId,
@@ -47,25 +43,34 @@ export function createChapterProgress(
     };
 }
 
-export function newestPartial(progress: ChapterProgress[]): ChapterProgress | undefined {
-    return progress
-        .filter(item => !isChapterComplete(item))
-        .sort((a, b) => b.updatedAt - a.updatedAt)[0];
-}
-
-export interface ProgressIndex {
-    byChapter: Map<string, ChapterProgress>;
-    bySeries: Map<string, ChapterProgress[]>;
-}
-
-export function buildProgressIndex(entries: ChapterProgress[]): ProgressIndex {
-    const byChapter = new Map<string, ChapterProgress>();
-    const bySeries = new Map<string, ChapterProgress[]>();
+/**
+ * Collapse legacy per-chapter records to the last position visited in each
+ * provider/series. This preserves intentional backscrolling during migration.
+ */
+export function normalizeProgress(entries: ChapterProgress[]): ChapterProgress[] {
+    const byIdentity = new Map<string, ChapterProgress>();
     for (const entry of entries) {
-        byChapter.set(progressKey(entry.seriesSlug, entry.chapterId), entry);
-        const series = bySeries.get(entry.seriesSlug);
-        if (series === undefined) bySeries.set(entry.seriesSlug, [entry]);
-        else series.push(entry);
+        const id = progressId(entry.provider, entry.seriesSlug);
+        const normalized = entry.id === id ? entry : { ...entry, id };
+        const current = byIdentity.get(id);
+        if (current === undefined || normalized.updatedAt >= current.updatedAt) {
+            byIdentity.set(id, normalized);
+        }
     }
-    return { byChapter, bySeries };
+    return [...byIdentity.values()];
+}
+
+export function progressNeedsNormalization(
+    stored: ChapterProgress[],
+    normalized: ChapterProgress[],
+): boolean {
+    if (stored.length !== normalized.length) return true;
+    return stored.some(entry => entry.id !== progressId(entry.provider, entry.seriesSlug));
+}
+
+/** Indexed by provider-owned series identity within the current site origin. */
+export function progressBySeries(entries: ChapterProgress[]): Map<string, ChapterProgress> {
+    const result = new Map<string, ChapterProgress>();
+    for (const entry of normalizeProgress(entries)) result.set(entry.seriesSlug, entry);
+    return result;
 }

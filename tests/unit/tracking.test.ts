@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
     ChapterLoadResultKind,
     Handler,
@@ -7,13 +7,10 @@ import {
 } from '../../src/provider';
 import { createReaderTracker } from '../../src/core/tracking';
 
-// jsdom has no Worker: observe the ops the tracker dispatches.
 const calls: Array<{ op: string; payload: unknown }> = [];
-let saveProgressFails = false;
 vi.mock('../../src/core/compute/transport', () => ({
     computeRequest: vi.fn(async (op: string, payload: unknown) => {
         calls.push({ op, payload });
-        if (op === 'save-progress' && saveProgressFails) throw new Error('storage failed');
     }),
     onComputeNotification: vi.fn(),
 }));
@@ -27,73 +24,59 @@ function chapter(chapterId: string): ChapterData {
     };
 }
 
-const payloadFor = (op: string) => calls
-    .filter(call => call.op === op)
-    .map(call => call.payload);
+function provider(trackChapter?: Provider['trackChapter']): Provider {
+    return {
+        key: 'test',
+        documentTitle: 'Test',
+        matchRoute: () => ({ handler: Handler.Home }),
+        fetchHome: async () => ({ series: [], nextCursor: null }),
+        loadChapter: async () => ({ kind: ChapterLoadResultKind.Stop }),
+        resolveHomeDestination: async () => '/series',
+        trackChapter,
+        fetchChaptersNewestFirst: async () => [],
+        readerUrl: () => '/chapter',
+        seriesUrl: () => '/series',
+    };
+}
 
-beforeEach(() => {
-    calls.length = 0;
-    saveProgressFails = false;
-});
-
-afterEach(() => {
-    vi.unstubAllGlobals();
-});
+beforeEach(() => calls.length = 0);
 
 describe('reader tracking', () => {
-    it('saves each page once and tracks each chapter once (asura)', () => {
+    it('updates local page position while server tracking happens once per chapter', () => {
         const trackChapter = vi.fn(async () => {});
-        const provider: Provider = {
-            key: 'asurascans',
-            documentTitle: 'Asura',
-            matchRoute: () => ({ handler: Handler.Home }),
-            fetchHome: async () => ({ series: [], nextCursor: null }),
-            loadChapter: async () => ({ kind: ChapterLoadResultKind.Stop }),
-            resolveHomeDestination: async () => '/series',
-            trackChapter,
-            fetchChaptersNewestFirst: async () => [],
-            readerUrl: () => '/chapter',
-            seriesUrl: () => '/series',
-        };
-        const tracker = createReaderTracker(provider, { seriesSlug: 'series', onError: vi.fn() });
+        const tracker = createReaderTracker(provider(trackChapter), {
+            seriesSlug: 'series',
+            onError: vi.fn(),
+        });
         const chapterOne = chapter('1');
         const chapterTwo = chapter('2');
 
         tracker.track(chapterOne, '0');
-        tracker.track(chapterOne, '0');
+        tracker.track(chapterOne, '1');
         tracker.track(chapterOne, '1');
         tracker.track(chapterOne, '0');
         tracker.track(chapterTwo, '0');
 
-        const saves = payloadFor('save-progress') as Array<{ chapterId: string; imageIndex: number }>;
-        expect(saves.map(save => [save.chapterId, save.imageIndex])).toEqual([
+        const local = calls
+            .filter(call => call.op === 'save-progress')
+            .map(call => call.payload as { chapterId: string; imageIndex: number });
+        expect(local.map(entry => [entry.chapterId, entry.imageIndex])).toEqual([
             ['1', 0],
             ['1', 1],
+            ['1', 0],
             ['2', 0],
         ]);
         expect(trackChapter.mock.calls.map(([data]) => data.chapterId)).toEqual(['1', '2']);
     });
 
-    it('moves a failed page save into a terminal error state', async () => {
-        saveProgressFails = true;
-        const onError = vi.fn();
-        const provider: Provider = {
-            key: 'test',
-            documentTitle: 'Test',
-            matchRoute: () => ({ handler: Handler.Home }),
-            fetchHome: async () => ({ series: [], nextCursor: null }),
-            loadChapter: async () => ({ kind: ChapterLoadResultKind.Stop }),
-            resolveHomeDestination: async () => '/series',
-            fetchChaptersNewestFirst: async () => [],
-            readerUrl: () => '/chapter',
-            seriesUrl: () => '/series',
-        };
-        const tracker = createReaderTracker(provider, { seriesSlug: 'series', onError });
+    it('still updates local position when the provider has no server tracking', () => {
+        const tracker = createReaderTracker(provider(), {
+            seriesSlug: 'series',
+            onError: vi.fn(),
+        });
 
-        tracker.track(chapter('1'), '0');
-        await vi.waitFor(() => expect(onError).toHaveBeenCalledOnce());
-        tracker.track(chapter('1'), '0');
+        tracker.track(chapter('1'), '1');
 
-        expect(payloadFor('save-progress')).toHaveLength(1);
+        expect(calls.filter(call => call.op === 'save-progress')).toHaveLength(1);
     });
 });

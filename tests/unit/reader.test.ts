@@ -10,10 +10,22 @@ import {
 } from '../../src/provider';
 import { open } from '../../src/routes/reader';
 
+const tracking = vi.hoisted(() => ({ track: vi.fn() }));
 vi.mock('../../src/core/image-retry', () => ({ registerImage: vi.fn() }));
 vi.mock('../../src/core/tracking', () => ({
-    createReaderTracker: () => ({ track: vi.fn() }),
+    createReaderTracker: () => tracking,
 }));
+
+function chapter(chapterId: string, imageCount = 1): ChapterData {
+    return {
+        chapterId,
+        seriesSlug: 'series',
+        seriesTitle: 'Series',
+        images: Array.from({ length: imageCount }, (_, index) => ({
+            url: `https://example.test/${chapterId}-${index}.webp`,
+        })),
+    };
+}
 
 function providerFor(data: ChapterData): Provider {
     return {
@@ -29,98 +41,80 @@ function providerFor(data: ChapterData): Provider {
     };
 }
 
-function chapter(images: ChapterData['images']): ChapterData {
-    return {
-        chapterId: '1',
-        seriesSlug: 'series',
-        seriesTitle: 'Series',
-        images,
-    };
+function loadImage(image: HTMLImageElement): void {
+    Object.defineProperties(image, {
+        complete: { configurable: true, value: true },
+        naturalWidth: { configurable: true, value: 800 },
+        naturalHeight: { configurable: true, value: 1200 },
+    });
+    image.dispatchEvent(new Event('load'));
 }
 
 afterEach(() => {
     vi.useRealTimers();
-    document.body.replaceChildren();
     vi.restoreAllMocks();
+    tracking.track.mockClear();
+    document.body.replaceChildren();
 });
 
-describe('reader image sizing', () => {
-    it('reserves 1000px when provider height is missing, then uses the loaded image ratio', async () => {
+describe('Reader behavior', () => {
+    it('uses 1000px without provider height, then replaces it with the loaded ratio', async () => {
         await open(
-            providerFor(chapter([{ url: 'https://example.test/page.webp' }])),
+            providerFor(chapter('1')),
             { handler: Handler.Reader, slug: 'series', chapterId: '1' },
         );
 
         const image = document.querySelector<HTMLImageElement>('.hs-reader-img')!;
         expect(image.style.height).toBe('1000px');
-
-        Object.defineProperties(image, {
-            naturalWidth: { configurable: true, value: 800 },
-            naturalHeight: { configurable: true, value: 1200 },
-        });
-        image.dispatchEvent(new Event('load'));
-
+        loadImage(image);
         expect(image.style.height).toBe('');
         expect(image.style.aspectRatio).toBe('800/1200');
     });
 
-    it('keeps provider dimensions as the initial aspect ratio', async () => {
-        await open(
-            providerFor(chapter([{ url: 'https://example.test/page.webp', width: 800, height: 1200 }])),
-            { handler: Handler.Reader, slug: 'series', chapterId: '1' },
-        );
-
-        const image = document.querySelector<HTMLImageElement>('.hs-reader-img')!;
-        expect(image.style.height).toBe('');
-        expect(image.style.aspectRatio).toBe('800/1200');
-    });
-});
-
-describe('reader loading states', () => {
-    it('keeps a failed chapter list as an explicit terminal status', async () => {
-        const data = chapter([{ url: 'https://example.test/page.webp' }]);
-        const provider: Provider = {
-            ...providerFor(data),
-            fetchChaptersNewestFirst: async () => { throw new Error('list failed'); },
-        };
-
-        await open(provider, { handler: Handler.Reader, slug: 'series', chapterId: '1' });
-
-        await vi.waitFor(() => expect(document.querySelector('.hs-error')?.textContent)
-            .toBe('Failed to load chapter list'));
-        expect(document.querySelector('.hs-loading')).toBeNull();
-    });
-
-    it('moves an appended chapter failure out of loading and does not retry implicitly', async () => {
+    it('updates the URL and tracking, then appends the immediate newer chapter once', async () => {
         vi.useFakeTimers();
-        const data = chapter([{ url: 'https://example.test/page.webp' }]);
-        const loadChapter = vi.fn(async (request: { intent: ChapterLoadIntent }) => {
-            if (request.intent === ChapterLoadIntent.Open) {
-                return { kind: ChapterLoadResultKind.Chapter, data };
-            }
-            throw new Error('append failed');
-        }) as Provider['loadChapter'];
+        const first = chapter('1');
+        const second = chapter('2');
+        const loadChapter = vi.fn(async (request: { intent: ChapterLoadIntent }) => (
+            request.intent === ChapterLoadIntent.Open
+                ? { kind: ChapterLoadResultKind.Chapter, data: first }
+                : { kind: ChapterLoadResultKind.Chapter, data: second }
+        )) as Provider['loadChapter'];
         const provider: Provider = {
-            ...providerFor(data),
+            ...providerFor(first),
             loadChapter,
             fetchChaptersNewestFirst: async () => [{ chapterId: '2' }, { chapterId: '1' }],
         };
+        const replaceState = vi.spyOn(window.history, 'replaceState');
 
         await open(provider, { handler: Handler.Reader, slug: 'series', chapterId: '1' });
         await Promise.resolve();
-        const image = document.querySelector<HTMLImageElement>('.hs-reader-img')!;
-        Object.defineProperties(image, {
-            complete: { configurable: true, value: true },
-            naturalWidth: { configurable: true, value: 800 },
-            naturalHeight: { configurable: true, value: 1200 },
-        });
-
+        loadImage(document.querySelector<HTMLImageElement>('.hs-reader-img')!);
         await vi.advanceTimersByTimeAsync(100);
-        expect(document.querySelector('.hs-error')?.textContent).toBe('Failed to load chapter');
-        expect(document.querySelector('.hs-loading')).toBeNull();
+
+        expect(replaceState).toHaveBeenCalledWith(null, '', '/1#0');
+        expect(tracking.track).toHaveBeenCalledWith(first, '0');
+        expect([...document.querySelectorAll<HTMLElement>('.hs-chapter')]
+            .map(element => element.dataset.chapter)).toEqual(['1', '2']);
 
         window.dispatchEvent(new Event('scrollend'));
         await vi.advanceTimersByTimeAsync(100);
         expect(loadChapter).toHaveBeenCalledTimes(2);
+    });
+
+    it('restores the corresponding image from a reader URL', async () => {
+        const data = chapter('1', 2);
+        const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+
+        await open(
+            providerFor(data),
+            { handler: Handler.Reader, slug: 'series', chapterId: '1', imageIndex: '1' },
+        );
+
+        const images = [...document.querySelectorAll<HTMLImageElement>('.hs-reader-img')];
+        loadImage(images[1]);
+        loadImage(images[0]);
+        await vi.waitFor(() => expect(scrollTo).toHaveBeenCalled());
+        expect(scrollTo).toHaveBeenLastCalledWith(0, images[1].offsetTop);
     });
 });

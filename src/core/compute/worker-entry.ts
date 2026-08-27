@@ -5,12 +5,13 @@
 import type { ComputeRequest, ComputeResponse } from './messages';
 import type { RemoteSeriesHistory } from '../../provider/types';
 import {
-    buildProgressIndex,
     createChapterProgress,
+    normalizeProgress,
+    progressNeedsNormalization,
     type ChapterProgress,
 } from './progress';
 import { resolveHistory, type CardInput } from './history';
-import { progressGetAll, progressPut } from './store';
+import { progressGetAll, progressPut, progressReplaceAll } from './store';
 import {
     fetchProviderHome,
     fetchProviderRemoteHistory,
@@ -21,8 +22,6 @@ import type { ChapterData } from '../../provider/types';
 
 interface WorkerState {
     progress: ChapterProgress[];
-    byChapter: Map<string, ChapterProgress>;
-    bySeries: Map<string, ChapterProgress[]>;
 }
 
 type Outcome =
@@ -33,15 +32,15 @@ let state: WorkerState | null = null;
 
 async function ensureState(): Promise<WorkerState> {
     if (state !== null) return state;
-    const progress = await progressGetAll();
-    const { byChapter, bySeries } = buildProgressIndex(progress);
-    state = { progress, byChapter, bySeries };
+    const stored = await progressGetAll();
+    const progress = normalizeProgress(stored);
+    if (progressNeedsNormalization(stored, progress)) await progressReplaceAll(progress);
+    state = { progress };
     return state;
 }
 
 function rebuildState(progress: ChapterProgress[]): void {
-    const { byChapter, bySeries } = buildProgressIndex(progress);
-    state = { progress, byChapter, bySeries };
+    state = { progress };
 }
 
 async function handle(request: ComputeRequest): Promise<Outcome> {
@@ -148,11 +147,12 @@ function respond(id: number, outcome: Outcome): void {
     (self as unknown as Worker).postMessage(response);
 }
 
-// Ops run per their nature: READS in parallel (as fast as the device goes),
-// WRITES serialized (deterministic IDB ordering).
+// State-dependent work is serialized so a history read sent after a progress
+// save cannot observe the previous local resume position.
 let writeQueue: Promise<void> | null = null;
 const WRITE_OPS: ReadonlySet<string> = new Set([
     'save-progress',
+    'history-resolve',
     'track-chapter',
 ]);
 

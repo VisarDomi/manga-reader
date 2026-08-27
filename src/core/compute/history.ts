@@ -5,10 +5,8 @@
 
 import type { RemoteSeriesHistory } from '../../provider/types';
 import {
-    buildProgressIndex,
     isChapterComplete,
-    newestPartial,
-    progressKey,
+    progressBySeries,
     type ChapterProgress,
 } from './progress';
 
@@ -59,52 +57,48 @@ export interface ResolveHistoryInput {
 
 export function resolveHistory(input: ResolveHistoryInput): CardResolution[] {
     const remoteIndex = new Map(input.remoteHistory.map(item => [item.seriesId, item]));
-    const { byChapter, bySeries } = buildProgressIndex(input.progress);
+    const localIndex = progressBySeries(input.progress);
 
     return input.cards.map(card => {
         const remote = remoteIndex.get(card.historyId);
         const remotelyRead = new Set(remote?.readChapterIds ?? []);
-        const seriesProgress = bySeries.get(card.historyId ?? card.seriesSlug) ?? [];
+        const local = localIndex.get(card.historyId ?? card.seriesSlug);
+        const localChapterIndex = local === undefined
+            ? -1
+            : card.chapterIds.indexOf(local.chapterId);
 
-        const chapters: ChapterStateModel[] = card.chapterIds.map(chapterId => {
+        const chapters: ChapterStateModel[] = card.chapterIds.map((chapterId, chapterIndex) => {
             const state: ChapterStateModel = { chapterId, read: false, partial: false };
-            const saved = byChapter.get(progressKey(card.historyId ?? card.seriesSlug, chapterId));
-            if (saved !== undefined) {
-                // Local trumps server: the reader keeps the server fresh, so
-                // any local entry is the most recent truth for this chapter.
-                state.partial = !isChapterComplete(saved);
-                state.read = isChapterComplete(saved);
-                state.localImageIndex = saved.imageIndex;
-            } else if (remotelyRead.has(chapterId)) {
+            if (local !== undefined && localChapterIndex !== -1) {
+                if (chapterIndex > localChapterIndex) state.read = true;
+                if (chapterIndex === localChapterIndex) {
+                    state.partial = !isChapterComplete(local);
+                    state.read = isChapterComplete(local);
+                    state.localImageIndex = local.imageIndex;
+                }
+            } else if (local === undefined && remotelyRead.has(chapterId)) {
                 state.read = true;
             }
             return state;
         });
 
-        const completes = seriesProgress.filter(isChapterComplete);
-        const locallyReadChapterIds = completes.map(item => item.chapterId);
-        const latestLocalComplete = completes.length > 0
-            ? completes.sort((left, right) => (
-                right.updatedAt - left.updatedAt
-                || Number(right.chapterId) - Number(left.chapterId)
-            ))[0]
-            : undefined;
-
         let cover: CoverResumeModel;
-        const localPartial = newestPartial(seriesProgress);
-        if (localPartial !== undefined) {
+        if (local !== undefined && !isChapterComplete(local)) {
             cover = {
                 kind: CoverResumeKind.LocalPartial,
-                chapterId: localPartial.chapterId,
-                imageIndex: localPartial.imageIndex,
+                chapterId: local.chapterId,
+                imageIndex: local.imageIndex,
             };
-        } else if (latestLocalComplete !== undefined) {
+        } else if (local !== undefined) {
+            const locallyReadChapterIds = localChapterIndex === -1
+                ? [local.chapterId]
+                : card.chapterIds.slice(localChapterIndex);
             cover = {
                 kind: CoverResumeKind.Read,
                 locallyReadChapterIds,
                 latestLocalComplete: {
-                    chapterId: latestLocalComplete.chapterId,
-                    imageIndex: latestLocalComplete.imageIndex,
+                    chapterId: local.chapterId,
+                    imageIndex: local.imageIndex,
                 },
             };
         } else if (remote !== undefined) {
