@@ -61,9 +61,12 @@ function renderChapterImages(
         img.className = 'hs-reader-img';
         if (imgData.width && imgData.height) {
             img.style.aspectRatio = imgData.width + '/' + imgData.height;
+        } else if (!imgData.height) {
+            img.style.height = '1000px';
         }
         const reconcileAspectRatio = () => {
             if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+                img.style.removeProperty('height');
                 img.style.aspectRatio = img.naturalWidth + '/' + img.naturalHeight;
             }
         };
