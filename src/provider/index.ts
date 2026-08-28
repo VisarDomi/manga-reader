@@ -28,7 +28,6 @@ import { SITE_CONFIG } from '../core/sites';
 import { asura } from './asura';
 import { scythe } from './scythe';
 import { lua } from './lua';
-import { violet } from './violet';
 import { yaksha } from './yaksha';
 import { createEzmangaProvider } from './ezmanga';
 import { createQiscansProvider } from './qiscans';
@@ -56,7 +55,6 @@ export function initializeProviderRoute(url: URL): InitializedProviderRoute | nu
         asura,
         scythe,
         lua,
-        violet,
     };
     const provider = providers[site.provider];
     if (!provider) throw new Error('Unknown provider: ' + site.provider);

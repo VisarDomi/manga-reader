@@ -31,10 +31,5 @@
     "domain": "luacomic.org",
     "provider": "lua",
     "documentTitle": "Lua Comic"
-  },
-  "violetscans": {
-    "domain": "violetscans.org",
-    "provider": "violet",
-    "documentTitle": "Violet Scans"
   }
 }
