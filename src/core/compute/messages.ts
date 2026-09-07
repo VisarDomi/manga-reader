@@ -8,6 +8,8 @@ import type {
 } from '../../provider/types';
 import type { CardInput, CardResolution } from './history';
 import type { ChapterProgress } from './progress';
+import type { DatabaseBackup } from './backup';
+import type { BackupCommand } from '../backup-engine';
 
 export interface ComputeRequest {
     id: number;
@@ -52,6 +54,9 @@ interface TrackPayload {
 }
 
 export interface OpTypes {
+    'backup-control': { payload: BackupCommand; result: unknown };
+    'backup-export': { payload: undefined; result: DatabaseBackup };
+    'backup-import': { payload: unknown; result: undefined };
     'save-progress': { payload: SaveProgressPayload; result: ChapterProgress };
     'history-resolve': { payload: HistoryResolvePayload; result: CardResolution[] };
     'fetch-home': { payload: FetchHomePayload; result: HomePage };

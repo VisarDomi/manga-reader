@@ -1,4 +1,6 @@
 dist/
+.env
+.env.local
 node_modules/
 .ios-debug/
 .idea/

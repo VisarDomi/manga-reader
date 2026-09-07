@@ -7,7 +7,7 @@ import type { RemoteSeriesHistory } from '../../provider/types';
 import { createChapterProgress } from './progress';
 import { resolveHistory, type CardInput } from './history';
 import { loadProgress } from './migrations';
-import { progressPut } from './store';
+import { progressPut, databaseBackup, restoreDatabaseBackup } from './store';
 import {
     fetchProviderHome,
     fetchProviderRemoteHistory,
@@ -15,6 +15,8 @@ import {
 } from '../../provider/worker';
 import { setWorkerContext } from './context';
 import type { ChapterData } from '../../provider/types';
+import { backupControl, type BackupCommand } from '../backup-engine';
+import { validateDatabaseBackup } from './backup';
 
 type Outcome =
     | { ok: true; value: unknown }
@@ -23,6 +25,25 @@ type Outcome =
 async function handle(request: ComputeRequest): Promise<Outcome> {
     try {
         switch (request.op) {
+            case 'backup-control':
+                return { ok: true, value: await backupControl(request.payload as BackupCommand, {
+                    capture: async () => { await writeQueue; await loadProgress(); return databaseBackup(); },
+                    restore: async data => {
+                        const restored = (writeQueue ?? Promise.resolve()).then(() => restoreDatabaseBackup(data));
+                        writeQueue = restored.catch(() => {});
+                        await restored;
+                    },
+                    stats(data) {
+                        const stores = validateDatabaseBackup(data).indexedDB;
+                        return `${stores.progress.length} series resume positions, ${stores.tokens.length} session records, ${stores.metadata.length} metadata records`;
+                    },
+                }) };
+            case 'backup-export':
+                await loadProgress();
+                return { ok: true, value: await databaseBackup() };
+            case 'backup-import':
+                await restoreDatabaseBackup(request.payload);
+                return { ok: true, value: undefined };
             case 'save-progress': {
                 const payload = request.payload as Record<string, unknown> | undefined;
                 if (
@@ -123,6 +144,8 @@ function respond(id: number, outcome: Outcome): void {
 // save cannot observe the previous local resume position.
 let writeQueue: Promise<void> | null = null;
 const WRITE_OPS: ReadonlySet<string> = new Set([
+    'backup-export',
+    'backup-import',
     'save-progress',
     'history-resolve',
     'track-chapter',

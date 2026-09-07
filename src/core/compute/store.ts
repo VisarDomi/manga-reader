@@ -2,6 +2,7 @@
 // the main thread never touches IndexedDB.
 
 import type { ChapterProgress } from './progress';
+import { validateDatabaseBackup, type DatabaseBackup } from './backup';
 
 const DB_NAME = 'manga-reader-compute';
 const DB_VERSION = 2;
@@ -158,4 +159,32 @@ export async function tokensPut(key: string, value: unknown): Promise<void> {
     const transaction = db.transaction(STORE_TOKENS, 'readwrite');
     transaction.objectStore(STORE_TOKENS).put({ key, value });
     await awaitTransaction(transaction);
+}
+
+export async function databaseBackup(): Promise<DatabaseBackup> {
+    const db = await openDatabase();
+    const transaction = db.transaction([STORE_PROGRESS, STORE_TOKENS, STORE_METADATA], 'readonly');
+    const [progress, tokens, metadata] = await Promise.all(
+        [STORE_PROGRESS, STORE_TOKENS, STORE_METADATA].map(name => withTimeout(transaction.objectStore(name).getAll())),
+    );
+    return validateDatabaseBackup({ version: 1, indexedDB: { progress, tokens, metadata } });
+}
+
+export async function restoreDatabaseBackup(data: unknown): Promise<void> {
+    const snapshot = validateDatabaseBackup(data);
+    const db = await openDatabase();
+    const transaction = db.transaction([STORE_PROGRESS, STORE_TOKENS, STORE_METADATA], 'readwrite', { durability: 'strict' });
+    const committed = awaitTransaction(transaction);
+    try {
+        for (const name of [STORE_PROGRESS, STORE_TOKENS, STORE_METADATA] as const) {
+            const store = transaction.objectStore(name);
+            store.clear();
+            for (const record of snapshot.indexedDB[name]) store.put(record);
+        }
+    } catch (error) {
+        transaction.abort();
+        await committed.catch(() => {});
+        throw error;
+    }
+    await committed;
 }
