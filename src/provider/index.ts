@@ -46,7 +46,7 @@ export function initializeProviderRoute(url: URL): InitializedProviderRoute | nu
     const site = Object.values(SITE_CONFIG).find(cfg =>
         hostname === cfg.domain,
     );
-    if (!site) throw new Error('Unable to select provider');
+    if (!site) return null;
 
     const providers: ProviderMap = {
         ezmanga: createEzmangaProvider(),

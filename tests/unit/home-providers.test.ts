@@ -69,7 +69,7 @@ function testProvider(options: {
 
 async function settleHistory(): Promise<void> {
     await Promise.resolve();
-    await vi.advanceTimersByTimeAsync(200);
+    await vi.advanceTimersByTimeAsync(0);
 }
 
 beforeEach(() => {

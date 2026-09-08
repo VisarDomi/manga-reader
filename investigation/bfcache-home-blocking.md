@@ -1,5 +1,10 @@
 # BFCache restore blocks the home main-thread UI — investigation
 
+Historical pre-worker investigation, not the current architecture. Storage and
+history resolution now run in the compute worker. The September 8, 2026 extension
+pass also removed the reader's 100ms timer and the home idle update queue. See
+`../extension/README.md` for the current startup and validation contract.
+
 Symptom: swiping back from reader → home (bfcache restore) leaves home unresponsive;
 it appears to "wait for updates".
 

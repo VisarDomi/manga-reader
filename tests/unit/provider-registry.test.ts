@@ -12,6 +12,12 @@ const readerUrls = [
 ];
 
 describe('test.txt URLs', () => {
+    it('leaves other hosts and unsupported provider pages untouched', () => {
+        expect(initializeProviderRoute(new URL('https://example.org/'))).toBeNull();
+        for (const config of Object.values(SITE_CONFIG)) {
+            expect(initializeProviderRoute(new URL(`https://${config.domain}/account/settings`))).toBeNull();
+        }
+    });
     it('recognizes every reader URL and its saved image', () => {
         for (const href of readerUrls) {
             const url = new URL(href);

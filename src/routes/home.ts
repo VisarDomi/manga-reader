@@ -6,7 +6,6 @@ import type {
     RemoteSeriesHistory,
 } from '../provider';
 import { HomeDestinationKind } from '../provider';
-import { UpdateKind, UpdateQueue } from '../core/update-queue';
 import { computeRequest } from '../core/compute/transport';
 import { ImageRetryRegistry } from '../core/image-retry';
 import { CoverResumeKind } from '../core/compute/history';
@@ -333,8 +332,7 @@ function applyCardPatch(
     }
 }
 
-function queueHistoryRefresh(
-    updates: UpdateQueue,
+function resolveHistory(
     provider: Provider,
     cards: Map<string, { series: HomeSeries; element: HTMLElement }>,
     remoteHistory: RemoteSeriesHistory[],
@@ -349,46 +347,33 @@ function queueHistoryRefresh(
     void settleBeforePause(() => computeRequest('history-resolve', { cards: cardInputs, remoteHistory }), signal)
         .then(outcome => {
             if (outcome.kind === PauseOutcomeKind.Paused || !isCurrent()) return;
-            updates.enqueue(UpdateKind.History, outcome.value.map(patch => () => {
-                if (!isCurrent()) return;
+            for (const patch of outcome.value) {
                 applyCardPatch(provider, cards, patch);
-            }));
+            }
         });
 }
 
-function appendPageWhenIdle(
-    updates: UpdateQueue,
+function appendPage(
     imageRetry: ImageRetryRegistry,
     provider: Provider,
     cards: Map<string, { series: HomeSeries; element: HTMLElement }>,
     list: HTMLDivElement,
     page: HomePage,
-): Promise<void> {
-    // The pagination loop awaits this batch, so catalog pages cannot
-    // supersede one another in the latest-wins update queue.
-    return new Promise((resolve, reject) => {
-        updates.enqueue(UpdateKind.Catalog, [() => {
-            try {
-                for (const series of page.series) {
-                    const current = cards.get(series.slug);
-                    if (!current) {
-                        const element = renderSeries(provider, series, imageRetry);
-                        cards.set(series.slug, { series, element });
-                        list.appendChild(element);
-                        continue;
-                    }
-                    const merged = mergeSeries(current.series, series);
-                    if (merged.chapters.length === current.series.chapters.length) continue;
-                    const element = renderSeries(provider, merged, imageRetry);
-                    current.element.replaceWith(element);
-                    cards.set(series.slug, { series: merged, element });
-                }
-                resolve();
-            } catch (error) {
-                reject(error);
-            }
-        }]);
-    });
+): void {
+    for (const series of page.series) {
+        const current = cards.get(series.slug);
+        if (!current) {
+            const element = renderSeries(provider, series, imageRetry);
+            cards.set(series.slug, { series, element });
+            list.appendChild(element);
+            continue;
+        }
+        const merged = mergeSeries(current.series, series);
+        if (merged.chapters.length === current.series.chapters.length) continue;
+        const element = renderSeries(provider, merged, imageRetry);
+        current.element.replaceWith(element);
+        cards.set(series.slug, { series: merged, element });
+    }
 }
 
 function statusText(loaded: number, total: number | undefined, loading: boolean): string {
@@ -414,7 +399,6 @@ function resetTransientLinkState(root: ParentNode): void {
 }
 
 export async function open(provider: Provider): Promise<void> {
-    const updates = new UpdateQueue();
     const imageRetry = new ImageRetryRegistry();
     let active = !document.hidden;
     let lifecycleVersion = 0;
@@ -489,8 +473,7 @@ export async function open(provider: Provider): Promise<void> {
     let historyResolutionGeneration = 0;
     function refreshHistory(): void {
         const generation = ++historyResolutionGeneration;
-        queueHistoryRefresh(
-            updates,
+        resolveHistory(
             provider,
             cards,
             remoteHistory,
@@ -500,7 +483,7 @@ export async function open(provider: Provider): Promise<void> {
     }
 
     // First paint is synchronous by design; the history overlay lands one
-    // worker round trip later through the idle queue.
+    // worker round trip later, without delaying links until scrolling stops.
     function appendFirstPage(page: HomePage): void {
         if (page.total !== undefined) total = page.total;
         for (const series of page.series) {
@@ -549,7 +532,7 @@ export async function open(provider: Provider): Promise<void> {
         seenCursors.add(nextCursor);
         const page = await fetchPageWhileActive(nextCursor, true);
         if (page.total !== undefined) total = page.total;
-        await appendPageWhenIdle(updates, imageRetry, provider, cards, list, page);
+        appendPage(imageRetry, provider, cards, list, page);
         refreshHistory();
         nextCursor = page.nextCursor;
         status.textContent = statusText(cards.size, total, nextCursor !== null);

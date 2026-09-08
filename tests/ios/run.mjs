@@ -163,26 +163,22 @@ function saveNextPosition(chapterId, imageId) {
             await wait(250);
         }
         const timing = new Promise(resolve => {
-            const timeout = setTimeout(() => resolve({
-                at50ms: location.href,
-                href: location.href,
-            }), 5000);
-            addEventListener("scrollend", () => {
-                setTimeout(() => {
-                    const at50ms = location.href;
-                    setTimeout(() => {
-                        clearTimeout(timeout);
-                        resolve({ at50ms, href: location.href });
-                    }, 100);
-                }, 50);
-            }, { once: true });
+            const timeout = setTimeout(() => {
+                removeEventListener("scrollend", finish);
+                resolve({ error: "No scrollend received", href: location.href });
+            }, 5000);
+            function finish() {
+                clearTimeout(timeout);
+                resolve({ href: location.href });
+            }
+            addEventListener("scrollend", finish, { once: true });
         });
         await scrollAndWait(target.offsetTop - innerHeight / 2 + 10);
         const measured = await timing;
 
         return {
             before,
-            at50ms: measured.at50ms,
+            error: measured.error,
             href: measured.href,
             imageId: target.id,
             chapterId: chapter?.dataset.chapter ?? null,
@@ -202,7 +198,7 @@ function chapterAssertions() {
             function finish() {
                 clearTimeout(timeout);
                 removeEventListener("scrollend", finish);
-                setTimeout(resolve, 150);
+                resolve();
             }
             addEventListener("scrollend", finish, { once: true });
             scrollTo(0, top);
@@ -265,7 +261,6 @@ function assertPosition(expected, phase, result) {
 function assertSave(result) {
     const failures = [];
     if (result.error) failures.push(result.error);
-    if (result.at50ms !== result.before) failures.push("URL changed before scrollend + 100ms");
     if (!result.imageLoaded) failures.push("saved image was incomplete or broken");
     if (result.href === result.before) failures.push("provider URL did not change after saving");
     if (failures.length) throw new Error(`save: ${failures.join("; ")}`);
@@ -295,7 +290,7 @@ function trackingAssertions() {
             function finish() {
                 clearTimeout(timeout);
                 removeEventListener("scrollend", finish);
-                setTimeout(resolve, 150);
+                resolve();
             }
             addEventListener("scrollend", finish, { once: true });
             scrollTo(0, top);

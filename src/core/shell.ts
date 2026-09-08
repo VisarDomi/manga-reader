@@ -7,6 +7,14 @@ export function startInit(documentTitle: string): void {
     window.stop();
     document.open();
     document.close();
+    if (!document.doctype) document.insertBefore(document.implementation.createDocumentType('html', '', ''), document.documentElement);
+    if (!document.documentElement) document.appendChild(document.createElement('html'));
+    if (!document.head) document.documentElement.appendChild(document.createElement('head'));
+    if (!document.body) document.documentElement.appendChild(document.createElement('body'));
+    const viewport = document.createElement('meta');
+    viewport.name = 'viewport';
+    viewport.content = 'width=device-width, initial-scale=1';
+    document.head.appendChild(viewport);
     document.title = documentTitle;
     const style = document.createElement('style');
     style.textContent = css;

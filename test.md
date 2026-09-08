@@ -1,5 +1,10 @@
 ## iOS Safari regression tests
 
+The production iOS build is now the Manga Reader Safari extension inside
+Reader Extensions. Native inspection uses the trusted Mac/iPhone connection;
+see [extension validation](extension/README.md). The injection harness below
+tests the userscript build: **disable the extension first**. Do not run both.
+
 The matrix in [`test.txt`](test.txt) checks that each reader:
 
 1. activates;

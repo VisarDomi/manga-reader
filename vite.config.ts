@@ -24,7 +24,7 @@ const env = loadEnv('production', process.cwd(), '');
 const backupUrl = env.VITE_READER_BACKUP_URL ?? 'https://192.168.1.197:7777';
 const backupKey = env.VITE_READER_BACKUP_KEY || readFileSync(new URL('../gallery-downloader/backups/readers/access-key', import.meta.url), 'utf8').trim();
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
     define: { __READER_BACKUP_URL__: JSON.stringify(backupUrl), __READER_BACKUP_KEY__: JSON.stringify(backupKey) },
     build: {
         minify: false,
@@ -32,7 +32,11 @@ export default defineConfig({
         target: "esnext",
         modulePreload: false,
         cssCodeSplit: false,
-        emptyOutDir: false,
+        emptyOutDir: mode === 'extension',
+        ...(mode === 'extension' ? {
+            outDir: 'dist/extension',
+            lib: { entry: 'extension/main.ts', name: 'MangaReader', formats: ['iife' as const], fileName: () => 'content.js' },
+        } : {}),
     },
     resolve: {
         alias: excluded.map(name => ({
@@ -40,7 +44,16 @@ export default defineConfig({
             replacement: resolve(__dirname, 'src/provider/_empty.ts'),
         })),
     },
-    plugins: [
+    plugins: mode === 'extension' ? [{
+        name: 'safari-document-takeover',
+        enforce: 'pre',
+        transform(source, id) {
+            if (!id.endsWith('/src/core/shell.ts')) return;
+            const original = 'document.open();\n    document.close();';
+            if (!source.includes(original)) throw new Error('Manga takeover changed; inspect the Safari adapter');
+            return source.replace(original, 'document.documentElement?.replaceChildren();');
+        },
+    }] : [
         monkey({
             entry: "src/main.ts",
             userscript: {
@@ -56,4 +69,4 @@ export default defineConfig({
             },
         }),
     ],
-});
+}));
