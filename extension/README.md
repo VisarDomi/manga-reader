@@ -1,15 +1,18 @@
 # Manga Reader — Safari extension
 
-The fourth independent iOS Safari extension inside **Reader Extensions**, whose
-Apple project lives in `../gallery-reader/extension/apple/`. The host carries no
+The fourth independent iOS Safari extension inside
+[Reader Extensions](https://github.com/VisarDomi/reader-extensions), whose
+Apple project lives in the separate `../../reader-extensions` checkout. The host carries no
 reader data. Its existing bundle ID remains `com.visar.galleryreader.extensiontest`;
 this extension uses `.MangaReader`.
 
 `npm run build:extension` produces private `dist/extension/{content.js,manifest.json}`.
 Do not publish these files: they contain the PC backup access key. Six exact HTTPS
-host matches come from `src/core/sites.json`. Build the whole containing app from
-Gallery Reader with `npm run build:extensions`, or stage only this bundle while
-preserving the other three existing bundles.
+host matches come from `src/core/sites.json`. Follow the
+[fresh-machine and deployment guide](https://github.com/VisarDomi/reader-extensions#fresh-machine-setup).
+From the host repo, `npm run build` builds all four bundles; `npm run build -- manga-reader`
+updates only Manga, or `npm run stage -- manga-reader` stages this repo's existing
+bundle without rebuilding. Other staged bundles remain untouched.
 
 ## Runtime contract
 
