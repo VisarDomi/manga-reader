@@ -3,6 +3,8 @@ import CryptoKit
 
 struct Chapter: Codable, Sendable, Equatable {
     var number: String
+    var id: String? = nil
+    var key: String { id ?? number }
     var locked: Bool = false
     var published: String = ""
     var unlockAt: String? = nil
@@ -56,11 +58,11 @@ struct AppState: Codable, Sendable {
 enum ReaderError: LocalizedError {
     case message(String)
     case http(Int)
-    var errorDescription: String? { switch self { case let .message(text): return text; case let .http(status): return "Asura returned HTTP \(status)" } }
+    var errorDescription: String? { switch self { case let .message(text): return text; case let .http(status): return "Server returned HTTP \(status)" } }
 }
 enum CachePolicy {
     static func identity(_ slug: String) -> String {
-        slug.replacingOccurrences(of: "-[0-9a-f]{8}$", with: "", options: [.regularExpression, .caseInsensitive])
+        ProviderConfiguration.current.identity(slug)
     }
     static func key(_ slug: String, _ chapter: String) -> String {
         SHA256.hash(data: Data((identity(slug) + "/" + chapter).utf8)).map { String(format: "%02x", $0) }.joined()
@@ -72,19 +74,19 @@ enum CachePolicy {
     }
     static func ordered(_ chapters: [Chapter]) -> [Chapter] {
         var seen = Set<String>()
-        return chapters.filter { !$0.number.isEmpty && seen.insert($0.number).inserted }
+        return chapters.filter { !$0.number.isEmpty && seen.insert($0.key).inserted }
             .sorted { (Double($0.number) ?? 0) < (Double($1.number) ?? 0) }
     }
     static func window(current: String, chapters: [Chapter]) -> [String] {
         let ordered = ordered(chapters)
-        guard let i = ordered.firstIndex(where: { $0.number == current }) else { return [current] }
-        return [current] + (i + 1 < ordered.count ? [ordered[i + 1].number] : [])
+        guard let i = ordered.firstIndex(where: { $0.key == current }) else { return [current] }
+        return [current] + (i + 1 < ordered.count ? [ordered[i + 1].key] : [])
     }
     static func validSlug(_ slug: String) -> Bool {
         !slug.isEmpty && slug.count <= 250 && slug.range(of: "^[a-zA-Z0-9_-]+$", options: .regularExpression) != nil
     }
     static func validChapter(_ chapter: String) -> Bool {
-        chapter.range(of: "^[0-9]+(?:[.][0-9]+)?$", options: .regularExpression) != nil
+        chapter.count <= 300 && chapter.range(of: "^(?:[0-9]+(?:[.][0-9]+)?|[a-zA-Z0-9_-]+-chapter-[0-9]+(?:[.][0-9]+)?(?:-[0-9]+)?)$", options: .regularExpression) != nil
     }
 }
 func jsonData(_ value: Any) throws -> Data { try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]) }

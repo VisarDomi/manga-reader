@@ -5,7 +5,9 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>Asura Reader</string>
+	<string>$(READER_DISPLAY_NAME)</string>
+	<key>ReaderProvider</key>
+	<string>$(READER_PROVIDER)</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>

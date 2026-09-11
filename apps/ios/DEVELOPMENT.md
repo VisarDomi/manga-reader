@@ -1,6 +1,15 @@
-# Asura Reader iOS app
+# Provider reader iOS apps
 
-One native application target, fixed bundle ID `com.visar.AsuraReader`.
+AsuraReader (`com.visar.AsuraReader`) and ScytheReader (`com.visar.ScytheReader`)
+are targets sharing the same Swift runtime, web resources, and reader UI.
+The target sets `ReaderProvider` in Info.plist; `ReaderSource` supplies catalog,
+chapters, manifest, and image transfers. Asura parses its API; Scythe mirrors
+`src/provider/scythe.ts` using native SwiftSoup HTML parsing on its actor.
+Scythe preserves complete chapter URLs (including collision suffixes) separately
+from displayed chapter numbers. Its backup provider is `scythescans`, with
+`scythe-ios-v1` fractional history metadata. Asura state paths/keys stay compatible.
+Both apps keep the private `asura://app/` web bridge for compatibility; this is
+only an internal origin, not a network provider or shared storage container.
 Bundled WKWebView reader; Swift actors own storage/networking. No Asura page
 scripts, extension targets, or SOC. Do not reuse another app's ID or data container.
 
@@ -149,3 +158,41 @@ JS-to-native round trip required before suspension.
 
 Tests cover a lifecycle checkpoint requested while the bootstrap Home renders,
 exact fractional cold restart, and native persistence of the complete checkpoint.
+
+## LiveContainer guest builds (Asura and Scythe)
+
+See [LC setup](../livecontainer/SETUP.md) for the host, certificate, and renewal.
+Gallery Reader remains a normal installed app. Reader Extensions was reinstalled
+as a normal app named **Reader Extensions**, preserving its existing bundle ID.
+
+Sync shared sources from Linux as above, then on the Mac:
+
+```sh
+cd /Users/visar/Developer/asura-reader
+python3 scripts/build-guest.py scythe
+# Also accepts asura. No Apple provisioning/account registration for guests.
+python3 /Users/visar/Developer/livecontainer/scripts/deploy.py import-app /Users/visar/Developer/asura-reader/build/Release-iphoneos/ScytheReader.app
+```
+
+The guest builder shares the existing Mac signing lock. Do not bypass an active
+build/signing job. Import uses LC's own installer; a replacement confirmation or
+first-run permission may require the phone owner. Never call the native `install`
+action for a guest or uninstall LC to update a guest.
+
+SwiftSoup is pinned to 2.11.3 revision `0a1cd58aec8774d4110b2ceb8971061eac964efd`.
+Xcode resolves its package automatically, with no manual project setup. Native
+`bash scripts/test.sh` uses SwiftPM with the same revision. Set `READER_LIVE_CHECK=1`
+for a read-only live Scythe catalog/chapter/image check (the temporary image is
+removed by the test). `node apps/ios/Tests/browser.mjs` runs the identical UI
+contract against Asura numeric IDs and Scythe IDs with collision suffixes.
+No site JavaScript executes in the app; SwiftSoup parses fetched HTML as data.
+
+
+2026-09-11 Scythe delivery: normal LC import and device launch passed. Native
+Home had 63 cards; Magic Emperor chapter 907 opened 7 pages with real loaded
+800×9605 images and no errors. A programmatically saved y=1200 restored exactly
+after terminating LC and relaunching Scythe. Both provider browser suites passed;
+native cache/backup/Scythe parsing tests and live HTTP checks passed. This verifies
+functional restoration, not the user's physical scroll feel. The existing Asura
+guest was preserved and separately verified after the LC helper update; its
+shared-source refactor is tested locally but has not replaced that guest yet.

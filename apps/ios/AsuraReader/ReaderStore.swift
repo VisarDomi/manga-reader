@@ -3,7 +3,7 @@ import ImageIO
 
 actor ReaderStore {
     let root: URL
-    let source: any AsuraSource
+    let source: any ReaderSource
     private var state = AppState()
     private var loaded = false
     private var manifests: [String: Manifest] = [:]
@@ -15,7 +15,7 @@ actor ReaderStore {
     private var status = ""
     private var sessionRefresh: Task<String, Error>?
     private let backup: PCBackup
-    init(root: URL, source: any AsuraSource = AsuraAPI(), backup: PCBackup = PCBackup()) {
+    init(root: URL, source: any ReaderSource = ProviderConfiguration.current.makeSource(), backup: PCBackup = PCBackup()) {
         self.root = root; self.source = source; self.backup = backup
     }
     func load() throws {
@@ -31,34 +31,20 @@ actor ReaderStore {
         var payload = try object(JSONEncoder().encode(state))
         payload.removeValue(forKey: "tokens")
         payload["status"] = status
+        payload["provider"] = ProviderConfiguration.current.rawValue
         payload["backupAvailable"] = backup.configured
         return try jsonText(payload)
     }
     func refreshCatalog() async throws {
-        var items: [Series] = []
-        var seen = Set<String>()
-        for offset in stride(from: 0, to: 10000, by: 50) {
-            try Task.checkCancellation()
-            let json = try object(await source.request("/series?sort=latest&order=desc&limit=50&offset=\(offset)", method: "GET", body: nil, token: nil))
-            let rows = json["data"] as? [[String: Any]] ?? []
-            for row in rows {
-                let publicPath = row["public_url"] as? String ?? ""
-                let slug = URL(string: publicPath)?.lastPathComponent ?? (row["slug"] as? String ?? "")
-                guard CachePolicy.validSlug(slug), seen.insert(slug).inserted else { continue }
-                items.append(Series(slug: slug, identity: CachePolicy.identity(slug), title: row["title"] as? String ?? slug,
-                                    cover: row["cover"] as? String ?? "", chapters: chaptersFrom(row["latest_chapters"])))
-            }
-            if rows.isEmpty || (json["meta"] as? [String: Any])?["has_more"] as? Bool == false { break }
-        }
-        guard !items.isEmpty else { throw ReaderError.message("Asura's catalog is unavailable. Your saved library is still here.") }
+        let items = try await source.catalog()
+        guard !items.isEmpty else { throw ReaderError.message("The catalog is unavailable. Your saved library is still here.") }
         state.catalog = items
         try persist()
     }
     func chapters(_ slug: String) async throws -> [Chapter] {
         guard CachePolicy.validSlug(slug) else { throw ReaderError.message("Invalid series") }
         do {
-            let json = try object(await source.request("/series/\(slug)/chapters", method: "GET", body: nil, token: nil))
-            let result = chaptersFrom(json["data"])
+            let result = try await source.chapters(slug)
             guard !result.isEmpty else { throw ReaderError.message("No chapters found") }
             try writeAtomically(JSONEncoder().encode(result), root.appendingPathComponent("lists/\(CachePolicy.key(slug, "list")).json"))
             return result
@@ -78,19 +64,12 @@ actor ReaderStore {
         }
         if let existing = manifestTasks[key] { return try await existing.value }
         let task = Task { [self] in
-            let json = try object(await authenticatedRequest("/series/\(slug)/chapters/\(chapter)", allowAnonymous: true))
-            guard let data = json["data"] as? [String: Any], data["is_locked"] as? Bool != true,
-                  let row = data["chapter"] as? [String: Any], let series = data["series"] as? [String: Any],
-                  let pages = row["pages"] as? [[String: Any]], !pages.isEmpty else { throw ReaderError.message("This chapter is locked or unavailable on Asura.") }
-            let images = try pages.map { page -> PageImage in
-                guard let raw = page["url"] as? String, let url = URL(string: raw), url.scheme == "https", url.host != nil else { throw ReaderError.message("Invalid page URL") }
-                let w = (page["width"] as? Double).flatMap { $0.isFinite && $0 > 0 ? $0 : nil } ?? 0
-                let h = (page["height"] as? Double).flatMap { $0.isFinite && $0 > 0 ? $0 : nil } ?? 0
-                return PageImage(url: raw, width: w, height: h)
+            var token = state.tokens["asura:access_token"]
+            if source is any AsuraSource, token == nil, state.tokens["asura:refresh_token"] != nil { token = try await refreshSession() }
+            do { return try await source.manifest(slug, chapter, token: token) }
+            catch ReaderError.http(401) where source is any AsuraSource {
+                return try await source.manifest(slug, chapter, token: await refreshSession())
             }
-            return Manifest(slug: slug, chapter: chapter, title: series["title"] as? String ?? slug,
-                            seriesID: CachePolicy.number(series["id"]), chapterID: CachePolicy.number(row["id"]),
-                            pages: images, chapters: chaptersFrom(data["chapter_list"]))
         }
         manifestTasks[key] = task
         do {
@@ -273,6 +252,7 @@ actor ReaderStore {
     private func refreshSession() async throws -> String {
         if let sessionRefresh { return try await sessionRefresh.value }
         guard let refresh = state.tokens["asura:refresh_token"] else { throw ReaderError.message("Sign in to Asura again") }
+        guard let source = source as? any AsuraSource else { throw ReaderError.message("This provider has no account session") }
         let task = Task { [source] in
             let json = try object(await source.request("/auth/refresh", method: "POST", body: jsonData(["refresh_token": refresh]), token: nil))
             guard let data = json["data"] as? [String: Any], let access = data["access_token"] as? String, !access.isEmpty else { throw ReaderError.message("Asura session expired") }
@@ -284,16 +264,6 @@ actor ReaderStore {
         sessionRefresh = task
         defer { sessionRefresh = nil }
         return try await task.value
-    }
-    private func authenticatedRequest(_ path: String, method: String = "GET", body: Data? = nil, allowAnonymous: Bool = false) async throws -> Data {
-        var token = state.tokens["asura:access_token"]
-        if token == nil, state.tokens["asura:refresh_token"] != nil { token = try await refreshSession() }
-        if token == nil && !allowAnonymous { throw ReaderError.message("No Asura session") }
-        do { return try await source.request(path, method: method, body: body, token: token) }
-        catch ReaderError.http(401) {
-            let token = try await refreshSession()
-            return try await source.request(path, method: method, body: body, token: token)
-        }
     }
     func importBackup(_ raw: Data) throws {
         let incoming = try BackupCodec.decode(raw)

@@ -16,7 +16,7 @@ if args.command == 'sync':
     plist = {'Label':label,'ProgramArguments':['/usr/bin/caffeinate','-i','-t','1800','/bin/bash',remote+'/scripts/build.sh'],'EnvironmentVariables':{'DEVELOPMENT_TEAM':config['signingTeam']},'RunAtLoad':True,'StandardOutPath':remote+'/gui-build.log','StandardErrorPath':remote+'/gui-build.log'}
     (build/'build.plist').write_bytes(plistlib.dumps(plist))
     run('mkdir -p '+q(remote+'/build'))
-    subprocess.run(['rsync','-az','--exclude=build','--exclude=deploy.local.json','-e',shlex.join(ssh[:-1]),str(ROOT)+'/',host+':'+remote+'/'],check=True)
+    subprocess.run(['rsync','-az','--exclude=build','--exclude=.build','--exclude=.swiftpm','--exclude=deploy.local.json','-e',shlex.join(ssh[:-1]),str(ROOT)+'/',host+':'+remote+'/'],check=True)
     subprocess.run(['scp',*ssh[1:-1],str(build/'build.plist'),host+':'+remote+'/build/build.plist'],check=True)
 elif args.command == 'build': run(f'launchctl bootstrap gui/{uid} {q(remote+"/build/build.plist")}')
 elif args.command == 'status': run(f'launchctl list {q(label)}; tail -8 {q(remote+"/gui-build.log")}')

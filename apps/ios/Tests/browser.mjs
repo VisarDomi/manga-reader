@@ -14,10 +14,13 @@ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 const base = `http://127.0.0.1:${server.address().port}`;
 const browser = await chromium.launch({executablePath:'/usr/bin/chromium',headless:true,args:['--no-sandbox']});
 try {
+ for (const provider of ['asurascans', 'scythescans']) {
+ const cid = n => provider === 'scythescans' ? `fixture-1234abcd-chapter-${n}${n === 2 ? '-2' : ''}` : String(n);
+ const seriesIdentity = provider === 'scythescans' ? 'fixture-1234abcd' : 'fixture';
  const context=await browser.newContext({viewport:{width:428,height:926},deviceScaleFactor:3});
- const chapters = [1,2,3].map(number=>({number:String(number),locked:false}));
- const p={slug:'fixture-1234abcd',chapter:'2',page:4,fraction:.4,total:20,updatedAt:100};
- const state={catalog:[{slug:p.slug,identity:'fixture',title:'Fixture',cover:'',chapters}],progress:{fixture:p},history:{fixture:{'1':19}},home:{path:'/',anchor:null,fraction:0,y:0},view:{path:'/'}};
+ const chapters = [1,2,3].map(number=>({number:String(number),id:provider === 'scythescans' ? cid(number) : undefined,locked:false}));
+ const p={slug:'fixture-1234abcd',chapter:cid(2),page:4,fraction:.4,total:20,updatedAt:100};
+ const state={provider,catalog:[{slug:p.slug,identity:seriesIdentity,title:'Fixture',cover:'',chapters}],progress:{[seriesIdentity]:p},history:{[seriesIdentity]:{[cid(1)]:19}},home:{path:'/',anchor:null,fraction:0,y:0},view:{path:'/'}};
  let lastPosition, pcAvailable=false, coldLaunch=false; const pcActions=[], viewWrites=[];
  await context.exposeBinding('nativeRPC',async(_,{command,args})=>{
    if(command==='init'&&coldLaunch){coldLaunch=false;return JSON.stringify({...state,resumeReader:state.view.path==='/'?undefined:state.view.path});}
@@ -25,14 +28,14 @@ try {
    if(command==='chapters')return JSON.stringify(chapters);
    if(command==='measure')return JSON.stringify({width:900,height:16000});
    if(command==='view-save'){
-     if(args.progress){lastPosition=args.progress;state.progress.fixture=args.progress;}
+     if(args.progress){lastPosition=args.progress;state.progress[seriesIdentity]=args.progress;}
      viewWrites.push(args.view);state.view=args.view;if(args.view.path==='/')state.home=args.view;return '{}';
    }
-   if(command==='position'){lastPosition=args;state.progress.fixture=args;return '{}';}
+   if(command==='position'){lastPosition=args;state.progress[seriesIdentity]=args;return '{}';}
    if(command==='view'){viewWrites.push(args);state.view=args;if(args.path==='/')state.home=args;return '{}';}
    if(command==='pc-available')return JSON.stringify(pcAvailable);
    if(command==='pc-load'||command==='pc-save'){pcActions.push(command);return command==='pc-load'?JSON.stringify(state):'{}';}
-   if(command==='open')return JSON.stringify({slug:p.slug,chapter:args.chapter,title:'Fixture',pages:Array.from({length:20},()=>({url:'unused',width:0,height:0})),chapters,position:args.resume&&state.progress.fixture.chapter===args.chapter?state.progress.fixture:undefined});
+   if(command==='open')return JSON.stringify({slug:p.slug,chapter:args.chapter,title:'Fixture',pages:Array.from({length:20},()=>({url:'unused',width:0,height:0})),chapters,position:args.resume&&state.progress[seriesIdentity].chapter===args.chapter?state.progress[seriesIdentity]:undefined});
    return '{}';
  });
  await context.addInitScript(()=>{window.webkit={messageHandlers:{asura:{postMessage:body=>window.nativeRPC(body)}}};});
@@ -52,29 +55,29 @@ try {
  const geometry=await page.locator('.hs-home-card').evaluate(n=>({height:n.getBoundingClientRect().height,cover:n.querySelector('.hs-home-cover').getBoundingClientRect().width,gap:getComputedStyle(n).columnGap}));
  assert.deepEqual(geometry,{height:200,cover:150,gap:'20px'},'extension home geometry is preserved');
  assert.equal(await page.locator('h1,input[type=search]').count(),0,'no added header/search redesign');
- await page.locator('.cover').click();await page.waitForSelector('#page-2-4');
+ await page.locator('.cover').click();await page.waitForSelector(`#page-${cid(2)}-4`);
  await page.waitForFunction(()=>scrollY>1000);
- const fraction=await page.locator('#page-2-4').evaluate(n=>-n.getBoundingClientRect().top/n.getBoundingClientRect().height);
+ const fraction=await page.locator(`#page-${cid(2)}-4`).evaluate(n=>-n.getBoundingClientRect().top/n.getBoundingClientRect().height);
  assert.ok(Math.abs(fraction-.4)<.002,'cover restores fractional image position');
  await page.waitForFunction(()=>document.querySelectorAll('.page img').length>0);
  assert.ok(await page.locator('.page img').count()<5,'distant pages have no image source');
  await page.evaluate(()=>{dispatchEvent(new Event('wheel'));scrollBy(0,400);});await page.waitForTimeout(300);
  assert.ok(lastPosition.fraction>.4,'user scroll replaces restore position');
  await page.goBack();await page.waitForSelector('.cover');
- await page.getByRole('button',{name:'First chapter',exact:true}).click();await page.waitForSelector('#page-1-0');
+ await page.getByRole('button',{name:'First chapter',exact:true}).click();await page.waitForSelector(`#page-${cid(1)}-0`);
  const readerGeometry=await page.locator('.hs-reader-body').evaluate(n=>({top:getComputedStyle(n).paddingTop,bottom:getComputedStyle(n).paddingBottom,viewport:innerHeight}));
  assert.equal(parseFloat(readerGeometry.top),readerGeometry.viewport/2);
  assert.equal(parseFloat(readerGeometry.bottom),readerGeometry.viewport);
  assert.equal(await page.locator('.reader-head,.chapter-end').count(),0,'uninterrupted extension reader UI');
- await page.waitForFunction(()=>document.querySelector('#page-1-0')?.dataset.measured==='1');
- assert.equal(await page.locator('#page-1-0').evaluate(n=>n.style.height),'','actual image dimensions replace the provisional size');
- await page.waitForTimeout(250);assert.equal(lastPosition.chapter,'1','going backward changes resume chapter');assert.equal(lastPosition.page,0);
- await page.evaluate(()=>{dispatchEvent(new Event('wheel'));scrollTo(0,document.body.scrollHeight);});await page.waitForSelector('#page-2-0');
- assert.equal(await page.locator('#page-2-0').count(),1,'continuous reading appends next chapter once');
+ await page.waitForFunction(id=>document.getElementById(id)?.dataset.measured==='1', `page-${cid(1)}-0`);
+ assert.equal(await page.locator(`#page-${cid(1)}-0`).evaluate(n=>n.style.height),'','actual image dimensions replace the provisional size');
+ await page.waitForTimeout(250);assert.equal(lastPosition.chapter,cid(1),'going backward changes resume chapter');assert.equal(lastPosition.page,0);
+ await page.evaluate(()=>{dispatchEvent(new Event('wheel'));scrollTo(0,document.body.scrollHeight);});await page.waitForSelector(`#page-${cid(2)}-0`);
+ assert.equal(await page.locator(`#page-${cid(2)}-0`).count(),1,'continuous reading appends next chapter once');
  // A killed reader launches through Home before opening the saved chapter.
  await page.close();
- const savedView={path:'/reader/fixture-1234abcd/2',anchor:'page-2-4',fraction:.37,y:33333};
- state.view={...savedView};state.progress.fixture={...p,chapter:'2',page:4,fraction:.37,total:20};
+ const savedView={path:`/reader/fixture-1234abcd/${cid(2)}`,anchor:`page-${cid(2)}-4`,fraction:.37,y:33333};
+ state.view={...savedView};state.progress[seriesIdentity]={...p,chapter:cid(2),page:4,fraction:.37,total:20};
  viewWrites.length=0;coldLaunch=true;
  const cold=await context.newPage();cold.on('pageerror',e=>errors.push(e.message));
  await cold.addInitScript(()=>{
@@ -83,13 +86,14 @@ try {
      if(location.pathname==='/'&&document.querySelector('.hs-home-list'))void window.readerState?.save();
    }).observe(document,{subtree:true,childList:true});
  });
- await cold.goto(base);await cold.waitForSelector('#page-2-4');
- await cold.waitForFunction(()=>document.querySelector('#page-2-4')?.dataset.measured==='1');
+ await cold.goto(base);await cold.waitForSelector(`#page-${cid(2)}-4`);
+ await cold.waitForFunction(id=>document.getElementById(id)?.dataset.measured==='1', `page-${cid(2)}-4`);
  await cold.waitForTimeout(250);
  assert.ok(!viewWrites.some(v=>v.path==='/'),'bootstrap Home must not replace saved reader state');
- const restoredFraction=await cold.locator('#page-2-4').evaluate(n=>-n.getBoundingClientRect().top/n.getBoundingClientRect().height);
+ const restoredFraction=await cold.locator(`#page-${cid(2)}-4`).evaluate(n=>-n.getBoundingClientRect().top/n.getBoundingClientRect().height);
  assert.ok(Math.abs(restoredFraction-savedView.fraction)<.002,'cold reader restart restores exact saved image fraction');
  assert.deepEqual(errors,[]);
- console.log('PASS UI: cover fraction, manual scroll, First chapter, continuous next, bounded image sources, optional PC, cold reader restart');
+ console.log(provider, 'PASS UI: cover fraction, manual scroll, First chapter, continuous next, bounded image sources, optional PC, cold reader restart');
  await context.close();
+ }
 } finally {await browser.close();await new Promise(resolve=>server.close(resolve));}

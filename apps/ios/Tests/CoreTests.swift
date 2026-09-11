@@ -88,5 +88,43 @@ actor FakeAsura: AsuraSource {
         try expect(!pc.configured, "unconfigured PC optional in test bundle")
         let available = await pc.available(); try expect(!available, "missing PC hides controls")
         print("PASS optional PC")
+        let route = ScytheParser.route("fixture-chapter-194-2")
+        try expect(route?.number == "194" && route?.slug == "fixture", "Scythe collision suffix is not the chapter number")
+        let scytheList = try ScytheParser.chapters("<div id=chapterlist><a href='https://scythescans.com/fixture-chapter-194-2/'>194</a><a href='https://scythescans.com/fixture-chapter-1/'>1</a></div>", slug: "fixture")
+        try expect(scytheList.first?.key == "fixture-chapter-1", "Scythe First chapter uses its real route")
+        try expect(CachePolicy.window(current: "fixture-chapter-1", chapters: scytheList) == ["fixture-chapter-1", "fixture-chapter-194-2"], "shared cache window retains actual Scythe chapter IDs")
+        let payload = try jsonData(["defaultSource": "B", "sources": [["source": "A", "images": ["https://example.test/wrong.jpg"]], ["source": "B", "images": ["https://example.test/right.jpg"]]]])
+        let script = Data(("ts_reader.run(" + String(decoding: payload, as: UTF8.self) + ");").utf8).base64EncodedString()
+        let parsed = try ScytheParser.reader("<div class=allc>All chapters are in <a>Fixture &amp; Title</a></div><script defer src='data:text/javascript;base64," + script + "'></script>")
+        try expect(parsed.images == ["https://example.test/right.jpg"] && parsed.title == "Fixture & Title", "Scythe default image source and entity decoding")
+        var scythe = AppState()
+        scythe.progress["fixture"] = Position(slug: "fixture", chapter: "fixture-chapter-194-2", page: 1, fraction: 0.25, total: 3, updatedAt: 1000)
+        scythe.history["fixture"] = ["fixture-chapter-1": 9]
+        let scytheBackup = try BackupCodec.encode(scythe, provider: .scythe)
+        let restoredScythe = try BackupCodec.decode(scytheBackup, provider: .scythe)
+        try expect(restoredScythe.progress["fixture"]?.chapter == "fixture-chapter-194-2" && restoredScythe.progress["fixture"]?.fraction == 0.25 && restoredScythe.history["fixture"]?["fixture-chapter-1"] == 9, "Scythe manual PC format preserves route/fraction/history")
+        let isolated = try BackupCodec.decode(scytheBackup, provider: .asura)
+        try expect(isolated.progress.isEmpty, "provider backups remain isolated")
+        try expect(ProviderConfiguration.scythe.identity("fixture-1234abcd") == "fixture-1234abcd", "Asura slug normalization never affects Scythe")
+        print("PASS Scythe routes/default images/manual PC/provider isolation")
+        if ProcessInfo.processInfo.environment["READER_LIVE_CHECK"] == "1" {
+            let live = ScytheAPI()
+            let catalog = try await live.catalog()
+            try expect(!catalog.isEmpty, "live Scythe catalog")
+            let series = catalog[0]
+            let list = try await live.chapters(series.slug)
+            let chapter = list.last!.key
+            let manifest = try await live.manifest(series.slug, chapter, token: nil)
+            let destination = root.appendingPathComponent("live-image")
+            let mime = try await live.image(manifest.pages[0].url, to: destination, urgent: true)
+            try expect(mime.hasPrefix("image/") && FileManager.default.fileExists(atPath: destination.path), "live Scythe image transfer")
+            print("PASS live Scythe: \(catalog.count) series, \(list.count) chapters, \(manifest.pages.count) pages, image \(mime)")
+        }
+        if let fixture = ProcessInfo.processInfo.environment["SCYTHE_HOME_FIXTURE"] {
+            let catalog = try ScytheParser.catalog(String(contentsOfFile: fixture, encoding: .utf8), path: "/")
+            try expect(!catalog.series.isEmpty, "captured live Scythe home parsed")
+            print("PASS captured Scythe home: \(catalog.series.count) series")
+        }
+
     }
 }

@@ -31,11 +31,13 @@ final class LocalTrust: NSObject, URLSessionDelegate, @unchecked Sendable {
 
 struct PCBackup: Sendable {
     private struct Config: Decodable { let url: String; let key: String }
+    private let provider: ProviderConfiguration
     private let base: URL?
     private let key: String
     private let session: URLSession
     var configured: Bool { base != nil && !key.isEmpty }
-    init() {
+    init(provider: ProviderConfiguration = .current) {
+        self.provider = provider
         let file = Bundle.main.url(forResource: "BackupConfig", withExtension: "json", subdirectory: "Native")
         let config = file.flatMap { try? Data(contentsOf: $0) }.flatMap { try? JSONDecoder().decode(Config.self, from: $0) }
         base = config.flatMap { URL(string: $0.url) }.flatMap { $0.scheme == "https" ? $0 : nil }
@@ -49,7 +51,7 @@ struct PCBackup: Sendable {
     }
     private func request(method: String, body: Data? = nil, status: Bool = false) async throws -> Data {
         guard configured, let base else { throw ReaderError.message("PC unavailable") }
-        var request = URLRequest(url: base.appendingPathComponent("api/reader-backups/manual/manga-reader/asurascans" + (status ? "/status" : "")))
+        var request = URLRequest(url: base.appendingPathComponent("api/reader-backups/manual/manga-reader/" + provider.rawValue + (status ? "/status" : "")))
         request.httpMethod = method; request.httpBody = body
         request.setValue(key, forHTTPHeaderField: "X-Reader-Backup-Key")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -66,35 +68,35 @@ struct PCBackup: Sendable {
 }
 
 enum BackupCodec {
-    static func encode(_ state: AppState) throws -> Data {
+    static func encode(_ state: AppState, provider: ProviderConfiguration = .current) throws -> Data {
         let progress: [[String: Any]] = state.progress.map { key, p in
-            ["id": "asurascans\u{0}" + key, "provider": "asurascans", "seriesSlug": key, "chapterId": p.chapter,
+            ["id": provider.rawValue + "\u{0}" + key, "provider": provider.rawValue, "seriesSlug": key, "chapterId": p.chapter,
              "imageIndex": p.page, "totalImages": p.total, "updatedAt": p.updatedAt]
         }
         let detail: [String: Any] = ["progress": try JSONSerialization.jsonObject(with: JSONEncoder().encode(state.progress)),
                                     "history": state.history]
         return try jsonData(["version": 1, "indexedDB": ["progress": progress,
             "tokens": state.tokens.map { ["key": $0.key, "value": $0.value] },
-            "metadata": [["key": "progress-schema-version", "value": 3], ["key": "asura-ios-v1", "value": detail]]]])
+            "metadata": [["key": "progress-schema-version", "value": 3], ["key": provider.metadataKey, "value": detail]]]])
     }
-    static func decode(_ data: Data) throws -> AppState {
+    static func decode(_ data: Data, provider: ProviderConfiguration = .current) throws -> AppState {
         let root = try object(data)
         guard root["version"] as? Int == 1, let db = root["indexedDB"] as? [String: Any],
               let rows = db["progress"] as? [[String: Any]], let tokens = db["tokens"] as? [[String: Any]],
               let metadata = db["metadata"] as? [[String: Any]],
               metadata.contains(where: { $0["key"] as? String == "progress-schema-version" && $0["value"] as? Int == 3 }) else { throw ReaderError.message("Unsupported reading backup") }
         var state = AppState()
-        for row in rows where row["provider"] as? String == "asurascans" {
+        for row in rows where row["provider"] as? String == provider.rawValue {
             guard let slug = row["seriesSlug"] as? String, CachePolicy.validSlug(slug),
                   let chapter = row["chapterId"] as? String, CachePolicy.validChapter(chapter),
                   let page = row["imageIndex"] as? Int, let total = row["totalImages"] as? Int,
                   total > 0, page >= 0, page < total, let date = row["updatedAt"] as? Double, date.isFinite,
-                  row["id"] as? String == "asurascans\u{0}" + slug, state.progress[slug] == nil else { throw ReaderError.message("Invalid backup position") }
-            let identity = CachePolicy.identity(slug)
+                  row["id"] as? String == provider.rawValue + "\u{0}" + slug, state.progress[slug] == nil else { throw ReaderError.message("Invalid backup position") }
+            let identity = provider.identity(slug)
             state.progress[identity] = Position(slug: slug, chapter: chapter, page: page, fraction: 0, total: total, updatedAt: date)
             state.history[identity, default: [:]][chapter] = page
         }
-        if let detail = metadata.first(where: { $0["key"] as? String == "asura-ios-v1" })?["value"] as? [String: Any] {
+        if let detail = metadata.first(where: { $0["key"] as? String == provider.metadataKey })?["value"] as? [String: Any] {
             if let history = detail["history"] as? [String: [String: Int]] {
                 for (slug, chapters) in history {
                     guard CachePolicy.validSlug(slug), chapters.allSatisfy({ CachePolicy.validChapter($0.key) && $0.value >= 0 }) else { throw ReaderError.message("Invalid backup history") }

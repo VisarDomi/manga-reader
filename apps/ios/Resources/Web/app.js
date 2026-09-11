@@ -5,7 +5,9 @@
   const rpc = async (command, args = {}) => JSON.parse(await window.webkit.messageHandlers.asura.postMessage({ command, args, document: documentID }));
   const el = (tag, cls, text) => { const node = document.createElement(tag); if (cls) node.className = cls; if (text !== undefined) node.textContent = text; return node; };
   const route = () => location.pathname.split('/').filter(Boolean);
-  const identity = slug => slug.replace(/-[0-9a-f]{8}$/i, '');
+  const identity = slug => state?.provider === 'scythescans' ? slug : slug.replace(/-[0-9a-f]{8}$/i, '');
+  const chapterID = chapter => chapter.id ?? chapter.number;
+  const chapterNumber = id => Number(String(id).match(/-chapter-(\d+(?:\.\d+)?)(?:-\d+)?$/)?.[1] ?? id);
   const chapterURL = (slug, chapter, resume = false) => `/reader/${encodeURIComponent(slug)}/${encodeURIComponent(chapter)}${resume ? '?resume=1' : ''}`;
   let touching = false, skipPositionSave = false, heldAnchor, anchorFrame;
   let state, home = route().length === 0, restoring = true, touched = false, currentManifest, saveChain = Promise.resolve();
@@ -144,11 +146,11 @@
     const link = el('a', 'chapter hs-home-chapter'), label = el('span', 'hs-home-chapter-label');
     label.append(el('span', '', `Chapter ${chapter.number}`));
     const p = state.progress[series.identity];
-    const read = state.history[series.identity]?.[chapter.number] >= 0 || (p && Number(chapter.number) < Number(p.chapter));
-    link.href = chapterURL(series.slug, chapter.number, p?.chapter === chapter.number);
-    if (read && p?.chapter !== chapter.number) link.href += '?end=1';
+    const read = state.history[series.identity]?.[chapterID(chapter)] >= 0 || (p && Number(chapter.number) < chapterNumber(p.chapter));
+    link.href = chapterURL(series.slug, chapterID(chapter), p?.chapter === chapterID(chapter));
+    if (read && p?.chapter !== chapterID(chapter)) link.href += '?end=1';
     if (read) link.classList.add('hs-home-chapter-read');
-    if (p?.chapter === chapter.number) link.classList.add(p.page >= p.total - 1 ? 'hs-home-chapter-read' : 'hs-home-chapter-partial');
+    if (p?.chapter === chapterID(chapter)) link.classList.add(p.page >= p.total - 1 ? 'hs-home-chapter-read' : 'hs-home-chapter-partial');
     const time = el('time', '', uploadedAt(chapter.published));
     if (chapter.locked) {
       link.classList.add('hs-home-chapter-locked'); label.append(lockIcon());
@@ -162,7 +164,7 @@
   }
   async function first(series) {
     const list = await rpc('chapters', { slug: series.slug });
-    if (list.length) await navigate(chapterURL(series.slug, list[0].number));
+    if (list.length) await navigate(chapterURL(series.slug, chapterID(list[0])));
   }
   function renderCatalog() {
     const catalog = document.querySelector('.catalog'); if (!catalog) return;
@@ -224,7 +226,7 @@
   }
   function appendChapter(m) {
     if (loadedChapters.has(m.chapter)) return;
-    loadedChapters.add(m.chapter); currentManifest = m; document.title = `${m.chapter} ${m.title}`;
+    loadedChapters.add(m.chapter); currentManifest = m; document.title = `${chapterNumber(m.chapter)} ${m.title}`;
     const section = el('div', 'hs-chapter'); section.dataset.chapter = m.chapter;
     m.pages.forEach((page, index) => {
       const slot = el('div', 'page'); slot.id = `page-${m.chapter}-${index}`;
@@ -234,7 +236,7 @@
       section.append(slot); pages.push(slot);
     });
     app.append(section); for (const slot of section.querySelectorAll('.page')) observer.observe(slot);
-    const at = m.chapters.findIndex(c => c.number === m.chapter), next = m.chapters[at + 1];
+    const at = m.chapters.findIndex(c => chapterID(c) === m.chapter), next = m.chapters[at + 1];
     if (next && at >= 0) {
       const end = el('div', 'chapter-sentinel'); app.append(end);
       let succeeded = false;
@@ -245,7 +247,7 @@
           end.className = 'hs-status hs-error'; end.textContent = 'Chapter unavailable';
           succeeded = true; nextLoading = false; return;
         }
-        try { const chapter = await rpc('open', { slug: m.slug, chapter: next.number });
+        try { const chapter = await rpc('open', { slug: m.slug, chapter: chapterID(next) });
           succeeded = true; end.remove(); appendChapter(chapter);
         } catch { end.className = 'hs-status hs-error'; end.textContent = 'Failed to load chapter'; succeeded = true; }
         finally { nextLoading = false; }
