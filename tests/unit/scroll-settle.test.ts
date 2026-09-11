@@ -58,6 +58,21 @@ it('drops a pending update on pagehide and accepts fresh work after bfcache rest
     expect(save).toHaveBeenCalledTimes(1);
 });
 
+it('does not mistake a pause under a held finger for settled scrolling', () => {
+    const save = vi.fn();
+    const request = onSettledScroll(save);
+    dispatchEvent(new TouchEvent('touchstart'));
+    dispatchEvent(new Event('scrollend'));
+    request();
+    vi.advanceTimersByTime(200);
+    expect(save).not.toHaveBeenCalled();
+    dispatchEvent(new TouchEvent('touchend', { touches: [] }));
+    vi.advanceTimersByTime(99);
+    expect(save).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(save).toHaveBeenCalledTimes(1);
+});
+
 it('never writes while hidden or replays the pre-hide timer after becoming visible', () => {
     const save = vi.fn();
     onSettledScroll(save);

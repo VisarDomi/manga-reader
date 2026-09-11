@@ -9,3 +9,11 @@ filters-hitomi.txt
 /repomix.config.json
 /repomix-output.txt
 tmp/
+
+apps/ios/build/
+apps/ios/Resources/BackupConfig.json
+apps/ios/Resources/LocalCA.cer
+apps/ios/*.local.json
+**/__pycache__/
+apps/ios/Resources/Native/BackupConfig.json
+apps/ios/Resources/Native/LocalCA.cer

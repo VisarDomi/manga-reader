@@ -15,8 +15,7 @@ import {
 } from '../../provider/worker';
 import { setWorkerContext } from './context';
 import type { ChapterData } from '../../provider/types';
-import { backupControl, type BackupCommand } from '../backup-engine';
-import { validateDatabaseBackup } from './backup';
+import { manualPC, type PCCommand } from './manual-pc';
 
 type Outcome =
     | { ok: true; value: unknown }
@@ -25,19 +24,7 @@ type Outcome =
 async function handle(request: ComputeRequest): Promise<Outcome> {
     try {
         switch (request.op) {
-            case 'backup-control':
-                return { ok: true, value: await backupControl(request.payload as BackupCommand, {
-                    capture: async () => { await writeQueue; await loadProgress(); return databaseBackup(); },
-                    restore: async data => {
-                        const restored = (writeQueue ?? Promise.resolve()).then(() => restoreDatabaseBackup(data));
-                        writeQueue = restored.catch(() => {});
-                        await restored;
-                    },
-                    stats(data) {
-                        const stores = validateDatabaseBackup(data).indexedDB;
-                        return `${stores.progress.length} series resume positions, ${stores.tokens.length} session records, ${stores.metadata.length} metadata records`;
-                    },
-                }) };
+            case 'manual-pc': return { ok: true, value: await manualPC(request.payload as PCCommand) };
             case 'backup-export':
                 await loadProgress();
                 return { ok: true, value: await databaseBackup() };
@@ -144,6 +131,7 @@ function respond(id: number, outcome: Outcome): void {
 // save cannot observe the previous local resume position.
 let writeQueue: Promise<void> | null = null;
 const WRITE_OPS: ReadonlySet<string> = new Set([
+    'manual-pc',
     'backup-export',
     'backup-import',
     'save-progress',
@@ -156,7 +144,7 @@ self.onmessage = (event: MessageEvent<ComputeRequest>) => {
     const task = async (): Promise<void> => {
         respond(request.id, await handle(request));
     };
-    if (WRITE_OPS.has(request.op)) {
+    if (WRITE_OPS.has(request.op) && !(request.op === 'manual-pc' && (request.payload as PCCommand).action === 'available')) {
         writeQueue = (writeQueue ?? Promise.resolve()).then(task);
     } else {
         void task();

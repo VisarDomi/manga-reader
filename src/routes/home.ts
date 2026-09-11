@@ -11,7 +11,7 @@ import { ImageRetryRegistry } from '../core/image-retry';
 import { CoverResumeKind } from '../core/compute/history';
 import type { CardResolution, CoverResumeModel } from '../core/compute/history';
 import { onBfcacheRestore } from '../core/lifecycle';
-import { backupMangaHome } from '../core/home-backup';
+import { installManualPC } from '../core/home-backup';
 
 const POLITE_PAGE_DELAY_MS = 1_000;
 
@@ -450,8 +450,6 @@ export async function open(provider: Provider): Promise<void> {
     loading.className = 'hs-home-loading';
     loading.textContent = 'Loading latest updates…';
     document.body.appendChild(loading);
-    // Backups also work when the provider catalog is slow or unavailable.
-    setTimeout(() => { void backupMangaHome(provider.key); }, 0);
     let remoteHistory: RemoteSeriesHistory[] = [];
 
     const firstPage = await fetchPageWhileActive(null, false);
@@ -465,6 +463,7 @@ export async function open(provider: Provider): Promise<void> {
     const status = document.createElement('p');
     status.className = 'hs-home-catalog-status';
     section.append(list, status);
+    installManualPC(section, provider.key, () => refreshHistory());
     main.appendChild(section);
     document.body.replaceChildren(main);
 

@@ -13,16 +13,36 @@ function imageLoaded(image: HTMLImageElement): boolean {
     return image.complete && image.naturalWidth > 0;
 }
 
-function waitForImage(image: HTMLImageElement): Promise<void> {
-    if (imageLoaded(image)) return Promise.resolve();
+function reconcileImageSize(image: HTMLImageElement): void {
+    if (image.naturalWidth <= 0 || image.naturalHeight <= 0) return;
+    if (image.style.height) image.style.removeProperty('height');
+    const ratio = image.naturalWidth + '/' + image.naturalHeight;
+    if (image.style.aspectRatio.replace(/\s/g, '') !== ratio) image.style.aspectRatio = ratio;
+}
+
+function waitForImage(image: HTMLImageElement, signal: AbortSignal): Promise<boolean> {
+    if (signal.aborted) return Promise.resolve(false);
+    if (imageLoaded(image)) {
+        // Safari can expose intrinsic dimensions before delivering load. Apply
+        // them now, before restore measures the following image's offset.
+        reconcileImageSize(image);
+        return Promise.resolve(true);
+    }
 
     return new Promise(resolve => {
+        const finish = (loaded: boolean) => {
+            image.removeEventListener('load', onLoad);
+            signal.removeEventListener('abort', onAbort);
+            if (loaded) reconcileImageSize(image);
+            resolve(loaded);
+        };
         const onLoad = () => {
             if (!imageLoaded(image)) return;
-            image.removeEventListener('load', onLoad);
-            resolve();
+            finish(true);
         };
+        const onAbort = () => finish(false);
         image.addEventListener('load', onLoad);
+        signal.addEventListener('abort', onAbort, { once: true });
         if (imageLoaded(image)) onLoad();
     });
 }
@@ -30,21 +50,36 @@ function waitForImage(image: HTMLImageElement): Promise<void> {
 async function restoreScroll(
     wrap: HTMLDivElement,
     target: HTMLImageElement,
+    signal: AbortSignal,
 ): Promise<void> {
     const images = Array.from(wrap.querySelectorAll<HTMLImageElement>('.hs-reader-img'));
     const targetIndex = images.indexOf(target);
     const firstImage = images[0];
     if (!firstImage) throw new Error('Cannot restore a chapter with no images');
     if (targetIndex === -1) throw new Error('Scroll target does not belong to the chapter');
-    await waitForImage(firstImage);
-    window.scrollTo(0, firstImage.offsetTop);
+    if (signal.aborted || !wrap.isConnected) return;
+    // Cached images need no scroll-through loading. Batch their size writes
+    // before a single layout read, including cached-but-not-yet-load-dispatched.
+    const preceding = images.slice(0, targetIndex + 1);
+    for (const image of preceding) if (imageLoaded(image)) reconcileImageSize(image);
+    if (preceding.every(imageLoaded)) {
+        window.scrollTo(0, target.offsetTop);
+        return;
+    }
+    if (!await waitForImage(firstImage, signal) || signal.aborted || !wrap.isConnected) return;
 
     for (let index = 1; index <= targetIndex; index++) {
         const image = images[index];
+        if (signal.aborted || !wrap.isConnected) return;
+        if (imageLoaded(image)) {
+            reconcileImageSize(image);
+            continue;
+        }
         window.scrollTo(0, image.offsetTop);
-        await waitForImage(image);
+        if (!await waitForImage(image, signal)) return;
     }
 
+    if (signal.aborted || !wrap.isConnected) return;
     window.scrollTo(0, target.offsetTop);
 }
 
@@ -72,12 +107,7 @@ function renderChapterImages(
         } else if (!imgData.height) {
             img.style.height = '1000px';
         }
-        const reconcileAspectRatio = () => {
-            if (img.naturalWidth > 0 && img.naturalHeight > 0) {
-                img.style.removeProperty('height');
-                img.style.aspectRatio = img.naturalWidth + '/' + img.naturalHeight;
-            }
-        };
+        const reconcileAspectRatio = () => reconcileImageSize(img);
         img.addEventListener('load', reconcileAspectRatio);
         img.loading = 'lazy';
         img.src = imgData.url;
@@ -140,21 +170,31 @@ export async function open(
     route: Extract<RouteMatch, { handler: Handler.Reader }>,
 ): Promise<void> {
     const { slug: routeSlug, chapterId } = route;
+    const restoreController = new AbortController();
+    const cancelRestore = () => restoreController.abort();
+    if (route.imageIndex) {
+        // Register before the chapter fetch so input during loading also wins.
+        for (const event of ['touchstart', 'pointerdown', 'wheel', 'keydown', 'pagehide']) {
+            window.addEventListener(event, cancelRestore, { passive: true, signal: restoreController.signal });
+        }
+    }
     // 1. Load the current chapter
     const initialState = await provider.loadChapter({
         slug: routeSlug,
         chapterId,
         intent: ChapterLoadIntent.Open,
-    });
+    }).catch(error => { cancelRestore(); throw error; });
     let data: ChapterData;
     switch (initialState.kind) {
         case ChapterLoadResultKind.Chapter:
             data = initialState.data;
             break;
         case ChapterLoadResultKind.Navigate:
+            cancelRestore();
             window.location.href = initialState.url;
             return;
         default:
+            cancelRestore();
             return invalidInitialChapterState(initialState);
     }
     const slug = data.seriesSlug;
@@ -176,7 +216,8 @@ export async function open(
     const target = route.imageIndex
         ? document.getElementById(`#${route.imageIndex}`) as HTMLImageElement | null
         : null;
-    let restoring = Boolean(target);
+    let restoring = Boolean(target) && !restoreController.signal.aborted;
+    if (!target) cancelRestore();
 
     // 3. Async: fetch chapter list
     let chapterListState: ChapterListState = {
@@ -309,8 +350,9 @@ export async function open(
     firstWrap.querySelector<HTMLImageElement>('.hs-reader-img')
         ?.addEventListener('load', schedulePositionUpdate, { once: true });
     if (target) {
-        void restoreScroll(firstWrap, target).finally(() => {
+        void restoreScroll(firstWrap, target, restoreController.signal).finally(() => {
             restoring = false;
+            cancelRestore();
             schedulePositionUpdate();
         });
     } else {

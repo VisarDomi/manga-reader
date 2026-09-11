@@ -190,3 +190,10 @@ body {
 .hs-home-pc button { appearance: none; border: 0; background: none; color: inherit; font: inherit; padding: 8px; cursor: pointer; }
 .hs-home-pc button:disabled { opacity: .5; }
 .hs-home-pc [role=status] { margin-left: 8px; }
+
+/* Native-only mechanics. The rules above are copied from src/style.css. */
+.page { position: relative; width: 100%; overflow: hidden; }
+.page > .hs-reader-img { position: absolute; inset: 0; width: 100%; height: 100%; }
+.page .retry { position: absolute; top: 20px; left: 16px; }
+.chapter-sentinel { height: 1px; }
+.native-link { appearance: none; border: 0; padding: 0; background: none; color: inherit; font: inherit; line-height: inherit; text-align: left; cursor: pointer; }

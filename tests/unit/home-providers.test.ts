@@ -17,7 +17,7 @@ const historyState = vi.hoisted(() => ({ progress: [] as unknown[] }));
 vi.mock('../../src/core/compute/transport', async () => {
     const { resolveHistory } = await import('../../src/core/compute/history');
     return {
-        computeRequest: (_op: string, payload: { cards: unknown; remoteHistory: unknown }) => Promise.resolve(
+        computeRequest: (_op: string, payload: { cards: unknown; remoteHistory: unknown }) => _op === 'manual-pc' ? Promise.resolve(false) : Promise.resolve(
             resolveHistory({
                 cards: payload.cards as never,
                 remoteHistory: payload.remoteHistory as never,

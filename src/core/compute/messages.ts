@@ -1,3 +1,4 @@
+import type { PCCommand } from './manual-pc';
 // Wire protocol between the main thread and the compute worker.
 // Both sides must stay DOM-free and serializable.
 
@@ -9,7 +10,6 @@ import type {
 import type { CardInput, CardResolution } from './history';
 import type { ChapterProgress } from './progress';
 import type { DatabaseBackup } from './backup';
-import type { BackupCommand } from '../backup-engine';
 
 export interface ComputeRequest {
     id: number;
@@ -54,7 +54,7 @@ interface TrackPayload {
 }
 
 export interface OpTypes {
-    'backup-control': { payload: BackupCommand; result: unknown };
+    'manual-pc': { payload: PCCommand; result: boolean };
     'backup-export': { payload: undefined; result: DatabaseBackup };
     'backup-import': { payload: unknown; result: undefined };
     'save-progress': { payload: SaveProgressPayload; result: ChapterProgress };

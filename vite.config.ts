@@ -44,16 +44,9 @@ export default defineConfig(({ mode }) => ({
             replacement: resolve(__dirname, 'src/provider/_empty.ts'),
         })),
     },
-    plugins: mode === 'extension' ? [{
-        name: 'safari-document-takeover',
-        enforce: 'pre',
-        transform(source, id) {
-            if (!id.endsWith('/src/core/shell.ts')) return;
-            const original = 'document.open();\n    document.close();';
-            if (!source.includes(original)) throw new Error('Manga takeover changed; inspect the Safari adapter');
-            return source.replace(original, 'document.documentElement?.replaceChildren();');
-        },
-    }] : [
+    // Keep the userscript's SOP takeover. The extension entry guards reentry
+    // before document.close(); replacing only the DOM retains site listeners.
+    plugins: mode === 'extension' ? [] : [
         monkey({
             entry: "src/main.ts",
             userscript: {

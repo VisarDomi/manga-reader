@@ -6,7 +6,15 @@ const file = 'dist/extension/content.js';
 const source = readFileSync(file, 'utf8');
 const revoke = '"(self.URL || self.webkitURL).revokeObjectURL(self.location.href);",';
 if (!source.includes(revoke)) throw new Error('Vite inline-worker wrapper changed; inspect before shipping');
-writeFileSync(file, source.replaceAll(revoke, '"",'));
+let output = source.replaceAll(revoke, '"",');
+// Opt-in native gesture observation. Normal builds contain no diagnostic code.
+if (process.env.MANGA_GESTURE_PROBE === '1') {
+    const probe = readFileSync('tests/ios/gesture-probe.js', 'utf8')
+        .replace('__CAPTURE_DEADLINE__', '(Date.now() + 300000)');
+    output = probe + ';\n' + output;
+    console.log('Temporary Asura gesture probe enabled; reinstall a normal build after capture.');
+}
+writeFileSync(file, output);
 const { version } = JSON.parse(readFileSync('package.json', 'utf8'));
 const sites = JSON.parse(readFileSync('src/core/sites.json', 'utf8'));
 const matches = Object.values(sites).map(site => `https://${site.domain}/*`);

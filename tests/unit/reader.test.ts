@@ -53,6 +53,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+    window.dispatchEvent(new Event('pagehide'));
     vi.clearAllTimers();
     vi.useRealTimers();
     vi.restoreAllMocks();
@@ -141,5 +142,75 @@ describe('Reader behavior', () => {
         loadImage(images[0]);
         await vi.waitFor(() => expect(scrollTo).toHaveBeenCalled());
         expect(scrollTo).toHaveBeenLastCalledWith(0, images[1].offsetTop);
+    });
+
+    it('applies cached intrinsic sizes before measuring the next lazy image', async () => {
+        const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+        await open(providerFor(chapter('1', 3)),
+            { handler: Handler.Reader, slug: 'series', chapterId: '1', imageIndex: '2' });
+        const images = [...document.querySelectorAll<HTMLImageElement>('.hs-reader-img')];
+        // Reproduce Safari: complete/naturalWidth become available before load.
+        Object.defineProperties(images[1], {
+            complete: { configurable: true, value: true },
+            naturalWidth: { configurable: true, value: 900 },
+            naturalHeight: { configurable: true, value: 16000 },
+        });
+        Object.defineProperty(images[2], 'offsetTop', {
+            get: () => images[1].style.height === '1000px' ? 1676 : 8285,
+        });
+        loadImage(images[0]);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(scrollTo).toHaveBeenLastCalledWith(0, 8285);
+        expect(scrollTo).not.toHaveBeenCalledWith(0, 1676);
+    });
+
+    it('never pulls the viewport back after input interrupts a pending image load', async () => {
+        const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+        await open(providerFor(chapter('1', 3)),
+            { handler: Handler.Reader, slug: 'series', chapterId: '1', imageIndex: '2' });
+        const images = [...document.querySelectorAll<HTMLImageElement>('.hs-reader-img')];
+        loadImage(images[0]);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(scrollTo).toHaveBeenCalled();
+        window.dispatchEvent(new Event('touchstart'));
+        scrollTo.mockClear();
+        loadImage(images[1]);
+        loadImage(images[2]);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(scrollTo).not.toHaveBeenCalled();
+        window.dispatchEvent(new TouchEvent('touchend', { touches: [] }));
+        window.dispatchEvent(new Event('scrollend'));
+        await vi.advanceTimersByTimeAsync(100);
+        expect(tracking.track).toHaveBeenCalled();
+    });
+
+    it('honors input received while the initial chapter request is still pending', async () => {
+        const data = chapter('1', 2);
+        let finish!: () => void;
+        const provider = providerFor(data);
+        provider.loadChapter = (() => new Promise(resolve => {
+            finish = () => resolve({ kind: ChapterLoadResultKind.Chapter, data });
+        })) as Provider['loadChapter'];
+        const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+        const pending = open(provider,
+            { handler: Handler.Reader, slug: 'series', chapterId: '1', imageIndex: '1' });
+        window.dispatchEvent(new Event('pointerdown'));
+        finish();
+        await pending;
+        document.querySelectorAll<HTMLImageElement>('.hs-reader-img').forEach(loadImage);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(scrollTo).not.toHaveBeenCalled();
+    });
+
+    it('restores a fully cached chapter in one jump', async () => {
+        vi.spyOn(HTMLImageElement.prototype, 'complete', 'get').mockReturnValue(true);
+        vi.spyOn(HTMLImageElement.prototype, 'naturalWidth', 'get').mockReturnValue(900);
+        vi.spyOn(HTMLImageElement.prototype, 'naturalHeight', 'get').mockReturnValue(16000);
+        const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+        await open(providerFor(chapter('1', 32)),
+            { handler: Handler.Reader, slug: 'series', chapterId: '1', imageIndex: '31' });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(scrollTo).toHaveBeenCalledTimes(1);
+        expect(document.getElementById('#30')!.style.height).toBe('');
     });
 });
