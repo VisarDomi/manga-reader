@@ -6,14 +6,14 @@ from pymobiledevice3.remote.native_tunnel import establish_native_rsd
 from pymobiledevice3.services.webinspector import WebinspectorService
 SNAPSHOT = """JSON.stringify({url:location.href,visible:document.visibilityState,ready:document.readyState,width:innerWidth,scrollY,cards:document.querySelectorAll('.card').length,pages:document.querySelectorAll('.page').length,loadedImages:[...document.images].filter(i=>i.complete&&i.naturalWidth>0).length,images:[...document.querySelectorAll('.page img')].map(i=>({src:i.getAttribute('src'),width:i.naturalWidth,height:i.naturalHeight})),errors:[...document.querySelectorAll('.message')].map(n=>n.textContent),scripts:[...document.scripts].map(n=>n.src),text:document.body.innerText.slice(0,800)})"""
 async def main():
-    parser=argparse.ArgumentParser();parser.add_argument('--evaluate-file');parser.add_argument('--screenshot');parser.add_argument('--seconds',type=float,default=1);args=parser.parse_args()
+    parser=argparse.ArgumentParser();parser.add_argument('--evaluate-file');parser.add_argument('--screenshot');parser.add_argument('--seconds',type=float,default=1);parser.add_argument('--host-bundle',action='append',default=['com.visar.AsuraReader']);args=parser.parse_args()
     logging.disable(logging.CRITICAL)
     lockdown=await establish_native_rsd(serial='00008101-000639912881401E')
     inspector=WebinspectorService(lockdown=lockdown)
     try:
         await asyncio.wait_for(inspector.connect(),15)
         pages=await inspector.get_open_application_pages(timeout=4)
-        candidates=[p for p in pages if p.application.bundle=='com.visar.AsuraReader' and p.page.web_url.startswith('asura://app/')]
+        candidates=[p for p in pages if p.application.bundle in args.host_bundle and p.page.web_url.startswith('asura://app/')]
         print('PAGES',json.dumps([{'id':p.page.id_,'url':p.page.web_url} for p in candidates]),flush=True)
         if len(candidates)!=1: raise RuntimeError('Open/unlock Asura Reader; expected one bundled reader page')
         pair=candidates[0];session=await asyncio.wait_for(inspector.inspector_session(pair.application,pair.page),15)

@@ -4,6 +4,10 @@ Working runbook, verified incrementally on 2026-09-11. Keep runtime changes in
 Manga Reader and packaging in the sibling `../../reader-extensions` repository.
 Do not edit user-owned `readme.md` / `README.md` or `test.txt`.
 
+For the proposed standalone LiveContainer deployment and reuse of Mac renewal,
+see [LiveContainer investigation](livecontainer-plan.md). It distinguishes source
+findings from device tests still needed; Gallery must remain installed during setup.
+
 ## Connect to the existing Hackintosh
 
 From this repository on Linux:

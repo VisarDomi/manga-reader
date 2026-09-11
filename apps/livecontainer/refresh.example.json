@@ -1,0 +1,21 @@
+{
+  "root": "/Users/visar/Developer/livecontainer",
+  "app": "build/signed/Payload/LiveContainer.app",
+  "team": "AVQL5DLWLT",
+  "bundleIds": [
+    "com.kdt.livecontainer.AVQL5DLWLT"
+  ],
+  "device": "00008101-000639912881401E",
+  "profileCache": "/Users/visar/Library/Developer/Xcode/UserData/Provisioning Profiles",
+  "inputs": [
+    "Provisioning",
+    "Provisioning.xcodeproj",
+    "scripts/build.sh",
+    "scripts/package.py",
+    "LiveContainer-3.8.0.ipa"
+  ],
+  "build": [
+    "/bin/bash",
+    "scripts/build.sh"
+  ]
+}

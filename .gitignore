@@ -17,3 +17,11 @@ apps/ios/*.local.json
 **/__pycache__/
 apps/ios/Resources/Native/BackupConfig.json
 apps/ios/Resources/Native/LocalCA.cer
+apps/livecontainer/build/
+apps/livecontainer/private/
+apps/livecontainer/*.ipa
+apps/livecontainer/*.local.json
+
+# Swift Package Manager test/dependency builds
+apps/ios/.build/
+apps/ios/.swiftpm/
