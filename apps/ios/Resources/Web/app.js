@@ -7,7 +7,7 @@
   const route = () => location.pathname.split('/').filter(Boolean);
   const identity = slug => slug.replace(/-[0-9a-f]{8}$/i, '');
   const chapterURL = (slug, chapter, resume = false) => `/reader/${encodeURIComponent(slug)}/${encodeURIComponent(chapter)}${resume ? '?resume=1' : ''}`;
-  let touching = false;
+  let touching = false, skipPositionSave = false, heldAnchor, anchorFrame;
   let state, home = route().length === 0, restoring = true, touched = false, currentManifest, saveChain = Promise.resolve();
   let pages = [], observer, nextLoading = false, loadedChapters = new Set();
   const imageRetry = new ReaderCore.ImageRetryRegistry();
@@ -67,7 +67,7 @@
     return { path: location.pathname, anchor: found.id, fraction: -rect.top / rect.height, y: scrollY };
   }
   function save() {
-    if (!state || restoring || touching) return saveChain;
+    if (!state || restoring || touching || skipPositionSave) return saveChain;
     const view = position();
     let progress;
     if (!home && view.anchor) {
@@ -83,31 +83,42 @@
     if (progress && currentManifest?.chapter === progress.chapter) {
       [...document.querySelectorAll('.hs-chapter')].at(-1)?.appendNext?.();
     }
-    saveChain = saveChain.catch(() => {}).then(async () => {
-      if (progress) await rpc('position', progress);
-      await rpc('view', view);
-    });
+    saveChain = saveChain.catch(() => {}).then(() => rpc('view-save', { view, progress }));
     return saveChain;
   }
   async function navigate(url) { await save().catch(() => {}); location.href = url; }
+  // Gallery's held-anchor restoration: align now and after layout/image changes,
+  // then hand scrolling entirely to the user on their first input.
+  function alignAnchor() {
+    if (!heldAnchor?.node.isConnected) return;
+    const rect = heldAnchor.node.getBoundingClientRect();
+    const y = scrollY + rect.top + rect.height * heldAnchor.fraction;
+    if (Math.abs(y - scrollY) > .5) scrollTo(0, Math.max(0, y));
+  }
   function restore(view) {
     if (!touched && view) {
       const node = view.anchor && document.getElementById(view.anchor);
-      if (node) scrollTo(0, node.offsetTop + node.offsetHeight * view.fraction);
+      if (node) { heldAnchor = { node, fraction: view.fraction }; alignAnchor(); }
       else scrollTo(0, view.y || 0);
     }
     restoring = false;
+    requestAnimationFrame(() => { alignAnchor(); schedulePositionUpdate(); });
   }
+  const positionResize = new ResizeObserver(() => {
+    if (!heldAnchor) return;
+    cancelAnimationFrame(anchorFrame); anchorFrame = requestAnimationFrame(alignAnchor);
+  });
+  positionResize.observe(app);
   addEventListener('touchstart', () => { touching = true; }, { passive: true });
   ['touchend', 'touchcancel'].forEach(type => addEventListener(type, () => { touching = false; }, { passive: true }));
-  ['touchstart', 'pointerdown', 'wheel', 'keydown'].forEach(type => addEventListener(type, () => { touched = true; restoring = false; }, { passive: true }));
+  ['touchstart', 'pointerdown', 'wheel', 'keydown'].forEach(type => addEventListener(type, () => { touched = true; restoring = false; heldAnchor = null; }, { passive: true }));
   addEventListener('scroll', () => { lastScroll = Date.now(); }, { passive: true });
   const schedulePositionUpdate = ReaderCore.onSettledScroll(() => { save().catch(() => {}); });
   addEventListener('pagehide', () => { save().catch(() => {}); });
   document.addEventListener('visibilitychange', () => { if (document.hidden) save().catch(() => {}); });
   addEventListener('pageshow', async event => {
     if (!event.persisted) return;
-    state = await rpc('init'); await rpc('ready', { home });
+    state = await rpc('init'); skipPositionSave = !!state.resumeReader; await rpc('ready', { home });
     if (home) { renderCatalog(); void probePC(); } else schedulePositionUpdate();
   });
   document.addEventListener('click', event => {
@@ -278,6 +289,9 @@
   (async () => {
     try {
       state = await rpc('init');
+      // Gallery's bootstrap document can render for back navigation, but must
+      // never checkpoint Home over the reader being restored on cold launch.
+      skipPositionSave = !!state.resumeReader;
       if (home) {
         renderHome();
         if (state.resumeReader) { location.href = state.resumeReader + '?resume=1&view=1'; return; }

@@ -615,3 +615,26 @@ entries/files to match Gallery Reader's no-custom-icon packaging. A clean Xcode
 build removes stale bundled images. `xcodebuild clean` also removes the generated
 `build/build.plist`; run deploy.py sync again after clean before GUI bootstrap.
 Keep the same app ID/container when installing this update.
+
+## Verified reader kill/relaunch fix
+
+Before the fix, reading the real app container's state.json showed chapter 123,
+page-123-1, fraction 0.09878883212038574, y=1500. SIGKILL + relaunch opened that
+reader at y=0 and then saved the incorrect start position. A simple browser cold
+launch fixture had passed; it did not model the bootstrap lifecycle save.
+
+Ported Gallery's skipPositionSave gate during the Home-to-reader launch redirect,
+held-anchor/animation-frame/ResizeObserver restoration with user-input release,
+and one native view-save checkpoint. Keep Asura's existing fraction definition.
+After installing the fix, the same physical SIGKILL + relaunch restored chapter
+123 at y=1500 with 28 slots and no errors. Evidence in ignored
+`.ios-debug/resume-fixed-before-kill.jsonl` and `resume-fixed-after-kill.jsonl`.
+Browser and native checkpoint regression tests passed. No PC state transfer.
+
+Read only the needed checkpoint fields when checking device state. The full
+state.json contains private history/session data; keep diagnostic copies private.
+`devicectl device copy from --domain-type appDataContainer --domain-identifier
+com.visar.AsuraReader --source 'Library/Application Support/AsuraReader/state.json'`
+can copy it to the Mac for inspection. Process listing JSON provides the exact
+AsuraReader PID; terminate that PID with --kill, then launch the same bundle ID.
+Only one Web Inspector collector may be attached at a time.

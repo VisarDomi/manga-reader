@@ -62,8 +62,13 @@ actor FakeAsura: AsuraSource {
         let m = try await store.manifest("fixture", "2")
         let page = try await store.page(m, 0, urgent: true)
         try expect(page.data == Data("image".utf8), "cached reader works with server offline")
+        let checkpoint = try jsonData(["view": ["path": "/reader/fixture/2", "anchor": "page-2-0", "fraction": 0.4, "y": 1500],
+                                       "progress": ["slug": "fixture", "chapter": "2", "page": 0, "fraction": 0.4, "total": 1, "updatedAt": 3000]])
+        try await store.saveCheckpoint(checkpoint)
         let restarted = ReaderStore(root: root, source: source); try await restarted.load()
         let restoredSnapshot = try await restarted.snapshot(), previousSnapshot = try await store.snapshot(); try expect(restoredSnapshot == previousSnapshot, "cold restart preserves local state")
+        let lastView = await restarted.lastView()
+        try expect(lastView.path == "/reader/fixture/2" && lastView.anchor == "page-2-0" && lastView.fraction == 0.4, "cold restart preserves reader checkpoint with progress")
         print("PASS prepare/prune/history/replacement/offline/cold restart")
         try await store.importBackup(BackupCodec.encode(AppState()))
         let empty = try object(Data(await store.snapshot().utf8))

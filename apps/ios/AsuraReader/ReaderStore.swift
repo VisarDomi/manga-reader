@@ -154,6 +154,28 @@ actor ReaderStore {
         state.history[key, default: [:]][p.chapter] = max(state.history[key]?[p.chapter] ?? -1, p.page)
         try persist()
     }
+    func saveCheckpoint(_ data: Data) throws {
+        struct Checkpoint: Decodable { let view: ViewPosition; let progress: Position? }
+        let checkpoint = try JSONDecoder().decode(Checkpoint.self, from: data)
+        let view = checkpoint.view
+        guard view.path == "/" || view.path.hasPrefix("/reader/"), view.y.isFinite,
+              view.fraction.isFinite else { throw ReaderError.message("Invalid view position") }
+        var next = state
+        if let p = checkpoint.progress {
+            guard CachePolicy.validSlug(p.slug), CachePolicy.validChapter(p.chapter), p.total > 0,
+                  p.page >= 0, p.page < p.total, p.fraction.isFinite, (0...1).contains(p.fraction), p.updatedAt.isFinite,
+                  view.path == "/reader/\(p.slug)/\(p.chapter)" else { throw ReaderError.message("Invalid reading checkpoint") }
+            let key = CachePolicy.identity(p.slug)
+            next.progress[key] = p
+            next.history[key, default: [:]][p.chapter] = max(next.history[key]?[p.chapter] ?? -1, p.page)
+        }
+        next.view = view
+        if view.path == "/" { next.home = view }
+        // Like Gallery's view-save, one acknowledged native write owns the
+        // complete resume state; suspension cannot split progress from screen.
+        try writeAtomically(JSONEncoder().encode(next), root.appendingPathComponent("state.json"))
+        state = next
+    }
     func saveView(_ data: Data) throws {
         let position = try JSONDecoder().decode(ViewPosition.self, from: data)
         guard position.path == "/" || position.path.hasPrefix("/reader/"), position.y.isFinite,
@@ -232,6 +254,7 @@ actor ReaderStore {
             measurePage(m, index, file: file)
             let size = manifests[m.key]?.pages[index] ?? m.pages[index]
             return try jsonText(["width": size.width, "height": size.height])
+        case "view-save": try saveCheckpoint(data)
         case "position": try savePosition(JSONDecoder().decode(Position.self, from: data))
         case "view": try saveView(data)
         case "pc-available": return await backup.available() ? "true" : "false"

@@ -130,3 +130,22 @@ real loaded 1200×800 and 900×16000 images, no errors, and only reader-core.js/
 Home had 343 cards. Browser/native checks establish behavior, not subjective
 physical scroll smoothness. Old 30-entry automatic pipeline verification is
 historical; the current product uses explicit Load/Save only.
+
+## Reader restart uses Gallery's position lifecycle
+
+Reference implementations: sibling Gallery's `Resources/native.js`,
+`gallery-server/downloader/public/offline/app.js` position helpers, and native
+`view-save` handler. On cold launch the intermediate Home document sets
+`skipPositionSave` while redirecting to the saved reader. Back navigation clears
+that flag when the retained Home document initializes again. Never let bootstrap
+Home overwrite the last reader checkpoint.
+
+Restoration holds the logical image anchor, aligns immediately and on the next
+animation frame/ResizeObserver layout changes, and releases it on user input,
+matching Gallery's lifecycle. Asura keeps its existing top-relative fractions
+for compatibility with saved bookmarks. A single native view-save atomically
+writes screen, fractional position, and reading progress; there is no second
+JS-to-native round trip required before suspension.
+
+Tests cover a lifecycle checkpoint requested while the bootstrap Home renders,
+exact fractional cold restart, and native persistence of the complete checkpoint.
