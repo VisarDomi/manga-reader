@@ -111,6 +111,11 @@ describe('Reader behavior', () => {
         await open(provider, { handler: Handler.Reader, slug: 'series', chapterId: '1' });
         await Promise.resolve();
         loadImage(document.querySelector<HTMLImageElement>('.hs-reader-img')!);
+        await vi.advanceTimersByTimeAsync(99);
+        expect(replaceState).not.toHaveBeenCalled();
+        expect(tracking.track).not.toHaveBeenCalled();
+        expect(loadChapter).toHaveBeenCalledTimes(1);
+        await vi.advanceTimersByTimeAsync(1);
         expect(replaceState).toHaveBeenCalledWith(null, '', '/1#0');
         expect(tracking.track).toHaveBeenCalledWith(first, '0');
         await Promise.resolve();
@@ -118,6 +123,7 @@ describe('Reader behavior', () => {
             .map(element => element.dataset.chapter)).toEqual(['1', '2']);
 
         window.dispatchEvent(new Event('scrollend'));
+        await vi.advanceTimersByTimeAsync(100);
         expect(loadChapter).toHaveBeenCalledTimes(2);
     });
 

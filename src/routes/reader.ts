@@ -3,6 +3,7 @@ import { ChapterLoadIntent, ChapterLoadResultKind, Handler } from '../provider';
 import { createReaderTracker } from '../core/tracking';
 import { ImageRetryRegistry } from '../core/image-retry';
 import { onBfcacheRestore } from '../core/lifecycle';
+import { onSettledScroll } from '../core/scroll-settle';
 
 function invalidInitialChapterState(state: never): never {
     throw new Error(`Invalid initial chapter state: ${String(state)}`);
@@ -207,7 +208,7 @@ export async function open(
             chapterListState = { kind: ChapterListStateKind.Ready, chapters };
             chaptersLoadingStatus.remove();
             if (pendingScrollEnd) {
-                handleScrollEnd();
+                schedulePositionUpdate();
             }
         },
         () => {
@@ -228,8 +229,8 @@ export async function open(
             wrapper.appendChild(createStatus('Progress sync failed', 'hs-error'));
         },
     });
-    function handleScrollEnd() {
-        if (restoring) return;
+    function updateSettledPosition() {
+        if (restoring || !wrapper.isConnected) return;
 
         const midpoint = window.innerHeight / 2;
         const saveImg = Array.from(wrapper.querySelectorAll<HTMLImageElement>('.hs-reader-img'))
@@ -302,17 +303,17 @@ export async function open(
             },
         );
     }
-    window.addEventListener('scrollend', handleScrollEnd);
-    onBfcacheRestore(handleScrollEnd);
-    window.addEventListener('load', handleScrollEnd, { once: true });
+    const schedulePositionUpdate = onSettledScroll(updateSettledPosition);
+    onBfcacheRestore(schedulePositionUpdate);
+    window.addEventListener('load', schedulePositionUpdate, { once: true });
     firstWrap.querySelector<HTMLImageElement>('.hs-reader-img')
-        ?.addEventListener('load', handleScrollEnd, { once: true });
+        ?.addEventListener('load', schedulePositionUpdate, { once: true });
     if (target) {
         void restoreScroll(firstWrap, target).finally(() => {
             restoring = false;
-            handleScrollEnd();
+            schedulePositionUpdate();
         });
     } else {
-        handleScrollEnd();
+        schedulePositionUpdate();
     }
 }
