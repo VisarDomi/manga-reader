@@ -12,7 +12,7 @@
     "tests": "node tests/ios/run-fresh.mjs",
     "tests:single": "node tests/ios/run.mjs",
     "build:ios": "node scripts/build-ios.mjs",
-    "test:ios:builder": "node --test apps/ios/Tests/builder.test.mjs"
+    "test:ios:builder": "node --test apps/ios/Tests/builder.test.mjs && python3 -B apps/ios/Tests/test_signing_lock.py"
   },
   "devDependencies": {
     "jsdom": "^29.1.1",

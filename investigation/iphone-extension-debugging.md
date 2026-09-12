@@ -1,5 +1,15 @@
 # Real iPhone extension debugging from Linux
 
+Shared Mac connection instructions: [mac-access.md](/home/visar/Documents/environment/mac-access.md).
+Ethernet is now `192.168.1.198`; USB wireless remains DHCP.
+
+Current paid Reader Extensions deployment (September 12): see
+[paid signing](../../../reader-extensions/PAID-SIGNING.md). The host is now
+`com.visar.readerextensions.paid`, installed and launched with team `65U58U86DD`.
+Its four extension profiles include this phone and expire September 12, 2027.
+The original personal-team deployment instructions below are historical; use
+the configured paid helper and its profile preflight.
+
 Working runbook, verified incrementally on 2026-09-11. Keep runtime changes in
 Manga Reader and packaging in the sibling `../../reader-extensions` repository.
 Do not edit user-owned `readme.md` / `README.md` or `test.txt`.
@@ -12,13 +22,22 @@ deployment status. Gallery remains a normal installed app.
 
 ## Connect to the existing Hackintosh
 
+September 12 network update: Ethernet (`en0`, service `Ethernet`) is now manually
+configured as **192.168.1.198/24**, gateway `192.168.1.1`, DNS `8.8.8.8` and
+`8.8.4.4`. USB wireless (`802.11ac NIC`, `en3`) remains DHCP. The old `.46`
+address briefly fell back to `169.254.115.35`; IPv6 SSH still worked and the
+wireless Extensions renewal completed during that outage. This was not evidence
+that the Mac had slept. SSH on `.198`, default route and DNS were verified.
+The dedicated trust file includes `.198` with the same previously trusted key.
+
+
 From this repository on Linux:
 
 ```bash
 ssh -o BatchMode=yes -o ConnectTimeout=8 \
   -o StrictHostKeyChecking=yes \
   -o UserKnownHostsFile=/home/visar/Documents/hackingtosh/validation/macos-known-hosts \
-  visar@192.168.1.46
+  visar@192.168.1.198
 ```
 
 Use these SSH options for SCP/rsync too. Plain SSH currently encounters a stale
@@ -95,7 +114,7 @@ Verified attachment command after copying the helper:
 ```bash
 ssh -o BatchMode=yes -o ConnectTimeout=8 -o StrictHostKeyChecking=yes \
   -o UserKnownHostsFile=/home/visar/Documents/hackingtosh/validation/macos-known-hosts \
-  visar@192.168.1.46 \
+  visar@192.168.1.198 \
   '/Users/visar/Developer/gallery-reader-extension/inspector-venv/bin/python /Users/visar/Developer/manga-reader-diagnostics/native-inspector.py --native --site manga --observe-seconds 0'
 ```
 
@@ -154,10 +173,10 @@ mkdir -p .ios-debug
 scp -o BatchMode=yes -o StrictHostKeyChecking=yes \
   -o UserKnownHostsFile=/home/visar/Documents/hackingtosh/validation/macos-known-hosts \
   tests/ios/observe-gestures.py tests/ios/gesture-probe.js \
-  visar@192.168.1.46:/Users/visar/Developer/manga-reader-diagnostics/
+  visar@192.168.1.198:/Users/visar/Developer/manga-reader-diagnostics/
 ssh -o BatchMode=yes -o ConnectTimeout=8 -o StrictHostKeyChecking=yes \
   -o UserKnownHostsFile=/home/visar/Documents/hackingtosh/validation/macos-known-hosts \
-  visar@192.168.1.46 \
+  visar@192.168.1.198 \
   '/Users/visar/Developer/gallery-reader-extension/inspector-venv/bin/python /Users/visar/Developer/manga-reader-diagnostics/observe-gestures.py --page-id 1 --seconds 300' \
   > .ios-debug/gestures-installed.jsonl 2>&1
 ```

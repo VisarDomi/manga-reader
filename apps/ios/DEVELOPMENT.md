@@ -1,6 +1,10 @@
 # Provider reader iOS apps
 
 One codebase and one Xcode target (`Reader`), built for exactly one provider.
+
+For the paid native deployment and current short app names, use
+[paid native setup](PAID-NATIVE.md). The unsigned LC build workflow below remains
+available for the existing guests.
 The selector uses the **same `src/core/sites.json` registry and provider names as
 `scripts/build.mjs`**, the userscript builder. Native adapters are `asura`, `scythe`, `ezmanga`, `qiscans`, `yaksha` and `lua`.
 EzManga and QiManga share the Angular adapter, matching the userscript factory. There is no implicit Asura default.

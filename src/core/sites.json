@@ -6,7 +6,7 @@
     "documentTitle": "EzManga",
     "ios": {
       "productName": "EzMangaReader",
-      "displayName": "EzManga Reader",
+      "displayName": "EzScans",
       "bundleIdentifier": "com.visar.EzMangaReader",
       "source": "AngularAPI.swift"
     }
@@ -18,7 +18,7 @@
     "documentTitle": "Qi Manga",
     "ios": {
       "productName": "QiMangaReader",
-      "displayName": "QiManga Reader",
+      "displayName": "QiScans",
       "bundleIdentifier": "com.visar.QiMangaReader",
       "source": "AngularAPI.swift"
     }
@@ -29,7 +29,7 @@
     "documentTitle": "Yaksha Comics",
     "ios": {
       "productName": "YakshaReader",
-      "displayName": "Yaksha Reader",
+      "displayName": "Yaksha",
       "bundleIdentifier": "com.visar.YakshaReader",
       "source": "YakshaAPI.swift"
     }
@@ -41,7 +41,7 @@
     "documentTitle": "Asura Scans",
     "ios": {
       "productName": "AsuraReader",
-      "displayName": "Asura Reader",
+      "displayName": "Asura",
       "bundleIdentifier": "com.visar.AsuraReader",
       "source": "AsuraAPI.swift"
     }
@@ -52,7 +52,7 @@
     "documentTitle": "Scythe Scans",
     "ios": {
       "productName": "ScytheReader",
-      "displayName": "Scythe Reader",
+      "displayName": "Scythe",
       "bundleIdentifier": "com.visar.ScytheReader",
       "source": "ScytheAPI.swift"
     }
@@ -63,7 +63,7 @@
     "documentTitle": "Lua Comic",
     "ios": {
       "productName": "LuaReader",
-      "displayName": "Lua Reader",
+      "displayName": "Lua",
       "bundleIdentifier": "com.visar.LuaReader",
       "source": "LuaAPI.swift"
     }

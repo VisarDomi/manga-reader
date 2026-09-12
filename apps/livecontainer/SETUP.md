@@ -1,5 +1,13 @@
 # Standalone LiveContainer on the signing Mac
 
+September 12 retirement: the user deleted LiveContainer from the phone after
+migrating the readers to paid native apps. Its free daily renewal configuration
+and job are retired. The instructions below are historical; do not restore LC
+or its renewal implicitly. Current recovery: [environment setup](/home/visar/Documents/environment/mac-renewal/RECOVERY.md).
+
+Shared Mac connection instructions: [mac-access.md](/home/visar/Documents/environment/mac-access.md).
+Ethernet is now `192.168.1.198`; USB wireless remains DHCP.
+
 Working setup for Visar's existing free development account. No SideStore,
 AltStore, jailbreak, or daily guest provisioning. Gallery Reader remains a normal
 installed app with its existing independent renewal job.
@@ -57,7 +65,7 @@ Keep the existing Mac directory/private export and phone data. From Linux:
 ```bash
 rsync -az --exclude=build --exclude=private --exclude='*.local.json' \
   -e 'ssh -o BatchMode=yes -o ConnectTimeout=8 -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/home/visar/Documents/hackingtosh/validation/macos-known-hosts' \
-  apps/livecontainer/ visar@192.168.1.46:/Users/visar/Developer/livecontainer/
+  apps/livecontainer/ visar@192.168.1.198:/Users/visar/Developer/livecontainer/
 ```
 
 Before deliberately updating build inputs, check for a running LC refresh/build.
