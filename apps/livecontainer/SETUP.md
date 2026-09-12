@@ -11,8 +11,10 @@ host renewal have passed on the real iPhone. The faster Shortcuts launch action
 now has its LaunchAppExtension and ShareExtension installed with the verified
 Apple-granted App Group. The certificate was reimported into shared settings;
 Asura still restores (native inspection: y=748, 25 pages, no errors). A physical
-Launch App shortcut test and final wireless renewal for this helper build remain
-pending; the LC daily job has not been enabled yet.
+Launch App is discoverable in Apple Shortcuts: a physical screenshot confirmed
+the LC action and its Launch URL field on September 12. End-to-end fast launch
+and final wireless renewal for this helper build are not yet recorded as passed;
+the LC daily job has not been enabled yet.
 
 See [investigation and device evidence](../../investigation/livecontainer-plan.md)
 and [trusted SSH/iPhone runbook](../../investigation/iphone-extension-debugging.md).
@@ -162,12 +164,60 @@ supports both an Open URLs shortcut and a faster LC Launch App action. In pinned
 3.8.0 the helper called "LaunchAppExtensionHelper" in the guide is implemented by
 ShareExtension; the source explicitly requires LaunchAppExtension + ShareExtension.
 
-After the fast-launch action is verified: hold Asura in LC → Add to Home Screen →
-Copy Launch URL. In Apple Shortcuts create a shortcut with LC's **Launch App**
-action, paste that URL, run it once, then Share → Add to Home Screen. Name it
-Asura; use the desired saved icon or a plain shortcut icon. Duplicate the shortcut
-and replace its URL for later providers. The basic **Open URLs** shortcut remains
-available when LC's launch helpers are absent.
+Use this exact flow for each reader:
+
+1. Hold the reader in LC → Add to Home Screen → Copy Launch URL. If multiple
+   containers exist, select the intended one first so its URL preserves that choice.
+2. Open Apple Shortcuts → + → search **Launch App** → choose **LiveContainer's**
+   action (LC's icon), rather than Apple's generic Open App action.
+3. In the action card, tap the gray **Launch URL on the right**, paste the copied
+   URL, and dismiss the keyboard. Tap the **▶ at bottom-right** to test it.
+4. Verify the intended reader opens and restores its state. Return to the shortcut
+   editor, rename the shortcut, then Share (square/up arrow) → Add to Home Screen.
+5. Duplicate the shortcut for the remaining readers and replace the launch URL
+   using each one's Copy Launch URL. Test each before adding its Home Screen icon.
+
+The six current products are AsuraReader, ScytheReader, EzMangaReader,
+QiMangaReader, LuaReader and YakshaReader. The basic URL for each is
+`livecontainer://livecontainer-launch?bundle-name=com.visar.<Product>.app`;
+prefer LC's copied URL when it includes a selected container. This action uses
+the installed launch helpers to bypass the LC UI. Upstream estimates about 1–2
+seconds saved per launch; that is not a measured result on this phone. Open URLs
+and Create App Clip are different launch paths and do not select this fast action.
+
+September 12 clarification: the user's six old Home Screen entries were made
+with LC's **Create App Clip**, not Apple Shortcuts. The user is deleting those
+entries. All six guests now contain manually loaded reading history: preserve
+their LC containers. Replace the entries with Apple's Shortcuts **Launch App**
+action, then Add to Home Screen from that shortcut's share menu. Do not create
+more App Clips or substitute Open URLs.
+
+The Hackintosh's `shortcuts sign --mode anyone` currently fails with “In order
+to do this, you must be signed into iCloud.” Its Shortcuts list is empty. A
+generated unsigned file is not a delivered/importable shortcut; no shortcut
+was created on the phone by that signing attempt. Do not configure the user's
+iCloud account just to avoid the editor. Native inspection can capture the
+phone screen, but its simulated editor taps did not work in earlier checks.
+Create/test the first action on the phone, then duplicate it for each provider.
+The host and its two launch helpers already exist; no LC rebuild is needed for
+this step. Physical fast-launch acceptance remains pending.
+
+Read-only launch diagnostics can copy the shared preferences using devicectl's
+`appGroupDataContainer` domain, identifier `group.com.kdt.livecontainer.AVQL5DLWLT`,
+source `Library/Preferences/group.com.kdt.livecontainer.AVQL5DLWLT.plist`.
+Use a private temporary file and print only `LCLaunchExtensionScheme`,
+`LCLaunchExtensionBundleID`, `LCLaunchExtensionContainerName`, and
+`LCLaunchExtensionLaunchDate`, plus a boolean for the private-Documents bookmark.
+Never print the entire preferences dictionary: it holds signing credentials.
+Before the first fast-shortcut test, the bookmark was present and the four
+launch fields were absent. LC consumes some launch fields during bootstrap;
+their later absence alone is not failure evidence.
+
+Later readback showed a launch request for `com.visar.AsuraReader.app`, scheme
+`livecontainer`, and its original container `5B055983-441F-45CA-979E-CAFC27788B94`,
+with device timestamp `2026-09-12 14:49:21.944323`. This establishes that launch
+parameters were written; it is not a timed cold-launch measurement or proof that
+all six Home Screen shortcuts were completed. Keep those evidence levels distinct.
 
 The earlier Reader Extensions guest experiment was superseded by the user's
 request to install it normally. Its Safari extensions are separate from LC's own
@@ -182,7 +232,7 @@ Gallery Reader, LiveContainer, and Reader Extensions; Scythe is an LC guest.
 
 Historical September 11 implementation used a Scythe provider target (replaced
 on September 12 by one target and a required provider builder). See
-[provider app development](../ios/DEVELOPMENT.md#livecontainer-guest-builds-asura-and-scythe).
+[provider app development](../ios/DEVELOPMENT.md#livecontainer-guest-builds).
 Its unsigned iPhone build and native/browser tests passed, including a real Scythe
 catalog (63 series), chapter list (907 chapters), manifest (7 pages), and image
 transfer. Scythe was imported using LC's normal IPA installer and verified on
