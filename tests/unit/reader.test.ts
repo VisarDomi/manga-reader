@@ -112,11 +112,7 @@ describe('Reader behavior', () => {
         await open(provider, { handler: Handler.Reader, slug: 'series', chapterId: '1' });
         await Promise.resolve();
         loadImage(document.querySelector<HTMLImageElement>('.hs-reader-img')!);
-        await vi.advanceTimersByTimeAsync(99);
-        expect(replaceState).not.toHaveBeenCalled();
-        expect(tracking.track).not.toHaveBeenCalled();
-        expect(loadChapter).toHaveBeenCalledTimes(1);
-        await vi.advanceTimersByTimeAsync(1);
+        // A loaded image can update an idle reader immediately, with no timer.
         expect(replaceState).toHaveBeenCalledWith(null, '', '/1#0');
         expect(tracking.track).toHaveBeenCalledWith(first, '0');
         await Promise.resolve();
@@ -124,7 +120,7 @@ describe('Reader behavior', () => {
             .map(element => element.dataset.chapter)).toEqual(['1', '2']);
 
         window.dispatchEvent(new Event('scrollend'));
-        await vi.advanceTimersByTimeAsync(100);
+        await vi.advanceTimersByTimeAsync(0);
         expect(loadChapter).toHaveBeenCalledTimes(2);
     });
 
@@ -180,7 +176,7 @@ describe('Reader behavior', () => {
         expect(scrollTo).not.toHaveBeenCalled();
         window.dispatchEvent(new TouchEvent('touchend', { touches: [] }));
         window.dispatchEvent(new Event('scrollend'));
-        await vi.advanceTimersByTimeAsync(100);
+        await vi.advanceTimersByTimeAsync(0);
         expect(tracking.track).toHaveBeenCalled();
     });
 

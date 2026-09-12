@@ -121,7 +121,7 @@ private data remains in its existing guest container.
 Build the provider's native `.app` on the Mac as usual, then:
 
 ```bash
-python3 scripts/deploy.py import-app /Users/visar/Developer/asura-reader/build/Release-iphoneos/AsuraReader.app
+python3 scripts/deploy.py import-app /Users/visar/Developer/asura-reader/build/asura/Release-iphoneos/AsuraReader.app
 python3 scripts/deploy.py launch-asura
 ```
 
@@ -180,7 +180,8 @@ Reader Extensions was reinstalled normally as `Reader Extensions.app`, bundle ID
 matched staging. Gallery remains untouched. The current three native hosts are
 Gallery Reader, LiveContainer, and Reader Extensions; Scythe is an LC guest.
 
-The shared reader now has a Scythe provider target. See
+Historical September 11 implementation used a Scythe provider target (replaced
+on September 12 by one target and a required provider builder). See
 [provider app development](../ios/DEVELOPMENT.md#livecontainer-guest-builds-asura-and-scythe).
 Its unsigned iPhone build and native/browser tests passed, including a real Scythe
 catalog (63 series), chapter list (907 chapters), manifest (7 pages), and image

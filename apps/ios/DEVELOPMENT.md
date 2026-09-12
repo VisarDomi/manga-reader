@@ -1,17 +1,42 @@
 # Provider reader iOS apps
 
-AsuraReader (`com.visar.AsuraReader`) and ScytheReader (`com.visar.ScytheReader`)
-are targets sharing the same Swift runtime, web resources, and reader UI.
-The target sets `ReaderProvider` in Info.plist; `ReaderSource` supplies catalog,
-chapters, manifest, and image transfers. Asura parses its API; Scythe mirrors
-`src/provider/scythe.ts` using native SwiftSoup HTML parsing on its actor.
-Scythe preserves complete chapter URLs (including collision suffixes) separately
-from displayed chapter numbers. Its backup provider is `scythescans`, with
-`scythe-ios-v1` fractional history metadata. Asura state paths/keys stay compatible.
-Both apps keep the private `asura://app/` web bridge for compatibility; this is
-only an internal origin, not a network provider or shared storage container.
-Bundled WKWebView reader; Swift actors own storage/networking. No Asura page
-scripts, extension targets, or SOC. Do not reuse another app's ID or data container.
+One codebase and one Xcode target (`Reader`), built for exactly one provider.
+The selector uses the **same `src/core/sites.json` registry and provider names as
+`scripts/build.mjs`**, the userscript builder. Currently implemented native
+adapters are `asura` and `scythe`; other registered web providers fail clearly
+until their native adapters are added. There is no implicit Asura default.
+
+From the manga-reader root on Linux:
+
+```sh
+npm run build:ios -- scythe
+npm run build:ios -- asura
+```
+
+This prepares the shared web resources, generates the native provider registry,
+syncs to the configured Hackintosh and builds an **unsigned LC guest**, without
+registering an Apple app ID or installing anything. For preparation without a
+Mac connection, add `--prepare-only`. Missing/multiple/unknown provider arguments
+fail before preparation, version changes or SSH. App identity comes from each
+site's `ios` entry; source selection excludes other provider adapters. Adding a
+provider requires its native adapter, registry metadata and compile-time factory
+selection, never a copy of the reader/store/UI or another Xcode target.
+
+Provider-specific outputs on the Mac:
+`build/scythe/Release-iphoneos/ScytheReader.app` and
+`build/asura/Release-iphoneos/AsuraReader.app`.
+Existing IDs remain `com.visar.ScytheReader` and `com.visar.AsuraReader`.
+`ReaderSource` supplies catalog, chapters, manifests and image transfers. Shared
+Swift actors handle history, restore, downloads, pruning and manual PC Save/Load;
+shared HTML/CSS/JS handles the UI. Scythe's adapter mirrors `src/provider/scythe.ts`
+using SwiftSoup. Complete chapter IDs remain distinct from displayed numbers.
+
+The chosen provider is compiled into the app. It is not detected from
+`Bundle.main` at runtime, and missing host metadata cannot select another provider.
+App data directories and manual PC namespaces remain provider-specific. Both
+retain `asura://app/` as their private compatibility origin; this does not select
+a provider or imply shared native storage. No site JavaScript or SOC is involved.
+No automatic history migration or sync is added: use existing explicit Save/Load.
 
 ## Product contract and source parity
 
@@ -19,7 +44,7 @@ Use manga-reader's userscript as the behavior/UI reference. `scripts/prepare-web
 (runs during deploy sync) copies `src/style.css` and compiles the actual
 `src/core/scroll-settle.ts` and `image-retry.ts` into bundled `reader-core.js`.
 Keep the userscript's 150×200 covers, chapter rows/read colors, midpoint progress,
-100ms touch-aware settling, retry policy, continuous next chapter, full-width
+touch-aware scrollend settling without the 100ms delay, retry policy, continuous next chapter, full-width
 images, 50svh top and 100svh bottom reader padding. No custom toolbar, header,
 search, titles, download badges, or All chapters controls.
 
@@ -77,7 +102,7 @@ Server implementation: `gallery-server/downloader/src/manual-manga-state.ts` and
 
 ## Private local configuration
 
-`AsuraReader/` contains Swift runtime; `Resources/Web/` contains the bundled UI.
+`AsuraReader/` is the historical directory name for the shared Swift runtime; `Resources/Web/` contains the bundled UI.
 Optional ignored `Resources/Native/BackupConfig.json`:
 
 ```json
@@ -98,14 +123,14 @@ Copy trusted connection fields from existing Reader Extensions deploy config to
 ignored `apps/ios/deploy.local.json`: host, knownHosts, guiUid, signingTeam, device.
 
 ```sh
-python3 apps/ios/scripts/deploy.py sync
-python3 apps/ios/scripts/deploy.py build
-python3 apps/ios/scripts/deploy.py status
+python3 apps/ios/scripts/deploy.py sync asura
+python3 apps/ios/scripts/deploy.py build asura
+python3 apps/ios/scripts/deploy.py status asura
 # Require no PID, LastExitStatus=0, and BUILD SUCCEEDED.
-python3 apps/ios/scripts/deploy.py check
-python3 apps/ios/scripts/deploy.py install
-python3 apps/ios/scripts/deploy.py finish
-python3 apps/ios/scripts/deploy.py launch
+python3 apps/ios/scripts/deploy.py check asura
+python3 apps/ios/scripts/deploy.py install asura
+python3 apps/ios/scripts/deploy.py finish asura
+python3 apps/ios/scripts/deploy.py launch asura
 ```
 
 Signing uses GUI LaunchAgent `com.visar.asura-reader-build` and the existing
@@ -165,13 +190,14 @@ See [LC setup](../livecontainer/SETUP.md) for the host, certificate, and renewal
 Gallery Reader remains a normal installed app. Reader Extensions was reinstalled
 as a normal app named **Reader Extensions**, preserving its existing bundle ID.
 
-Sync shared sources from Linux as above, then on the Mac:
+Build the selected guest from Linux with `npm run build:ios -- scythe`.
+For a repeat build from already-synced sources, on the Mac:
 
 ```sh
 cd /Users/visar/Developer/asura-reader
 python3 scripts/build-guest.py scythe
 # Also accepts asura. No Apple provisioning/account registration for guests.
-python3 /Users/visar/Developer/livecontainer/scripts/deploy.py import-app /Users/visar/Developer/asura-reader/build/Release-iphoneos/ScytheReader.app
+python3 /Users/visar/Developer/livecontainer/scripts/deploy.py import-app /Users/visar/Developer/asura-reader/build/scythe/Release-iphoneos/ScytheReader.app
 ```
 
 The guest builder shares the existing Mac signing lock. Do not bypass an active
@@ -196,3 +222,19 @@ native cache/backup/Scythe parsing tests and live HTTP checks passed. This verif
 functional restoration, not the user's physical scroll feel. The existing Asura
 guest was preserved and separately verified after the LC helper update; its
 shared-source refactor is tested locally but has not replaced that guest yet.
+
+## Provider builder validation, 2026-09-12
+
+Run `npm run test:ios:builder` for required selection/registry identity checks.
+The shared browser contract also starts with empty history for each provider,
+reads a chapter, returns Home and checks partial marking plus cover resume.
+Native tests pass numeric and full-route chapter IDs through the same persisted
+checkpoint code, starting empty and reopening the store. These supplement the
+older tests that began with prepopulated progress; they do not substitute for
+physical LC reading acceptance.
+
+Both provider builds were imported into the existing LC guests on September 12.
+Installed shared reader-core.js matched the builds; existing independent guest
+containers and reading-state entry counts were retained. User physically tested
+Scythe and confirmed it works. See the [handoff](../../investigation/2026-09-12-handoff.md)
+for the limits of the earlier diagnosis and pending unrelated work.

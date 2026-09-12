@@ -20,12 +20,24 @@
     "domain": "asurascans.com",
     "apiBase": "https://api.asurascans.com/api",
     "provider": "asura",
-    "documentTitle": "Asura Scans"
+    "documentTitle": "Asura Scans",
+    "ios": {
+      "productName": "AsuraReader",
+      "displayName": "Asura Reader",
+      "bundleIdentifier": "com.visar.AsuraReader",
+      "source": "AsuraAPI.swift"
+    }
   },
   "scythescans": {
     "domain": "scythescans.com",
     "provider": "scythe",
-    "documentTitle": "Scythe Scans"
+    "documentTitle": "Scythe Scans",
+    "ios": {
+      "productName": "ScytheReader",
+      "displayName": "Scythe Reader",
+      "bundleIdentifier": "com.visar.ScytheReader",
+      "source": "ScytheAPI.swift"
+    }
   },
   "luacomic": {
     "domain": "luacomic.org",

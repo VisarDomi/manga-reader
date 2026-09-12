@@ -642,3 +642,26 @@ com.visar.AsuraReader --source 'Library/Application Support/AsuraReader/state.js
 can copy it to the Mac for inspection. Process listing JSON provides the exact
 AsuraReader PID; terminate that PID with --kill, then launch the same bundle ID.
 Only one Web Inspector collector may be attached at a time.
+
+## Stream Viewer scrollend delivery, 2026-09-12
+
+Stream Viewer commit `cca6e68`, version 261, restores the previous immediate
+scrollend settlement and removes the 100ms position sampler. Userscript and
+extension bundles were rebuilt in its source repository. The local Vite SOC
+change remains uncommitted and is included in the extension artifact; its
+XVideos takeover test still expects the older replacement behavior and fails.
+Scroll, provider fixture, multi-video and cookie tests passed.
+
+Verified the previous Mac signed artifact matched all four local staged bundles,
+then staged only Stream Viewer (`npm run stage -- stream-viewer`). Standard
+sync/build/status/install/finish completed successfully with the existing host
+ID `com.visar.galleryreader.extensiontest`; all embedded hashes and the complete
+signature passed before devicectl confirmed installation. Other staged readers
+were preserved. Stream content SHA-256:
+`fb73c7754f18fb24b76a3cb2014807a9ce569cef2a7b68606a07365c14725142`.
+
+Reload the Safari page once before physical testing. No physical gesture
+acceptance or post-install Safari runtime inspection was performed in this
+delivery. Reader Extensions renewal was already unloaded before this work;
+no active signing jobs were present. This deployment leaves that pre-existing
+renewal state unchanged, pending its separate wireless/baseline workflow.

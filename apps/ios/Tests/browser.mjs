@@ -28,14 +28,14 @@ try {
    if(command==='chapters')return JSON.stringify(chapters);
    if(command==='measure')return JSON.stringify({width:900,height:16000});
    if(command==='view-save'){
-     if(args.progress){lastPosition=args.progress;state.progress[seriesIdentity]=args.progress;}
+     if(args.progress){lastPosition=args.progress;state.progress[seriesIdentity]=args.progress;state.history[seriesIdentity]??={};state.history[seriesIdentity][args.progress.chapter]=Math.max(state.history[seriesIdentity][args.progress.chapter]??-1,args.progress.page);}
      viewWrites.push(args.view);state.view=args.view;if(args.view.path==='/')state.home=args.view;return '{}';
    }
    if(command==='position'){lastPosition=args;state.progress[seriesIdentity]=args;return '{}';}
    if(command==='view'){viewWrites.push(args);state.view=args;if(args.path==='/')state.home=args;return '{}';}
    if(command==='pc-available')return JSON.stringify(pcAvailable);
    if(command==='pc-load'||command==='pc-save'){pcActions.push(command);return command==='pc-load'?JSON.stringify(state):'{}';}
-   if(command==='open')return JSON.stringify({slug:p.slug,chapter:args.chapter,title:'Fixture',pages:Array.from({length:20},()=>({url:'unused',width:0,height:0})),chapters,position:args.resume&&state.progress[seriesIdentity].chapter===args.chapter?state.progress[seriesIdentity]:undefined});
+   if(command==='open')return JSON.stringify({slug:p.slug,chapter:args.chapter,title:'Fixture',pages:Array.from({length:20},()=>({url:'unused',width:0,height:0})),chapters,position:args.resume&&state.progress[seriesIdentity]?.chapter===args.chapter?state.progress[seriesIdentity]:undefined});
    return '{}';
  });
  await context.addInitScript(()=>{window.webkit={messageHandlers:{asura:{postMessage:body=>window.nativeRPC(body)}}};});
@@ -94,6 +94,24 @@ try {
  assert.ok(Math.abs(restoredFraction-savedView.fraction)<.002,'cold reader restart restores exact saved image fraction');
  assert.deepEqual(errors,[]);
  console.log(provider, 'PASS UI: cover fraction, manual scroll, First chapter, continuous next, bounded image sources, optional PC, cold reader restart');
+ // Repeat through the same UI with no seeded reading history.
+ await cold.close();state.progress={};state.history={};state.view={path:'/'};state.home={path:'/'};lastPosition=undefined;
+ const fresh=await context.newPage();fresh.on('pageerror',e=>errors.push(e.message));
+ await fresh.goto(base);await fresh.waitForSelector('.cover');
+ assert.equal(await fresh.locator('.hs-home-chapter-partial,.hs-home-chapter-read').count(),0);
+ await fresh.locator(`a.chapter[href="/reader/${p.slug}/${cid(2)}"]`).click();
+ await fresh.waitForFunction(id=>document.getElementById(id)?.querySelector('img')?.naturalWidth>0,`page-${cid(2)}-0`);
+ await fresh.evaluate(()=>{dispatchEvent(new Event('wheel'));scrollTo(0,1200);dispatchEvent(new Event('scrollend'));});
+ await fresh.evaluate(()=>window.readerState.save());
+ assert.equal(lastPosition.chapter,cid(2),'reading from empty history saves the selected provider chapter');
+ assert.equal(state.history[seriesIdentity][cid(2)],0,'chapter history written through checkpoint');
+ await fresh.goBack();await fresh.waitForSelector('.cover');
+ assert.ok((await fresh.locator('.cover').getAttribute('href')).includes(`${cid(2)}?resume=1`),'Home cover resumes newly read chapter');
+ assert.equal(await fresh.locator('.hs-home-chapter-partial').count(),1,'Home marks newly read chapter partial');
+ await fresh.locator('.cover').click();await fresh.waitForSelector(`#page-${cid(2)}-0`);
+ await fresh.waitForFunction(()=>scrollY>1000);
+ assert.deepEqual(errors,[]);
+ console.log(provider,'PASS empty history → read → Home partial/cover → resume');
  await context.close();
  }
 } finally {await browser.close();await new Promise(resolve=>server.close(resolve));}

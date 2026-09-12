@@ -88,6 +88,20 @@ actor FakeAsura: AsuraSource {
         try expect(!pc.configured, "unconfigured PC optional in test bundle")
         let available = await pc.available(); try expect(!available, "missing PC hides controls")
         print("PASS optional PC")
+        // Both provider chapter formats enter exactly the same checkpoint/history path.
+        for chapter in ["2", "fixture-chapter-194-2"] {
+            let isolatedRoot = root.appendingPathComponent(UUID().uuidString)
+            let fresh = ReaderStore(root: isolatedRoot, source: FakeAsura())
+            let saved = try jsonData(["view": ["path": "/reader/fixture/\(chapter)", "anchor": "page-\(chapter)-1", "fraction": 0.3, "y": 1200],
+                                      "progress": ["slug": "fixture", "chapter": chapter, "page": 1, "fraction": 0.3, "total": 5, "updatedAt": 4000]])
+            _ = try await fresh.webReply("view-save", data: saved)
+            let cold = ReaderStore(root: isolatedRoot, source: FakeAsura())
+            let state = try object(Data(await cold.webReply("snapshot", data: jsonData([:])).utf8))
+            try expect((state["history"] as? [String: [String: Int]])?["fixture"]?[chapter] == 1, "fresh history persists for each provider chapter format")
+            let progress = state["progress"] as? [String: [String: Any]]
+            try expect(progress?["fixture"]?["chapter"] as? String == chapter && progress?["fixture"]?["fraction"] as? Double == 0.3, "fresh reading progress survives restart")
+        }
+        print("PASS both providers: empty history checkpoint and cold restart")
         let route = ScytheParser.route("fixture-chapter-194-2")
         try expect(route?.number == "194" && route?.slug == "fixture", "Scythe collision suffix is not the chapter number")
         let scytheList = try ScytheParser.chapters("<div id=chapterlist><a href='https://scythescans.com/fixture-chapter-194-2/'>194</a><a href='https://scythescans.com/fixture-chapter-1/'>1</a></div>", slug: "fixture")
