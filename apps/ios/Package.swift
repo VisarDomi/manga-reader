@@ -7,5 +7,5 @@ let package = Package(name: "ReaderCoreTests", platforms: [.macOS(.v13)], depend
 ], targets: [
     .executableTarget(name: "ReaderCoreTests", dependencies: ["SwiftSoup"], path: ".",
         exclude: ["Resources", "AsuraReader.xcodeproj", "build", "scripts", "DEVELOPMENT.md", "AsuraReader/AppDelegate.swift", "AsuraReader/WebController.swift", "Tests/browser.mjs"],
-        sources: ["AsuraReader/ReaderHTTP.swift", "AsuraReader/Models.swift", "AsuraReader/ReaderProvider.swift", "AsuraReader/AsuraAPI.swift", "AsuraReader/ScytheAPI.swift", "AsuraReader/PCBackup.swift", "AsuraReader/ReaderStore.swift", "Tests/CoreTests.swift"], swiftSettings: [.define("READER_TESTS")])
+        sources: ["AsuraReader/AngularAPI.swift", "AsuraReader/LuaAPI.swift", "AsuraReader/YakshaAPI.swift", "AsuraReader/ReaderHTTP.swift", "AsuraReader/Models.swift", "AsuraReader/ReaderProvider.swift", "AsuraReader/AsuraAPI.swift", "AsuraReader/ScytheAPI.swift", "AsuraReader/PCBackup.swift", "AsuraReader/ReaderStore.swift", "Tests/CoreTests.swift"], swiftSettings: [.define("READER_TESTS")])
 ])

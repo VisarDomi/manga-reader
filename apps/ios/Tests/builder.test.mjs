@@ -6,7 +6,7 @@ const sites = JSON.parse(readFileSync(new URL('../../../src/core/sites.json', im
 test('requires one implemented provider before any build or remote operation', () => {
     for (const args of [[], ['asura', 'scythe'], ['asura,scythe'], ['-asura'], ['unknown'], ['--prepare-only']])
         assert.throws(() => selectProvider(args, sites));
-    assert.throws(() => selectProvider(['lua'], sites), /not implemented/);
+    for (const name of ['lua', 'yaksha', 'ezmanga', 'qiscans']) assert.equal(selectProvider([name], sites), name);
     assert.equal(selectProvider(['asura'], sites), 'asura');
     assert.equal(selectProvider(['scythe', '--prepare-only'], sites), 'scythe');
 });
@@ -17,4 +17,6 @@ test('uses userscript registry and preserves independent installed app identitie
     assert.equal(registry.asura.bundleIdentifier, 'com.visar.AsuraReader');
     assert.equal(registry.scythe.bundleIdentifier, 'com.visar.ScytheReader');
     assert.notEqual(registry.asura.source, registry.scythe.source);
+    assert.equal(registry.ezmanga.source, registry.qiscans.source, 'Angular providers share their adapter');
+    assert.equal(Object.keys(registry).length, 6);
 });

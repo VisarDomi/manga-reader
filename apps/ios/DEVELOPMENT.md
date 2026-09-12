@@ -2,15 +2,18 @@
 
 One codebase and one Xcode target (`Reader`), built for exactly one provider.
 The selector uses the **same `src/core/sites.json` registry and provider names as
-`scripts/build.mjs`**, the userscript builder. Currently implemented native
-adapters are `asura` and `scythe`; other registered web providers fail clearly
-until their native adapters are added. There is no implicit Asura default.
+`scripts/build.mjs`**, the userscript builder. Native adapters are `asura`, `scythe`, `ezmanga`, `qiscans`, `yaksha` and `lua`.
+EzManga and QiManga share the Angular adapter, matching the userscript factory. There is no implicit Asura default.
 
 From the manga-reader root on Linux:
 
 ```sh
 npm run build:ios -- scythe
 npm run build:ios -- asura
+npm run build:ios -- ezmanga
+npm run build:ios -- qiscans
+npm run build:ios -- yaksha
+npm run build:ios -- lua
 ```
 
 This prepares the shared web resources, generates the native provider registry,
@@ -28,12 +31,12 @@ Provider-specific outputs on the Mac:
 Existing IDs remain `com.visar.ScytheReader` and `com.visar.AsuraReader`.
 `ReaderSource` supplies catalog, chapters, manifests and image transfers. Shared
 Swift actors handle history, restore, downloads, pruning and manual PC Save/Load;
-shared HTML/CSS/JS handles the UI. Scythe's adapter mirrors `src/provider/scythe.ts`
-using SwiftSoup. Complete chapter IDs remain distinct from displayed numbers.
+shared HTML/CSS/JS handles the UI. Native adapters mirror their respective `src/provider` modules. WordPress/Lua HTML
+is parsed with SwiftSoup; Angular/Lua catalogs use the same API fields and paging. Complete chapter IDs remain distinct from displayed numbers.
 
 The chosen provider is compiled into the app. It is not detected from
 `Bundle.main` at runtime, and missing host metadata cannot select another provider.
-App data directories and manual PC namespaces remain provider-specific. Both
+App data directories and manual PC namespaces remain provider-specific. All
 retain `asura://app/` as their private compatibility origin; this does not select
 a provider or imply shared native storage. No site JavaScript or SOC is involved.
 No automatic history migration or sync is added: use existing explicit Save/Load.
@@ -184,7 +187,7 @@ JS-to-native round trip required before suspension.
 Tests cover a lifecycle checkpoint requested while the bootstrap Home renders,
 exact fractional cold restart, and native persistence of the complete checkpoint.
 
-## LiveContainer guest builds (Asura and Scythe)
+## LiveContainer guest builds
 
 See [LC setup](../livecontainer/SETUP.md) for the host, certificate, and renewal.
 Gallery Reader remains a normal installed app. Reader Extensions was reinstalled
@@ -196,7 +199,8 @@ For a repeat build from already-synced sources, on the Mac:
 ```sh
 cd /Users/visar/Developer/asura-reader
 python3 scripts/build-guest.py scythe
-# Also accepts asura. No Apple provisioning/account registration for guests.
+# Accepts all six provider arguments above. No Apple provisioning for guests.
+python3 /Users/visar/Developer/livecontainer/scripts/deploy.py open-ui
 python3 /Users/visar/Developer/livecontainer/scripts/deploy.py import-app /Users/visar/Developer/asura-reader/build/scythe/Release-iphoneos/ScytheReader.app
 ```
 
@@ -210,7 +214,7 @@ Xcode resolves its package automatically, with no manual project setup. Native
 `bash scripts/test.sh` uses SwiftPM with the same revision. Set `READER_LIVE_CHECK=1`
 for a read-only live Scythe catalog/chapter/image check (the temporary image is
 removed by the test). `node apps/ios/Tests/browser.mjs` runs the identical UI
-contract against Asura numeric IDs and Scythe IDs with collision suffixes.
+contract against all six providers, including numeric, prefixed and collision-suffix chapter IDs.
 No site JavaScript executes in the app; SwiftSoup parses fetched HTML as data.
 
 
@@ -238,3 +242,89 @@ Installed shared reader-core.js matched the builds; existing independent guest
 containers and reading-state entry counts were retained. User physically tested
 Scythe and confirmed it works. See the [handoff](../../investigation/2026-09-12-handoff.md)
 for the limits of the earlier diagnosis and pending unrelated work.
+
+## Six-provider builds
+
+Provider argument → site/PC namespace → product:
+
+| Provider | Namespace | Product |
+| --- | --- | --- |
+| asura | asurascans | AsuraReader |
+| scythe | scythescans | ScytheReader |
+| ezmanga | ezmanga | EzMangaReader |
+| qiscans | qimanga | QiMangaReader |
+| yaksha | yakshacomics | YakshaReader |
+| lua | luacomic | LuaReader |
+
+Each bundle ID is `com.visar.<Product>`. LC guests are unsigned builds and do not
+register these as additional Apple Development App IDs. Manual PC snapshots use
+the existing six-provider server endpoints; no automatic imports or sync.
+
+After building, import each product separately on the Mac (example for Lua):
+
+```sh
+python3 /Users/visar/Developer/livecontainer/scripts/deploy.py open-ui
+python3 /Users/visar/Developer/livecontainer/scripts/deploy.py import-app /Users/visar/Developer/asura-reader/build/lua/Release-iphoneos/LuaReader.app
+```
+
+Confirm the existing guest/Override when replacing an installed app; keep its
+data container. Wait for installation before importing another. To launch any
+provider from the Mac, first use `open-ui`, then:
+
+```sh
+xcrun devicectl device process launch --device 00008101-000639912881401E \
+  --payload-url 'livecontainer://livecontainer-launch?bundle-name=com.visar.LuaReader.app' \
+  com.kdt.livecontainer.AVQL5DLWLT
+```
+
+Replace `LuaReader` with the selected product. This uses the normal LC launch
+path; the separate faster-launch Shortcut work is still pending.
+
+Chapter IDs remain opaque (including `chapter-530.6`), separate from the displayed
+number. Series slugs may contain apostrophes/Unicode. Shared local URLs encode
+path segments; the bridge decodes them and validates path separators before
+checkpointing. This is common reader infrastructure, not provider-specific history.
+
+Native test command with read-only live catalog, free chapter and image checks:
+`READER_LIVE_PROVIDERS=ezmanga,qimanga,luacomic,yakshacomics bash scripts/test.sh`.
+It uses a temporary test directory and never changes the real PC history.
+
+September 12 live validation from the Mac passed for all four added adapters:
+EzManga 759 series / 51 chapters / 9 images; QiManga 967 / 136 / 11;
+Lua 616 / 79 / 2; Yaksha 58 / 6 / 9. Each check downloaded one real image into
+its temporary test directory and exercised the chapter-list and manifest paths.
+These are sample counts at test time, not fixed provider limits. EzManga has an
+unpublished empty-slug catalog row (omitted like invalid Asura entries); QiManga
+has a valid series with a null cover (kept, without blocking catalog loading).
+All six providers passed the identical browser history/restore/UI contract,
+including EzManga's apostrophe-containing slug.
+
+All six unsigned iPhone builds succeeded. The four new guests were installed
+through LC's installer and their on-device bundle identity and `Web/app.js` bytes
+matched their build products. Physical WebKit inspection observed Home catalogs
+and loaded covers: EzManga 759, QiManga 967, Lua 616 and Yaksha 58 cards, with no
+displayed errors. Initial Angular catalogs require multiple API pages; an early
+`Loading latest updates…` snapshot is not the completed result. Verify content
+after loading, and do not infer the active provider from the inspector log name.
+
+New guest data UUIDs on this phone (discover them again after a fresh install):
+
+| Product | LCDataUUID |
+| --- | --- |
+| EzMangaReader | E60E914D-5945-4CB0-B56B-D53D4A4871D3 |
+| QiMangaReader | BBDED31C-7470-4904-B536-682A59A109BB |
+| LuaReader | B86B0E20-76E4-4085-B9CC-712A3962B707 |
+| YakshaReader | A97EE6C8-2382-4700-9995-178A2DBFCF03 |
+
+Read each installed `Documents/Applications/com.visar.<Product>.app/LCAppInfo.plist`
+through devicectl's LC app data container to obtain its UUID. State lives under
+`Documents/Data/Application/<UUID>/Library/Application Support/<Product>/state.json`.
+Do not seed or replace that state to test imports; use the existing explicit PC
+Load/Save when requested. Functional tests and Home inspection do not establish
+subjective scroll smoothness for every provider.
+
+Asura and Scythe were also replaced with these builds using the user's Override
+confirmation. Both installed app.js files match the shared build, their original
+LCDataUUIDs remain unchanged, and every pre-update progress/history series key
+was retained (30 Asura, 5 Scythe). All six guests are installed; the native Gallery
+and Reader Extensions apps and the LC host/renewal configuration were untouched.

@@ -134,6 +134,39 @@ actor FakeAsura: AsuraSource {
             try expect(mime.hasPrefix("image/") && FileManager.default.fileExists(atPath: destination.path), "live Scythe image transfer")
             print("PASS live Scythe: \(catalog.count) series, \(list.count) chapters, \(manifest.pages.count) pages, image \(mime)")
         }
+        try expect(CachePolicy.validSlug("the-tyrant's-contract-mother") && CachePolicy.validSlug("a-中文-title"), "opaque provider slugs accepted")
+        for bad in ["..", "a/b", "a?b", "a%2fb", "a\\b"] { try expect(!CachePolicy.validSlug(bad), "path separators rejected") }
+        try expect(CachePolicy.validChapter("chapter-530.6"), "prefixed decimal chapter IDs accepted")
+        let angular = try AngularAPI.chapter(object(jsonData(["slug": "chapter-530.6", "number": 530.6, "price": 100, "becameFreeAt": NSNull()])))
+        try expect(angular.key == "chapter-530.6" && angular.number == "530.6" && angular.locked, "Angular chapter identity and paid state")
+        let noCover = try AngularAPI.series(["slug": "april-fools", "title": "April Fools", "cover": NSNull()])
+        try expect(noCover.cover.isEmpty && noCover.slug == "april-fools", "a missing cover does not block an otherwise valid catalog")
+        let lua = try LuaAPI.reader("<title>Fixture - Chapter 1 - Lua Comic</title><img src='https://media.luacomic.org/file/a/uploads/series/one.webp'><img src='https://media.luacomic.org/file/a/cover.webp'>")
+        try expect(lua.title == "Fixture" && lua.pages.count == 1, "Lua reader excludes covers")
+        let yaksha = try YakshaAPI.reader("<ol class='breadcrumb'><a href='/manga/fixture/'>Fixture &amp; Title</a></ol><img class='wp-manga-chapter-img' src='https://example.test/page.jpg'>")
+        try expect(yaksha.title == "Fixture & Title" && yaksha.pages.count == 1, "Yaksha reader images/title")
+        let yakshaList = try YakshaAPI.chapters("<li class='wp-manga-chapter'><a href='/manga/fixture/chapter-2.5/'>Chapter 2.5</a></li><li class='wp-manga-chapter'><a href='/manga/fixture/chapter-1/'>Chapter 1</a></li>")
+        try expect(yakshaList.map(\.key) == ["chapter-1", "chapter-2.5"], "Yaksha preserves chapter links and numeric order")
+        for provider in [ProviderConfiguration.ezmanga, .qiscans, .lua, .yaksha] {
+            var state = AppState()
+            state.progress["the-tyrant's-mother"] = Position(slug: "the-tyrant's-mother", chapter: "chapter-2.5", page: 1, fraction: 0.3, total: 4, updatedAt: 100)
+            let roundtrip = try BackupCodec.decode(BackupCodec.encode(state, provider: provider), provider: provider)
+            try expect(roundtrip.progress["the-tyrant's-mother"]?.fraction == 0.3, "every provider's manual PC round trip")
+        }
+        print("PASS additional providers: parser/opaque IDs/manual backup")
+        if let names = ProcessInfo.processInfo.environment["READER_LIVE_PROVIDERS"] {
+            for name in names.split(separator: ",") {
+                guard let provider = ProviderConfiguration(rawValue: String(name)) else { throw ReaderError.message("Unknown live test provider") }
+                let source = provider.makeSource()
+                let catalog = try await source.catalog()
+                guard let series = catalog.first(where: { $0.chapters.contains(where: { !$0.locked }) }), let selected = series.chapters.last(where: { !$0.locked }) else { throw ReaderError.message("No free chapter in catalog") }
+                let manifest = try await source.manifest(series.slug, selected.key, token: nil)
+                let file = root.appendingPathComponent("live-" + provider.rawValue)
+                let mime = try await source.image(manifest.pages[0].url, to: file, urgent: true)
+                try expect(mime.hasPrefix("image/") && !manifest.chapters.isEmpty, "live provider reader and image")
+                print("PASS live \(provider.rawValue): \(catalog.count) series, \(manifest.chapters.count) chapters, \(manifest.pages.count) pages, \(mime)")
+            }
+        }
         if let fixture = ProcessInfo.processInfo.environment["SCYTHE_HOME_FIXTURE"] {
             let catalog = try ScytheParser.catalog(String(contentsOfFile: fixture, encoding: .utf8), path: "/")
             try expect(!catalog.series.isEmpty, "captured live Scythe home parsed")

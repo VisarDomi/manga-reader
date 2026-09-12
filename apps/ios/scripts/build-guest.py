@@ -23,7 +23,7 @@ def main():
         'READER_PROVIDER': provider['key'],
         'READER_DISPLAY_NAME': provider['displayName'],
         'SWIFT_ACTIVE_COMPILATION_CONDITIONS': '$(inherited) READER_' + args.provider.upper(),
-        'EXCLUDED_SOURCE_FILE_NAMES': ' '.join(p['source'] for name, p in registry.items() if name != args.provider),
+        'EXCLUDED_SOURCE_FILE_NAMES': ' '.join(sorted({p['source'] for p in registry.values()} - {provider['source']})),
     }
     config = output / 'Provider.xcconfig'
     config.write_text(''.join(f'{key} = {value}\n' for key, value in settings.items()))

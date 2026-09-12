@@ -59,3 +59,16 @@ actor ReaderHTTP {
         } catch { await gate.release(); throw error }
     }
 }
+
+// Provider adapters normalize network data; the reader/store never parse a site.
+enum NativeProviderData {
+    static func chapterNumber(_ id: String) -> String {
+        let suffix = id.components(separatedBy: "chapter-").last ?? id
+        guard let range = suffix.range(of: "[0-9]+(?:[.][0-9]+)?", options: .regularExpression) else { return id }
+        return String(suffix[range])
+    }
+    static func image(_ raw: String, width: Double = 0, height: Double = 0) throws -> PageImage {
+        guard let url = URL(string: raw), url.scheme == "https", url.host != nil else { throw ReaderError.message("Invalid page URL") }
+        return PageImage(url: raw, width: width.isFinite && width > 0 ? width : 0, height: height.isFinite && height > 0 ? height : 0)
+    }
+}

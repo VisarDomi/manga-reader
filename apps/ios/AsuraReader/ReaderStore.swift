@@ -143,7 +143,7 @@ actor ReaderStore {
         if let p = checkpoint.progress {
             guard CachePolicy.validSlug(p.slug), CachePolicy.validChapter(p.chapter), p.total > 0,
                   p.page >= 0, p.page < p.total, p.fraction.isFinite, (0...1).contains(p.fraction), p.updatedAt.isFinite,
-                  view.path == "/reader/\(p.slug)/\(p.chapter)" else { throw ReaderError.message("Invalid reading checkpoint") }
+                  URL(string: view.path)?.path == "/reader/\(p.slug)/\(p.chapter)" else { throw ReaderError.message("Invalid reading checkpoint") }
             let key = CachePolicy.identity(p.slug)
             next.progress[key] = p
             next.history[key, default: [:]][p.chapter] = max(next.history[key]?[p.chapter] ?? -1, p.page)

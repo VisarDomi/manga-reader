@@ -82,11 +82,12 @@ enum CachePolicy {
         guard let i = ordered.firstIndex(where: { $0.key == current }) else { return [current] }
         return [current] + (i + 1 < ordered.count ? [ordered[i + 1].key] : [])
     }
-    static func validSlug(_ slug: String) -> Bool {
-        !slug.isEmpty && slug.count <= 250 && slug.range(of: "^[a-zA-Z0-9_-]+$", options: .regularExpression) != nil
-    }
-    static func validChapter(_ chapter: String) -> Bool {
-        chapter.count <= 300 && chapter.range(of: "^(?:[0-9]+(?:[.][0-9]+)?|[a-zA-Z0-9_-]+-chapter-[0-9]+(?:[.][0-9]+)?(?:-[0-9]+)?)$", options: .regularExpression) != nil
+    // Provider IDs are opaque path segments, not Asura-only numeric routes.
+    static func validSlug(_ slug: String) -> Bool { validSegment(slug, limit: 250) }
+    static func validChapter(_ chapter: String) -> Bool { validSegment(chapter, limit: 300) }
+    private static func validSegment(_ value: String, limit: Int) -> Bool {
+        !value.isEmpty && value.count <= limit && value != "." && value != ".." &&
+        value.rangeOfCharacter(from: .controlCharacters.union(CharacterSet(charactersIn: "/\\?#%"))) == nil
     }
 }
 func jsonData(_ value: Any) throws -> Data { try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]) }

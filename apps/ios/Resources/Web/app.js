@@ -4,10 +4,10 @@
   const documentID = crypto.randomUUID();
   const rpc = async (command, args = {}) => JSON.parse(await window.webkit.messageHandlers.asura.postMessage({ command, args, document: documentID }));
   const el = (tag, cls, text) => { const node = document.createElement(tag); if (cls) node.className = cls; if (text !== undefined) node.textContent = text; return node; };
-  const route = () => location.pathname.split('/').filter(Boolean);
-  const identity = slug => state?.provider === 'scythescans' ? slug : slug.replace(/-[0-9a-f]{8}$/i, '');
+  const route = () => location.pathname.split('/').filter(Boolean).map(decodeURIComponent);
+  const identity = slug => state?.provider !== 'asurascans' ? slug : slug.replace(/-[0-9a-f]{8}$/i, '');
   const chapterID = chapter => chapter.id ?? chapter.number;
-  const chapterNumber = id => Number(String(id).match(/-chapter-(\d+(?:\.\d+)?)(?:-\d+)?$/)?.[1] ?? id);
+  const chapterNumber = id => Number(String(id).match(/(?:^|-)chapter-(\d+(?:\.\d+)?)(?:-\d+)?$/)?.[1] ?? id);
   const chapterURL = (slug, chapter, resume = false) => `/reader/${encodeURIComponent(slug)}/${encodeURIComponent(chapter)}${resume ? '?resume=1' : ''}`;
   let touching = false, skipPositionSave = false, heldAnchor, anchorFrame;
   let state, home = route().length === 0, restoring = true, touched = false, currentManifest, saveChain = Promise.resolve();
@@ -181,7 +181,7 @@
         cover.classList.add('hs-home-cover-loading');
         first(series).catch(() => { cover.classList.remove('hs-home-cover-loading'); cover.classList.add('hs-home-link-failed'); cover.title = 'Failed to open series'; });
       };
-      const img = new Image(); img.alt = series.title; img.loading = 'lazy'; img.decoding = 'async'; img.src = new URL('/cover/' + series.slug, location.href).href; imageRetry.register(img); cover.append(img);
+      const img = new Image(); img.alt = series.title; img.loading = 'lazy'; img.decoding = 'async'; img.src = new URL('/cover/' + encodeURIComponent(series.slug), location.href).href; imageRetry.register(img); cover.append(img);
       const detail = el('div', 'hs-home-details'), chapters = el('div', 'chapters hs-home-chapters');
       for (const chapter of series.chapters.slice(-5).reverse()) chapters.append(chapterLink(series, chapter));
       if (!series.chapters.length) chapters.append(el('p', 'hs-home-no-chapters', 'No chapters available'));
@@ -232,7 +232,7 @@
       const slot = el('div', 'page'); slot.id = `page-${m.chapter}-${index}`;
       if (page.width > 0 && page.height > 0) { slot.style.aspectRatio = `${page.width} / ${page.height}`; slot.dataset.measured = '1'; }
       else slot.style.height = '1000px';
-      slot.dataset.index = index; slot.dataset.src = `/page/${m.slug}/${m.chapter}/${index}`; slot.manifest = m;
+      slot.dataset.index = index; slot.dataset.src = `/page/${encodeURIComponent(m.slug)}/${encodeURIComponent(m.chapter)}/${index}`; slot.manifest = m;
       section.append(slot); pages.push(slot);
     });
     app.append(section); for (const slot of section.querySelectorAll('.page')) observer.observe(slot);

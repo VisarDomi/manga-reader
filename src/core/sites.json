@@ -3,18 +3,36 @@
     "domain": "ezmanga.org",
     "apiBase": "https://vapi.ezmanga.org/api/v1",
     "provider": "ezmanga",
-    "documentTitle": "EzManga"
+    "documentTitle": "EzManga",
+    "ios": {
+      "productName": "EzMangaReader",
+      "displayName": "EzManga Reader",
+      "bundleIdentifier": "com.visar.EzMangaReader",
+      "source": "AngularAPI.swift"
+    }
   },
   "qimanga": {
     "domain": "qimanga.com",
     "apiBase": "https://api.qimanga.com/api/v1",
     "provider": "qiscans",
-    "documentTitle": "Qi Manga"
+    "documentTitle": "Qi Manga",
+    "ios": {
+      "productName": "QiMangaReader",
+      "displayName": "QiManga Reader",
+      "bundleIdentifier": "com.visar.QiMangaReader",
+      "source": "AngularAPI.swift"
+    }
   },
   "yakshacomics": {
     "domain": "yakshacomics.com",
     "provider": "yaksha",
-    "documentTitle": "Yaksha Comics"
+    "documentTitle": "Yaksha Comics",
+    "ios": {
+      "productName": "YakshaReader",
+      "displayName": "Yaksha Reader",
+      "bundleIdentifier": "com.visar.YakshaReader",
+      "source": "YakshaAPI.swift"
+    }
   },
   "asurascans": {
     "domain": "asurascans.com",
@@ -42,6 +60,12 @@
   "luacomic": {
     "domain": "luacomic.org",
     "provider": "lua",
-    "documentTitle": "Lua Comic"
+    "documentTitle": "Lua Comic",
+    "ios": {
+      "productName": "LuaReader",
+      "displayName": "Lua Reader",
+      "bundleIdentifier": "com.visar.LuaReader",
+      "source": "LuaAPI.swift"
+    }
   }
 }

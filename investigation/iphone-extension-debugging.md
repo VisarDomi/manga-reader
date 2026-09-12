@@ -4,9 +4,11 @@ Working runbook, verified incrementally on 2026-09-11. Keep runtime changes in
 Manga Reader and packaging in the sibling `../../reader-extensions` repository.
 Do not edit user-owned `readme.md` / `README.md` or `test.txt`.
 
-For the proposed standalone LiveContainer deployment and reuse of Mac renewal,
-see [LiveContainer investigation](livecontainer-plan.md). It distinguishes source
-findings from device tests still needed; Gallery must remain installed during setup.
+For the installed LiveContainer host, use [LC setup](../apps/livecontainer/SETUP.md).
+For the six provider-specific native apps, use [iOS development](../apps/ios/DEVELOPMENT.md)
+and the [September 12 handoff](2026-09-12-handoff.md). The earlier
+[LiveContainer investigation](livecontainer-plan.md) records research, not current
+deployment status. Gallery remains a normal installed app.
 
 ## Connect to the existing Hackintosh
 

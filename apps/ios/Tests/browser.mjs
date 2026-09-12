@@ -14,12 +14,13 @@ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 const base = `http://127.0.0.1:${server.address().port}`;
 const browser = await chromium.launch({executablePath:'/usr/bin/chromium',headless:true,args:['--no-sandbox']});
 try {
- for (const provider of ['asurascans', 'scythescans']) {
- const cid = n => provider === 'scythescans' ? `fixture-1234abcd-chapter-${n}${n === 2 ? '-2' : ''}` : String(n);
- const seriesIdentity = provider === 'scythescans' ? 'fixture-1234abcd' : 'fixture';
+ for (const provider of ['asurascans', 'scythescans', 'ezmanga', 'qimanga', 'luacomic', 'yakshacomics']) {
+ const cid = n => provider === 'scythescans' ? `fixture-1234abcd-chapter-${n}${n === 2 ? '-2' : ''}` : provider === 'asurascans' ? String(n) : `chapter-${n}`;
+ const slug = provider === 'ezmanga' ? "the-tyrant's-mother" : 'fixture-1234abcd';
+ const seriesIdentity = provider !== 'asurascans' ? slug : 'fixture';
  const context=await browser.newContext({viewport:{width:428,height:926},deviceScaleFactor:3});
- const chapters = [1,2,3].map(number=>({number:String(number),id:provider === 'scythescans' ? cid(number) : undefined,locked:false}));
- const p={slug:'fixture-1234abcd',chapter:cid(2),page:4,fraction:.4,total:20,updatedAt:100};
+ const chapters = [1,2,3].map(number=>({number:String(number),id:provider !== 'asurascans' ? cid(number) : undefined,locked:false}));
+ const p={slug,chapter:cid(2),page:4,fraction:.4,total:20,updatedAt:100};
  const state={provider,catalog:[{slug:p.slug,identity:seriesIdentity,title:'Fixture',cover:'',chapters}],progress:{[seriesIdentity]:p},history:{[seriesIdentity]:{[cid(1)]:19}},home:{path:'/',anchor:null,fraction:0,y:0},view:{path:'/'}};
  let lastPosition, pcAvailable=false, coldLaunch=false; const pcActions=[], viewWrites=[];
  await context.exposeBinding('nativeRPC',async(_,{command,args})=>{
@@ -76,7 +77,7 @@ try {
  assert.equal(await page.locator(`#page-${cid(2)}-0`).count(),1,'continuous reading appends next chapter once');
  // A killed reader launches through Home before opening the saved chapter.
  await page.close();
- const savedView={path:`/reader/fixture-1234abcd/${cid(2)}`,anchor:`page-${cid(2)}-4`,fraction:.37,y:33333};
+ const savedView={path:`/reader/${p.slug}/${cid(2)}`,anchor:`page-${cid(2)}-4`,fraction:.37,y:33333};
  state.view={...savedView};state.progress[seriesIdentity]={...p,chapter:cid(2),page:4,fraction:.37,total:20};
  viewWrites.length=0;coldLaunch=true;
  const cold=await context.newPage();cold.on('pageerror',e=>errors.push(e.message));
