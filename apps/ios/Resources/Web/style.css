@@ -1,3 +1,11 @@
+/* Images stay tappable and scrollable without native selection, drag or callouts. */
+img, a:has(img) {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-user-drag: none;
+}
+
 body {
     background: #000;
     margin: 0;

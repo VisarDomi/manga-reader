@@ -96,3 +96,20 @@ transfer active inside CoreDeviceService; stopping the owning service and
 verifying stable destination counts was required before deletion. The user
 confirmed the fans stopped after cleanup. The broader idle/audio audit was
 postponed; no driver or EFI change was made here. APNs work remains paused.
+
+
+## September 13: disable image selection and long-press menus
+
+All `img` elements and image-containing links use `-webkit-touch-callout: none`,
+`user-select: none` (including WebKit's prefix), and `-webkit-user-drag: none`.
+This includes covers, thumbnails, previews and reader pages. Taps and native
+scroll gestures remain enabled; no touch listener or gesture interception was
+added. Apple's [Safari CSS reference](https://developer.apple.com/library/archive/documentation/AppleApplications/Reference/SafariCSSRef/Articles/StandardCSSProperties.html)
+documents the callout property.
+
+The rule lives in `src/style.css`; native preparation copies that shared CSS.
+Userscript 286 and its extension were rebuilt. All six paid provider apps use
+build 3. Browser checks cover image selection/drag, link taps, text editing and
+scrolling. Physical Asura WebKit inspection found all 345 images and their linked
+containers protected. The user also verified that long-pressing Asura images no
+longer opens the system menu.
