@@ -65,9 +65,9 @@ actor AngularAPI: ReaderSource {
     }
     func manifest(_ slug: String, _ chapter: String, token: String?) async throws -> Manifest {
         let data = try await json("/series/\(slug)/chapters/\(chapter)")
-        guard data["isFree"] as? Bool == true, data["requiresPurchase"] as? Bool != true,
-              let rows = data["images"] as? [[String: Any]], !rows.isEmpty,
-              let series = data["series"] as? [String: Any], let title = series["title"] as? String else { throw ReaderError.message("This chapter is locked or unavailable") }
+        guard data["isFree"] as? Bool == true, data["requiresPurchase"] as? Bool != true else { throw ReaderError.unavailable }
+        guard let rows = data["images"] as? [[String: Any]], !rows.isEmpty,
+              let series = data["series"] as? [String: Any], let title = series["title"] as? String else { throw ReaderError.message("Invalid chapter images") }
         let pages = try rows.map { row -> PageImage in
             guard let url = row["url"] as? String else { throw ReaderError.message("Invalid page URL") }
             return try NativeProviderData.image(url, width: row["width"] as? Double ?? 0, height: row["height"] as? Double ?? 0)

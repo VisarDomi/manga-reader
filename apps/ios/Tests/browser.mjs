@@ -22,13 +22,17 @@ try {
  const chapters = [1,2,3].map(number=>({number:String(number),id:provider !== 'asurascans' ? cid(number) : undefined,locked:false}));
  const p={slug,chapter:cid(2),page:4,fraction:.4,total:20,updatedAt:100};
  const state={provider,catalog:[{slug:p.slug,identity:seriesIdentity,title:'Fixture',cover:'',chapters}],progress:{[seriesIdentity]:p},history:{[seriesIdentity]:{[cid(1)]:19,[cid(2)]:4,[cid(3)]:19}},home:{path:'/',anchor:null,fraction:0,y:0},view:{path:'/'}};
- let activeChapters=chapters, listFails=false, lastPosition, pcAvailable=false, coldLaunch=false; const pcActions=[], viewWrites=[];
+ let activeChapters=chapters, listFails=false, lastPosition, pcAvailable=false, coldLaunch=false, saveFails=false;
+ const unavailableChapters=new Set(), tracked=[]; let remoteData={}; const pcActions=[], viewWrites=[];
  await context.exposeBinding('nativeRPC',async(_,{command,args})=>{
    if(command==='init'&&coldLaunch){coldLaunch=false;return JSON.stringify({...state,resumeReader:state.view.path==='/'?undefined:state.view.path});}
    if(command==='init'||command==='snapshot')return JSON.stringify(state);
    if(command==='chapters'){if(listFails)throw new Error('Fixture chapter list unavailable');return JSON.stringify(activeChapters);}
+   if(command==='remote-history')return JSON.stringify({data:remoteData});
+   if(command==='track-chapter'){tracked.push(args.chapter);return '{}';}
    if(command==='measure')return JSON.stringify({width:900,height:16000});
    if(command==='view-save'){
+     if(saveFails)throw new Error('Fixture write failed');
      if(args.progress){lastPosition=args.progress;state.progress[seriesIdentity]=args.progress;state.history[seriesIdentity]??={};state.history[seriesIdentity][args.progress.chapter]=Math.max(state.history[seriesIdentity][args.progress.chapter]??-1,args.progress.page);}
      viewWrites.push(args.view);state.view=args.view;if(args.view.path==='/')state.home=args.view;return '{}';
    }
@@ -36,6 +40,7 @@ try {
    if(command==='view'){viewWrites.push(args);state.view=args;if(args.path==='/')state.home=args;return '{}';}
    if(command==='pc-available')return JSON.stringify(pcAvailable);
    if(command==='pc-load'||command==='pc-save'){pcActions.push(command);return command==='pc-load'?JSON.stringify(state):'{}';}
+   if(command==='open'&&args.append&&unavailableChapters.has(args.chapter))return JSON.stringify({unavailable:true});
    if(command==='open')return JSON.stringify({slug:p.slug,chapter:args.chapter,title:'Fixture',pages:Array.from({length:20},()=>({url:'unused',width:0,height:0})),chapters:[],position:args.resume&&state.progress[seriesIdentity]?.chapter===args.chapter?state.progress[seriesIdentity]:undefined});
    return '{}';
  });
@@ -56,6 +61,43 @@ try {
  assert.equal(await page.locator('.hs-home-catalog-status').textContent(),'Loaded 2 of 3 series','completion text updates even if rows did not change');
  await page.evaluate(next=>{dispatchEvent(new Event('scrollend'));window.readerState.update(next);},state);
 
+ // Returning after finishing a chapter changes links, never the row/decoded cover.
+ const completed={...state,progress:{[seriesIdentity]:{...p,page:19,updatedAt:200}}};
+ await page.evaluate(next=>window.readerState.update(next),completed);
+ assert.ok(await page.evaluate(()=>document.querySelector('.card')===window.firstCard&&document.querySelector('.card img')===window.firstCover),'finishing a chapter retains row and cover');
+ assert.equal(await page.locator('.hs-home-chapter-partial').count(),0,'completed chapter loses partial styling');
+ assert.equal(await page.locator('.hs-home-chapter-read').count(),2,'completed chapter and earlier chapter are read');
+ await page.evaluate(()=>{
+   window.chapterBefore=document.querySelector('.chapters .chapter');window.rowMutations=[];
+   window.rowObserver=new MutationObserver(records=>window.rowMutations.push(...records));
+   window.rowObserver.observe(window.firstCard,{subtree:true,childList:true,attributes:true,characterData:true});
+ });
+ // Swift snapshot dictionaries may serialize with different property order.
+ const reorder=value=>Array.isArray(value)?value.map(reorder):value&&typeof value==='object'?Object.fromEntries(Object.entries(value).reverse().map(([k,v])=>[k,reorder(v)])):value;
+ for(let i=0;i<4;i++) {
+   const next=reorder({...completed,progress:{[seriesIdentity]:{...completed.progress[seriesIdentity],updatedAt:201+i}}});
+   await page.evaluate(next=>window.readerState.update(next),next);
+ }
+ assert.equal(await page.evaluate(()=>window.rowMutations.length),0,'equivalent snapshots and save timestamps do not mutate the row');
+ await page.evaluate(()=>window.rowObserver.disconnect());
+ const updated={...completed,catalog:[{...state.catalog[0],chapters:[...chapters,{number:'4',id:cid(4),locked:false}]}]};
+ await page.evaluate(next=>window.readerState.update(next),updated);
+ assert.equal(await page.locator('.chapters .chapter').count(),4,'new chapters update the list');
+ assert.ok(await page.evaluate(()=>document.querySelector('.card')===window.firstCard&&document.querySelector('.card img')===window.firstCover),'chapter-list updates retain row and decoded image');
+ assert.equal(await page.locator('.chapters .chapter').first().textContent(),'Chapter 4');
+ await page.evaluate(next=>window.readerState.update(next),state);
+ console.log(provider,'PASS completed chapter, reordered snapshots and chapter updates retain row/cover');
+ const changedCover={...state,catalog:[{...state.catalog[0],cover:'https://example.test/new-cover.jpg',title:'New title'}]};
+ const oldSource=await page.locator('.cover img').getAttribute('src');
+ await page.evaluate(next=>window.readerState.update(next),changedCover);
+ assert.ok(await page.evaluate(()=>document.querySelector('.card img')===window.firstCover),'cover metadata refresh retains the existing image node');
+ assert.notEqual(await page.locator('.cover img').getAttribute('src'),oldSource,'a changed provider cover requests new bytes');
+ assert.equal(await page.locator('.cover img').getAttribute('alt'),'New title');
+ await page.evaluate(next=>window.readerState.update(next),state);
+ await page.evaluate(()=>{document.querySelector('.cover').classList.add('hs-home-cover-loading');dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true}));});
+ await page.waitForFunction(()=>!document.querySelector('.cover').classList.contains('hs-home-cover-loading'));
+
+
  assert.equal(await page.locator('.hs-home-pc').isVisible(),false,'offline PC controls hidden');
  assert.deepEqual(pcActions,[],'startup does not transfer reading history');
  pcAvailable=true;await page.evaluate(()=>window.readerState.probePC());
@@ -73,6 +115,13 @@ try {
  await page.waitForFunction(()=>scrollY>1000);
  const fraction=await page.locator(`#page-${cid(2)}-4`).evaluate(n=>-n.getBoundingClientRect().top/n.getBoundingClientRect().height);
  assert.ok(Math.abs(fraction-.4)<.002,'cover restores fractional image position');
+ await page.waitForSelector(`#page-${cid(3)}-0`,{state:'attached'});
+ assert.equal(await page.title(),`${cid(2)} Fixture`,'preloading Next does not change the visible chapter title');
+ const beforeRepeat=viewWrites.length;
+ await page.evaluate(async()=>{await window.readerState.save();await window.readerState.save();await window.readerState.save();});
+ assert.ok(viewWrites.length<=beforeRepeat+1,'unchanged native checkpoints do not rewrite progress repeatedly');
+ assert.equal(tracked.filter(chapter=>chapter===cid(2)).length,1,'chapter tracking runs once per visible chapter');
+
  await page.waitForFunction(()=>document.querySelectorAll('.page img').length>0);
  assert.ok(await page.locator('.page img').count()<5,'distant pages have no image source');
  await page.evaluate(()=>{dispatchEvent(new Event('wheel'));scrollBy(0,400);});await page.waitForTimeout(300);
@@ -150,6 +199,28 @@ try {
    assert.equal(await listFailure.locator('.hs-chapter').count(),1,'invalid lists cannot append arbitrary chapters');
  }
  console.log(provider,'PASS incremental Home/DOM preservation; provider-ordered Next; invalid/unavailable list preserves current reader');
+ await listFailure.close();listFails=false;activeChapters=chapters.map(c=>({...c,locked:c.number==='2'}));state.view={path:'/'};
+ const locks=await context.newPage();await locks.goto(base);await locks.getByRole('button',{name:'First chapter',exact:true}).click();
+ await locks.waitForSelector(`#page-${cid(2)}-0`,{state:'attached'});
+ assert.equal(await locks.locator('.hs-error').count(),0,'fresh chapter response wins over a stale list lock flag');
+ await locks.close();unavailableChapters.add(cid(2));
+ const unavailable=await context.newPage();await unavailable.goto(base);await unavailable.getByRole('button',{name:'First chapter',exact:true}).click();
+ await unavailable.waitForSelector('.hs-error');assert.equal(await unavailable.locator('.hs-error').textContent(),'Chapter unavailable');
+ assert.equal(await unavailable.locator('.hs-chapter').count(),1,'unavailable Next preserves current chapter');
+ await unavailable.close();unavailableChapters.clear();activeChapters=chapters;
+ const failure=await context.newPage();await failure.goto(base);saveFails=true;
+ await failure.locator('.chapters .chapter').last().click();await failure.waitForSelector('.hs-error');
+ assert.equal(await failure.locator('.hs-error').textContent(),'Progress sync failed','failed native progress writes are visible');
+ await failure.evaluate(()=>window.readerState.save().catch(()=>{}));assert.equal(await failure.locator('.hs-error').count(),1,'tracking failure reported once');
+ saveFails=false;await failure.close();
+ if(provider==='asurascans') {
+   const local=state.progress;state.progress={};remoteData={[seriesIdentity]:[1,2]};state.view={path:'/'};
+   const account=await context.newPage();await account.goto(base);await account.waitForFunction(()=>document.querySelectorAll('.hs-home-chapter-read').length===2);
+   assert.ok((await account.locator('.cover').getAttribute('href')).includes(`${cid(2)}?end=1`),'account-only cover resumes end of last read chapter');
+   await account.close();remoteData={};state.progress=local;
+ }
+ console.log(provider,'PASS title, Back loading reset, cover refresh, tracking errors, account overlay and fresh lock response');
+
  await context.close();
  }
 } finally {await browser.close();await new Promise(resolve=>server.close(resolve));}

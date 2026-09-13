@@ -59,7 +59,8 @@ struct AppState: Codable, Sendable {
 enum ReaderError: LocalizedError {
     case message(String)
     case http(Int)
-    var errorDescription: String? { switch self { case let .message(text): return text; case let .http(status): return "Server returned HTTP \(status)" } }
+    case unavailable
+    var errorDescription: String? { switch self { case .unavailable: return "Chapter unavailable"; case let .message(text): return text; case let .http(status): return "Server returned HTTP \(status)" } }
 }
 enum CachePolicy {
     static func identity(_ slug: String) -> String {

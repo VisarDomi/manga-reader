@@ -1,0 +1,90 @@
+{
+  "date": "2026-09-13",
+  "scope": "Manga Reader third native fidelity pass, all six providers",
+  "build": "4",
+  "deliveries": [
+    {
+      "provider": "scythe",
+      "bundleId": "com.visar.ScytheReader.paid",
+      "version": "4",
+      "cssSHA256": "94ad3ca00ff1b4e52129baa7468be40867ae1d23442664fac882cb3c391173b4",
+      "installed": true,
+      "renewalPassed": true,
+      "nextDue": 1791911111.179532
+    },
+    {
+      "provider": "asura",
+      "bundleId": "com.visar.AsuraReader.paid",
+      "version": "4",
+      "cssSHA256": "94ad3ca00ff1b4e52129baa7468be40867ae1d23442664fac882cb3c391173b4",
+      "installed": true,
+      "renewalPassed": true,
+      "nextDue": 1791911146.494793
+    },
+    {
+      "provider": "yaksha",
+      "bundleId": "com.visar.YakshaReader.paid",
+      "version": "4",
+      "cssSHA256": "94ad3ca00ff1b4e52129baa7468be40867ae1d23442664fac882cb3c391173b4",
+      "installed": true,
+      "renewalPassed": true,
+      "nextDue": 1791911185.812192
+    },
+    {
+      "provider": "qiscans",
+      "bundleId": "com.visar.QiMangaReader.paid",
+      "version": "4",
+      "cssSHA256": "94ad3ca00ff1b4e52129baa7468be40867ae1d23442664fac882cb3c391173b4",
+      "installed": true,
+      "renewalPassed": true,
+      "nextDue": 1791911224.780362
+    },
+    {
+      "provider": "lua",
+      "bundleId": "com.visar.LuaReader.paid",
+      "version": "4",
+      "cssSHA256": "94ad3ca00ff1b4e52129baa7468be40867ae1d23442664fac882cb3c391173b4",
+      "installed": true,
+      "renewalPassed": true,
+      "nextDue": 1791911260.00302
+    },
+    {
+      "provider": "ezmanga",
+      "bundleId": "com.visar.EzMangaReader.paid",
+      "version": "4",
+      "cssSHA256": "94ad3ca00ff1b4e52129baa7468be40867ae1d23442664fac882cb3c391173b4",
+      "installed": true,
+      "renewalPassed": true,
+      "nextDue": 1791911299.115152
+    }
+  ],
+  "webAssetsSHA256": {
+    "app.js": "d8bc9ab884281cb9ec23ecf6184a74943c9c482e9990ae9bd7faf193633f9eeb",
+    "reader-core.js": "6ebb2396415d87e6dc2f711c5edc5f988726fe7734b1b9d8bee7292911192b62",
+    "style.css": "94ad3ca00ff1b4e52129baa7468be40867ae1d23442664fac882cb3c391173b4"
+  },
+  "validation": {
+    "browser": "All six provider fixtures passed; old committed Web assets fail the completed-chapter row/cover preservation regression.",
+    "sharedUnitTests": 34,
+    "providerBuilderAndSigningLock": "passed",
+    "swiftCore": "passed",
+    "publicLiveProviderChecks": "All six catalogs, chapter lists, manifests and image requests passed.",
+    "physicalScythe": "User manually tested and accepted.",
+    "physicalHomeProbe": {
+      "armed": true,
+      "updates": 5,
+      "rowReplacements": 0,
+      "coverReplacements": 0,
+      "backRestores": 2,
+      "loadingUpdates": 1
+    },
+    "probeRemoved": true,
+    "authenticatedAsura": "Fixture tests only; no real authenticated account mutation test."
+  },
+  "renewal": {
+    "scheduler": "com.visar.installed-apps-refresh",
+    "resumed": true,
+    "lastExitStatus": 0,
+    "temporaryBuildJobRemoved": true
+  }
+}

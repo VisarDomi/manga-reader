@@ -7,9 +7,11 @@
   const route = () => location.pathname.split('/').filter(Boolean).map(decodeURIComponent);
   const identity = slug => state?.provider !== 'asurascans' ? slug : slug.replace(/-[0-9a-f]{8}$/i, '');
   const chapterID = chapter => chapter.id ?? chapter.number;
-  const chapterNumber = id => Number(String(id).match(/(?:^|-)chapter-(\d+(?:\.\d+)?)(?:-\d+)?$/)?.[1] ?? id);
   const chapterURL = (slug, chapter, resume = false) => `/reader/${encodeURIComponent(slug)}/${encodeURIComponent(chapter)}${resume ? '?resume=1' : ''}`;
-  let touching = false, skipPositionSave = false, heldAnchor, anchorFrame;
+  let touching = false, skipPositionSave = false, heldAnchor, anchorFrame, trackingFailed = false;
+  let remoteHistory = [], remoteGeneration = 0;
+  const trackedChapters = new Set();
+  let lastSavedCheckpoint = '';
   let state, home = route().length === 0, restoring = true, touched = false, currentManifest, saveChain = Promise.resolve();
   let chapterList = [], pages = [], observer, nextLoading = false, loadedChapters = new Set();
   const imageRetry = new ReaderCore.ImageRetryRegistry();
@@ -61,7 +63,11 @@
     if (!found) return { path: location.pathname, anchor: null, fraction: 0, y: scrollY };
     if (!home) {
       let index = nodes.indexOf(found);
-      while (index >= 0 && !(nodes[index].querySelector('img')?.naturalWidth > 0 && nodes[index].getBoundingClientRect().top <= at)) index--;
+      while (index >= 0) {
+        const image = nodes[index].querySelector('img');
+        if (image?.complete && image.naturalWidth > 0 && nodes[index].getBoundingClientRect().top <= at) break;
+        index--;
+      }
       found = nodes[index];
       if (!found) return { path: location.pathname, anchor: null, fraction: 0, y: scrollY };
     }
@@ -80,13 +86,38 @@
         state.progress[identity(m.slug)] = progress;
         view.path = chapterURL(m.slug, m.chapter);
         if (location.pathname !== view.path) history.replaceState(null, '', view.path);
+        document.title = `${m.chapter} ${m.title}`;
       }
     }
     if (progress && currentManifest?.chapter === progress.chapter) {
       [...document.querySelectorAll('.hs-chapter')].at(-1)?.appendNext?.();
     }
-    saveChain = saveChain.catch(() => {}).then(() => rpc('view-save', { view, progress }));
+    const checkpoint = JSON.stringify([view, progress && [progress.slug, progress.chapter, progress.page, progress.fraction, progress.total]]);
+    saveChain = saveChain.catch(() => {}).then(async () => {
+      if (lastSavedCheckpoint === checkpoint) return;
+      await rpc('view-save', { view, progress });
+      lastSavedCheckpoint = checkpoint;
+    }).catch(error => {
+      if (progress) trackingError();
+      throw error;
+    });
+    if (progress && !trackedChapters.has(progress.chapter)) {
+      trackedChapters.add(progress.chapter);
+      void rpc('track-chapter', { slug: progress.slug, chapter: progress.chapter }).catch(trackingError);
+    }
     return saveChain;
+  }
+  function trackingError() {
+    if (!trackingFailed) { trackingFailed = true; report(new Error('Progress sync failed')); }
+  }
+  async function refreshHistory() {
+    const generation = ++remoteGeneration;
+    try {
+      const data = await rpc('remote-history');
+      if (generation !== remoteGeneration) return;
+      remoteHistory = ReaderCore.parseAsuraRemoteHistory(data);
+      catalogSignature = ''; renderCatalog();
+    } catch { /* Local history remains usable when the provider account is offline. */ }
   }
   async function navigate(url) { await save().catch(() => {}); location.href = url; }
   // Gallery's held-anchor restoration: align now and after layout/image changes,
@@ -119,8 +150,12 @@
   document.addEventListener('visibilitychange', () => { if (document.hidden) save().catch(() => {}); });
   addEventListener('pageshow', async event => {
     if (!event.persisted) return;
+    lastSavedCheckpoint = '';
     state = await rpc('init'); skipPositionSave = !!state.resumeReader; await rpc('ready', { home });
-    if (home) { renderCatalog(); void probePC(); } else schedulePositionUpdate();
+    if (home) {
+      for (const cover of app.querySelectorAll('.hs-home-cover-loading')) cover.classList.remove('hs-home-cover-loading');
+      renderCatalog(); void probePC(); void refreshHistory();
+    } else schedulePositionUpdate();
   });
   document.addEventListener('click', event => {
     const anchor = event.target.closest('a');
@@ -168,30 +203,57 @@
     const cards = [];
     for (const series of state.catalog) {
       const p = state.progress[series.identity], key = 'series-' + series.identity;
-      const cardSignature = JSON.stringify([series, p]), existing = document.getElementById(key);
-      if (existing?.dataset.signature === cardSignature) { cards.push(existing); continue; }
-      const card = el('article', 'card hs-home-card'); card.id = key; card.dataset.signature = cardSignature;
-      const cover = el('a', 'cover hs-home-cover'); cover.setAttribute('aria-label', `Resume ${series.title}`);
-      cover.href = p ? chapterURL(series.slug, p.chapter, true) : '#';
-      if (!p) cover.onclick = event => {
+      const visible = series.chapters.slice(-5).reverse();
+      const [resolved] = ReaderCore.resolveHistory({
+        cards: [{ seriesSlug: series.slug, historyId: series.identity, chapterIds: visible.map(chapterID) }],
+        remoteHistory,
+        progress: p ? [{ seriesSlug: series.identity, chapterId: p.chapter, imageIndex: p.page, totalImages: p.total }] : [],
+      });
+      // Compare rendered values, not snapshot key order or progress timestamps.
+      const chapterSignature = JSON.stringify([series.slug, visible.map((chapter, index) => [
+        chapterID(chapter), chapter.label ?? `Chapter ${chapter.number}`, chapter.published ?? null,
+        !!chapter.locked, chapter.unlockAt ?? null, resolved.chapters[index].read,
+        resolved.chapters[index].partial, resolved.chapters[index].localImageIndex !== undefined,
+      ])]);
+      const coverChapter = p?.chapter ?? resolved.cover.resumeChapterId;
+      const cardSignature = JSON.stringify([series.slug, series.title, series.cover, coverChapter ?? null, chapterSignature]);
+      let card = document.getElementById(key);
+      if (card?.dataset.signature === cardSignature) { cards.push(card); continue; }
+      if (!card) {
+        card = el('article', 'card hs-home-card'); card.id = key;
+        const cover = el('a', 'cover hs-home-cover'), img = new Image();
+        img.loading = 'lazy'; img.decoding = 'async'; cover.append(img);
+        const detail = el('div', 'hs-home-details'); detail.append(el('div', 'chapters hs-home-chapters'));
+        card.append(cover, detail);
+      }
+      card.dataset.signature = cardSignature;
+      const cover = card.querySelector('.cover'), img = cover.querySelector('img');
+      cover.setAttribute('aria-label', `Resume ${series.title}`);
+      cover.href = coverChapter ? chapterURL(series.slug, coverChapter, !!p) + (p ? '' : '?end=1') : '#';
+      cover.onclick = coverChapter ? null : event => {
         event.preventDefault(); event.stopPropagation();
         if (cover.classList.contains('hs-home-cover-loading')) return;
         cover.classList.add('hs-home-cover-loading');
         first(series).catch(() => { cover.classList.remove('hs-home-cover-loading'); cover.classList.add('hs-home-link-failed'); cover.title = 'Failed to open series'; });
       };
-      const img = new Image(); img.alt = series.title; img.loading = 'lazy'; img.decoding = 'async'; img.src = new URL('/cover/' + encodeURIComponent(series.slug), location.href).href; imageRetry.register(img); cover.append(img);
-      const detail = el('div', 'hs-home-details'), chapters = el('div', 'chapters hs-home-chapters');
-      const visible = series.chapters.slice(-5).reverse();
-      const [resolved] = ReaderCore.resolveHistory({
-        cards: [{ seriesSlug: series.slug, historyId: series.identity, chapterIds: visible.map(chapterID) }],
-        remoteHistory: [],
-        progress: p ? [{ seriesSlug: series.identity, chapterId: p.chapter, imageIndex: p.page, totalImages: p.total }] : [],
-      });
-      visible.forEach((chapter, index) => chapters.append(chapterLink(series, chapter, resolved.chapters[index])));
-      if (!series.chapters.length) chapters.append(el('p', 'hs-home-no-chapters', 'No chapters available'));
-      const links = el('div', 'hs-home-chapter'), firstButton = el('button', 'native-link', 'First chapter');
-      firstButton.onclick = () => first(series).catch(error => report(error));
-      links.append(firstButton); chapters.append(links); detail.append(chapters); card.append(cover, detail); cards.push(card);
+      if (coverChapter) { cover.classList.remove('hs-home-cover-loading', 'hs-home-link-failed'); cover.removeAttribute('title'); }
+      img.alt = series.title;
+      const coverSource = JSON.stringify([series.slug, series.cover]);
+      if (img.dataset.source !== coverSource) {
+        img.dataset.source = coverSource;
+        img.src = new URL('/cover/' + encodeURIComponent(series.slug) + '?v=' + encodeURIComponent(series.cover ?? ''), location.href).href;
+        imageRetry.register(img);
+      }
+      const chapters = card.querySelector('.chapters');
+      if (chapters.dataset.signature !== chapterSignature) {
+        chapters.dataset.signature = chapterSignature;
+        chapters.replaceChildren(...visible.map((chapter, index) => chapterLink(series, chapter, resolved.chapters[index])));
+        if (!visible.length) chapters.append(el('p', 'hs-home-no-chapters', 'No chapters available'));
+        const links = el('div', 'hs-home-chapter'), firstButton = el('button', 'native-link', 'First chapter');
+        firstButton.onclick = () => first(series).catch(error => report(error));
+        links.append(firstButton); chapters.append(links);
+      }
+      cards.push(card);
     }
     const keep = new Set(cards);
     for (const child of [...catalog.children]) if (!keep.has(child)) child.remove();
@@ -211,7 +273,7 @@
         buttons.forEach(b => b.disabled = true); status.textContent = '';
         try {
           const result = await rpc(label === 'Load' ? 'pc-load' : 'pc-save');
-          if (label === 'Load') { state = result; renderCatalog(); }
+          if (label === 'Load') { lastSavedCheckpoint = ''; state = result; renderCatalog(); }
           status.textContent = label === 'Load' ? 'Loaded' : 'Saved';
         } catch (error) {
           await probePC();
@@ -232,7 +294,8 @@
   }
   function appendChapter(m) {
     if (loadedChapters.has(m.chapter)) return;
-    loadedChapters.add(m.chapter); currentManifest = m; document.title = `${chapterNumber(m.chapter)} ${m.title}`;
+    loadedChapters.add(m.chapter); currentManifest = m;
+    if (loadedChapters.size === 1) document.title = `${m.chapter} ${m.title}`;
     const section = el('div', 'hs-chapter'); section.dataset.chapter = m.chapter;
     m.pages.forEach((page, index) => {
       const slot = el('div', 'page'); slot.id = `page-${m.chapter}-${index}`;
@@ -254,11 +317,9 @@
       section.appendNext = async () => {
         if (nextLoading || succeeded) return;
         nextLoading = true; end.className = 'hs-status hs-loading'; end.textContent = 'Loading newer chapter...';
-        if (next.locked) {
-          end.className = 'hs-status hs-error'; end.textContent = 'Chapter unavailable';
-          succeeded = true; nextLoading = false; return;
-        }
-        try { const chapter = await rpc('open', { slug: m.slug, chapter: chapterID(next) });
+        try { const chapter = await rpc('open', { slug: m.slug, chapter: chapterID(next), append: true });
+          if (chapter.unavailable) { end.className = 'hs-status hs-error'; end.textContent = 'Chapter unavailable'; succeeded = true; return; }
+          if (chapter.chapter !== chapterID(next) || chapter.slug !== m.slug) throw new Error('Unexpected chapter');
           succeeded = true; end.remove(); appendChapter(chapter);
         } catch { end.className = 'hs-status hs-error'; end.textContent = 'Failed to load chapter'; succeeded = true; }
         finally { nextLoading = false; }
@@ -309,6 +370,7 @@
       skipPositionSave = !!state.resumeReader;
       if (home) {
         renderHome();
+        if (!state.resumeReader) void refreshHistory();
         if (state.resumeReader) { location.href = state.resumeReader + '?resume=1&view=1'; return; }
       } else await renderReader();
       await rpc('ready', { home });

@@ -246,10 +246,24 @@ actor ReaderStore {
         let slug = args["slug"] as? String ?? ""
         switch command {
         case "snapshot": return try snapshot()
+        case "remote-history":
+            guard hasSession else { return try jsonText(["data": [String: String]()]) }
+            return String(decoding: try await authenticatedRequest("/me/read-chapters"), as: UTF8.self)
+        case "track-chapter":
+            guard hasSession else { return "{}" }
+            let chapter = args["chapter"] as? String ?? ""
+            let m = try await manifest(slug, chapter)
+            guard !m.seriesID.isEmpty, !m.chapterID.isEmpty else { throw ReaderError.message("Missing chapter tracking data") }
+            async let bookmark = authenticatedRequest("/bookmarks/\(m.seriesID)/read/\(m.chapter)", method: "POST")
+            async let view = authenticatedRequest("/views/chapter", method: "POST", body: jsonData(["chapter_id": m.chapterID, "series_id": m.seriesID]))
+            _ = try await (bookmark, view)
         case "chapters": return String(decoding: try JSONEncoder().encode(await chapters(slug)), as: UTF8.self)
         case "open":
             let chapter = args["chapter"] as? String ?? ""
-            let m = try await manifest(slug, chapter)
+            let m: Manifest
+            do { m = try await manifest(slug, chapter) }
+            catch ReaderError.unavailable where args["append"] as? Bool == true { return try jsonText(["unavailable": true]) }
+            catch ReaderError.http(404) where args["append"] as? Bool == true { return try jsonText(["unavailable": true]) }
             var result = try object(JSONEncoder().encode(m))
             if args["resume"] as? Bool == true, let p = state.progress[CachePolicy.identity(slug)], p.chapter == chapter {
                 result["position"] = try object(JSONEncoder().encode(p))
@@ -274,6 +288,23 @@ actor ReaderStore {
         default: throw ReaderError.message("Unknown reader request")
         }
         return "{}"
+    }
+    private var hasSession: Bool {
+        source is any AsuraSource && ["asura:access_token", "asura:refresh_token"].contains { !(state.tokens[$0] ?? "").isEmpty }
+    }
+    private func authenticatedRequest(_ path: String, method: String = "GET", body: Data? = nil) async throws -> Data {
+        guard let source = source as? any AsuraSource, hasSession else { throw ReaderError.message("Asura has no authenticated session") }
+        if let sessionRefresh { _ = try await sessionRefresh.value }
+        let token: String
+        if let current = state.tokens["asura:access_token"] { token = current }
+        else { token = try await refreshSession() }
+        do { return try await source.request(path, method: method, body: body, token: token) }
+        catch ReaderError.http(401) where state.tokens["asura:refresh_token"] != nil {
+            let fresh: String
+            if let current = state.tokens["asura:access_token"], current != token { fresh = current }
+            else { fresh = try await refreshSession() }
+            return try await source.request(path, method: method, body: body, token: fresh)
+        }
     }
     func setTokens(_ tokens: [String: String]) throws {
         for (key, value) in tokens where ["asura:access_token", "asura:refresh_token"].contains(key) && !value.isEmpty { state.tokens[key] = value }

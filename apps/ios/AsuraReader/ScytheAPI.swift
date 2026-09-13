@@ -48,7 +48,7 @@ enum ScytheParser {
         guard let url = URL(string: raw, relativeTo: URL(string: ProviderConfiguration.scythe.origin)),
               url.path.split(separator: "/").count == 1, let route = route(url.lastPathComponent), route.slug == slug else { throw ReaderError.message("Invalid Scythe chapter link") }
         var time = try link.select(".fivtime").text()
-        if time.range(of: "^[0-9]+ (?:minute|hour|day|week|month|year)s?$", options: .regularExpression) != nil { time += " ago" }
+        if time.range(of: "(?i)^[0-9]+\\s+(?:minute|hour|day|week|month|year)s?$", options: .regularExpression) != nil { time += " ago" }
         return Chapter(number: route.number, id: route.id, published: time)
     }
     static func catalog(_ html: String, path: String) throws -> (series: [Series], next: String?) {
@@ -63,14 +63,16 @@ enum ScytheParser {
         }
         let series = try cards.map { card -> Series in
             guard let link = try card.select(".bsx > a[href*=/manga/]").first(), let cover = try card.select("img").first() else { throw ReaderError.message("Incomplete Scythe card") }
-            let slug = URL(string: try link.attr("href"))?.lastPathComponent ?? ""
+            guard let url = URL(string: try link.attr("href"), relativeTo: URL(string: ProviderConfiguration.scythe.origin)),
+                  url.path.range(of: "^/manga/[^/]+/?$", options: .regularExpression) != nil else { throw ReaderError.message("Invalid Scythe series URL") }
+            let slug = url.lastPathComponent
             let title = try card.select(".tt").text()
             guard CachePolicy.validSlug(slug), !title.isEmpty else { throw ReaderError.message("Invalid Scythe series") }
             var chapters: [Chapter] = []
             if isCatalog {
                 let label = try card.select(".epxs").text()
-                if let range = label.range(of: "[0-9]+(?:[.][0-9]+)?", options: .regularExpression) {
-                    let number = String(label[range]); chapters = [Chapter(number: number, id: "\(slug)-chapter-\(number)")]
+                if let range = label.range(of: "(?i)^Chapter\\s+[0-9]+(?:[.][0-9]+)?", options: .regularExpression) {
+                    let number = String(label[range]).split(whereSeparator: { $0.isWhitespace }).last.map(String.init)!; chapters = [Chapter(number: number, id: "\(slug)-chapter-\(number)")]
                 }
             } else {
                 chapters = try card.select("ul.chfiv > li > a").map { try linkRoute($0, slug: slug) }

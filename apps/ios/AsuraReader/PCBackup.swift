@@ -86,12 +86,13 @@ enum BackupCodec {
               let metadata = db["metadata"] as? [[String: Any]],
               metadata.contains(where: { $0["key"] as? String == "progress-schema-version" && $0["value"] as? Int == 3 }) else { throw ReaderError.message("Unsupported reading backup") }
         var state = AppState()
-        for row in rows where row["provider"] as? String == provider.rawValue {
+        guard rows.allSatisfy({ $0["provider"] as? String == provider.rawValue }) else { throw ReaderError.message("Wrong provider in PC state") }
+        for row in rows {
             guard let slug = row["seriesSlug"] as? String, CachePolicy.validSlug(slug),
                   let chapter = row["chapterId"] as? String, CachePolicy.validChapter(chapter),
                   let page = row["imageIndex"] as? Int, let total = row["totalImages"] as? Int,
                   total > 0, page >= 0, page < total, let date = row["updatedAt"] as? Double, date.isFinite,
-                  row["id"] as? String == provider.rawValue + "\u{0}" + slug, state.progress[slug] == nil else { throw ReaderError.message("Invalid backup position") }
+                  row["id"] as? String == provider.rawValue + "\u{0}" + slug, state.progress[provider.identity(slug)] == nil else { throw ReaderError.message("Invalid backup position") }
             let identity = provider.identity(slug)
             state.progress[identity] = Position(slug: slug, chapter: chapter, page: page, fraction: 0, total: total, updatedAt: date)
             state.history[identity, default: [:]][chapter] = page

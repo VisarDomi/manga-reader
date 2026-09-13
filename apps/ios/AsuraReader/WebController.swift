@@ -9,6 +9,7 @@ final class WebController: UIViewController, WKNavigationDelegate, WKScriptMessa
     private var home = false
     private var work: Task<Void, Never>?
     private var activeDocument = ""
+    private var refreshedHomeDocument: String?
     private var firstLaunch = true
     init(store: ReaderStore) { self.store = store; super.init(nibName: nil, bundle: nil) }
     required init?(coder: NSCoder) { fatalError("Unused") }
@@ -41,9 +42,16 @@ final class WebController: UIViewController, WKNavigationDelegate, WKScriptMessa
     }
     private func startWork() {
         guard foreground, home, work == nil else { return }
+        let document = activeDocument
+        let refreshCatalog = refreshedHomeDocument != document
         work = Task { [weak self, store] in
             await store.setHome(true)
-            try? await store.refreshCatalog { [weak self] in await self?.updateHome() }
+            if refreshCatalog {
+                do {
+                    try await store.refreshCatalog { [weak self] in await self?.updateHome() }
+                    if !Task.isCancelled { self?.refreshedHomeDocument = document }
+                } catch { /* Published rows and catalogError remain available. */ }
+            }
             guard let self else { return }
             if !Task.isCancelled, home, foreground { await updateHome(); await store.prepareHome() }
             work = nil
@@ -75,6 +83,7 @@ final class WebController: UIViewController, WKNavigationDelegate, WKScriptMessa
                     }
                     replyHandler(try jsonText(payload), nil)
                 } else if command == "ready" {
+                    guard document == activeDocument else { replyHandler("{}", nil); return }
                     home = args["home"] as? Bool == true
                     UIApplication.shared.isIdleTimerDisabled = foreground && !home
                     await store.setHome(home && foreground)
@@ -94,7 +103,7 @@ final class WebController: UIViewController, WKNavigationDelegate, WKScriptMessa
         let url = navigationAction.request.url
         let allowed = url?.scheme == "asura" && url?.host == "app"
         if allowed, navigationAction.targetFrame?.isMainFrame == true {
-            home = false; work?.cancel(); Task { [store] in await store.setHome(false) }
+            activeDocument = ""; home = false; work?.cancel(); Task { [store] in await store.setHome(false) }
         }
         decisionHandler(allowed ? .allow : .cancel)
     }

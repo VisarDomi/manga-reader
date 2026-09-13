@@ -113,3 +113,13 @@ build 3. Browser checks cover image selection/drag, link taps, text editing and
 scrolling. Physical Asura WebKit inspection found all 345 images and their linked
 containers protected. The user also verified that long-pressing Asura images no
 longer opens the system menu.
+
+
+## Third fidelity pass, build 4
+
+See [the third-pass audit](../../investigation/third-port-fidelity-audit.md) for
+the Home row/lifecycle, reader, optional Asura account, backup and provider
+corrections. Scythe was installed first and manually accepted by the user.
+All six apps use the same updated native code and provider builder. Userscript
+and extension source remain the reference; no source runtime changes were
+needed for this native pass. The all-image interaction rules are retained.

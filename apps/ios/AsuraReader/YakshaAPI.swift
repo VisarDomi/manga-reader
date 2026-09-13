@@ -41,9 +41,11 @@ actor YakshaAPI: ReaderSource {
     }
     static func chapters(_ html: String) throws -> [Chapter] {
         let doc = try SwiftSoup.parse(html)
-        return CachePolicy.oldestFirst(try doc.select("li.wp-manga-chapter a[href]").map { link in
-            let id = try url(link.attr("href")).lastPathComponent
-            return Chapter(number: NativeProviderData.chapterNumber(id), id: id)
+        return CachePolicy.oldestFirst(try doc.select("li.wp-manga-chapter a[href]").compactMap { link -> Chapter? in
+            let text = try link.text()
+            guard let range = text.range(of: "Chapter\\s+[0-9.]+$", options: .regularExpression) else { return nil }
+            let number = String(text[range]).split(whereSeparator: { $0.isWhitespace }).last.map(String.init)!
+            return Chapter(number: number, id: "chapter-" + number)
         })
     }
     func chapters(_ slug: String) async throws -> [Chapter] { try Self.chapters(await html("/manga/\(slug)/")) }

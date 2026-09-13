@@ -8,12 +8,26 @@ actor FakeAsura: AsuraSource {
     var offline = false
     var catalogRequests = 0
     var failCatalog = false
+    var accountPaths: [String] = []
+    func accountRequests() -> [String] { accountPaths }
     func failLaterCatalog() { failCatalog = true }
     func catalogCount() -> Int { catalogRequests }
     func setOffline() { offline = true }
     func prioritize(_ url: String) {}
     func request(_ path: String, method: String, body: Data?, token: String?) async throws -> Data {
         if offline { throw ReaderError.message("Offline") }
+        if path == "/auth/refresh" {
+            accountPaths.append(path)
+            try await Task.sleep(for: .milliseconds(20))
+            return try jsonData(["data": ["access_token": "fixture-access", "refresh_token": "fixture-rotated"]])
+        }
+        if path == "/me/read-chapters" || path.hasPrefix("/bookmarks/") || path == "/views/chapter" {
+            guard token == "fixture-access" else { throw ReaderError.http(401) }
+            accountPaths.append(path)
+            return try jsonData(["data": ["fixture": [1,2]]])
+        }
+        if path.hasSuffix("/chapters/99") { throw ReaderError.http(404) }
+        if path.hasSuffix("/chapters/100") { return try jsonData(["data": ["is_locked": true]]) }
         if path.hasPrefix("/series?") {
             catalogRequests += 1
             let first = path.hasSuffix("offset=0")
@@ -135,6 +149,25 @@ actor CatalogProbe {
         try expect(!pc.configured, "unconfigured PC optional in test bundle")
         let available = await pc.available(); try expect(!available, "missing PC hides controls")
         print("PASS optional PC")
+        let accountSource = FakeAsura(), accountStore = ReaderStore(root: root.appendingPathComponent("account"), source: accountSource)
+        let anonymous = try object(Data(await accountStore.webReply("remote-history", data: jsonData([:])).utf8))
+        _ = try await accountStore.webReply("track-chapter", data: jsonData(["slug":"fixture", "chapter":"1"]))
+        let anonymousRequests = await accountSource.accountRequests()
+        try expect((anonymous["data"] as? [String: Any])?.isEmpty == true && anonymousRequests.isEmpty, "no account network calls without local session")
+        try await accountStore.setTokens(["asura:access_token":"fixture-expired", "asura:refresh_token":"fixture-refresh"])
+        async let historyOne = accountStore.webReply("remote-history", data: jsonData([:]))
+        async let historyTwo = accountStore.webReply("remote-history", data: jsonData([:]))
+        _ = try await (historyOne, historyTwo)
+        _ = try await accountStore.webReply("track-chapter", data: jsonData(["slug":"fixture", "chapter":"1"]))
+        let calls = await accountSource.accountRequests()
+        try expect(calls.filter { $0 == "/auth/refresh" }.count == 1, "concurrent expired-session requests share one refresh")
+        try expect(calls.contains("/bookmarks/12/read/1") && calls.contains("/views/chapter"), "native Asura matches both userscript tracking endpoints")
+        for unavailable in ["99", "100"] {
+            let result = try object(Data(await accountStore.webReply("open", data: jsonData(["slug":"fixture", "chapter":unavailable, "append":true])).utf8))
+            try expect(result["unavailable"] as? Bool == true, "404 and locked chapter stop continuation without hiding current pages")
+        }
+        print("PASS optional account history, single refresh, chapter tracking and unavailable continuation")
+
         // Both provider chapter formats enter exactly the same checkpoint/history path.
         for chapter in ["2", "fixture-chapter-194-2"] {
             let isolatedRoot = root.appendingPathComponent(UUID().uuidString)
@@ -164,11 +197,21 @@ actor CatalogProbe {
         let scytheBackup = try BackupCodec.encode(scythe, provider: .scythe)
         let restoredScythe = try BackupCodec.decode(scytheBackup, provider: .scythe)
         try expect(restoredScythe.progress["fixture"]?.chapter == "fixture-chapter-194-2" && restoredScythe.progress["fixture"]?.fraction == 0.25 && restoredScythe.history["fixture"]?["fixture-chapter-1"] == 9, "Scythe manual PC format preserves route/fraction/history")
-        let isolated = try BackupCodec.decode(scytheBackup, provider: .asura)
-        try expect(isolated.progress.isEmpty, "provider backups remain isolated")
+        do {
+            _ = try BackupCodec.decode(scytheBackup, provider: .asura)
+            throw ReaderError.message("Accepted wrong-provider backup")
+        } catch ReaderError.message("Wrong provider in PC state") {}
+        let beforeWrongImport = try await store.snapshot()
+        do { try await store.importBackup(scytheBackup); throw ReaderError.message("Imported wrong-provider backup") }
+        catch ReaderError.message("Wrong provider in PC state") {}
+        let afterWrongImport = try await store.snapshot()
+        try expect(beforeWrongImport == afterWrongImport, "wrong-provider Load does not erase existing history")
         try expect(ProviderConfiguration.scythe.identity("fixture-1234abcd") == "fixture-1234abcd", "Asura slug normalization never affects Scythe")
         let scytheOrder = try ScytheParser.chapters("<div id=chapterlist><a href='/fixture-chapter-2/'>2</a><a href='/fixture-chapter-10/'>10</a><a href='/fixture-chapter-10/'>10 duplicate</a><a href='/fixture-chapter-1/'>1</a></div>", slug: "fixture")
         try expect(scytheOrder.map(\.key) == ["fixture-chapter-1","fixture-chapter-10","fixture-chapter-2"], "Scythe dedupes in source order")
+        let scytheCard = "<div class='listupd'><div class='bs'><div class='bsx'><a href='/manga/fixture/'><img src='/cover.jpg'><span class='tt'>Fixture</span></a><span class='epxs'>Volume 3</span></div></div></div>"
+        let catalogWithoutChapter = try ScytheParser.catalog(scytheCard, path: "/manga/?page=1")
+        try expect(catalogWithoutChapter.series.first?.chapters.isEmpty == true, "Scythe catalog never invents a chapter from a non-chapter label")
         print("PASS Scythe routes/default images/manual PC/provider isolation/order")
         if ProcessInfo.processInfo.environment["READER_LIVE_CHECK"] == "1" {
             let live = ScytheAPI()
@@ -200,6 +243,9 @@ actor CatalogProbe {
         try expect(yakshaList.map(\.key) == ["chapter-1", "chapter-2.5"], "Yaksha preserves chapter links and provider order")
         let yakshaOrder = try YakshaAPI.chapters("<li class='wp-manga-chapter'><a href='/manga/fixture/chapter-2/'>Chapter 2</a></li><li class='wp-manga-chapter'><a href='/manga/fixture/chapter-10/'>Chapter 10</a></li><li class='wp-manga-chapter'><a href='/manga/fixture/chapter-1/'>Chapter 1</a></li>")
         try expect(yakshaOrder.map(\.key) == ["chapter-1","chapter-10","chapter-2"], "Yaksha preserves the provider order")
+        let yakshaLabels = try YakshaAPI.chapters("<li class='wp-manga-chapter'><a href='/manga/fixture/alternate/'>Chapter 2</a></li><li class='wp-manga-chapter'><a href='/manga/fixture/extra/'>Announcement</a></li>")
+        try expect(yakshaLabels.map(\.key) == ["chapter-2"], "Yaksha chapter IDs/filter match the userscript's chapter labels")
+
         for provider in [ProviderConfiguration.ezmanga, .qiscans, .lua, .yaksha] {
             var state = AppState()
             state.progress["the-tyrant's-mother"] = Position(slug: "the-tyrant's-mother", chapter: "chapter-2.5", page: 1, fraction: 0.3, total: 4, updatedAt: 100)
