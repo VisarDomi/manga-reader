@@ -8,6 +8,7 @@ struct Chapter: Codable, Sendable, Equatable {
     var locked: Bool = false
     var published: String = ""
     var unlockAt: String? = nil
+    var label: String? = nil
 }
 struct Series: Codable, Sendable {
     var slug: String
@@ -72,13 +73,11 @@ enum CachePolicy {
         if let n = value as? NSNumber { return n.stringValue }
         return ""
     }
-    static func ordered(_ chapters: [Chapter]) -> [Chapter] {
-        var seen = Set<String>()
-        return chapters.filter { !$0.number.isEmpty && seen.insert($0.key).inserted }
-            .sorted { (Double($0.number) ?? 0) < (Double($1.number) ?? 0) }
-    }
+    // Native slots traverse oldest → newest; adapters receive newest-first lists.
+    // Reverse the provider order exactly. Chapter numbers do not define adjacency.
+    static func oldestFirst(_ newestFirst: [Chapter]) -> [Chapter] { Array(newestFirst.reversed()) }
     static func window(current: String, chapters: [Chapter]) -> [String] {
-        let ordered = ordered(chapters)
+        let ordered = chapters
         guard let i = ordered.firstIndex(where: { $0.key == current }) else { return [current] }
         return [current] + (i + 1 < ordered.count ? [ordered[i + 1].key] : [])
     }
@@ -97,7 +96,7 @@ func object(_ data: Data) throws -> [String: Any] {
     return result
 }
 func chaptersFrom(_ rows: Any?) -> [Chapter] {
-    CachePolicy.ordered((rows as? [[String: Any]] ?? []).map { row in
+    CachePolicy.oldestFirst((rows as? [[String: Any]] ?? []).map { row in
         let until = (row["early_access_until"] as? String).flatMap { parseDate($0) }
         let premium = row["is_premium"] as? Bool ?? false
         return Chapter(number: CachePolicy.number(row["number"]), locked: premium && (until == nil || until! > Date()), published: row["published_at"] as? String ?? "", unlockAt: row["early_access_until"] as? String)
@@ -114,4 +113,41 @@ func writeAtomically(_ data: Data, _ url: URL) throws {
 func parseDate(_ text: String) -> Date? {
     let formatter = ISO8601DateFormatter(); formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
     return formatter.date(from: text) ?? ISO8601DateFormatter().date(from: text)
+}
+
+
+struct CatalogPage: Sendable {
+    var series: [Series]
+    var total: Int?
+    var hasMore: Bool
+}
+typealias CatalogUpdate = @Sendable (CatalogPage) async throws -> Void
+
+// Same append/merge policy as src/routes/home.ts. Cards keep the first title,
+// cover and chapter entries; subsequent pages fill the remaining five slots.
+struct CatalogFeed {
+    private(set) var series: [Series] = []
+    private var indices: [String: Int] = [:]
+    private var total: Int?
+    private var firstPage = true
+    mutating func append(_ rows: [Series], total: Int? = nil, hasMore: Bool, onPage: CatalogUpdate?) async throws {
+        try Task.checkCancellation()
+        if let total { self.total = total }
+        for incoming in rows {
+            if let index = indices[incoming.slug] {
+                guard !firstPage else { throw ReaderError.message("First home page repeats series \(incoming.slug)") }
+                var chapters = Array(series[index].chapters.reversed())
+                var ids = Set(chapters.map(\.key))
+                for chapter in incoming.chapters.reversed() where ids.insert(chapter.key).inserted { chapters.append(chapter) }
+                series[index].chapters = CachePolicy.oldestFirst(Array(chapters.prefix(5)))
+            } else {
+                indices[incoming.slug] = series.count
+                series.append(incoming)
+            }
+        }
+        firstPage = false
+        try await onPage?(CatalogPage(series: series, total: self.total, hasMore: hasMore))
+        // Publish before waiting: the first batch is usable while pagination runs.
+        if hasMore { try await Task.sleep(for: .seconds(1)) }
+    }
 }

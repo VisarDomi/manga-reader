@@ -1,0 +1,382 @@
+{
+  "date": "2026-09-13",
+  "scope": [
+    "manga-reader",
+    "gallery-reader",
+    "km-explorer (Ytb)",
+    "stream-viewer (Tango/Xvid)"
+  ],
+  "excluded": [
+    "gallery-downloader"
+  ],
+  "audit": "port-fidelity-audit.md",
+  "tests": {
+    "mangaProviderBrowser": 6,
+    "mangaSharedUnit": 34,
+    "mangaBuilderAndSigningLock": "passed",
+    "mangaSwiftCore": "passed on Mac",
+    "galleryProviderBrowser": 2,
+    "galleryTypeScript": "passed",
+    "ytbBrowser": "passed; runtime unchanged",
+    "tangoBrowserAndTypeScript": "passed; runtime unchanged",
+    "oldMangaRegression": "fails partial/read exclusivity; earlier navigation-only fixture also fails continuation",
+    "mangaLiveProviders": [
+      {
+        "provider": "asurascans",
+        "exit": 0,
+        "pass": [
+          "PASS live asurascans: 345 series, 16 pages, image/webp"
+        ],
+        "error": null
+      },
+      {
+        "provider": "scythescans",
+        "exit": 0,
+        "pass": [
+          "PASS live scythescans: 63 series, 7 pages, image/webp"
+        ],
+        "error": null
+      },
+      {
+        "provider": "yakshacomics",
+        "exit": 0,
+        "pass": [
+          "PASS live yakshacomics: 58 series, 6 pages, image/jpeg"
+        ],
+        "error": null
+      },
+      {
+        "provider": "qimanga",
+        "exit": 0,
+        "pass": [
+          "PASS live qimanga: 968 series, 21 pages, image/webp"
+        ],
+        "error": null
+      },
+      {
+        "provider": "luacomic",
+        "exit": 0,
+        "pass": [
+          "PASS live luacomic: 616 series, 2 pages, image/jpg"
+        ],
+        "error": null
+      },
+      {
+        "provider": "ezmanga",
+        "exit": 0,
+        "pass": [
+          "PASS live ezmanga: 760 series, 10 pages, image/webp"
+        ],
+        "error": null
+      }
+    ],
+    "mangaCatalogOrderRegression": "passed: incremental callbacks, provider order, five-slot merge, partial failure, omitted final Asura has_more, unchanged DOM, First/Next and invalid lists"
+  },
+  "phone": [
+    {
+      "bundle": "com.visar.AsuraReader.paid",
+      "snapshot": {
+        "ready": "complete",
+        "origin": "asura:",
+        "route": "home",
+        "cards": 345,
+        "pages": 0,
+        "decodedImages": 15,
+        "brokenImages": 0,
+        "readAndPartial": 0,
+        "sharedHistory": true,
+        "scriptCount": 2,
+        "errors": 0
+      }
+    },
+    {
+      "bundle": "com.visar.ScytheReader.paid",
+      "snapshot": {
+        "ready": "complete",
+        "origin": "asura:",
+        "route": "home",
+        "cards": 63,
+        "pages": 0,
+        "decodedImages": 13,
+        "brokenImages": 0,
+        "readAndPartial": 0,
+        "sharedHistory": true,
+        "scriptCount": 2,
+        "errors": 0
+      }
+    },
+    {
+      "bundle": "com.visar.YakshaReader.paid",
+      "snapshot": {
+        "ready": "complete",
+        "origin": "asura:",
+        "route": "home",
+        "cards": 58,
+        "pages": 0,
+        "decodedImages": 11,
+        "brokenImages": 0,
+        "readAndPartial": 0,
+        "sharedHistory": true,
+        "scriptCount": 2,
+        "errors": 0
+      }
+    },
+    {
+      "bundle": "com.visar.QiMangaReader.paid",
+      "snapshot": {
+        "ready": "complete",
+        "origin": "asura:",
+        "route": "home",
+        "cards": 968,
+        "pages": 0,
+        "decodedImages": 10,
+        "brokenImages": 0,
+        "readAndPartial": 0,
+        "sharedHistory": true,
+        "scriptCount": 2,
+        "errors": 0
+      }
+    },
+    {
+      "bundle": "com.visar.LuaReader.paid",
+      "snapshot": {
+        "ready": "complete",
+        "origin": "asura:",
+        "route": "home",
+        "cards": 616,
+        "pages": 0,
+        "decodedImages": 10,
+        "brokenImages": 0,
+        "readAndPartial": 0,
+        "sharedHistory": true,
+        "scriptCount": 2,
+        "errors": 0
+      }
+    },
+    {
+      "bundle": "com.visar.EzMangaReader.paid",
+      "snapshot": {
+        "ready": "complete",
+        "origin": "asura:",
+        "route": "home",
+        "cards": 760,
+        "pages": 0,
+        "decodedImages": 15,
+        "brokenImages": 0,
+        "readAndPartial": 0,
+        "sharedHistory": true,
+        "scriptCount": 2,
+        "errors": 0
+      }
+    },
+    {
+      "bundle": "com.visar.HitomiReader.paid",
+      "snapshot": {
+        "ready": "complete",
+        "origin": "gallery:",
+        "route": "reader",
+        "cards": 0,
+        "pages": 88,
+        "decodedImages": 3,
+        "brokenImages": 0,
+        "readAndPartial": 0,
+        "sharedHistory": false,
+        "scriptCount": 2,
+        "errors": 0
+      }
+    },
+    {
+      "bundle": "com.visar.ImhenReader.paid",
+      "snapshot": {
+        "ready": "complete",
+        "origin": "gallery:",
+        "route": "home",
+        "cards": 15,
+        "pages": 0,
+        "decodedImages": 20,
+        "brokenImages": 0,
+        "readAndPartial": 0,
+        "sharedHistory": false,
+        "scriptCount": 2,
+        "errors": 0
+      }
+    }
+  ],
+  "renewal": {
+    "scheduler": "com.visar.installed-apps-refresh",
+    "active": true,
+    "lastExitStatus": 0,
+    "apps": {
+      "asura": {
+        "bundleId": "com.visar.AsuraReader.paid",
+        "displayName": "Asura",
+        "version": "2",
+        "webSHA256": "76f688439844c8f3400e7c015344fc6cbaa5cdf90b35121fddf79f7a1088473e",
+        "lastSuccess": 1789288269.813418,
+        "nextDue": 1791880269.813418,
+        "lastError": null,
+        "inputHash": "e405e3bcf2ef64beafc14767f7130a5d3946c28c277315036e32dec9a87ae1ee",
+        "currentInputsMatch": true,
+        "profileExpires": "2027-09-13T08:30:36Z",
+        "iconDeclared": false
+      },
+      "scythe": {
+        "bundleId": "com.visar.ScytheReader.paid",
+        "displayName": "Scythe",
+        "version": "2",
+        "webSHA256": "76f688439844c8f3400e7c015344fc6cbaa5cdf90b35121fddf79f7a1088473e",
+        "lastSuccess": 1789288279.6510148,
+        "nextDue": 1791880279.651015,
+        "lastError": null,
+        "inputHash": "e405e3bcf2ef64beafc14767f7130a5d3946c28c277315036e32dec9a87ae1ee",
+        "currentInputsMatch": true,
+        "profileExpires": "2027-09-13T08:30:36Z",
+        "iconDeclared": false
+      },
+      "yaksha": {
+        "bundleId": "com.visar.YakshaReader.paid",
+        "displayName": "Yaksha",
+        "version": "2",
+        "webSHA256": "76f688439844c8f3400e7c015344fc6cbaa5cdf90b35121fddf79f7a1088473e",
+        "lastSuccess": 1789288260.0493891,
+        "nextDue": 1791880260.049389,
+        "lastError": null,
+        "inputHash": "e405e3bcf2ef64beafc14767f7130a5d3946c28c277315036e32dec9a87ae1ee",
+        "currentInputsMatch": true,
+        "profileExpires": "2027-09-13T08:30:36Z",
+        "iconDeclared": false
+      },
+      "qiscans": {
+        "bundleId": "com.visar.QiMangaReader.paid",
+        "displayName": "QiScans",
+        "version": "2",
+        "webSHA256": "76f688439844c8f3400e7c015344fc6cbaa5cdf90b35121fddf79f7a1088473e",
+        "lastSuccess": 1789288250.899969,
+        "nextDue": 1791880250.899969,
+        "lastError": null,
+        "inputHash": "e405e3bcf2ef64beafc14767f7130a5d3946c28c277315036e32dec9a87ae1ee",
+        "currentInputsMatch": true,
+        "profileExpires": "2027-09-13T08:30:36Z",
+        "iconDeclared": false
+      },
+      "lua": {
+        "bundleId": "com.visar.LuaReader.paid",
+        "displayName": "Lua",
+        "version": "2",
+        "webSHA256": "76f688439844c8f3400e7c015344fc6cbaa5cdf90b35121fddf79f7a1088473e",
+        "lastSuccess": 1789288288.9701738,
+        "nextDue": 1791880288.970174,
+        "lastError": null,
+        "inputHash": "e405e3bcf2ef64beafc14767f7130a5d3946c28c277315036e32dec9a87ae1ee",
+        "currentInputsMatch": true,
+        "profileExpires": "2027-09-13T08:30:36Z",
+        "iconDeclared": false
+      },
+      "ezmanga": {
+        "bundleId": "com.visar.EzMangaReader.paid",
+        "displayName": "EzScans",
+        "version": "2",
+        "webSHA256": "76f688439844c8f3400e7c015344fc6cbaa5cdf90b35121fddf79f7a1088473e",
+        "lastSuccess": 1789288241.241438,
+        "nextDue": 1791880241.241438,
+        "lastError": null,
+        "inputHash": "e405e3bcf2ef64beafc14767f7130a5d3946c28c277315036e32dec9a87ae1ee",
+        "currentInputsMatch": true,
+        "profileExpires": "2027-09-13T08:30:36Z",
+        "iconDeclared": false
+      },
+      "hitomi": {
+        "bundleId": "com.visar.HitomiReader.paid",
+        "displayName": "Hitomi",
+        "version": "9",
+        "webSHA256": "b98ac9578b976f5ad6557b96afb12347b14b3c54b530dcb0779f7879b77647f1",
+        "lastSuccess": 1789286518.361703,
+        "nextDue": 1791878518.361703,
+        "lastError": null,
+        "inputHash": "ed82b9ce2109fcdf4004c06897a86ce15a3d5b32dda7f9f8411d4a5b57bca61c",
+        "currentInputsMatch": true,
+        "profileExpires": "2027-09-13T08:00:52Z",
+        "iconDeclared": false
+      },
+      "imhentai": {
+        "bundleId": "com.visar.ImhenReader.paid",
+        "displayName": "Imhen",
+        "version": "9",
+        "webSHA256": "1294f454151edab5d7e7f15bbe525eb52f147b749dc11b74f0853b176a25a254",
+        "lastSuccess": 1789286533.112088,
+        "nextDue": 1791878533.112088,
+        "lastError": null,
+        "inputHash": "9acb8422029b54abfe0f8ab7c4b0b2325f5086fb45d0ed8f52c9ea1125966c9e",
+        "currentInputsMatch": true,
+        "profileExpires": "2027-09-13T08:00:52Z",
+        "iconDeclared": false
+      }
+    }
+  },
+  "limits": [
+    "No new physical gesture smoothness measurement",
+    "Authenticated Asura remote history and pixel equivalence not established"
+  ],
+  "mangaCatalogPhone": {
+    "bundle": "com.visar.AsuraReader.paid",
+    "batches": [
+      {
+        "loaded": 50,
+        "total": 345,
+        "loading": true,
+        "error": false,
+        "cards": 345
+      },
+      {
+        "loaded": 100,
+        "total": 345,
+        "loading": true,
+        "error": false,
+        "cards": 345
+      },
+      {
+        "loaded": 150,
+        "total": 345,
+        "loading": true,
+        "error": false,
+        "cards": 345
+      },
+      {
+        "loaded": 200,
+        "total": 345,
+        "loading": true,
+        "error": false,
+        "cards": 345
+      },
+      {
+        "loaded": 250,
+        "total": 345,
+        "loading": true,
+        "error": false,
+        "cards": 345
+      },
+      {
+        "loaded": 300,
+        "total": 345,
+        "loading": true,
+        "error": false,
+        "cards": 345
+      },
+      {
+        "loaded": 345,
+        "total": 345,
+        "loading": false,
+        "error": false,
+        "cards": 345
+      },
+      {
+        "loaded": 345,
+        "total": 345,
+        "loading": false,
+        "error": false,
+        "cards": 345
+      }
+    ],
+    "note": "Cached 345 rows stayed available while successive fresh batches arrived. A repeated terminal callback is the controller completion update. Status/count-only inspection; no gesture smoothness claim."
+  }
+}

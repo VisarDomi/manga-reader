@@ -11,18 +11,18 @@ actor ScytheAPI: ReaderSource {
     func image(_ raw: String, to destination: URL, urgent: Bool) async throws -> String {
         try await http.image(raw, to: destination, urgent: urgent)
     }
-    func catalog() async throws -> [Series] {
-        var result: [Series] = [], seen = Set<String>()
+    func catalog(onPage: CatalogUpdate?) async throws -> [Series] {
+        var feed = CatalogFeed()
         var cursor: String? = "/"
         var visited = Set<String>()
         while let path = cursor {
             try Task.checkCancellation()
             guard visited.insert(path).inserted else { throw ReaderError.message("Scythe repeated a catalog page") }
             let page = try ScytheParser.catalog(await html(path), path: path)
-            for series in page.series where seen.insert(series.slug).inserted { result.append(series) }
+            try await feed.append(page.series, hasMore: page.next != nil, onPage: onPage)
             cursor = page.next
         }
-        return result
+        return feed.series
     }
     func chapters(_ slug: String) async throws -> [Chapter] {
         try ScytheParser.chapters(await html("/manga/\(slug)/"), slug: slug)
@@ -32,7 +32,7 @@ actor ScytheAPI: ReaderSource {
         let page = try await html("/\(chapter)/")
         let content = try ScytheParser.reader(page)
         return Manifest(slug: slug, chapter: chapter, title: content.title, seriesID: "", chapterID: chapter,
-                        pages: content.images.map { PageImage(url: $0, width: 0, height: 0) }, chapters: try await chapters(slug))
+                        pages: content.images.map { PageImage(url: $0, width: 0, height: 0) }, chapters: [])
     }
 }
 
@@ -78,7 +78,7 @@ enum ScytheParser {
                 chapters = Array(chapters.prefix(5))
             }
             let coverURL = URL(string: try cover.attr("src"), relativeTo: URL(string: ProviderConfiguration.scythe.origin))?.absoluteString ?? ""
-            return Series(slug: slug, identity: slug, title: title, cover: coverURL, chapters: CachePolicy.ordered(chapters))
+            return Series(slug: slug, identity: slug, title: title, cover: coverURL, chapters: CachePolicy.oldestFirst(chapters))
         }
         let hasNext = try !doc.select(".pagination a.next").isEmpty()
         let page: Int
@@ -93,7 +93,8 @@ enum ScytheParser {
         let doc = try SwiftSoup.parse(html)
         let result = try doc.select("#chapterlist a[href]").map { try linkRoute($0, slug: slug) }
         guard !result.isEmpty else { throw ReaderError.message("Scythe chapter list is empty") }
-        return CachePolicy.ordered(result)
+        var seen = Set<String>()
+        return CachePolicy.oldestFirst(result.filter { seen.insert($0.key).inserted })
     }
     static func reader(_ html: String) throws -> (title: String, images: [String]) {
         let doc = try SwiftSoup.parse(html)

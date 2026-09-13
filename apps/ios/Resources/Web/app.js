@@ -11,9 +11,9 @@
   const chapterURL = (slug, chapter, resume = false) => `/reader/${encodeURIComponent(slug)}/${encodeURIComponent(chapter)}${resume ? '?resume=1' : ''}`;
   let touching = false, skipPositionSave = false, heldAnchor, anchorFrame;
   let state, home = route().length === 0, restoring = true, touched = false, currentManifest, saveChain = Promise.resolve();
-  let pages = [], observer, nextLoading = false, loadedChapters = new Set();
+  let chapterList = [], pages = [], observer, nextLoading = false, loadedChapters = new Set();
   const imageRetry = new ReaderCore.ImageRetryRegistry();
-  let activeImages = 0, imageQueue = [], imageGeneration = 0, lastScroll = 0, catalogSignature = "";
+  let activeImages = 0, imageQueue = [], imageGeneration = 0, catalogSignature = "";
   const maxImages = 4;
   function queueImage(slot) {
     if (slot.dataset.loading || slot.querySelector('img')) return;
@@ -114,7 +114,6 @@
   addEventListener('touchstart', () => { touching = true; }, { passive: true });
   ['touchend', 'touchcancel'].forEach(type => addEventListener(type, () => { touching = false; }, { passive: true }));
   ['touchstart', 'pointerdown', 'wheel', 'keydown'].forEach(type => addEventListener(type, () => { touched = true; restoring = false; heldAnchor = null; }, { passive: true }));
-  addEventListener('scroll', () => { lastScroll = Date.now(); }, { passive: true });
   const schedulePositionUpdate = ReaderCore.onSettledScroll(() => { save().catch(() => {}); });
   addEventListener('pagehide', () => { save().catch(() => {}); });
   document.addEventListener('visibilitychange', () => { if (document.hidden) save().catch(() => {}); });
@@ -127,37 +126,26 @@
     const anchor = event.target.closest('a');
     if (anchor && anchor.origin === location.origin) { event.preventDefault(); navigate(anchor.href); }
   });
-  function uploadedAt(value) {
-    if (!value) return '';
-    const stamp = new Date(value).getTime(); if (!Number.isFinite(stamp)) return value;
-    const minutes = Math.floor(Math.max(0, Date.now() - stamp) / 60000);
-    if (minutes < 1) return 'Just now'; if (minutes < 60) return `${minutes}m ago`;
-    const hours = Math.floor(minutes / 60); if (hours < 24) return `${hours}h ago`;
-    const days = Math.floor(hours / 24); if (days < 7) return `${days}d ago`;
-    const weeks = Math.floor(days / 7); return weeks === 1 ? 'last week' : `${weeks} weeks ago`;
-  }
   function lockIcon() {
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     svg.classList.add('hs-home-lock'); svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('aria-label', 'Unavailable chapter');
     const path = document.createElementNS('http://www.w3.org/2000/svg', 'path'); path.setAttribute('fill', 'currentColor');
     path.setAttribute('d', 'M12 1.5a5.25 5.25 0 00-5.25 5.25v3a3 3 0 00-3 3v6.75a3 3 0 003 3h10.5a3 3 0 003-3v-6.75a3 3 0 00-3-3v-3c0-2.9-2.35-5.25-5.25-5.25zm3.75 8.25v-3a3.75 3.75 0 10-7.5 0v3h7.5z'); svg.append(path); return svg;
   }
-  function chapterLink(series, chapter) {
+  function chapterLink(series, chapter, resolved) {
     const link = el('a', 'chapter hs-home-chapter'), label = el('span', 'hs-home-chapter-label');
-    label.append(el('span', '', `Chapter ${chapter.number}`));
-    const p = state.progress[series.identity];
-    const read = state.history[series.identity]?.[chapterID(chapter)] >= 0 || (p && Number(chapter.number) < chapterNumber(p.chapter));
-    link.href = chapterURL(series.slug, chapterID(chapter), p?.chapter === chapterID(chapter));
-    if (read && p?.chapter !== chapterID(chapter)) link.href += '?end=1';
-    if (read) link.classList.add('hs-home-chapter-read');
-    if (p?.chapter === chapterID(chapter)) link.classList.add(p.page >= p.total - 1 ? 'hs-home-chapter-read' : 'hs-home-chapter-partial');
-    const time = el('time', '', uploadedAt(chapter.published));
+    label.append(el('span', '', chapter.label ?? `Chapter ${chapter.number}`));
+    const resume = resolved.localImageIndex !== undefined;
+    link.href = chapterURL(series.slug, chapterID(chapter), resume);
+    if (resolved.read && !resume) link.href += '?end=1';
+    if (resolved.read) link.classList.add('hs-home-chapter-read');
+    if (resolved.partial) link.classList.add('hs-home-chapter-partial');
+    const time = el('time', '', ReaderCore.formatUploadedAt(chapter.published ?? null));
     if (chapter.locked) {
       link.classList.add('hs-home-chapter-locked'); label.append(lockIcon());
       time.className = 'hs-home-unlock';
-      const remaining = chapter.unlockAt ? Math.max(0, new Date(chapter.unlockAt).getTime() - Date.now()) : null;
-      const hours = Math.floor(remaining / 3600000), minutes = Math.floor((remaining % 3600000) / 60000);
-      time.textContent = remaining === null ? 'Locked' : hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+      if (chapter.unlockAt) time.dataset.unlockAt = chapter.unlockAt;
+      time.textContent = chapter.unlockAt ? ReaderCore.unlockCountdown(chapter.unlockAt) : 'Locked';
       link.onclick = event => { event.preventDefault(); event.stopPropagation(); };
     }
     link.append(label, time); return link;
@@ -168,13 +156,23 @@
   }
   function renderCatalog() {
     const catalog = document.querySelector('.catalog'); if (!catalog) return;
-    const signature = JSON.stringify([state.catalog, state.progress, state.history]);
+    const status = document.querySelector('.hs-home-catalog-status');
+    if (status) {
+      status.classList.toggle('hs-error', !!state.catalogError);
+      status.textContent = state.catalogError || (state.catalog.length || state.catalogLoaded !== undefined
+        ? ReaderCore.statusText(state.catalogLoaded ?? state.catalog.length, state.catalogTotal, !!state.catalogLoading)
+        : 'Loading latest updates…');
+    }
+    const signature = JSON.stringify([state.catalog, state.progress]);
     if (signature === catalogSignature) return; catalogSignature = signature;
-    const view = position(), fragment = document.createDocumentFragment();
+    const cards = [];
     for (const series of state.catalog) {
-      const card = el('article', 'card hs-home-card'); card.id = 'series-' + series.identity;
+      const p = state.progress[series.identity], key = 'series-' + series.identity;
+      const cardSignature = JSON.stringify([series, p]), existing = document.getElementById(key);
+      if (existing?.dataset.signature === cardSignature) { cards.push(existing); continue; }
+      const card = el('article', 'card hs-home-card'); card.id = key; card.dataset.signature = cardSignature;
       const cover = el('a', 'cover hs-home-cover'); cover.setAttribute('aria-label', `Resume ${series.title}`);
-      const p = state.progress[series.identity]; cover.href = p ? chapterURL(series.slug, p.chapter, true) : '#';
+      cover.href = p ? chapterURL(series.slug, p.chapter, true) : '#';
       if (!p) cover.onclick = event => {
         event.preventDefault(); event.stopPropagation();
         if (cover.classList.contains('hs-home-cover-loading')) return;
@@ -183,16 +181,21 @@
       };
       const img = new Image(); img.alt = series.title; img.loading = 'lazy'; img.decoding = 'async'; img.src = new URL('/cover/' + encodeURIComponent(series.slug), location.href).href; imageRetry.register(img); cover.append(img);
       const detail = el('div', 'hs-home-details'), chapters = el('div', 'chapters hs-home-chapters');
-      for (const chapter of series.chapters.slice(-5).reverse()) chapters.append(chapterLink(series, chapter));
+      const visible = series.chapters.slice(-5).reverse();
+      const [resolved] = ReaderCore.resolveHistory({
+        cards: [{ seriesSlug: series.slug, historyId: series.identity, chapterIds: visible.map(chapterID) }],
+        remoteHistory: [],
+        progress: p ? [{ seriesSlug: series.identity, chapterId: p.chapter, imageIndex: p.page, totalImages: p.total }] : [],
+      });
+      visible.forEach((chapter, index) => chapters.append(chapterLink(series, chapter, resolved.chapters[index])));
       if (!series.chapters.length) chapters.append(el('p', 'hs-home-no-chapters', 'No chapters available'));
       const links = el('div', 'hs-home-chapter'), firstButton = el('button', 'native-link', 'First chapter');
       firstButton.onclick = () => first(series).catch(error => report(error));
-      links.append(firstButton); chapters.append(links); detail.append(chapters); card.append(cover, detail); fragment.append(card);
+      links.append(firstButton); chapters.append(links); detail.append(chapters); card.append(cover, detail); cards.push(card);
     }
-    catalog.replaceChildren(fragment);
-    const status = document.querySelector('.hs-home-catalog-status');
-    if (status) status.textContent = state.catalog.length ? `Loaded ${state.catalog.length} of ${state.catalog.length} series` : 'Loading latest updates…';
-    if (!restoring && view.anchor) { const anchor = document.getElementById(view.anchor); if (anchor) scrollTo(0, anchor.offsetTop + anchor.offsetHeight * view.fraction); }
+    const keep = new Set(cards);
+    for (const child of [...catalog.children]) if (!keep.has(child)) child.remove();
+    cards.forEach((card, index) => { if (catalog.children[index] !== card) catalog.insertBefore(card, catalog.children[index] ?? null); });
   }
   async function probePC() {
     const controls = document.querySelector('.hs-home-pc');
@@ -223,6 +226,9 @@
     app.className = 'home hs-home'; app.replaceChildren();
     const section = el('section', 'hs-home-section'), catalog = el('div', 'catalog hs-home-list'), status = el('p', 'hs-home-catalog-status');
     section.append(catalog, status); app.append(section); manualPC(section); renderCatalog(); restore(state.home);
+    setInterval(() => {
+      for (const time of section.querySelectorAll('time[data-unlock-at]')) time.textContent = ReaderCore.unlockCountdown(time.dataset.unlockAt);
+    }, 60000);
   }
   function appendChapter(m) {
     if (loadedChapters.has(m.chapter)) return;
@@ -236,7 +242,12 @@
       section.append(slot); pages.push(slot);
     });
     app.append(section); for (const slot of section.querySelectorAll('.page')) observer.observe(slot);
-    const at = m.chapters.findIndex(c => chapterID(c) === m.chapter), next = m.chapters[at + 1];
+    section.manifest = m;
+    attachNext(section);
+  }
+  function attachNext(section) {
+    const m = section.manifest;
+    const at = chapterList.findIndex(c => chapterID(c) === m.chapter), next = chapterList[at + 1];
     if (next && at >= 0) {
       const end = el('div', 'chapter-sentinel'); app.append(end);
       let succeeded = false;
@@ -260,6 +271,14 @@
     observePages();
     const resume = new URLSearchParams(location.search).has('resume');
     const m = await rpc('open', { slug, chapter, resume }); appendChapter(m);
+    const listStatus = el('div', 'hs-status hs-loading', 'Loading chapters...'); app.append(listStatus);
+    void rpc('chapters', { slug }).then(list => {
+      const ids = list.map(chapterID);
+      if (new Set(ids).size !== ids.length || !ids.includes(chapter)) throw new Error('Invalid chapter list');
+      chapterList = list; listStatus.remove();
+      for (const section of document.querySelectorAll('.hs-chapter')) attachNext(section);
+      schedulePositionUpdate();
+    }).catch(() => { listStatus.className = 'hs-status hs-error'; listStatus.textContent = 'Failed to load chapter list'; });
     const saved = new URLSearchParams(location.search).has('end') ? { page: m.pages.length - 1, fraction: 0 } : m.position;
     const view = new URLSearchParams(location.search).has('view') ? state.view : saved ? { anchor: `page-${chapter}-${Math.min(saved.page, m.pages.length - 1)}`, fraction: saved.fraction, y: 0 } : null;
     if (view && !touched) {
@@ -280,13 +299,7 @@
   }
   window.readerState = { save, probePC, update(next) {
     if (!home) return; state = next;
-    // Keep a gesture stable: apply catalog changes only once scrolling has settled.
-    clearTimeout(window.catalogUpdate);
-    const apply = () => {
-      if (touching || Date.now() - lastScroll < 250) { window.catalogUpdate = setTimeout(apply, 250); return; }
-      if (home) renderCatalog();
-    };
-    window.catalogUpdate = setTimeout(apply, 250);
+    renderCatalog();
   } };
   (async () => {
     try {

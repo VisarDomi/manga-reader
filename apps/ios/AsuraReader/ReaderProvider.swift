@@ -2,12 +2,16 @@ import Foundation
 
 // One provider per app; UI, storage, transfers, restore, and cache scheduling are shared.
 protocol ReaderSource: Sendable {
-    func catalog() async throws -> [Series]
+    func catalog(onPage: CatalogUpdate?) async throws -> [Series]
     func chapters(_ slug: String) async throws -> [Chapter]
     func manifest(_ slug: String, _ chapter: String, token: String?) async throws -> Manifest
     func image(_ raw: String, to destination: URL, urgent: Bool) async throws -> String
     func prioritize(_ url: String) async
 }
+extension ReaderSource {
+    func catalog() async throws -> [Series] { try await catalog(onPage: nil) }
+}
+
 protocol AsuraSource: ReaderSource {
     func request(_ path: String, method: String, body: Data?, token: String?) async throws -> Data
     func image(_ raw: String, to destination: URL, urgent: Bool) async throws -> String

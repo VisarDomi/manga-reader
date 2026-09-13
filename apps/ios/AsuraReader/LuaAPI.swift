@@ -10,18 +10,26 @@ actor LuaAPI: ReaderSource {
     static func chapter(_ row: [String: Any], locked: Bool = false) throws -> Chapter {
         guard let id = row["chapter_slug"] as? String, CachePolicy.validChapter(id) else { throw ReaderError.message("Invalid Lua chapter") }
         let index = CachePolicy.number(row["index"]).replacingOccurrences(of: "\\.0+$", with: "", options: .regularExpression)
-        return Chapter(number: index.isEmpty ? NativeProviderData.chapterNumber(id) : index, id: id, locked: locked, published: row["created_at"] as? String ?? "")
+        return Chapter(number: index.isEmpty ? NativeProviderData.chapterNumber(row["chapter_name"] as? String ?? id) : index, id: id, locked: locked, published: row["created_at"] as? String ?? "", label: (row["chapter_name"] as? String)?.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }.joined(separator: " "))
     }
-    func catalog() async throws -> [Series] {
+    func catalog(onPage: CatalogUpdate?) async throws -> [Series] {
         let data = try object(await api.request("/query?page=1&perPage=1000&series_type=Comic&query_string=&orderBy=latest&adult=true&status=All&tags_ids=%5B%5D"))
         guard let rows = data["data"] as? [[String: Any]] else { throw ReaderError.message("Invalid Lua catalog") }
-        return try rows.map { row in
+        let items = try rows.map { row in
             guard let slug = row["series_slug"] as? String, CachePolicy.validSlug(slug), let title = row["title"] as? String,
                   let cover = row["thumbnail"] as? String else { throw ReaderError.message("Incomplete Lua series") }
             let paid = try (row["paid_chapters"] as? [[String: Any]] ?? []).map { try Self.chapter($0, locked: true) }
             let free = try (row["free_chapters"] as? [[String: Any]] ?? []).map { try Self.chapter($0) }
-            return Series(slug: slug, identity: slug, title: title, cover: cover, chapters: Array(CachePolicy.ordered(paid + free).suffix(5)))
+            // Only Lua's Home contract orders by index/name; its full chapter list does not.
+            let newest = (paid + free).enumerated().sorted {
+                let a = Double($0.element.number) ?? -.infinity, b = Double($1.element.number) ?? -.infinity
+                return a == b ? $0.offset < $1.offset : a > b
+            }.prefix(5).map(\.element)
+            return Series(slug: slug, identity: slug, title: title, cover: cover, chapters: CachePolicy.oldestFirst(newest))
         }
+        var feed = CatalogFeed()
+        try await feed.append(items, total: (data["meta"] as? [String: Any])?["total"] as? Int, hasMore: false, onPage: onPage)
+        return feed.series
     }
     func chapters(_ slug: String) async throws -> [Chapter] {
         let series = try object(await api.request("/series/\(slug)"))
@@ -37,7 +45,7 @@ actor LuaAPI: ReaderSource {
             guard !rows.isEmpty, page < 10000 else { throw ReaderError.message("Invalid Lua pagination") }
             page += 1
         }
-        return CachePolicy.ordered(result)
+        return CachePolicy.oldestFirst(result)
     }
     static func reader(_ html: String) throws -> (title: String, pages: [PageImage]) {
         let doc = try SwiftSoup.parse(html)
@@ -53,6 +61,6 @@ actor LuaAPI: ReaderSource {
     func manifest(_ slug: String, _ chapter: String, token: String?) async throws -> Manifest {
         let html = String(decoding: try await site.request("/series/\(slug)/\(chapter)"), as: UTF8.self)
         let parsed = try Self.reader(html)
-        return Manifest(slug: slug, chapter: chapter, title: parsed.title, seriesID: "", chapterID: chapter, pages: parsed.pages, chapters: try await chapters(slug))
+        return Manifest(slug: slug, chapter: chapter, title: parsed.title, seriesID: "", chapterID: chapter, pages: parsed.pages, chapters: [])
     }
 }

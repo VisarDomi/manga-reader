@@ -20,27 +20,28 @@ actor YakshaAPI: ReaderSource {
             let chapters = try card.select(".list-chapter .chapter-item").prefix(5).map { row -> Chapter in
                 guard let link = try row.select(".chapter a").first() else { throw ReaderError.message("Incomplete Yaksha chapter") }
                 let id = try url(link.attr("href")).lastPathComponent
-                return Chapter(number: NativeProviderData.chapterNumber(id), id: id, published: try row.select(".post-on").text())
+                return Chapter(number: NativeProviderData.chapterNumber(id), id: id, published: try row.select(".post-on").text(), label: try link.text())
             }
-            return Series(slug: slug, identity: slug, title: try link.text(), cover: try url(cover.attr("src")).absoluteString, chapters: CachePolicy.ordered(chapters))
+            return Series(slug: slug, identity: slug, title: try link.text(), cover: try url(cover.attr("src")).absoluteString, chapters: CachePolicy.oldestFirst(chapters))
         }
         let more = try doc.select("a").contains { try $0.text() == "Older Posts" }
         return (series, more && !series.isEmpty)
     }
-    func catalog() async throws -> [Series] {
-        var result: [Series] = [], seen = Set<String>(), page = 1
+    func catalog(onPage: CatalogUpdate?) async throws -> [Series] {
+        var feed = CatalogFeed()
+        var page = 1
         while true {
             try Task.checkCancellation()
             let data = try Self.catalog(await html(page == 1 ? "/" : "/page/\(page)/"))
-            for series in data.series where seen.insert(series.slug).inserted { result.append(series) }
+            try await feed.append(data.series, hasMore: data.more, onPage: onPage)
             if !data.more { break }
             guard page < 10000 else { throw ReaderError.message("Invalid Yaksha pagination") }; page += 1
         }
-        return result
+        return feed.series
     }
     static func chapters(_ html: String) throws -> [Chapter] {
         let doc = try SwiftSoup.parse(html)
-        return CachePolicy.ordered(try doc.select("li.wp-manga-chapter a[href]").map { link in
+        return CachePolicy.oldestFirst(try doc.select("li.wp-manga-chapter a[href]").map { link in
             let id = try url(link.attr("href")).lastPathComponent
             return Chapter(number: NativeProviderData.chapterNumber(id), id: id)
         })
@@ -56,6 +57,6 @@ actor YakshaAPI: ReaderSource {
     }
     func manifest(_ slug: String, _ chapter: String, token: String?) async throws -> Manifest {
         let data = try Self.reader(await html("/manga/\(slug)/\(chapter)/"))
-        return Manifest(slug: slug, chapter: chapter, title: data.title, seriesID: "", chapterID: chapter, pages: data.pages, chapters: try await chapters(slug))
+        return Manifest(slug: slug, chapter: chapter, title: data.title, seriesID: "", chapterID: chapter, pages: data.pages, chapters: [])
     }
 }

@@ -12,24 +12,33 @@ actor AsuraAPI: AsuraSource {
 }
 
 extension AsuraSource {
-    func catalog() async throws -> [Series] {
-        var items: [Series] = []
-        var seen = Set<String>()
+    static func coverURL(_ raw: String) -> String {
+        guard !raw.isEmpty, let url = URL(string: raw, relativeTo: URL(string: ProviderConfiguration.asura.origin)), var parts = URLComponents(url: url.absoluteURL, resolvingAgainstBaseURL: true) else { return raw }
+        if parts.path.contains("/covers/") && parts.path.hasSuffix(".webp") {
+            parts.path = String(parts.path.dropLast(5)) + "-400.webp"
+        }
+        return parts.url?.absoluteString ?? raw
+    }
+    func catalog(onPage: CatalogUpdate?) async throws -> [Series] {
+        var feed = CatalogFeed()
         for offset in stride(from: 0, to: 10000, by: 50) {
             try Task.checkCancellation()
             let json = try object(await request("/series?sort=latest&order=desc&limit=50&offset=\(offset)", method: "GET", body: nil, token: nil))
-            let rows = json["data"] as? [[String: Any]] ?? []
+            guard let rows = json["data"] as? [[String: Any]] else { throw ReaderError.message("Invalid Asura catalog") }
+            var items: [Series] = []
             for row in rows {
                 let publicPath = row["public_url"] as? String ?? ""
                 let slug = URL(string: publicPath)?.lastPathComponent ?? (row["slug"] as? String ?? "")
-                guard CachePolicy.validSlug(slug), seen.insert(slug).inserted else { continue }
+                guard CachePolicy.validSlug(slug) else { continue }
                 items.append(Series(slug: slug, identity: CachePolicy.identity(slug), title: row["title"] as? String ?? slug,
-                                    cover: row["cover"] as? String ?? "", chapters: chaptersFrom(row["latest_chapters"])))
+                                    cover: Self.coverURL(row["cover"] as? String ?? ""), chapters: Array(chaptersFrom(row["latest_chapters"]).suffix(5))))
             }
-            if rows.isEmpty || (json["meta"] as? [String: Any])?["has_more"] as? Bool == false { break }
+            let meta = json["meta"] as? [String: Any]
+            let more = meta?["has_more"] as? Bool == true
+            try await feed.append(items, total: meta?["total"] as? Int, hasMore: more, onPage: onPage)
+            if !more { break }
         }
-        guard !items.isEmpty else { throw ReaderError.message("Asura's catalog is unavailable. Your saved library is still here.") }
-        return items
+        return feed.series
     }
     func chapters(_ slug: String) async throws -> [Chapter] {
         let json = try object(await request("/series/\(slug)/chapters", method: "GET", body: nil, token: nil))
@@ -48,6 +57,6 @@ extension AsuraSource {
         }
         return Manifest(slug: slug, chapter: chapter, title: series["title"] as? String ?? slug,
                     seriesID: CachePolicy.number(series["id"]), chapterID: CachePolicy.number(row["id"]),
-                    pages: images, chapters: chaptersFrom(data["chapter_list"]))
+                    pages: images, chapters: [])
     }
 }

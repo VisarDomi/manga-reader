@@ -1,3 +1,4 @@
+import { formatUploadedAt, unlockCountdown, statusText } from '../core/home-format';
 import type {
     HomeChapter,
     HomePage,
@@ -110,30 +111,6 @@ function lockIcon(): SVGSVGElement {
     path.setAttribute('d', 'M12 1.5a5.25 5.25 0 00-5.25 5.25v3a3 3 0 00-3 3v6.75a3 3 0 003 3h10.5a3 3 0 003-3v-6.75a3 3 0 00-3-3v-3c0-2.9-2.35-5.25-5.25-5.25zm3.75 8.25v-3a3.75 3.75 0 10-7.5 0v3h7.5z');
     svg.appendChild(path);
     return svg;
-}
-
-function formatUploadedAt(value: string | null): string {
-    if (value === null || value.trim() === '') return '';
-    const timestamp = new Date(value).getTime();
-    if (!Number.isFinite(timestamp)) return value;
-    const elapsed = Math.max(0, Date.now() - timestamp);
-    const minutes = Math.floor(elapsed / 60_000);
-    if (minutes < 1) return 'Just now';
-    if (minutes < 60) return `${minutes}m ago`;
-    const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `${hours}h ago`;
-    const days = Math.floor(hours / 24);
-    if (days < 7) return `${days}d ago`;
-    const weeks = Math.floor(days / 7);
-    return weeks === 1 ? 'last week' : `${weeks} weeks ago`;
-}
-
-function unlockCountdown(unlockAt: string): string {
-    const remaining = new Date(unlockAt).getTime() - Date.now();
-    if (remaining <= 0) return '0m';
-    const hours = Math.floor(remaining / 3_600_000);
-    const minutes = Math.floor((remaining % 3_600_000) / 60_000);
-    return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
 }
 
 const coverResume = new WeakMap<HTMLAnchorElement, CoverResumeModel>();
@@ -374,11 +351,6 @@ function appendPage(
         current.element.replaceWith(element);
         cards.set(series.slug, { series: merged, element });
     }
-}
-
-function statusText(loaded: number, total: number | undefined, loading: boolean): string {
-    const count = total === undefined ? `${loaded}` : `${loaded} of ${total}`;
-    return loading ? `Loaded ${count} series · loading more…` : `Loaded ${count} series`;
 }
 
 function mergeSeries(current: HomeSeries, incoming: HomeSeries): HomeSeries {

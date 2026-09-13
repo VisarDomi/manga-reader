@@ -13,6 +13,8 @@ actor ReaderStore {
     private var prepareAgain = false
     private var onHome = false
     private var status = ""
+    private var catalogPage: CatalogPage?
+    private var catalogError: String?
     private var sessionRefresh: Task<String, Error>?
     private let backup: PCBackup
     init(root: URL, source: any ReaderSource = ProviderConfiguration.current.makeSource(), backup: PCBackup = PCBackup()) {
@@ -31,29 +33,57 @@ actor ReaderStore {
         var payload = try object(JSONEncoder().encode(state))
         payload.removeValue(forKey: "tokens")
         payload["status"] = status
+        if let page = catalogPage {
+            payload["catalogLoaded"] = page.series.count
+            payload["catalogLoading"] = page.hasMore
+            if let total = page.total { payload["catalogTotal"] = total }
+        }
+        if let catalogError { payload["catalogError"] = catalogError }
         payload["provider"] = ProviderConfiguration.current.rawValue
         payload["backupAvailable"] = backup.configured
         return try jsonText(payload)
     }
-    func refreshCatalog() async throws {
-        let items = try await source.catalog()
-        guard !items.isEmpty else { throw ReaderError.message("The catalog is unavailable. Your saved library is still here.") }
-        state.catalog = items
+    func refreshCatalog(onUpdate: (@Sendable () async -> Void)? = nil) async throws {
+        let cached = state.catalog
+        catalogError = nil
+        do {
+            _ = try await source.catalog(onPage: { [self] page in
+                try await publishCatalog(page, cached: cached)
+                await onUpdate?()
+            })
+        } catch {
+            if !Task.isCancelled {
+                catalogError = error.localizedDescription
+                await onUpdate?()
+            }
+            throw error
+        }
+    }
+    private func publishCatalog(_ page: CatalogPage, cached: [Series]) throws {
+        try Task.checkCancellation()
+        catalogPage = page
+        let fresh = Set(page.series.map(\.identity))
+        // Keep cached, not-yet-refetched rows available for native Home restoration.
+        // Completion removes absent rows; fresh data always owns order and metadata.
+        state.catalog = page.series + (page.hasMore ? cached.filter { !fresh.contains($0.identity) } : [])
         try persist()
     }
     func chapters(_ slug: String) async throws -> [Chapter] {
         guard CachePolicy.validSlug(slug) else { throw ReaderError.message("Invalid series") }
-        do {
-            let result = try await source.chapters(slug)
-            guard !result.isEmpty else { throw ReaderError.message("No chapters found") }
-            try writeAtomically(JSONEncoder().encode(result), root.appendingPathComponent("lists/\(CachePolicy.key(slug, "list")).json"))
-            return result
-        } catch {
+        let result: [Chapter]
+        do { result = try await source.chapters(slug) }
+        catch {
+            try Task.checkCancellation()
             if let data = try? Data(contentsOf: root.appendingPathComponent("lists/\(CachePolicy.key(slug, "list")).json")),
                let saved = try? JSONDecoder().decode([Chapter].self, from: data) { return saved }
             throw error
         }
+        guard !result.isEmpty else { throw ReaderError.message("No chapters found") }
+        guard Set(result.map(\.key)).count == result.count else { throw ReaderError.message("Chapter list repeats a chapter") }
+        try writeAtomically(JSONEncoder().encode(result), root.appendingPathComponent("lists/\(CachePolicy.key(slug, "list")).json"))
+        return result
     }
+
     func manifest(_ slug: String, _ chapter: String) async throws -> Manifest {
         guard CachePolicy.validSlug(slug), CachePolicy.validChapter(chapter) else { throw ReaderError.message("Invalid chapter") }
         let key = CachePolicy.key(slug, chapter)
@@ -115,7 +145,7 @@ actor ReaderStore {
             return try await page(manifest(parts[1], parts[2]), index, urgent: true)
         }
         if parts.first == "cover", parts.count == 2, let series = state.catalog.first(where: { $0.slug == parts[1] }) {
-            let file = root.appendingPathComponent("covers/\(CachePolicy.key(series.slug, "cover"))")
+            let file = root.appendingPathComponent("covers/\(CachePolicy.key(series.slug, series.cover))")
             let mime = try await ensureImage(series.cover, file: file, urgent: true)
             return (try Data(contentsOf: file, options: .mappedIfSafe), mime)
         }

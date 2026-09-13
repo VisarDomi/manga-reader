@@ -6,11 +6,25 @@ func expect(_ condition: @autoclosure () -> Bool, _ message: String) throws {
 actor FakeAsura: AsuraSource {
     var requests = 0
     var offline = false
+    var catalogRequests = 0
+    var failCatalog = false
+    func failLaterCatalog() { failCatalog = true }
+    func catalogCount() -> Int { catalogRequests }
     func setOffline() { offline = true }
     func prioritize(_ url: String) {}
     func request(_ path: String, method: String, body: Data?, token: String?) async throws -> Data {
         if offline { throw ReaderError.message("Offline") }
-        let chapters: [[String: Any]] = (1...4).map { ["number": $0, "is_premium": false] }
+        if path.hasPrefix("/series?") {
+            catalogRequests += 1
+            let first = path.hasSuffix("offset=0")
+            guard first || path.hasSuffix("offset=50") else { throw ReaderError.message("Requested beyond final catalog page") }
+            if !first && failCatalog { throw ReaderError.http(503) }
+            let row: [String: Any] = ["slug":"fixture", "public_url":"/comics/fixture", "title":first ? "First title" : "Later title", "cover":"https://example.test/covers/a.webp", "latest_chapters":(first ? [2,10] : [10,3,1,9,8]).map { ["number":$0] }]
+            var meta: [String: Any] = ["total": 1]
+            if first { meta["has_more"] = true }
+            return try jsonData(["data":[row],"meta":meta])
+        }
+        let chapters: [[String: Any]] = (1...4).reversed().map { ["number": $0, "is_premium": false] }
         if path.hasSuffix("/chapters") { return try jsonData(["data": chapters]) }
         let number = path.split(separator: "/").last.map(String.init) ?? "1"
         return try jsonData(["data": ["is_locked": false, "chapter": ["id": 42, "pages": [["url": "https://example.test/\(number).webp", "width": 0, "height": 0]]], "series": ["id": 12, "title": "Fixture"], "chapter_list": chapters]])
@@ -24,14 +38,25 @@ actor FakeAsura: AsuraSource {
     }
     func count() -> Int { requests }
 }
+actor CatalogProbe {
+    private var batches: [(String, Int)] = []
+    func record(_ snapshot: String, requests: Int) { batches.append((snapshot, requests)) }
+    func values() -> [(String, Int)] { batches }
+}
 @main struct CoreTests {
     static func main() async throws {
-        let chapters = [Chapter(number: "10"), Chapter(number: "2"), Chapter(number: "2.5"), Chapter(number: "1")]
-        try expect(CachePolicy.window(current: "2", chapters: chapters) == ["2", "2.5"], "current plus immediate next, numeric order")
+        let chapters = [Chapter(number: "1"), Chapter(number: "2"), Chapter(number: "2.5"), Chapter(number: "10")]
+        try expect(CachePolicy.window(current: "2", chapters: chapters) == ["2", "2.5"], "current plus immediate next, provider order")
         try expect(CachePolicy.window(current: "10", chapters: chapters) == ["10"], "last chapter only")
         try expect(CachePolicy.window(current: "1", chapters: chapters) == ["1", "2"], "going back moves cache window")
         try expect(CachePolicy.window(current: "2", chapters: [Chapter(number: "2"), Chapter(number: "3", locked: true), Chapter(number: "4")]) == ["2", "3"], "never skip locked next to download a later chapter")
-        print("PASS cache policy")
+        try expect(FakeAsura.coverURL("https://example.test/covers/a.webp?x=1") == "https://example.test/covers/a-400.webp?x=1", "Asura uses the userscript thumbnail size")
+        let unusual = CachePolicy.oldestFirst([Chapter(number: "2", id: "chapter-2"), Chapter(number: "10", id: "chapter-10"), Chapter(number: "1", id: "chapter-1")])
+        try expect(unusual.map(\.key) == ["chapter-1","chapter-10","chapter-2"], "provider order is not sorted by chapter number")
+        try expect(CachePolicy.window(current: "chapter-1", chapters: unusual) == ["chapter-1","chapter-10"], "prefetch follows the same provider adjacency as Next")
+        let repeatedNumber = CachePolicy.oldestFirst([Chapter(number: "2", id: "fixture-chapter-2"), Chapter(number: "2", id: "fixture-chapter-2-2"), Chapter(number: "1", id: "fixture-chapter-1")])
+        try expect(CachePolicy.window(current: "fixture-chapter-1", chapters: repeatedNumber) == ["fixture-chapter-1","fixture-chapter-2-2"], "collision suffix remains a distinct adjacent chapter")
+        print("PASS cache policy and provider order")
         var original = AppState()
         original.progress["fixture"] = Position(slug: "fixture-1234abcd", chapter: "2", page: 2, fraction: 0.472, total: 5, updatedAt: 1000)
         original.history["fixture"] = ["1": 9, "2": 2]
@@ -42,6 +67,28 @@ actor FakeAsura: AsuraSource {
         print("PASS backup format and validation")
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
+        let catalogSource = FakeAsura(), catalogStore = ReaderStore(root: root.appendingPathComponent("catalog"), source: catalogSource)
+        let probe = CatalogProbe()
+        try await catalogStore.refreshCatalog {
+            let snapshot = try! await catalogStore.snapshot()
+            await probe.record(snapshot, requests: catalogSource.catalogCount())
+        }
+        let batches = await probe.values()
+        try expect(batches.count == 2 && batches[0].1 == 1, "first batch published before second request")
+        let catalogRequests = await catalogSource.catalogCount()
+        try expect(catalogRequests == 2, "missing has_more ends Asura pagination, like the userscript")
+        let firstBatch = try object(Data(batches[0].0.utf8)), finalBatch = try object(Data(batches[1].0.utf8))
+        try expect(firstBatch["catalogLoading"] as? Bool == true && finalBatch["catalogLoading"] as? Bool == false, "incremental progress becomes complete")
+        let finalCatalog = finalBatch["catalog"] as! [[String: Any]], merged = finalCatalog[0]
+        try expect(finalCatalog.count == 1 && merged["title"] as? String == "First title", "duplicate series merges without replacing first metadata")
+        let keys = (merged["chapters"] as! [[String: Any]]).map { $0["number"] as! String }
+        try expect(keys == ["9","1","3","10","2"], "source merge fills five slots in supplied order without sorting")
+        await catalogSource.failLaterCatalog()
+        do { try await catalogStore.refreshCatalog(); throw ReaderError.message("Expected catalog failure") }
+        catch ReaderError.http(503) {}
+        let partial = try object(Data(await catalogStore.snapshot().utf8))
+        try expect((partial["catalog"] as? [Any])?.count == 1 && partial["catalogError"] != nil, "later failure keeps published rows and reports the error")
+        print("PASS incremental catalog, source order, duplicate merge, metadata and partial failure")
         let source = FakeAsura(), store = ReaderStore(root: root, source: source)
         try await store.load()
         try await store.importBackup(BackupCodec.encode(original))
@@ -120,7 +167,9 @@ actor FakeAsura: AsuraSource {
         let isolated = try BackupCodec.decode(scytheBackup, provider: .asura)
         try expect(isolated.progress.isEmpty, "provider backups remain isolated")
         try expect(ProviderConfiguration.scythe.identity("fixture-1234abcd") == "fixture-1234abcd", "Asura slug normalization never affects Scythe")
-        print("PASS Scythe routes/default images/manual PC/provider isolation")
+        let scytheOrder = try ScytheParser.chapters("<div id=chapterlist><a href='/fixture-chapter-2/'>2</a><a href='/fixture-chapter-10/'>10</a><a href='/fixture-chapter-10/'>10 duplicate</a><a href='/fixture-chapter-1/'>1</a></div>", slug: "fixture")
+        try expect(scytheOrder.map(\.key) == ["fixture-chapter-1","fixture-chapter-10","fixture-chapter-2"], "Scythe dedupes in source order")
+        print("PASS Scythe routes/default images/manual PC/provider isolation/order")
         if ProcessInfo.processInfo.environment["READER_LIVE_CHECK"] == "1" {
             let live = ScytheAPI()
             let catalog = try await live.catalog()
@@ -141,12 +190,16 @@ actor FakeAsura: AsuraSource {
         try expect(angular.key == "chapter-530.6" && angular.number == "530.6" && angular.locked, "Angular chapter identity and paid state")
         let noCover = try AngularAPI.series(["slug": "april-fools", "title": "April Fools", "cover": NSNull()])
         try expect(noCover.cover.isEmpty && noCover.slug == "april-fools", "a missing cover does not block an otherwise valid catalog")
+        let labeled = try LuaAPI.chapter(["chapter_slug": "chapter-999", "chapter_name": "  Chapter  12.5 Special "])
+        try expect(labeled.number == "12.5" && labeled.label == "Chapter 12.5 Special", "Lua uses provider chapter label/number rather than reconstructing from route")
         let lua = try LuaAPI.reader("<title>Fixture - Chapter 1 - Lua Comic</title><img src='https://media.luacomic.org/file/a/uploads/series/one.webp'><img src='https://media.luacomic.org/file/a/cover.webp'>")
         try expect(lua.title == "Fixture" && lua.pages.count == 1, "Lua reader excludes covers")
         let yaksha = try YakshaAPI.reader("<ol class='breadcrumb'><a href='/manga/fixture/'>Fixture &amp; Title</a></ol><img class='wp-manga-chapter-img' src='https://example.test/page.jpg'>")
         try expect(yaksha.title == "Fixture & Title" && yaksha.pages.count == 1, "Yaksha reader images/title")
         let yakshaList = try YakshaAPI.chapters("<li class='wp-manga-chapter'><a href='/manga/fixture/chapter-2.5/'>Chapter 2.5</a></li><li class='wp-manga-chapter'><a href='/manga/fixture/chapter-1/'>Chapter 1</a></li>")
-        try expect(yakshaList.map(\.key) == ["chapter-1", "chapter-2.5"], "Yaksha preserves chapter links and numeric order")
+        try expect(yakshaList.map(\.key) == ["chapter-1", "chapter-2.5"], "Yaksha preserves chapter links and provider order")
+        let yakshaOrder = try YakshaAPI.chapters("<li class='wp-manga-chapter'><a href='/manga/fixture/chapter-2/'>Chapter 2</a></li><li class='wp-manga-chapter'><a href='/manga/fixture/chapter-10/'>Chapter 10</a></li><li class='wp-manga-chapter'><a href='/manga/fixture/chapter-1/'>Chapter 1</a></li>")
+        try expect(yakshaOrder.map(\.key) == ["chapter-1","chapter-10","chapter-2"], "Yaksha preserves the provider order")
         for provider in [ProviderConfiguration.ezmanga, .qiscans, .lua, .yaksha] {
             var state = AppState()
             state.progress["the-tyrant's-mother"] = Position(slug: "the-tyrant's-mother", chapter: "chapter-2.5", page: 1, fraction: 0.3, total: 4, updatedAt: 100)
@@ -160,11 +213,13 @@ actor FakeAsura: AsuraSource {
                 let source = provider.makeSource()
                 let catalog = try await source.catalog()
                 guard let series = catalog.first(where: { $0.chapters.contains(where: { !$0.locked }) }), let selected = series.chapters.last(where: { !$0.locked }) else { throw ReaderError.message("No free chapter in catalog") }
+                let list = try await source.chapters(series.slug)
+                try expect(list.contains { $0.key == selected.key } && Set(list.map(\.key)).count == list.count, "live provider chapter list contains selected chapter without duplicates")
                 let manifest = try await source.manifest(series.slug, selected.key, token: nil)
                 let file = root.appendingPathComponent("live-" + provider.rawValue)
                 let mime = try await source.image(manifest.pages[0].url, to: file, urgent: true)
-                try expect(mime.hasPrefix("image/") && !manifest.chapters.isEmpty, "live provider reader and image")
-                print("PASS live \(provider.rawValue): \(catalog.count) series, \(manifest.chapters.count) chapters, \(manifest.pages.count) pages, \(mime)")
+                try expect(mime.hasPrefix("image/"), "live provider reader and image")
+                print("PASS live \(provider.rawValue): \(catalog.count) series, \(manifest.pages.count) pages, \(mime)")
             }
         }
         if let fixture = ProcessInfo.processInfo.environment["SCYTHE_HOME_FIXTURE"] {

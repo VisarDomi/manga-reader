@@ -43,7 +43,7 @@ final class WebController: UIViewController, WKNavigationDelegate, WKScriptMessa
         guard foreground, home, work == nil else { return }
         work = Task { [weak self, store] in
             await store.setHome(true)
-            try? await store.refreshCatalog()
+            try? await store.refreshCatalog { [weak self] in await self?.updateHome() }
             guard let self else { return }
             if !Task.isCancelled, home, foreground { await updateHome(); await store.prepareHome() }
             work = nil

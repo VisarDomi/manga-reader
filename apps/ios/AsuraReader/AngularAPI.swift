@@ -21,30 +21,33 @@ actor AngularAPI: ReaderSource {
     static func series(_ row: [String: Any]) throws -> Series {
         guard let slug = row["slug"] as? String, CachePolicy.validSlug(slug), let title = row["title"] as? String else { throw ReaderError.message("Incomplete catalog series") }
         return Series(slug: slug, identity: slug, title: title.trimmingCharacters(in: .whitespacesAndNewlines), cover: row["cover"] as? String ?? "",
-                      chapters: CachePolicy.ordered(try (row["chapters"] as? [[String: Any]] ?? []).prefix(5).map(chapter)))
+                      chapters: CachePolicy.oldestFirst(try (row["chapters"] as? [[String: Any]] ?? []).prefix(5).map(chapter)))
     }
-    func catalog() async throws -> [Series] {
-        var result: [Series] = [], seen = Set<String>()
+    func catalog(onPage: CatalogUpdate?) async throws -> [Series] {
+        var feed = CatalogFeed()
         for endpoint in ["/home/latest", "/series"] {
             var page = 1
             while true {
                 try Task.checkCancellation()
                 let data = try await json("\(endpoint)?page=\(page)&perPage=\(endpoint == "/series" ? 100 : 50)")
                 guard let rows = data["data"] as? [[String: Any]] else { throw ReaderError.message("Invalid catalog response") }
+                var items: [Series] = []
                 for row in rows {
                     // The live catalog includes an unpublished row with an empty slug.
                     // Like Asura, omit entries that cannot identify an openable series.
                     guard let slug = row["slug"] as? String, CachePolicy.validSlug(slug) else { continue }
                     let series = try Self.series(row)
-                    if seen.insert(series.slug).inserted { result.append(series) }
+                    items.append(series)
                 }
                 let next = data["next"] != nil && !(data["next"] is NSNull)
-                if !next && page >= (data["totalPages"] as? Int ?? 1) { break }
+                let more = next || page < (data["totalPages"] as? Int ?? 1)
+                try await feed.append(items, total: data["totalItems"] as? Int, hasMore: more || endpoint == "/home/latest", onPage: onPage)
+                if !more { break }
                 guard !rows.isEmpty, page < 10000 else { throw ReaderError.message("Invalid catalog pagination") }
                 page += 1
             }
         }
-        return result
+        return feed.series
     }
     func chapters(_ slug: String) async throws -> [Chapter] {
         var result: [Chapter] = [], page = 1
@@ -58,7 +61,7 @@ actor AngularAPI: ReaderSource {
             guard !rows.isEmpty, page < 10000 else { throw ReaderError.message("Invalid chapter pagination") }
             page += 1
         }
-        return CachePolicy.ordered(result)
+        return CachePolicy.oldestFirst(result)
     }
     func manifest(_ slug: String, _ chapter: String, token: String?) async throws -> Manifest {
         let data = try await json("/series/\(slug)/chapters/\(chapter)")
@@ -69,6 +72,6 @@ actor AngularAPI: ReaderSource {
             guard let url = row["url"] as? String else { throw ReaderError.message("Invalid page URL") }
             return try NativeProviderData.image(url, width: row["width"] as? Double ?? 0, height: row["height"] as? Double ?? 0)
         }
-        return Manifest(slug: slug, chapter: chapter, title: title, seriesID: "", chapterID: chapter, pages: pages, chapters: try await chapters(slug))
+        return Manifest(slug: slug, chapter: chapter, title: title, seriesID: "", chapterID: chapter, pages: pages, chapters: [])
     }
 }

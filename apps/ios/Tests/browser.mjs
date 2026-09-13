@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
 import { chromium } from '../../../../gallery-downloader/node_modules/playwright-core/index.mjs';
-const web = new URL('../Resources/Web/', import.meta.url);
+const web = process.env.READER_TEST_WEB ? new URL(process.env.READER_TEST_WEB) : new URL('../Resources/Web/', import.meta.url);
 const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="900" height="16000"><rect width="900" height="16000" fill="#29243d"/></svg>';
 const server = http.createServer((req,res) => {
  const path = new URL(req.url, 'http://fixture').pathname;
@@ -21,12 +21,12 @@ try {
  const context=await browser.newContext({viewport:{width:428,height:926},deviceScaleFactor:3});
  const chapters = [1,2,3].map(number=>({number:String(number),id:provider !== 'asurascans' ? cid(number) : undefined,locked:false}));
  const p={slug,chapter:cid(2),page:4,fraction:.4,total:20,updatedAt:100};
- const state={provider,catalog:[{slug:p.slug,identity:seriesIdentity,title:'Fixture',cover:'',chapters}],progress:{[seriesIdentity]:p},history:{[seriesIdentity]:{[cid(1)]:19}},home:{path:'/',anchor:null,fraction:0,y:0},view:{path:'/'}};
- let lastPosition, pcAvailable=false, coldLaunch=false; const pcActions=[], viewWrites=[];
+ const state={provider,catalog:[{slug:p.slug,identity:seriesIdentity,title:'Fixture',cover:'',chapters}],progress:{[seriesIdentity]:p},history:{[seriesIdentity]:{[cid(1)]:19,[cid(2)]:4,[cid(3)]:19}},home:{path:'/',anchor:null,fraction:0,y:0},view:{path:'/'}};
+ let activeChapters=chapters, listFails=false, lastPosition, pcAvailable=false, coldLaunch=false; const pcActions=[], viewWrites=[];
  await context.exposeBinding('nativeRPC',async(_,{command,args})=>{
    if(command==='init'&&coldLaunch){coldLaunch=false;return JSON.stringify({...state,resumeReader:state.view.path==='/'?undefined:state.view.path});}
    if(command==='init'||command==='snapshot')return JSON.stringify(state);
-   if(command==='chapters')return JSON.stringify(chapters);
+   if(command==='chapters'){if(listFails)throw new Error('Fixture chapter list unavailable');return JSON.stringify(activeChapters);}
    if(command==='measure')return JSON.stringify({width:900,height:16000});
    if(command==='view-save'){
      if(args.progress){lastPosition=args.progress;state.progress[seriesIdentity]=args.progress;state.history[seriesIdentity]??={};state.history[seriesIdentity][args.progress.chapter]=Math.max(state.history[seriesIdentity][args.progress.chapter]??-1,args.progress.page);}
@@ -36,13 +36,26 @@ try {
    if(command==='view'){viewWrites.push(args);state.view=args;if(args.path==='/')state.home=args;return '{}';}
    if(command==='pc-available')return JSON.stringify(pcAvailable);
    if(command==='pc-load'||command==='pc-save'){pcActions.push(command);return command==='pc-load'?JSON.stringify(state):'{}';}
-   if(command==='open')return JSON.stringify({slug:p.slug,chapter:args.chapter,title:'Fixture',pages:Array.from({length:20},()=>({url:'unused',width:0,height:0})),chapters,position:args.resume&&state.progress[seriesIdentity]?.chapter===args.chapter?state.progress[seriesIdentity]:undefined});
+   if(command==='open')return JSON.stringify({slug:p.slug,chapter:args.chapter,title:'Fixture',pages:Array.from({length:20},()=>({url:'unused',width:0,height:0})),chapters:[],position:args.resume&&state.progress[seriesIdentity]?.chapter===args.chapter?state.progress[seriesIdentity]:undefined});
    return '{}';
  });
  await context.addInitScript(()=>{window.webkit={messageHandlers:{asura:{postMessage:body=>window.nativeRPC(body)}}};});
  const page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.goto(base);await page.waitForSelector('.cover');
  await page.waitForTimeout(150);
+ assert.equal(await page.locator('.hs-home-chapter-partial.hs-home-chapter-read').count(),0,'partial chapter is never also read');
+ assert.equal(await page.locator('.hs-home-chapter-read').count(),1,'only chapters older than current are read');
+ // Native batches publish immediately and leave an unchanged row/image alive.
+ await page.evaluate(()=>{window.firstCard=document.querySelector('.card');window.firstCover=window.firstCard.querySelector('img');});
+ const batch={...state,catalog:[...state.catalog,{...state.catalog[0],slug:'other-series',identity:'other-series'}],catalogLoaded:2,catalogTotal:3,catalogLoading:true};
+ await page.evaluate(next=>{dispatchEvent(new Event('scroll'));window.readerState.update(next);},batch);
+ assert.equal(await page.locator('.card').count(),2,'next batch is visible immediately, even while scrolling');
+ assert.ok(await page.evaluate(()=>document.querySelector('.card')===window.firstCard&&document.querySelector('.card img')===window.firstCover),'unchanged DOM/image retained');
+ assert.equal(await page.locator('.hs-home-catalog-status').textContent(),'Loaded 2 of 3 series · loading more…');
+ await page.evaluate(next=>window.readerState.update({...next,catalogLoading:false}),batch);
+ assert.equal(await page.locator('.hs-home-catalog-status').textContent(),'Loaded 2 of 3 series','completion text updates even if rows did not change');
+ await page.evaluate(next=>{dispatchEvent(new Event('scrollend'));window.readerState.update(next);},state);
+
  assert.equal(await page.locator('.hs-home-pc').isVisible(),false,'offline PC controls hidden');
  assert.deepEqual(pcActions,[],'startup does not transfer reading history');
  pcAvailable=true;await page.evaluate(()=>window.readerState.probePC());
@@ -75,6 +88,12 @@ try {
  await page.waitForTimeout(250);assert.equal(lastPosition.chapter,cid(1),'going backward changes resume chapter');assert.equal(lastPosition.page,0);
  await page.evaluate(()=>{dispatchEvent(new Event('wheel'));scrollTo(0,document.body.scrollHeight);});await page.waitForSelector(`#page-${cid(2)}-0`);
  assert.equal(await page.locator(`#page-${cid(2)}-0`).count(),1,'continuous reading appends next chapter once');
+ // Going backward resets visible chapter colors even when later chapters were visited.
+ await page.goBack();await page.waitForSelector('.cover');
+ state.progress[seriesIdentity]={...p,chapter:cid(1),page:0};state.history[seriesIdentity][cid(3)]=19;
+ await page.reload();await page.waitForSelector('.cover');
+ assert.equal(await page.locator('.hs-home-chapter-read').count(),0,'later visited chapters are not read after going backward');
+ assert.equal(await page.locator('.hs-home-chapter-partial').count(),1);
  // A killed reader launches through Home before opening the saved chapter.
  await page.close();
  const savedView={path:`/reader/${p.slug}/${cid(2)}`,anchor:`page-${cid(2)}-4`,fraction:.37,y:33333};
@@ -113,6 +132,24 @@ try {
  await fresh.waitForFunction(()=>scrollY>1000);
  assert.deepEqual(errors,[]);
  console.log(provider,'PASS empty history → read → Home partial/cover → resume');
+ await fresh.close();state.view={path:'/'};state.progress[seriesIdentity]={...p,chapter:cid(1),page:0};
+ activeChapters=[chapters[0],chapters[2],chapters[1]];
+ const ordered=await context.newPage();await ordered.goto(base);await ordered.waitForSelector('.cover');
+ await ordered.getByRole('button',{name:'First chapter',exact:true}).click();await ordered.waitForSelector(`#page-${cid(1)}-0`);
+ await ordered.waitForSelector(`#page-${cid(3)}-0`,{state:'attached'});
+ assert.equal(await ordered.locator(`#page-${cid(2)}-0`).count(),0,'Next follows provider order rather than numeric order');
+ await ordered.close();activeChapters=chapters;listFails=true;state.view={path:'/'};
+ const listFailure=await context.newPage();await listFailure.goto(base);await listFailure.waitForSelector('.cover');
+ await listFailure.locator('.cover').click();await listFailure.waitForSelector('.hs-error');
+ await listFailure.waitForFunction(()=>[...document.images].some(img=>img.naturalWidth>0));
+ assert.equal(await listFailure.locator('.hs-error').textContent(),'Failed to load chapter list','navigation failure leaves current images readable');
+ listFails=false;
+ for (const invalid of [[chapters[0],chapters[0]],[chapters[2]]]) {
+   activeChapters=invalid;await listFailure.reload();await listFailure.waitForSelector('.hs-error');
+   assert.equal(await listFailure.locator('.hs-error').textContent(),'Failed to load chapter list');
+   assert.equal(await listFailure.locator('.hs-chapter').count(),1,'invalid lists cannot append arbitrary chapters');
+ }
+ console.log(provider,'PASS incremental Home/DOM preservation; provider-ordered Next; invalid/unavailable list preserves current reader');
  await context.close();
  }
 } finally {await browser.close();await new Promise(resolve=>server.close(resolve));}

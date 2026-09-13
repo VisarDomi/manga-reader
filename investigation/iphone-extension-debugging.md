@@ -686,3 +686,22 @@ acceptance or post-install Safari runtime inspection was performed in this
 delivery. Reader Extensions renewal was already unloaded before this work;
 no active signing jobs were present. This deployment leaves that pre-existing
 renewal state unchanged, pending its separate wireless/baseline workflow.
+
+
+## Tango app login and streaming handoff
+
+For the completed Stream Viewer/Tango native port, use
+[its app runbook](../../../video/stream-viewer/apps/ios/PORT.md) and
+[auth investigation](../../../video/stream-viewer/apps/ios/AUTH-INVESTIGATION.md).
+The old `stream-viewer-auth-probe` mirror is historical; current Mac source is
+`/Users/visar/Developer/stream-viewer/apps/ios`. Preserve the paid Tango host/helper
+and shared Keychain identity. The physical login test passed all four HTTP 200
+checks. Never replay its rotating RT in a Mac diagnostic client. The native app
+owns refresh and serves HLS through its device-local relay; Reader Extensions and
+a PC media server are not needed for playback. Use its status-only app inspector,
+not Safari token-dump/network-payload diagnostics.
+
+Xvid's unchanged Safari runtime is now packaged inside Tango (build 7), with
+XVideos-only website access. Physical clean reload verified one startup and 187
+rows after enabling Xvid. Reader Extensions is absent from the final installed
+app inventory. Use Stream Viewer's app runbook for this packaging and renewal.
