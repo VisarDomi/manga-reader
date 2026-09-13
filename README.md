@@ -1,5 +1,5 @@
 # Manga-reader
-A Safari extension and Safari userscript that rewrites the UI of the supported providers.
+An iOS app, a Safari extension and a Safari userscript that rewrites the UI of the supported providers.
 
 ## What?
 This script changes the UI of the providers supported by this script so that's it easier to read. Features:
