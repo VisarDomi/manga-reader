@@ -35,13 +35,16 @@ Run from the manga-reader root, for each provider, one at a time:
 python3 apps/ios/scripts/deploy.py sync asura
 python3 apps/ios/scripts/deploy.py build asura
 python3 apps/ios/scripts/deploy.py status asura
-# Require no PID, LastExitStatus=0, and BUILD SUCCEEDED.
+# The attached build must exit 0 and report BUILD SUCCEEDED.
 python3 apps/ios/scripts/deploy.py install asura
-python3 apps/ios/scripts/deploy.py finish asura
 python3 apps/ios/scripts/deploy.py launch asura
 ```
 
-The GUI LaunchAgent supplies signing team, bundle suffix and device. The shared
+The attached build enters GUI UID 501 with `sudo launchctl asuser`, immediately
+drops back to that user, and supplies signing team, bundle suffix and device.
+It creates no LaunchAgent or Allow in Background entry. Keep SSH attached until
+completion; `status` reads the log and `finish` is only a compatibility no-op.
+The shared
 builder checks the actual built display name, provider, bundle identity,
 absence of icon declarations, complete signature, profile team and phone
 inclusion. Installation additionally checks every bundled web/native-resource
@@ -132,3 +135,6 @@ PC Load/Save. The shared reader padding is now 50svh at both ends. Home and
 reader maintain previous/current/next downloads per manga, pruning obsolete
 chapter files while retaining history. See the
 [resume/download audit](../../investigation/asura-resume-download-window.md).
+
+Build 6 starts preparation for every saved current position immediately on
+Home readiness/foreground return, concurrently with catalog pagination.

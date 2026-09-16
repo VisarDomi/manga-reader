@@ -62,6 +62,8 @@ User-authorized additions/differences:
   shell. Home prepares the current/last-read/partial chapter plus its immediate
   next and previous chapters per started series. This three-chapter window also
   moves while reading, in provider order. First/last chapters have fewer neighbours.
+  Preparation starts as soon as Home is ready, alongside catalog pagination;
+  it uses every saved current position, including entries not yet rendered.
 - Opening an uncached chapter loads on demand. Obsolete images and manifests are
   deleted while reading; history/progress and other manga's windows are retained.
   Going backward changes current. Work pauses in the background and resumes on
@@ -136,19 +138,22 @@ ignored `apps/ios/deploy.local.json`: host, knownHosts, guiUid, signingTeam, dev
 python3 apps/ios/scripts/deploy.py sync asura
 python3 apps/ios/scripts/deploy.py build asura
 python3 apps/ios/scripts/deploy.py status asura
-# Require no PID, LastExitStatus=0, and BUILD SUCCEEDED.
+# The attached build must exit 0 and report BUILD SUCCEEDED.
 python3 apps/ios/scripts/deploy.py check asura
 python3 apps/ios/scripts/deploy.py install asura
-python3 apps/ios/scripts/deploy.py finish asura
 python3 apps/ios/scripts/deploy.py launch asura
 ```
 
-Signing uses GUI LaunchAgent `com.visar.asura-reader-build` and the existing
-Apple Development identity. Install verifies bundle ID, signature, bundled web
+Signing uses the existing Apple Development identity through an attached
+`sudo launchctl asuser` command, dropping back to GUI user UID 501 before
+building. It creates no LaunchAgent or Allow in Background entry. Keep SSH
+attached until the build exits; `status` only reads the log. `finish` is retained
+as a harmless compatibility command. Install verifies bundle ID, signature, bundled web
 and optional native configuration hashes. No new app IDs. Like Gallery Reader, the app declares no custom icon and
 contains no icon assets or asset catalog. No simulator needed.
-Do not overlap app and Reader Extensions builds. Reader Extensions renewal stays
-paused from the earlier experimental pure-SOC trial; do not resume it implicitly.
+Do not overlap builds or installs. The current monthly renewal scheduler is
+`com.visar.installed-apps-refresh`; inspect its state before maintenance and
+restore its prior enabled state afterward. Older per-app renewal jobs are retired.
 
 ## Verification
 

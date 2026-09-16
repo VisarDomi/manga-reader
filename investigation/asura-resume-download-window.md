@@ -81,3 +81,20 @@ accepted the Asura fix. The standard scheduler is active (last exit 0); the
 temporary build job, phone probe and private diagnostic state copies were removed.
 Userscript 287 and the extension were rebuilt, and the extension was staged in
 Reader Extensions without reinstalling that host.
+
+## Follow-up: start Home downloads immediately (build 6)
+
+The user clarified that every entry with a current position must prepare its
+window on Home as soon as possible. Build 5 already enumerated all saved
+positions on Home, but its controller enabled preparation only after catalog
+pagination completed. Build 6 enables it at Home readiness/foreground return,
+concurrently with catalog refresh. Cold reader restoration still skips the
+transient Home bootstrap. This changes scheduling, not the window or UI.
+
+All six build 6 apps were installed in place and passed renewal. The temporary
+batch job/plist and its Allow in Background record were removed. The only
+remaining `com.visar.*` background item is the intended monthly renewal
+scheduler (registered, idle, last exit 0). No global background-item reset was
+used. The deployment helper now runs attached through the GUI session without
+registering a job; an actual Asura Xcode/signing build passed with that helper.
+Delivery and cleanup evidence: [build 6 receipt](home-preparation-verification.json).

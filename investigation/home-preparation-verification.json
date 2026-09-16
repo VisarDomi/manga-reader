@@ -1,0 +1,78 @@
+{
+  "date": "2026-09-16",
+  "change": "Start every saved previous/current/next download window at Home readiness/foreground return, before catalog pagination completes.",
+  "delivery": [
+    {
+      "provider": "asura",
+      "bundleId": "com.visar.AsuraReader.paid",
+      "version": "6",
+      "cssSHA256": "edbfc2d37b06d57119858a31b5910d61c3006828c1af25117bdc38be045161f6",
+      "installed": true,
+      "renewalPassed": true,
+      "nextDue": 1792110749.707403
+    },
+    {
+      "provider": "scythe",
+      "bundleId": "com.visar.ScytheReader.paid",
+      "version": "6",
+      "cssSHA256": "edbfc2d37b06d57119858a31b5910d61c3006828c1af25117bdc38be045161f6",
+      "installed": true,
+      "renewalPassed": true,
+      "nextDue": 1792110776.12464
+    },
+    {
+      "provider": "yaksha",
+      "bundleId": "com.visar.YakshaReader.paid",
+      "version": "6",
+      "cssSHA256": "edbfc2d37b06d57119858a31b5910d61c3006828c1af25117bdc38be045161f6",
+      "installed": true,
+      "renewalPassed": true,
+      "nextDue": 1792110801.832942
+    },
+    {
+      "provider": "qiscans",
+      "bundleId": "com.visar.QiMangaReader.paid",
+      "version": "6",
+      "cssSHA256": "edbfc2d37b06d57119858a31b5910d61c3006828c1af25117bdc38be045161f6",
+      "installed": true,
+      "renewalPassed": true,
+      "nextDue": 1792110827.647738
+    },
+    {
+      "provider": "lua",
+      "bundleId": "com.visar.LuaReader.paid",
+      "version": "6",
+      "cssSHA256": "edbfc2d37b06d57119858a31b5910d61c3006828c1af25117bdc38be045161f6",
+      "installed": true,
+      "renewalPassed": true,
+      "nextDue": 1792110853.319555
+    },
+    {
+      "provider": "ezmanga",
+      "bundleId": "com.visar.EzMangaReader.paid",
+      "version": "6",
+      "cssSHA256": "edbfc2d37b06d57119858a31b5910d61c3006828c1af25117bdc38be045161f6",
+      "installed": true,
+      "renewalPassed": true,
+      "nextDue": 1792110879.153102
+    }
+  ],
+  "oneShotSigning": {
+    "command": "python3 apps/ios/scripts/deploy.py build asura",
+    "exitCode": 0,
+    "xcodeBuildSucceeded": true,
+    "providerSignatureVerified": true,
+    "createsLaunchAgent": false
+  },
+  "cleanup": {
+    "customBackgroundItems": [
+      "8.com.visar.installed-apps-refresh"
+    ],
+    "temporaryBuildJobAbsent": true,
+    "temporaryBuildPlistAbsent": true,
+    "temporaryBatchDirectoryRemoved": true,
+    "renewalRegistered": true,
+    "renewalIdle": true,
+    "renewalLastExitCode": 0
+  }
+}

@@ -49,6 +49,9 @@ final class WebController: UIViewController, WKNavigationDelegate, WKScriptMessa
         let document = activeDocument
         let refreshCatalog = refreshedHomeDocument != document
         work = Task { [weak self, store] in
+            // Saved reading positions already identify every download window;
+            // catalog pagination must not delay preparing them on Home.
+            if !Task.isCancelled { await store.setPreparationContext(home: true, active: true) }
             if refreshCatalog {
                 do {
                     try await store.refreshCatalog { [weak self] in await self?.updateHome() }
@@ -56,7 +59,7 @@ final class WebController: UIViewController, WKNavigationDelegate, WKScriptMessa
                 } catch { /* Published rows and catalogError remain available. */ }
             }
             guard let self else { return }
-            if !Task.isCancelled, home, foreground { await updateHome(); await store.setPreparationContext(home: true, active: true) }
+            if !Task.isCancelled, home, foreground { await updateHome() }
             work = nil
             if Task.isCancelled, home, foreground { startWork() }
         }
@@ -89,7 +92,7 @@ final class WebController: UIViewController, WKNavigationDelegate, WKScriptMessa
                     guard document == activeDocument else { replyHandler("{}", nil); return }
                     home = args["home"] as? Bool == true
                     UIApplication.shared.isIdleTimerDisabled = foreground && !home
-                    await store.setPreparationContext(home: home, active: foreground && !home)
+                    await store.setPreparationContext(home: home, active: foreground)
                     if home { startWork() } else { work?.cancel() }
                     replyHandler("{}", nil)
                 } else {

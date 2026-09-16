@@ -3,6 +3,11 @@
 Shared Mac connection instructions: [mac-access.md](/home/visar/Documents/environment/mac-access.md).
 Ethernet is now `192.168.1.198`; USB wireless remains DHCP.
 
+September 16 build workflow: use the attached GUI signing command in that shared
+Mac guide. Do not create temporary build LaunchAgents or background permission
+entries; the older GUI LaunchAgent examples below are historical. The manga
+native `deploy.py build` helper now runs attached and needs no `finish` cleanup.
+
 Current paid Reader Extensions deployment (September 12): see
 [paid signing](../../../reader-extensions/PAID-SIGNING.md). The host is now
 `com.visar.readerextensions.paid`, installed and launched with team `65U58U86DD`.
