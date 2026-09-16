@@ -138,3 +138,15 @@ chapter files while retaining history. See the
 
 Build 6 starts preparation for every saved current position immediately on
 Home readiness/foreground return, concurrently with catalog pagination.
+
+
+## September 16: shared-source build 7
+
+All six apps now run the userscript's actual provider/Home/reader/worker modules.
+Swift parsers and the copied reader UI were removed. See [current development
+instructions](DEVELOPMENT.md) and [shared refactor verification](../../investigation/shared-codebase-refactor.md).
+History moved through the existing explicit PC Save/Load controls; all 54 current
+positions were retained. The downloader owns all image bytes, prepares complete
+previous/current/next windows independently of lazy rendering, and serves local
+files to the shared reader. All six paid apps passed actual monthly renewal after
+delivery; their generated provider bundles are included in approved inputs.

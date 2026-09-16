@@ -26,7 +26,7 @@ export function prepare(provider, sites) {
     const registry = providerRegistry(sites);
     mkdirSync(resolve(root, 'apps/ios/build'), { recursive: true });
     writeFileSync(resolve(root, 'apps/ios/build/providers.json'), JSON.stringify(registry, null, 2) + '\n');
-    execFileSync('node', [resolve(root, 'apps/ios/scripts/prepare-web.mjs')], { stdio: 'inherit' });
+    execFileSync('node', [resolve(root, 'apps/ios/scripts/prepare-web.mjs'), provider], { stdio: 'inherit' });
     console.log(`iOS provider: ${provider} → ${registry[provider].productName} (${registry[provider].bundleIdentifier})`);
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

@@ -1,3 +1,4 @@
+import { seriesRendered } from '../core/platform';
 import { formatUploadedAt, unlockCountdown, statusText } from '../core/home-format';
 import type {
     HomeChapter,
@@ -175,9 +176,9 @@ function renderSeries(
     const coverLink = createLink('hs-home-cover', provider.seriesUrl(series.slug));
     coverResume.set(coverLink, { kind: CoverResumeKind.None });
     const cover = document.createElement('img');
+    cover.loading = 'lazy';
     cover.src = series.coverUrl;
     cover.alt = series.title;
-    cover.loading = 'lazy';
     imageRetry.register(cover);
     coverLink.appendChild(cover);
     coverLink.addEventListener('click', event => {
@@ -227,6 +228,7 @@ function renderSeries(
     }
     details.appendChild(chapters);
     card.append(coverLink, details);
+    seriesRendered(card, series, provider);
     return card;
 }
 

@@ -6,8 +6,8 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
     private var browser: WebController?
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
-        let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent(ProviderConfiguration.current.appName)
-        let controller = WebController(store: ReaderStore(root: root))
+        let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent(Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as! String)
+        let controller = WebController(store: ReaderStore(root: root, origin: Bundle.main.object(forInfoDictionaryKey: "ReaderOrigin") as! String))
         browser = controller
         let window = UIWindow(frame: UIScreen.main.bounds); window.rootViewController = controller
         self.window = window; window.makeKeyAndVisible()

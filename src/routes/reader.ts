@@ -1,3 +1,4 @@
+import { readerRestored } from '../core/platform';
 import type { ChapterData, ChapterMeta, Provider, RouteMatch } from '../provider';
 import { ChapterLoadIntent, ChapterLoadResultKind, Handler } from '../provider';
 import { createReaderTracker } from '../core/tracking';
@@ -351,11 +352,13 @@ export async function open(
         ?.addEventListener('load', schedulePositionUpdate, { once: true });
     if (target) {
         void restoreScroll(firstWrap, target, restoreController.signal).finally(() => {
+            readerRestored(target, data);
             restoring = false;
             cancelRestore();
             schedulePositionUpdate();
         });
     } else {
+        readerRestored(null, data);
         schedulePositionUpdate();
     }
 }

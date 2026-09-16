@@ -1,6 +1,6 @@
 {
   "name": "manga-reader",
-  "version": "287",
+  "version": "288",
   "description": "Userscript to improve ux of supported sites",
   "type": "module",
   "scripts": {
@@ -15,6 +15,7 @@
     "test:ios:builder": "node --test apps/ios/Tests/builder.test.mjs && python3 -B apps/ios/Tests/test_signing_lock.py"
   },
   "devDependencies": {
+    "esbuild": "0.27.7",
     "jsdom": "^29.1.1",
     "typescript": "^5.9.3",
     "userscript-ios-test": "file:../../userscript-ios-test",

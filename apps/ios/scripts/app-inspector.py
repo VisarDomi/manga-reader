@@ -4,7 +4,7 @@ import argparse, asyncio, base64, json, logging
 from pathlib import Path
 from pymobiledevice3.remote.native_tunnel import establish_native_rsd
 from pymobiledevice3.services.webinspector import WebinspectorService
-SNAPSHOT = """JSON.stringify({url:location.href,visible:document.visibilityState,ready:document.readyState,width:innerWidth,scrollY,cards:document.querySelectorAll('.card').length,pages:document.querySelectorAll('.page').length,loadedImages:[...document.images].filter(i=>i.complete&&i.naturalWidth>0).length,images:[...document.querySelectorAll('.page img')].map(i=>({src:i.getAttribute('src'),width:i.naturalWidth,height:i.naturalHeight})),errors:[...document.querySelectorAll('.message')].map(n=>n.textContent),scripts:[...document.scripts].map(n=>n.src),text:document.body.innerText.slice(0,800)})"""
+SNAPSHOT = """JSON.stringify({url:location.href,visible:document.visibilityState,ready:document.readyState,width:innerWidth,scrollY,cards:document.querySelectorAll('.hs-home-card').length,pages:document.querySelectorAll('.hs-chapter').length,loadedImages:[...document.images].filter(i=>i.complete&&i.naturalWidth>0).length,images:[...document.querySelectorAll('.hs-reader-img')].map(i=>({src:i.getAttribute('src'),width:i.naturalWidth,height:i.naturalHeight})),errors:[...document.querySelectorAll('.hs-error')].map(n=>n.textContent),scripts:[...document.scripts].map(n=>n.src),text:document.body.innerText.slice(0,800)})"""
 async def main():
     parser=argparse.ArgumentParser();parser.add_argument('--evaluate-file');parser.add_argument('--screenshot');parser.add_argument('--seconds',type=float,default=1);parser.add_argument('--host-bundle',action='append',default=['com.visar.AsuraReader']);args=parser.parse_args()
     logging.disable(logging.CRITICAL)
@@ -18,8 +18,8 @@ async def main():
         if len(candidates)!=1: raise RuntimeError('Open/unlock Asura Reader; expected one bundled reader page')
         pair=candidates[0];session=await asyncio.wait_for(inspector.inspector_session(pair.application,pair.page),15)
         await asyncio.wait_for(session.runtime_enable(),10)
-        await asyncio.wait_for(session.console_enable(),10)
         session.response_methods['Console.messageAdded']=lambda e:print('CONSOLE',json.dumps({k:e['params'].get('message',{}).get(k) for k in ['level','text']}),flush=True)
+        await asyncio.wait_for(session.console_enable(),10)
         print('SNAPSHOT',await asyncio.wait_for(session.runtime_evaluate(SNAPSHOT),10),flush=True)
         if args.evaluate_file:
             result=await asyncio.wait_for(session.send_command('Runtime.evaluate',expression=Path(args.evaluate_file).read_text(),returnByValue=True,userGesture=False),10)

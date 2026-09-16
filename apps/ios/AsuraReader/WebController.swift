@@ -6,11 +6,10 @@ final class WebController: UIViewController, WKNavigationDelegate, WKScriptMessa
     private let store: ReaderStore
     private var webView: WKWebView!
     private var foreground = false
-    private var home = false
-    private var work: Task<Void, Never>?
+    private var home = true
     private var activeDocument = ""
-    private var refreshedHomeDocument: String?
     private var firstLaunch = true
+    private var requests: [String: Task<Data, Error>] = [:]
     init(store: ReaderStore) { self.store = store; super.init(nibName: nil, bundle: nil) }
     required init?(coder: NSCoder) { fatalError("Unused") }
     override var prefersStatusBarHidden: Bool { true }
@@ -30,77 +29,51 @@ final class WebController: UIViewController, WKNavigationDelegate, WKScriptMessa
         webView.load(URLRequest(url: URL(string: "asura://app/")!))
     }
     override func viewDidLayoutSubviews() { super.viewDidLayoutSubviews(); webView.frame = view.bounds }
-    func capturePosition() { webView?.evaluateJavaScript("window.readerState?.save()", completionHandler: nil) }
+    func capturePosition() { webView?.evaluateJavaScript("window.mangaApp?.save()", completionHandler: nil) }
     func resume() {
-        foreground = true; UIApplication.shared.isIdleTimerDisabled = !home; startWork()
-        if !home { Task {
-            guard foreground, !home, !activeDocument.isEmpty else { return }
-            await store.setPreparationContext(home: false, active: true)
-        } }
-        webView?.evaluateJavaScript("window.readerState?.probePC()", completionHandler: nil)
+        foreground = true; UIApplication.shared.isIdleTimerDisabled = !home
+        webView?.evaluateJavaScript("window.mangaApp?.resume()", completionHandler: nil)
     }
-
     func pause() {
-        capturePosition(); foreground = false; UIApplication.shared.isIdleTimerDisabled = false; work?.cancel()
-        Task { [store] in await store.setPreparationContext(home: false, active: false) }
-    }
-    private func startWork() {
-        guard foreground, home, work == nil else { return }
-        let document = activeDocument
-        let refreshCatalog = refreshedHomeDocument != document
-        work = Task { [weak self, store] in
-            // Saved reading positions already identify every download window;
-            // catalog pagination must not delay preparing them on Home.
-            if !Task.isCancelled { await store.setPreparationContext(home: true, active: true) }
-            if refreshCatalog {
-                do {
-                    try await store.refreshCatalog { [weak self] in await self?.updateHome() }
-                    if !Task.isCancelled { self?.refreshedHomeDocument = document }
-                } catch { /* Published rows and catalogError remain available. */ }
-            }
-            guard let self else { return }
-            if !Task.isCancelled, home, foreground { await updateHome() }
-            work = nil
-            if Task.isCancelled, home, foreground { startWork() }
-        }
-    }
-    private func updateHome() async {
-        guard home, let json = try? await store.snapshot() else { return }
-        webView.callAsyncJavaScript("window.readerState?.update(JSON.parse(json))", arguments: ["json": json], in: nil, in: .page, completionHandler: nil)
+        foreground = false; UIApplication.shared.isIdleTimerDisabled = false
+        webView?.evaluateJavaScript("window.mangaApp?.pause()", completionHandler: nil)
+        Task { await store.downloader.setActive(false) }
     }
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage,
                                replyHandler: @escaping @MainActor @Sendable (Any?, String?) -> Void) {
         guard message.frameInfo.isMainFrame, message.frameInfo.request.url?.scheme == "asura", message.frameInfo.request.url?.host == "app",
               let body = message.body as? [String: Any], let command = body["command"] as? String,
-              let args = body["args"] as? [String: Any], let data = try? jsonData(args) else { replyHandler(nil, "Invalid reader request"); return }
-        let document = body["document"] as? String ?? ""
+              let args = body["args"] as? [String: Any], let data = try? jsonData(args),
+              let document = body["document"] as? String else { replyHandler(nil, "Invalid reader request"); return }
+        if command == "init" || command == "activate" { activeDocument = document }
+        guard document == activeDocument else { replyHandler(nil, "Document is no longer active"); return }
+        if command == "fetch-cancel" {
+            if let id = args["requestID"] as? String { requests[id]?.cancel() }
+            replyHandler("{}", nil); return
+        }
+        if command == "fetch", let id = args["requestID"] as? String {
+            let task = Task { try await store.http.fetch(data) }; requests[id] = task
+            Task {
+                do { replyHandler(String(decoding: try await task.value, as: UTF8.self), nil) }
+                catch { replyHandler(nil, error.localizedDescription) }
+                requests[id] = nil
+            }
+            return
+        }
         Task {
             do {
-                try await store.load()
+                let result: Data
                 if command == "init" {
-                    activeDocument = document
-                    home = message.frameInfo.request.url?.path == "/"
-                    await store.setPreparationContext(home: home, active: foreground && !home)
-                    var payload = try object(Data(await store.snapshot().utf8))
-                    if firstLaunch {
-                        firstLaunch = false
-                        let position = await store.lastView()
-                        if position.path != "/" { payload["resumeReader"] = position.path }
-                    }
-                    replyHandler(try jsonText(payload), nil)
-                } else if command == "ready" {
-                    guard document == activeDocument else { replyHandler("{}", nil); return }
+                    var payload = try object(await store.bootstrap())
+                    payload["cold"] = firstLaunch; firstLaunch = false
+                    result = try jsonData(payload)
+                } else if command == "activate" {
                     home = args["home"] as? Bool == true
                     UIApplication.shared.isIdleTimerDisabled = foreground && !home
-                    await store.setPreparationContext(home: home, active: foreground)
-                    if home { startWork() } else { work?.cancel() }
-                    replyHandler("{}", nil)
-                } else {
-                    guard document == activeDocument else { replyHandler("{}", nil); return }
-                    let result = try await store.webReply(command, data: data)
-                    replyHandler(result, nil)
-                    if command == "pc-load" { work?.cancel(); await store.setPreparationContext(home: false, active: false); await work?.value; work = nil; startWork() }
-                }
+                    await store.downloader.setActive(foreground)
+                    result = Data("{}".utf8)
+                } else { result = try await store.command(command, data: data) }
+                replyHandler(String(decoding: result, as: UTF8.self), nil)
             } catch { replyHandler(nil, error.localizedDescription) }
         }
     }
@@ -108,12 +81,15 @@ final class WebController: UIViewController, WKNavigationDelegate, WKScriptMessa
                  decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void) {
         let url = navigationAction.request.url
         let allowed = url?.scheme == "asura" && url?.host == "app"
-        if allowed, navigationAction.targetFrame?.isMainFrame == true {
-            activeDocument = ""; home = false; work?.cancel(); Task { [store] in await store.setPreparationContext(home: false, active: false) }
-        }
         decisionHandler(allowed ? .allow : .cancel)
     }
-    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) { firstLaunch = true; webView.load(URLRequest(url: URL(string: "asura://app/")!)) }
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        activeDocument = ""
+        for task in requests.values { task.cancel() }; requests.removeAll()
+    }
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        firstLaunch = true; webView.load(URLRequest(url: URL(string: "asura://app/")!))
+    }
 }
 
 @MainActor
@@ -126,10 +102,10 @@ final class LocalFiles: NSObject, WKURLSchemeHandler {
         guard let url = urlSchemeTask.request.url else { return }
         tasks[id] = Task { [store, weak self] in
             do {
-                let result = try await store.localResource(url)
+                let (data, mime) = try await store.resource(url)
                 guard !Task.isCancelled else { return }
-                urlSchemeTask.didReceive(URLResponse(url: url, mimeType: result.mime, expectedContentLength: result.data.count, textEncodingName: result.mime.hasPrefix("text/") ? "utf-8" : nil))
-                urlSchemeTask.didReceive(result.data); urlSchemeTask.didFinish()
+                urlSchemeTask.didReceive(URLResponse(url: url, mimeType: mime, expectedContentLength: data.count, textEncodingName: mime.hasPrefix("text/") ? "utf-8" : nil))
+                urlSchemeTask.didReceive(data); urlSchemeTask.didFinish()
             } catch { if !Task.isCancelled { urlSchemeTask.didFailWithError(error) } }
             self?.tasks.removeValue(forKey: id)
         }

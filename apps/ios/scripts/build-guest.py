@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Build one provider with the common iOS target; unsigned unless a team is supplied."""
-import argparse, contextlib, fcntl, json, os, pathlib, plistlib, re, subprocess
+import argparse, contextlib, fcntl, json, os, pathlib, plistlib, re, subprocess, shutil
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -43,8 +43,7 @@ def main():
         'PRODUCT_BUNDLE_IDENTIFIER': bundle_id,
         'READER_PROVIDER': provider['key'],
         'READER_DISPLAY_NAME': provider['displayName'],
-        'SWIFT_ACTIVE_COMPILATION_CONDITIONS': '$(inherited) READER_' + args.provider.upper(),
-        'EXCLUDED_SOURCE_FILE_NAMES': ' '.join(sorted({p['source'] for p in registry.values()} - {provider['source']})),
+        'READER_ORIGIN': provider['origin'].replace('https://', 'https:/$()/'),
     }
     config = output / 'Provider.xcconfig'
     config.write_text(''.join(f'{key} = {value}\n' for key, value in settings.items()))
@@ -53,6 +52,10 @@ def main():
     with signing_lock(cache / 'signing.lock'):
         if subprocess.run(['pgrep', '-x', 'xcodebuild'], stdout=subprocess.DEVNULL).returncode == 0:
             raise SystemExit('An Xcode build is running; retry after it finishes')
+        prepared = ROOT / 'build' / args.provider / 'Web'
+        if not (prepared / 'app.js').exists(): raise SystemExit('Prepare this provider before building')
+        shutil.rmtree(ROOT / 'Resources/Web', ignore_errors=True)
+        shutil.copytree(prepared, ROOT / 'Resources/Web')
         team = os.environ.get('DEVELOPMENT_TEAM', '')
         signing = ['-allowProvisioningUpdates', '-allowProvisioningDeviceRegistration', 'DEVELOPMENT_TEAM=' + team] if team else ['CODE_SIGNING_ALLOWED=NO']
         subprocess.run(['xcodebuild', '-project', str(ROOT / 'AsuraReader.xcodeproj'), '-target', 'Reader',

@@ -1,73 +1,46 @@
 import Foundation
 
-actor TransferGate {
-    private var active = 0
-    private var waiting: [(url: String, urgent: Bool, continuation: CheckedContinuation<Void, Never>)] = []
-    func acquire(_ url: String, urgent: Bool) async throws {
-        if active < 4 { active += 1 } else { await withCheckedContinuation { waiting.append((url, urgent, $0)) } }
-        do { try Task.checkCancellation() } catch { release(); throw error }
-    }
-    func prioritize(_ url: String) { for i in waiting.indices where waiting[i].url == url { waiting[i].urgent = true } }
-    func release() { if waiting.isEmpty { active -= 1 } else { waiting.remove(at: waiting.firstIndex(where: \.urgent) ?? 0).continuation.resume() } }
-}
-actor ReaderHTTP {
-    private let apiBase: String
-    private let origin: String
+actor ReaderHTTP: ImageTransfer {
     private let session: URLSession
-    private let gate = TransferGate()
-    init(origin: String, apiBase: String) {
-        self.apiBase = apiBase
-        self.origin = origin
+    init() {
         let config = URLSessionConfiguration.default
         config.urlCache = nil
-        config.timeoutIntervalForRequest = 20
-        config.timeoutIntervalForResource = 90
-        config.httpMaximumConnectionsPerHost = 4
-        session = URLSession(configuration: config)
+        config.timeoutIntervalForRequest = 20; config.timeoutIntervalForResource = 90
+        let file = Bundle.main.url(forResource: "BackupConfig", withExtension: "json", subdirectory: "Native")
+        let settings = file.flatMap { try? Data(contentsOf: $0) }.flatMap { try? object($0) }
+        let host = (settings?["url"] as? String).flatMap { URL(string: $0)?.host } ?? ""
+        session = URLSession(configuration: config, delegate: LocalTrust(host: host,
+            certificateURL: Bundle.main.url(forResource: "LocalCA", withExtension: "cer", subdirectory: "Native")), delegateQueue: nil)
     }
-    func prioritize(_ url: String) async { await gate.prioritize(url) }
-    func request(_ path: String, method: String = "GET", body: Data? = nil) async throws -> Data {
-        guard path.hasPrefix("/"), let url = URL(string: apiBase + path) else { throw ReaderError.message("Invalid provider request") }
+    func fetch(_ input: Data) async throws -> Data {
+        let args = try object(input)
+        guard let raw = args["url"] as? String, let url = URL(string: raw), url.scheme == "https", url.host != nil else { throw ReaderError.message("Invalid network URL") }
         var request = URLRequest(url: url)
-        request.httpMethod = method; request.httpBody = body
-        request.setValue(origin, forHTTPHeaderField: "Referer")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let (data, response) = try await session.data(for: request)
-        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        guard (200..<300).contains(status) else { throw ReaderError.http(status) }
-        return data
+        request.httpMethod = args["method"] as? String ?? "GET"
+        if let body = args["body"] as? String { request.httpBody = Data(body.utf8) }
+        for (key,value) in args["headers"] as? [String:String] ?? [:] { request.setValue(value, forHTTPHeaderField: key) }
+        if let referrer = args["referrer"] as? String, referrer.hasPrefix("https://") { request.setValue(referrer, forHTTPHeaderField: "Referer") }
+        let (data,response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw ReaderError.message("Invalid HTTP response") }
+        var headers: [String:String] = [:]
+        for (key,value) in http.allHeaderFields { headers[String(describing:key)] = String(describing:value) }
+        return try jsonData(["status":http.statusCode,"headers":headers,"body":data.base64EncodedString()])
     }
-    func image(_ raw: String, to destination: URL, urgent: Bool) async throws -> String {
+    func image(_ raw: String, to file: URL, referrer: String) async throws -> String {
         guard let url = URL(string: raw), url.scheme == "https", url.host != nil else { throw ReaderError.message("Invalid image URL") }
-        try await gate.acquire(raw, urgent: urgent)
         do {
-            var request = URLRequest(url: url)
-            request.setValue(origin, forHTTPHeaderField: "Referer")
-            let (temporary, response) = try await session.download(for: request)
-            defer { try? FileManager.default.removeItem(at: temporary) }
+            var request = URLRequest(url:url); request.setValue(referrer, forHTTPHeaderField:"Referer")
+            let (temporary,response) = try await session.download(for:request)
+            defer { try? FileManager.default.removeItem(at:temporary) }
             try Task.checkCancellation()
-            guard let response = response as? HTTPURLResponse, response.statusCode == 200,
-                  let mime = response.mimeType, mime.hasPrefix("image/"),
-                  (try temporary.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0) > 0 else { throw ReaderError.message("Image download failed") }
-            try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
-            if FileManager.default.fileExists(atPath: destination.path) { try FileManager.default.removeItem(at: destination) }
-            try FileManager.default.moveItem(at: temporary, to: destination)
-            try writeAtomically(Data(mime.utf8), destination.appendingPathExtension("mime"))
-            await gate.release()
+            guard let http=response as? HTTPURLResponse, http.statusCode == 200,
+                  let mime=http.mimeType, mime.hasPrefix("image/"),
+                  (try temporary.resourceValues(forKeys:[.fileSizeKey]).fileSize ?? 0)>0 else { throw ReaderError.message("Image download failed") }
+            try FileManager.default.createDirectory(at:file.deletingLastPathComponent(),withIntermediateDirectories:true)
+            if FileManager.default.fileExists(atPath:file.path) { try FileManager.default.removeItem(at:file) }
+            try FileManager.default.moveItem(at:temporary,to:file)
+            try writeAtomically(Data(mime.utf8),file.appendingPathExtension("mime"))
             return mime
-        } catch { await gate.release(); throw error }
-    }
-}
-
-// Provider adapters normalize network data; the reader/store never parse a site.
-enum NativeProviderData {
-    static func chapterNumber(_ id: String) -> String {
-        let suffix = id.components(separatedBy: "chapter-").last ?? id
-        guard let range = suffix.range(of: "[0-9]+(?:[.][0-9]+)?", options: .regularExpression) else { return id }
-        return String(suffix[range])
-    }
-    static func image(_ raw: String, width: Double = 0, height: Double = 0) throws -> PageImage {
-        guard let url = URL(string: raw), url.scheme == "https", url.host != nil else { throw ReaderError.message("Invalid page URL") }
-        return PageImage(url: raw, width: width.isFinite && width > 0 ? width : 0, height: height.isFinite && height > 0 ? height : 0)
+        } catch { throw error }
     }
 }

@@ -1,11 +1,10 @@
+import { takeOverDocument } from './takeover';
 import css from '../style.css?inline';
 import { computeRequest } from './compute/transport';
 import { onBfcacheRestore } from './lifecycle';
 
 export function startInit(documentTitle: string): void {
-    window.stop();
-    document.open();
-    document.close();
+    takeOverDocument();
     if (!document.doctype) document.insertBefore(document.implementation.createDocumentType('html', '', ''), document.documentElement);
     if (!document.documentElement) document.appendChild(document.createElement('html'));
     if (!document.head) document.documentElement.appendChild(document.createElement('head'));

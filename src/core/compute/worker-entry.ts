@@ -116,6 +116,7 @@ const WRITE_OPS: ReadonlySet<string> = new Set([
 
 self.onmessage = (event: MessageEvent<ComputeRequest>) => {
     const request = event.data;
+    if (!request.op) return;
     const task = async (): Promise<void> => {
         respond(request.id, await handle(request));
     };

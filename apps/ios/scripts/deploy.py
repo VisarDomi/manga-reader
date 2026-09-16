@@ -21,7 +21,10 @@ if args.command == 'sync':
     build = ROOT / 'build'; build.mkdir(exist_ok=True)
     run('mkdir -p '+q(remote+'/build'))
     subprocess.run(['rsync','-az','--exclude=build','--exclude=.build','--exclude=.swiftpm','--exclude=deploy.local.json','-e',shlex.join(ssh[:-1]),str(ROOT)+'/',host+':'+remote+'/'],check=True)
+    subprocess.run(['rsync','-az','--delete','-e',shlex.join(ssh[:-1]),str(ROOT/'AsuraReader')+'/',host+':'+remote+'/AsuraReader/'],check=True)
     subprocess.run(['scp',*ssh[1:-1],str(build/'providers.json'),host+':'+remote+'/build/providers.json'],check=True)
+    run('mkdir -p '+q(remote+'/build/'+args.provider))
+    subprocess.run(['rsync','-az','-e',shlex.join(ssh[:-1]),str(build/args.provider/'Web'),host+':'+remote+'/build/'+args.provider+'/'],check=True)
 elif args.command == 'guest': run('cd '+q(remote)+' && env -u DEVELOPMENT_TEAM /usr/bin/caffeinate -i /usr/bin/python3 scripts/build-guest.py '+q(args.provider))
 elif args.command == 'build':
     # Enter the GUI signing session without registering a background item;
@@ -36,7 +39,7 @@ elif args.command == 'launch': run('xcrun devicectl device process launch --devi
 else:
     checks = ['set -eu','codesign --verify --deep --strict '+q(app)]
     for folder in ['Web','Native']:
-        for file in sorted((ROOT/'Resources'/folder).glob('*')):
+        for file in sorted(((ROOT/'build'/args.provider/'Web') if folder == 'Web' else (ROOT/'Resources'/folder)).glob('*')):
             if file.is_file() and not file.name.startswith('.'):
                 digest=hashlib.sha256(file.read_bytes()).hexdigest()
                 checks.append('test "$(shasum -a 256 '+q(app+'/'+folder+'/'+file.name)+' | cut -d " " -f 1)" = '+q(digest))

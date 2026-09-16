@@ -99,6 +99,8 @@ export interface HomePage {
 export interface Provider {
     /** Stable storage namespace for local progress. */
     key: string;
+    /** Optional provider-owned canonical identity, also used by native file keys. */
+    historyId?(slug: string): string;
     matchRoute(pathname: string, hash: string): RouteMatch | null;
     fetchHome(cursor: string | null): Promise<HomePage>;
     loadChapter: ChapterLoader;

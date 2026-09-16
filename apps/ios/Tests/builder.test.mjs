@@ -16,7 +16,7 @@ test('uses userscript registry and preserves independent installed app identitie
     assert.equal(registry.scythe.key, 'scythescans');
     assert.equal(registry.asura.bundleIdentifier, 'com.visar.AsuraReader');
     assert.equal(registry.scythe.bundleIdentifier, 'com.visar.ScytheReader');
-    assert.notEqual(registry.asura.source, registry.scythe.source);
-    assert.equal(registry.ezmanga.source, registry.qiscans.source, 'Angular providers share their adapter');
+    assert.equal(registry.lua.origin, 'https://luacomic.org/');
+    assert.ok(!('source' in registry.lua), 'No separate native parser selection');
     assert.equal(Object.keys(registry).length, 6);
 });

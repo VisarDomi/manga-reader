@@ -25,3 +25,6 @@ apps/livecontainer/*.local.json
 # Swift Package Manager test/dependency builds
 apps/ios/.build/
 apps/ios/.swiftpm/
+
+# Provider bundles are generated from src and staged by the locked native build.
+apps/ios/Resources/Web/

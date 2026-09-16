@@ -9,6 +9,12 @@ export interface DatabaseBackup {
     };
 }
 
+export function emptyDatabaseBackup(): DatabaseBackup {
+    return { version: 1, indexedDB: {
+        progress: [], tokens: [], metadata: [{ key: 'progress-schema-version', value: 3 }],
+    } };
+}
+
 export function validateDatabaseBackup(data: unknown): DatabaseBackup {
     const snapshot = data as DatabaseBackup;
     if (snapshot?.version !== 1 || !snapshot.indexedDB) throw new Error('Invalid manga backup');

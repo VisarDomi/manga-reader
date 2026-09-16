@@ -6,6 +6,8 @@
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
 	<string>$(READER_DISPLAY_NAME)</string>
+	<key>ReaderOrigin</key>
+	<string>$(READER_ORIGIN)</string>
 	<key>ReaderProvider</key>
 	<string>$(READER_PROVIDER)</string>
 	<key>CFBundleExecutable</key>
