@@ -43,8 +43,6 @@ export interface ChapterData extends ChapterMeta {
      * seriesSlug (e.g. asura drops the rotating URL hex). The core never
      * derives it and never inspects its meaning. */
     historyId?: string;
-    /** Opaque provider-owned data carried back to provider callbacks. */
-    providerData?: unknown;
     images: ChapterImage[];
 }
 
@@ -84,7 +82,7 @@ export interface HomeChapter {
 
 export interface HomeSeries {
     slug: string;
-    /** Provider-owned identity used to join catalog entries with remote history. */
+    /** Provider-owned identity used to join catalog entries with local progress. */
     historyId?: string;
     title: string;
     coverUrl: string;
@@ -98,24 +96,13 @@ export interface HomePage {
     total?: number;
 }
 
-export interface RemoteSeriesHistory {
-    /** Matches HomeSeries.historyId, or HomeSeries.slug when no separate identity is needed. */
-    seriesId: string;
-    /** Exact provider-owned chapter identities known to be read. */
-    readChapterIds: string[];
-    /** The chapter the provider considers the current resume point. */
-    resumeChapterId: string;
-}
-
 export interface Provider {
     /** Stable storage namespace for local progress. */
     key: string;
     matchRoute(pathname: string, hash: string): RouteMatch | null;
     fetchHome(cursor: string | null): Promise<HomePage>;
-    fetchRemoteHistory?(): Promise<RemoteSeriesHistory[]>;
     loadChapter: ChapterLoader;
     resolveHomeDestination(request: HomeDestinationRequest): Promise<string>;
-    trackChapter?(data: ChapterData): Promise<void>;
     fetchChaptersNewestFirst(slug: string): Promise<ChapterMeta[]>;
     readerUrl(slug: string, chapterId: string, imageIndex?: string): string;
     seriesUrl(slug: string): string;

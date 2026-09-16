@@ -101,11 +101,8 @@ var ReaderCore = (function(exports) {
     return result;
   }
   function resolveHistory(input) {
-    const remoteIndex = new Map(input.remoteHistory.map((item) => [item.seriesId, item]));
     const localIndex = progressBySeries(input.progress);
     return input.cards.map((card) => {
-      const remote = remoteIndex.get(card.historyId);
-      const remotelyRead = new Set(remote?.readChapterIds ?? []);
       const local = localIndex.get(card.historyId);
       const localChapterIndex = local === void 0 ? -1 : card.chapterIds.indexOf(local.chapterId);
       const chapters = card.chapterIds.map((chapterId, chapterIndex) => {
@@ -117,8 +114,6 @@ var ReaderCore = (function(exports) {
             state.read = isChapterComplete(local);
             state.localImageIndex = local.imageIndex;
           }
-        } else if (local === void 0 && remotelyRead.has(chapterId)) {
-          state.read = true;
         }
         return state;
       });
@@ -136,11 +131,6 @@ var ReaderCore = (function(exports) {
             chapterId: local.chapterId,
             imageIndex: local.imageIndex
           }
-        };
-      } else if (remote !== void 0) {
-        cover = {
-          kind: 2,
-          resumeChapterId: remote.resumeChapterId
         };
       } else {
         cover = {
@@ -177,42 +167,9 @@ var ReaderCore = (function(exports) {
     const count = total === void 0 ? `${loaded}` : `${loaded} of ${total}`;
     return loading ? `Loaded ${count} series · loading more…` : `Loaded ${count} series`;
   }
-  function record(value, context) {
-    if (typeof value !== "object" || value === null || Array.isArray(value)) {
-      throw new Error(`Asura ${context} is not an object`);
-    }
-    return value;
-  }
-  function historyChapter(value, historySlug) {
-    if (typeof value !== "number" && typeof value !== "string") {
-      throw new Error(`Asura read history for ${historySlug} contains a non-number`);
-    }
-    const chapter = Number(value);
-    if (!Number.isFinite(chapter) || chapter <= 0) {
-      throw new Error(`Asura read history for ${historySlug} contains an invalid chapter`);
-    }
-    return chapter;
-  }
-  function parseAsuraRemoteHistory(value) {
-    const envelope = record(value, "read history response");
-    if (!("data" in envelope)) throw new Error("Asura read history response is missing data");
-    const data = record(envelope.data, "read history data");
-    return Object.entries(data).map(([historySlug, raw]) => {
-      const values = Array.isArray(raw) ? raw : [raw];
-      if (values.length === 0) throw new Error(`Asura read history for ${historySlug} is empty`);
-      const chapters = values.map((item) => historyChapter(item, historySlug));
-      const latest = Math.max(...chapters);
-      return {
-        seriesId: historySlug,
-        readChapterIds: [...new Set(chapters.map(String))],
-        resumeChapterId: String(latest)
-      };
-    });
-  }
   exports.ImageRetryRegistry = ImageRetryRegistry;
   exports.formatUploadedAt = formatUploadedAt;
   exports.onSettledScroll = onSettledScroll;
-  exports.parseAsuraRemoteHistory = parseAsuraRemoteHistory;
   exports.resolveHistory = resolveHistory;
   exports.statusText = statusText;
   exports.unlockCountdown = unlockCountdown;

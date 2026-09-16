@@ -57,8 +57,8 @@ actor YakshaAPI: ReaderSource {
         guard let link = try doc.select("ol.breadcrumb a[href*=/manga/]").first(), !pages.isEmpty else { throw ReaderError.message("Yaksha chapter contains no reader data") }
         return (try link.text(), pages)
     }
-    func manifest(_ slug: String, _ chapter: String, token: String?) async throws -> Manifest {
+    func manifest(_ slug: String, _ chapter: String) async throws -> Manifest {
         let data = try Self.reader(await html("/manga/\(slug)/\(chapter)/"))
-        return Manifest(slug: slug, chapter: chapter, title: data.title, seriesID: "", chapterID: chapter, pages: data.pages, chapters: [])
+        return Manifest(slug: slug, chapter: chapter, title: data.title, pages: data.pages, chapters: [])
     }
 }

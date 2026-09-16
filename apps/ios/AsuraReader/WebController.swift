@@ -33,19 +33,22 @@ final class WebController: UIViewController, WKNavigationDelegate, WKScriptMessa
     func capturePosition() { webView?.evaluateJavaScript("window.readerState?.save()", completionHandler: nil) }
     func resume() {
         foreground = true; UIApplication.shared.isIdleTimerDisabled = !home; startWork()
+        if !home { Task {
+            guard foreground, !home, !activeDocument.isEmpty else { return }
+            await store.setPreparationContext(home: false, active: true)
+        } }
         webView?.evaluateJavaScript("window.readerState?.probePC()", completionHandler: nil)
     }
 
     func pause() {
         capturePosition(); foreground = false; UIApplication.shared.isIdleTimerDisabled = false; work?.cancel()
-        Task { [store] in await store.setHome(false) }
+        Task { [store] in await store.setPreparationContext(home: false, active: false) }
     }
     private func startWork() {
         guard foreground, home, work == nil else { return }
         let document = activeDocument
         let refreshCatalog = refreshedHomeDocument != document
         work = Task { [weak self, store] in
-            await store.setHome(true)
             if refreshCatalog {
                 do {
                     try await store.refreshCatalog { [weak self] in await self?.updateHome() }
@@ -53,7 +56,7 @@ final class WebController: UIViewController, WKNavigationDelegate, WKScriptMessa
                 } catch { /* Published rows and catalogError remain available. */ }
             }
             guard let self else { return }
-            if !Task.isCancelled, home, foreground { await updateHome(); await store.prepareHome() }
+            if !Task.isCancelled, home, foreground { await updateHome(); await store.setPreparationContext(home: true, active: true) }
             work = nil
             if Task.isCancelled, home, foreground { startWork() }
         }
@@ -74,7 +77,7 @@ final class WebController: UIViewController, WKNavigationDelegate, WKScriptMessa
                 if command == "init" {
                     activeDocument = document
                     home = message.frameInfo.request.url?.path == "/"
-                    await store.setHome(home && foreground)
+                    await store.setPreparationContext(home: home, active: foreground && !home)
                     var payload = try object(Data(await store.snapshot().utf8))
                     if firstLaunch {
                         firstLaunch = false
@@ -86,14 +89,14 @@ final class WebController: UIViewController, WKNavigationDelegate, WKScriptMessa
                     guard document == activeDocument else { replyHandler("{}", nil); return }
                     home = args["home"] as? Bool == true
                     UIApplication.shared.isIdleTimerDisabled = foreground && !home
-                    await store.setHome(home && foreground)
+                    await store.setPreparationContext(home: home, active: foreground && !home)
                     if home { startWork() } else { work?.cancel() }
                     replyHandler("{}", nil)
                 } else {
                     guard document == activeDocument else { replyHandler("{}", nil); return }
                     let result = try await store.webReply(command, data: data)
                     replyHandler(result, nil)
-                    if command == "pc-load" { work?.cancel(); await store.setHome(false); await work?.value; work = nil; startWork() }
+                    if command == "pc-load" { work?.cancel(); await store.setPreparationContext(home: false, active: false); await work?.value; work = nil; startWork() }
                 }
             } catch { replyHandler(nil, error.localizedDescription) }
         }
@@ -103,7 +106,7 @@ final class WebController: UIViewController, WKNavigationDelegate, WKScriptMessa
         let url = navigationAction.request.url
         let allowed = url?.scheme == "asura" && url?.host == "app"
         if allowed, navigationAction.targetFrame?.isMainFrame == true {
-            activeDocument = ""; home = false; work?.cancel(); Task { [store] in await store.setHome(false) }
+            activeDocument = ""; home = false; work?.cancel(); Task { [store] in await store.setPreparationContext(home: false, active: false) }
         }
         decisionHandler(allowed ? .allow : .cancel)
     }

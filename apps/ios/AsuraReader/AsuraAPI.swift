@@ -2,8 +2,8 @@ import Foundation
 
 actor AsuraAPI: AsuraSource {
     private let http = ReaderHTTP(origin: ProviderConfiguration.asura.origin, apiBase: "https://api.asurascans.com/api")
-    func request(_ path: String, method: String, body: Data?, token: String?) async throws -> Data {
-        try await http.request(path, method: method, body: body, token: token)
+    func request(_ path: String, method: String, body: Data?) async throws -> Data {
+        try await http.request(path, method: method, body: body)
     }
     func prioritize(_ url: String) async { await http.prioritize(url) }
     func image(_ raw: String, to destination: URL, urgent: Bool) async throws -> String {
@@ -23,7 +23,7 @@ extension AsuraSource {
         var feed = CatalogFeed()
         for offset in stride(from: 0, to: 10000, by: 50) {
             try Task.checkCancellation()
-            let json = try object(await request("/series?sort=latest&order=desc&limit=50&offset=\(offset)", method: "GET", body: nil, token: nil))
+            let json = try object(await request("/series?sort=latest&order=desc&limit=50&offset=\(offset)", method: "GET", body: nil))
             guard let rows = json["data"] as? [[String: Any]] else { throw ReaderError.message("Invalid Asura catalog") }
             var items: [Series] = []
             for row in rows {
@@ -41,11 +41,11 @@ extension AsuraSource {
         return feed.series
     }
     func chapters(_ slug: String) async throws -> [Chapter] {
-        let json = try object(await request("/series/\(slug)/chapters", method: "GET", body: nil, token: nil))
+        let json = try object(await request("/series/\(slug)/chapters", method: "GET", body: nil))
         return chaptersFrom(json["data"])
     }
-    func manifest(_ slug: String, _ chapter: String, token: String?) async throws -> Manifest {
-        let json = try object(await request("/series/\(slug)/chapters/\(chapter)", method: "GET", body: nil, token: token))
+    func manifest(_ slug: String, _ chapter: String) async throws -> Manifest {
+        let json = try object(await request("/series/\(slug)/chapters/\(chapter)", method: "GET", body: nil))
         guard let data = json["data"] as? [String: Any] else { throw ReaderError.message("Invalid Asura chapter") }
         if data["is_locked"] as? Bool == true { throw ReaderError.unavailable }
         guard
@@ -58,7 +58,6 @@ extension AsuraSource {
             return PageImage(url: raw, width: w, height: h)
         }
         return Manifest(slug: slug, chapter: chapter, title: series["title"] as? String ?? slug,
-                    seriesID: CachePolicy.number(series["id"]), chapterID: CachePolicy.number(row["id"]),
                     pages: images, chapters: [])
     }
 }

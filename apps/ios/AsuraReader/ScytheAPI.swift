@@ -27,11 +27,11 @@ actor ScytheAPI: ReaderSource {
     func chapters(_ slug: String) async throws -> [Chapter] {
         try ScytheParser.chapters(await html("/manga/\(slug)/"), slug: slug)
     }
-    func manifest(_ slug: String, _ chapter: String, token: String?) async throws -> Manifest {
+    func manifest(_ slug: String, _ chapter: String) async throws -> Manifest {
         guard let route = ScytheParser.route(chapter), route.slug == slug else { throw ReaderError.message("Invalid Scythe chapter") }
         let page = try await html("/\(chapter)/")
         let content = try ScytheParser.reader(page)
-        return Manifest(slug: slug, chapter: chapter, title: content.title, seriesID: "", chapterID: chapter,
+        return Manifest(slug: slug, chapter: chapter, title: content.title,
                         pages: content.images.map { PageImage(url: $0, width: 0, height: 0) }, chapters: [])
     }
 }

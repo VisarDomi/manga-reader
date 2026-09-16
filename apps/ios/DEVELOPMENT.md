@@ -52,7 +52,7 @@ Use manga-reader's userscript as the behavior/UI reference. `scripts/prepare-web
 `src/core/scroll-settle.ts` and `image-retry.ts` into bundled `reader-core.js`.
 Keep the userscript's 150×200 covers, chapter rows/read colors, midpoint progress,
 touch-aware scrollend settling without the 100ms delay, retry policy, continuous next chapter, full-width
-images, 50svh top and 100svh bottom reader padding. No custom toolbar, header,
+images, 50svh top and bottom reader padding. No custom toolbar, header,
 search, titles, download badges, or All chapters controls.
 
 User-authorized additions/differences:
@@ -60,9 +60,12 @@ User-authorized additions/differences:
 - First chapter link on every Home card.
 - Native files/networking and bounded visible-first image sources from Gallery's
   shell. Home prepares the current/last-read/partial chapter plus its immediate
-  next chapter per started series, never all future chapters or previous chapters.
-- Opening an uncached chapter loads on demand. Home prunes obsolete image files
-  while retaining reading history/progress. Going backward changes current.
+  next and previous chapters per started series. This three-chapter window also
+  moves while reading, in provider order. First/last chapters have fewer neighbours.
+- Opening an uncached chapter loads on demand. Obsolete images and manifests are
+  deleted while reading; history/progress and other manga's windows are retained.
+  Going backward changes current. Work pauses in the background and resumes on
+  foreground; in-flight readers finish safely before their files can be removed.
 - Resume the app's previous screen and fractional image position. Cover resumes
   the current reading position. User input cancels an unfinished restore.
 - Explicit Load/Save below Home's loaded-series text. Hidden when PC unavailable.
@@ -332,3 +335,16 @@ confirmation. Both installed app.js files match the shared build, their original
 LCDataUUIDs remain unchanged, and every pre-update progress/history series key
 was retained (30 Asura, 5 Scythe). All six guests are installed; the native Gallery
 and Reader Extensions apps and the LC host/renewal configuration were untouched.
+
+## September 16: local history and rotating Asura routes
+
+Server read history, chapter/view tracking, token refresh, and cookie forwarding
+were removed from the userscript/extension and native apps at the user's request.
+Existing token fields are inert legacy backup data; manual PC Load/Save remains
+compatible. No authenticated-session behavior is supported.
+
+Asura rotates its public URL suffix without changing chapter identity. Native
+manifests use stable download keys but must return the caller's requested slug
+on memory, disk and shared in-flight reads. Otherwise cached old/new chapters
+fail Next's route check. Never fix this by deleting progress or redownloading
+all images. See `../../investigation/asura-resume-download-window.md`.

@@ -8,24 +8,16 @@ actor FakeAsura: AsuraSource {
     var offline = false
     var catalogRequests = 0
     var failCatalog = false
-    var accountPaths: [String] = []
-    func accountRequests() -> [String] { accountPaths }
+    var paths: [String] = []
+    func requestedPaths() -> [String] { paths }
     func failLaterCatalog() { failCatalog = true }
     func catalogCount() -> Int { catalogRequests }
     func setOffline() { offline = true }
     func prioritize(_ url: String) {}
-    func request(_ path: String, method: String, body: Data?, token: String?) async throws -> Data {
+    func request(_ path: String, method: String, body: Data?) async throws -> Data {
         if offline { throw ReaderError.message("Offline") }
-        if path == "/auth/refresh" {
-            accountPaths.append(path)
-            try await Task.sleep(for: .milliseconds(20))
-            return try jsonData(["data": ["access_token": "fixture-access", "refresh_token": "fixture-rotated"]])
-        }
-        if path == "/me/read-chapters" || path.hasPrefix("/bookmarks/") || path == "/views/chapter" {
-            guard token == "fixture-access" else { throw ReaderError.http(401) }
-            accountPaths.append(path)
-            return try jsonData(["data": ["fixture": [1,2]]])
-        }
+        guard path.hasPrefix("/series") else { throw ReaderError.message("Unexpected non-public request") }
+        paths.append(path)
         if path.hasSuffix("/chapters/99") { throw ReaderError.http(404) }
         if path.hasSuffix("/chapters/100") { return try jsonData(["data": ["is_locked": true]]) }
         if path.hasPrefix("/series?") {
@@ -40,6 +32,7 @@ actor FakeAsura: AsuraSource {
         }
         let chapters: [[String: Any]] = (1...4).reversed().map { ["number": $0, "is_premium": false] }
         if path.hasSuffix("/chapters") { return try jsonData(["data": chapters]) }
+        try await Task.sleep(for: .milliseconds(20))
         let number = path.split(separator: "/").last.map(String.init) ?? "1"
         return try jsonData(["data": ["is_locked": false, "chapter": ["id": 42, "pages": [["url": "https://example.test/\(number).webp", "width": 0, "height": 0]]], "series": ["id": 12, "title": "Fixture"], "chapter_list": chapters]])
     }
@@ -60,8 +53,8 @@ actor CatalogProbe {
 @main struct CoreTests {
     static func main() async throws {
         let chapters = [Chapter(number: "1"), Chapter(number: "2"), Chapter(number: "2.5"), Chapter(number: "10")]
-        try expect(CachePolicy.window(current: "2", chapters: chapters) == ["2", "2.5"], "current plus immediate next, provider order")
-        try expect(CachePolicy.window(current: "10", chapters: chapters) == ["10"], "last chapter only")
+        try expect(CachePolicy.window(current: "2", chapters: chapters) == ["2", "2.5", "1"], "current, next and previous in provider order")
+        try expect(CachePolicy.window(current: "10", chapters: chapters) == ["10", "2.5"], "last chapter retains previous")
         try expect(CachePolicy.window(current: "1", chapters: chapters) == ["1", "2"], "going back moves cache window")
         try expect(CachePolicy.window(current: "2", chapters: [Chapter(number: "2"), Chapter(number: "3", locked: true), Chapter(number: "4")]) == ["2", "3"], "never skip locked next to download a later chapter")
         try expect(FakeAsura.coverURL("https://example.test/covers/a.webp?x=1") == "https://example.test/covers/a-400.webp?x=1", "Asura uses the userscript thumbnail size")
@@ -108,12 +101,13 @@ actor CatalogProbe {
         try await store.importBackup(BackupCodec.encode(original))
         // One-page fixture position, and obsolete chapter image files.
         try await store.savePosition(Position(slug: "fixture", chapter: "2", page: 0, fraction: 0.4, total: 1, updatedAt: 2000))
-        let obsolete = root.appendingPathComponent("images/\(CachePolicy.key("fixture", "1"))/0")
+        let obsolete = root.appendingPathComponent("images/\(CachePolicy.key("fixture", "4"))/0")
         try writeAtomically(Data("old image".utf8), obsolete)
-        await store.setHome(true); await store.prepareHome()
+        await store.setPreparationContext(home: true, active: true); await store.waitForPreparation()
         try expect(!FileManager.default.fileExists(atPath: obsolete.path), "obsolete image removed")
-        for chapter in ["2", "3"] { try expect(FileManager.default.fileExists(atPath: root.appendingPathComponent("images/\(CachePolicy.key("fixture", chapter))/0").path), "current and next fully cached") }
-        let downloadCount = await source.count(); try expect(downloadCount == 2, "only two chapters downloaded")
+        for chapter in ["1", "2", "3"] { try expect(FileManager.default.fileExists(atPath: root.appendingPathComponent("images/\(CachePolicy.key("fixture", chapter))/0").path), "previous, current and next fully cached") }
+        let downloadCount = await source.count(); try expect(downloadCount == 3, "only three chapters downloaded")
+        await store.setPreparationContext(home: true, active: false)
         try await store.importBackup(BackupCodec.encode(original))
         let snapshot = try object(Data(await store.snapshot().utf8))
         let progress = snapshot["progress"] as! [String: [String: Any]]
@@ -149,24 +143,14 @@ actor CatalogProbe {
         try expect(!pc.configured, "unconfigured PC optional in test bundle")
         let available = await pc.available(); try expect(!available, "missing PC hides controls")
         print("PASS optional PC")
-        let accountSource = FakeAsura(), accountStore = ReaderStore(root: root.appendingPathComponent("account"), source: accountSource)
-        let anonymous = try object(Data(await accountStore.webReply("remote-history", data: jsonData([:])).utf8))
-        _ = try await accountStore.webReply("track-chapter", data: jsonData(["slug":"fixture", "chapter":"1"]))
-        let anonymousRequests = await accountSource.accountRequests()
-        try expect((anonymous["data"] as? [String: Any])?.isEmpty == true && anonymousRequests.isEmpty, "no account network calls without local session")
-        try await accountStore.setTokens(["asura:access_token":"fixture-expired", "asura:refresh_token":"fixture-refresh"])
-        async let historyOne = accountStore.webReply("remote-history", data: jsonData([:]))
-        async let historyTwo = accountStore.webReply("remote-history", data: jsonData([:]))
-        _ = try await (historyOne, historyTwo)
-        _ = try await accountStore.webReply("track-chapter", data: jsonData(["slug":"fixture", "chapter":"1"]))
-        let calls = await accountSource.accountRequests()
-        try expect(calls.filter { $0 == "/auth/refresh" }.count == 1, "concurrent expired-session requests share one refresh")
-        try expect(calls.contains("/bookmarks/12/read/1") && calls.contains("/views/chapter"), "native Asura matches both userscript tracking endpoints")
+        let publicStore = ReaderStore(root: root.appendingPathComponent("public"), source: FakeAsura())
         for unavailable in ["99", "100"] {
-            let result = try object(Data(await accountStore.webReply("open", data: jsonData(["slug":"fixture", "chapter":unavailable, "append":true])).utf8))
+            let result = try object(Data(await publicStore.webReply("open", data: jsonData(["slug":"fixture", "chapter":unavailable, "append":true])).utf8))
             try expect(result["unavailable"] as? Bool == true, "404 and locked chapter stop continuation without hiding current pages")
         }
-        print("PASS optional account history, single refresh, chapter tracking and unavailable continuation")
+        print("PASS public-only unavailable continuation")
+
+        try await verifyRoutesAndDownloads(root: root)
 
         // Both provider chapter formats enter exactly the same checkpoint/history path.
         for chapter in ["2", "fixture-chapter-194-2"] {
@@ -220,7 +204,7 @@ actor CatalogProbe {
             let series = catalog[0]
             let list = try await live.chapters(series.slug)
             let chapter = list.last!.key
-            let manifest = try await live.manifest(series.slug, chapter, token: nil)
+            let manifest = try await live.manifest(series.slug, chapter)
             let destination = root.appendingPathComponent("live-image")
             let mime = try await live.image(manifest.pages[0].url, to: destination, urgent: true)
             try expect(mime.hasPrefix("image/") && FileManager.default.fileExists(atPath: destination.path), "live Scythe image transfer")
@@ -261,7 +245,7 @@ actor CatalogProbe {
                 guard let series = catalog.first(where: { $0.chapters.contains(where: { !$0.locked }) }), let selected = series.chapters.last(where: { !$0.locked }) else { throw ReaderError.message("No free chapter in catalog") }
                 let list = try await source.chapters(series.slug)
                 try expect(list.contains { $0.key == selected.key } && Set(list.map(\.key)).count == list.count, "live provider chapter list contains selected chapter without duplicates")
-                let manifest = try await source.manifest(series.slug, selected.key, token: nil)
+                let manifest = try await source.manifest(series.slug, selected.key)
                 let file = root.appendingPathComponent("live-" + provider.rawValue)
                 let mime = try await source.image(manifest.pages[0].url, to: file, urgent: true)
                 try expect(mime.hasPrefix("image/"), "live provider reader and image")
@@ -275,4 +259,80 @@ actor CatalogProbe {
         }
 
     }
+    static func verifyRoutesAndDownloads(root: URL) async throws {
+        // Asura changes only the public URL suffix. Cached chapters must not
+        // leak that old route into Next, local images, or future checkpoints.
+        let oldSlug = "the-magic-towers-problem-child-53fc8424", freshSlug = "the-magic-towers-problem-child-6f7fe6eb"
+        let rotationRoot = root.appendingPathComponent("rotation"), rotationSource = FakeAsura()
+        let rotation = ReaderStore(root: rotationRoot, source: rotationSource)
+        let oldManifest = try await rotation.manifest(oldSlug, "61")
+        _ = try await rotation.manifest(freshSlug, "62")
+        let memoryResume = try await rotation.manifest(freshSlug, "61")
+        try expect(memoryResume.slug == freshSlug && memoryResume.key == oldManifest.key, "memory resume reuses downloads with the requested route")
+        let rotationCold = ReaderStore(root: rotationRoot, source: rotationSource)
+        await rotationSource.setOffline()
+        for routeSlug in [freshSlug, oldSlug] {
+            let resume = try await rotationCold.manifest(routeSlug, "61")
+            let next = try await rotationCold.manifest(routeSlug, "62")
+            try expect(resume.slug == routeSlug && next.slug == resume.slug, "cold resume and cached Next share a route after URL rotation")
+        }
+        let raceRoot = root.appendingPathComponent("rotation-race"), raceSource = FakeAsura()
+        let race = ReaderStore(root: raceRoot, source: raceSource)
+        async let oldRequest = race.manifest(oldSlug, "61")
+        async let newRequest = race.manifest(freshSlug, "61")
+        let (oldResult, newResult) = try await (oldRequest, newRequest)
+        try expect(oldResult.slug == oldSlug && newResult.slug == freshSlug, "shared in-flight manifest returns each caller's route")
+        let manifestCalls = await raceSource.requestedPaths()
+        try expect(manifestCalls.count == 1, "URL rotation still shares one manifest download")
+        print("PASS rotating Asura routes: memory, disk, offline Next, concurrent requests")
+
+        let movingRoot = root.appendingPathComponent("moving"), movingSource = FakeAsura()
+        let moving = ReaderStore(root: movingRoot, source: movingSource)
+        for slug in ["fixture", "other"] {
+            try await moving.savePosition(Position(slug: slug, chapter: "2", page: 0, fraction: 0.4, total: 1, updatedAt: 1))
+        }
+        await moving.setPreparationContext(home: true, active: true)
+        await moving.waitForPreparation()
+        func imageExists(_ slug: String, _ chapter: String) -> Bool {
+            FileManager.default.fileExists(atPath: movingRoot.appendingPathComponent("images/\(CachePolicy.key(slug, chapter))/0").path)
+        }
+        func readerCheckpoint(_ chapter: String) throws -> Data {
+            try jsonData(["view": ["path": "/reader/fixture/\(chapter)", "anchor": "page-\(chapter)-0", "fraction": 0.4, "y": 1500],
+                          "progress": ["slug": "fixture", "chapter": chapter, "page": 0, "fraction": 0.4, "total": 1, "updatedAt": 2000]])
+        }
+        let beforeReadingCalls = await movingSource.requestedPaths()
+        await moving.setPreparationContext(home: false, active: true)
+        try await moving.saveCheckpoint(readerCheckpoint("3"))
+        await moving.waitForPreparation()
+        try expect(!imageExists("fixture", "1") && ["2", "3", "4"].allSatisfy { imageExists("fixture", $0) }, "reader advance moves disk window without visiting Home")
+        try expect(!FileManager.default.fileExists(atPath: movingRoot.appendingPathComponent("manifests/\(CachePolicy.key("fixture", "1")).json").path), "obsolete manifest removed with images")
+        try expect(["1", "2", "3"].allSatisfy { imageExists("other", $0) }, "reading one manga preserves another manga's downloads")
+        let afterReadingCalls = await movingSource.requestedPaths()
+        try expect(!afterReadingCalls.dropFirst(beforeReadingCalls.count).contains { $0.contains("/other/") }, "reader does not refresh unrelated manga")
+        try await moving.saveCheckpoint(readerCheckpoint("1"))
+        // Move again while obsolete work may still be downloading.
+        try await moving.saveCheckpoint(readerCheckpoint("4"))
+        await moving.waitForPreparation()
+        try expect(!imageExists("fixture", "1") && !imageExists("fixture", "2") && imageExists("fixture", "3") && imageExists("fixture", "4"), "rapid jumps settle on the final window, not a stale preparation")
+        await moving.setPreparationContext(home: false, active: false)
+        try await moving.saveCheckpoint(readerCheckpoint("1"))
+        await moving.waitForPreparation()
+        try expect(!imageExists("fixture", "1"), "backgrounded app does not begin new preparations")
+        await moving.setPreparationContext(home: false, active: true)
+        await moving.waitForPreparation()
+        try expect(imageExists("fixture", "1") && imageExists("fixture", "2") && !imageExists("fixture", "3") && !imageExists("fixture", "4"), "foreground resumes the current first-chapter window")
+        let movingSnapshot = try object(Data(await moving.snapshot().utf8))
+        let movingHistory = movingSnapshot["history"] as! [String: [String: Int]]
+        try expect(movingHistory["fixture"]?["4"] == 0 && movingHistory["fixture"]?["3"] == 0, "deleting chapter files retains reading history")
+        await moving.setPreparationContext(home: false, active: false)
+        let lateManifest = try await moving.manifest("fixture", "4")
+        async let lateOne = moving.page(lateManifest, 0, urgent: true)
+        async let lateTwo = moving.page(lateManifest, 0, urgent: true)
+        let (lateFirst, lateSecond) = try await (lateOne, lateTwo)
+        try expect(lateFirst.data == Data("image".utf8) && lateSecond.data == lateFirst.data, "shared obsolete readers finish safely")
+        try expect(!imageExists("fixture", "4"), "late out-of-window image completion does not resurrect deleted downloads")
+        print("PASS previous/current/next: Home, reader transitions, first/last, rapid jumps, pause/resume, other series and history")
+
+    }
+
 }

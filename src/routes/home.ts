@@ -4,7 +4,6 @@ import type {
     HomePage,
     HomeSeries,
     Provider,
-    RemoteSeriesHistory,
 } from '../provider';
 import { HomeDestinationKind } from '../provider';
 import { computeRequest } from '../core/compute/transport';
@@ -193,26 +192,11 @@ function renderSeries(
                 if (resume.kind === CoverResumeKind.Read) {
                     // End of the last-read chapter: the reader then loads the
                     // next one as the user continues.
-                    const lastChapterId = resume.latestLocalComplete?.chapterId
-                        ?? resume.resumeChapterId;
-                    if (lastChapterId === undefined) {
-                        return provider.resolveHomeDestination({
-                            kind: HomeDestinationKind.Start,
-                            seriesSlug: series.slug,
-                        });
-                    }
-                    let imageIndex: string | undefined;
-                    if (
-                        resume.latestLocalComplete !== undefined
-                        && resume.latestLocalComplete.chapterId === lastChapterId
-                    ) {
-                        imageIndex = String(resume.latestLocalComplete.imageIndex);
-                    }
                     return provider.resolveHomeDestination({
                         kind: HomeDestinationKind.Resume,
                         seriesSlug: series.slug,
-                        chapterId: lastChapterId,
-                        imageIndex,
+                        chapterId: resume.latestLocalComplete.chapterId,
+                        imageIndex: String(resume.latestLocalComplete.imageIndex),
                     });
                 }
                 return provider.resolveHomeDestination({
@@ -295,12 +279,9 @@ function applyCardPatch(
         case CoverResumeKind.Read:
             coverResume.set(cover, {
                 kind: CoverResumeKind.Read,
-                resumeChapterId: resume.resumeChapterId,
                 latestLocalComplete: resume.latestLocalComplete,
             });
-            cover.href = resume.resumeChapterId !== undefined
-                ? provider.readerUrl(entry.series.slug, resume.resumeChapterId)
-                : provider.seriesUrl(entry.series.slug);
+            cover.href = provider.readerUrl(entry.series.slug, resume.latestLocalComplete.chapterId, String(resume.latestLocalComplete.imageIndex));
             return;
         case CoverResumeKind.None:
             coverResume.set(cover, { kind: CoverResumeKind.None });
@@ -312,7 +293,6 @@ function applyCardPatch(
 function resolveHistory(
     provider: Provider,
     cards: Map<string, { series: HomeSeries; element: HTMLElement }>,
-    remoteHistory: RemoteSeriesHistory[],
     signal: AbortSignal,
     isCurrent: () => boolean,
 ): void {
@@ -321,7 +301,7 @@ function resolveHistory(
         historyId: series.historyId ?? series.slug,
         chapterIds: series.chapters.map(chapter => chapter.chapterId),
     }));
-    void settleBeforePause(() => computeRequest('history-resolve', { cards: cardInputs, remoteHistory }), signal)
+    void settleBeforePause(() => computeRequest('history-resolve', { cards: cardInputs }), signal)
         .then(outcome => {
             if (outcome.kind === PauseOutcomeKind.Paused || !isCurrent()) return;
             for (const patch of outcome.value) {
@@ -373,14 +353,12 @@ function resetTransientLinkState(root: ParentNode): void {
 export async function open(provider: Provider): Promise<void> {
     const imageRetry = new ImageRetryRegistry();
     let active = !document.hidden;
-    let lifecycleVersion = 0;
     let activePeriod = new AbortController();
     if (!active) activePeriod.abort();
     let resumeWaiters: Array<() => void> = [];
     function pause(): void {
         if (!active) return;
         active = false;
-        lifecycleVersion += 1;
         activePeriod.abort();
     }
     function resume(): void {
@@ -422,7 +400,6 @@ export async function open(provider: Provider): Promise<void> {
     loading.className = 'hs-home-loading';
     loading.textContent = 'Loading latest updates…';
     document.body.appendChild(loading);
-    let remoteHistory: RemoteSeriesHistory[] = [];
 
     const firstPage = await fetchPageWhileActive(null, false);
 
@@ -447,7 +424,6 @@ export async function open(provider: Provider): Promise<void> {
         resolveHistory(
             provider,
             cards,
-            remoteHistory,
             activePeriod.signal,
             () => generation === historyResolutionGeneration,
         );
@@ -469,29 +445,12 @@ export async function open(provider: Provider): Promise<void> {
     refreshHistory();
     window.addEventListener('reader-data-restored', refreshHistory);
 
-    let historyRequestGeneration = 0;
-    let historyRequestLifecycle = -1;
-    function reconcileRemoteHistory(): void {
-        const fetchRemoteHistory = provider.fetchRemoteHistory;
-        if (!active || fetchRemoteHistory === undefined || historyRequestLifecycle === lifecycleVersion) return;
-        historyRequestLifecycle = lifecycleVersion;
-        const generation = ++historyRequestGeneration;
-        void settleBeforePause(() => fetchRemoteHistory(), activePeriod.signal)
-            .then(outcome => {
-                if (outcome.kind === PauseOutcomeKind.Paused) return;
-                if (generation !== historyRequestGeneration || !active) return;
-                remoteHistory = outcome.value;
-                refreshHistory();
-            });
-    }
     function reconcilePageShow(): void {
         resetTransientLinkState(list);
         refreshHistory();
-        reconcileRemoteHistory();
     }
     // A restored DOM carries the history overlay from before the reader was opened.
     onBfcacheRestore(reconcilePageShow);
-    reconcileRemoteHistory();
     window.setInterval(() => updateUnlockCountdowns(section), 60_000);
 
     const seenCursors = new Set<string>();

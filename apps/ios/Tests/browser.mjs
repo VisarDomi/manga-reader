@@ -23,13 +23,12 @@ try {
  const p={slug,chapter:cid(2),page:4,fraction:.4,total:20,updatedAt:100};
  const state={provider,catalog:[{slug:p.slug,identity:seriesIdentity,title:'Fixture',cover:'',chapters}],progress:{[seriesIdentity]:p},history:{[seriesIdentity]:{[cid(1)]:19,[cid(2)]:4,[cid(3)]:19}},home:{path:'/',anchor:null,fraction:0,y:0},view:{path:'/'}};
  let activeChapters=chapters, listFails=false, lastPosition, pcAvailable=false, coldLaunch=false, saveFails=false;
- const unavailableChapters=new Set(), tracked=[]; let remoteData={}; const pcActions=[], viewWrites=[];
+ const unavailableChapters=new Set(), commands=[]; const pcActions=[], viewWrites=[];
  await context.exposeBinding('nativeRPC',async(_,{command,args})=>{
+   commands.push(command);
    if(command==='init'&&coldLaunch){coldLaunch=false;return JSON.stringify({...state,resumeReader:state.view.path==='/'?undefined:state.view.path});}
    if(command==='init'||command==='snapshot')return JSON.stringify(state);
    if(command==='chapters'){if(listFails)throw new Error('Fixture chapter list unavailable');return JSON.stringify(activeChapters);}
-   if(command==='remote-history')return JSON.stringify({data:remoteData});
-   if(command==='track-chapter'){tracked.push(args.chapter);return '{}';}
    if(command==='measure')return JSON.stringify({width:900,height:16000});
    if(command==='view-save'){
      if(saveFails)throw new Error('Fixture write failed');
@@ -117,10 +116,13 @@ try {
  assert.ok(Math.abs(fraction-.4)<.002,'cover restores fractional image position');
  await page.waitForSelector(`#page-${cid(3)}-0`,{state:'attached'});
  assert.equal(await page.title(),`${cid(2)} Fixture`,'preloading Next does not change the visible chapter title');
+ const padding=await page.locator('.hs-reader-body').evaluate(el=>({top:parseFloat(getComputedStyle(el).paddingTop),bottom:parseFloat(getComputedStyle(el).paddingBottom),height:innerHeight}));
+ assert.equal(padding.top,padding.height/2,'reader top padding is half a screen');
+ assert.equal(padding.bottom,padding.top,'reader bottom padding matches top');
  const beforeRepeat=viewWrites.length;
  await page.evaluate(async()=>{await window.readerState.save();await window.readerState.save();await window.readerState.save();});
  assert.ok(viewWrites.length<=beforeRepeat+1,'unchanged native checkpoints do not rewrite progress repeatedly');
- assert.equal(tracked.filter(chapter=>chapter===cid(2)).length,1,'chapter tracking runs once per visible chapter');
+ assert.ok(!commands.some(c=>['remote-history','track-chapter'].includes(c)),'reader uses local history only');
 
  await page.waitForFunction(()=>document.querySelectorAll('.page img').length>0);
  assert.ok(await page.locator('.page img').count()<5,'distant pages have no image source');
@@ -130,7 +132,7 @@ try {
  await page.getByRole('button',{name:'First chapter',exact:true}).click();await page.waitForSelector(`#page-${cid(1)}-0`);
  const readerGeometry=await page.locator('.hs-reader-body').evaluate(n=>({top:getComputedStyle(n).paddingTop,bottom:getComputedStyle(n).paddingBottom,viewport:innerHeight}));
  assert.equal(parseFloat(readerGeometry.top),readerGeometry.viewport/2);
- assert.equal(parseFloat(readerGeometry.bottom),readerGeometry.viewport);
+ assert.equal(parseFloat(readerGeometry.bottom),readerGeometry.viewport/2);
  assert.equal(await page.locator('.reader-head,.chapter-end').count(),0,'uninterrupted extension reader UI');
  await page.waitForFunction(id=>document.getElementById(id)?.dataset.measured==='1', `page-${cid(1)}-0`);
  assert.equal(await page.locator(`#page-${cid(1)}-0`).evaluate(n=>n.style.height),'','actual image dimensions replace the provisional size');
@@ -211,15 +213,9 @@ try {
  const failure=await context.newPage();await failure.goto(base);saveFails=true;
  await failure.locator('.chapters .chapter').last().click();await failure.waitForSelector('.hs-error');
  assert.equal(await failure.locator('.hs-error').textContent(),'Progress sync failed','failed native progress writes are visible');
- await failure.evaluate(()=>window.readerState.save().catch(()=>{}));assert.equal(await failure.locator('.hs-error').count(),1,'tracking failure reported once');
+ await failure.evaluate(()=>window.readerState.save().catch(()=>{}));assert.equal(await failure.locator('.hs-error').count(),1,'local write failure reported once');
  saveFails=false;await failure.close();
- if(provider==='asurascans') {
-   const local=state.progress;state.progress={};remoteData={[seriesIdentity]:[1,2]};state.view={path:'/'};
-   const account=await context.newPage();await account.goto(base);await account.waitForFunction(()=>document.querySelectorAll('.hs-home-chapter-read').length===2);
-   assert.ok((await account.locator('.cover').getAttribute('href')).includes(`${cid(2)}?end=1`),'account-only cover resumes end of last read chapter');
-   await account.close();remoteData={};state.progress=local;
- }
- console.log(provider,'PASS title, Back loading reset, cover refresh, tracking errors, account overlay and fresh lock response');
+ console.log(provider,'PASS title, Back loading reset, cover refresh, local write errors and fresh lock response');
 
  await context.close();
  }

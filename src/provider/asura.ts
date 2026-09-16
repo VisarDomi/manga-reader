@@ -12,9 +12,7 @@ import { hashImageIndex } from '../core/page';
 import {
     chapterLoader,
     homeDestinationResolver,
-    workerChapterTracker,
     workerHome,
-    workerRemoteHistory,
 } from './actions';
 
 const CHAPTER_RE = /^\/comics\/([^/]+)\/chapter\/(\d+)/;
@@ -47,7 +45,6 @@ async function fetchAsuraChapter(slug: string, chapterId: string): Promise<Chapt
         seriesSlug: slug,
         historyId: asuraHistoryId(slug),
         seriesTitle: data.series.title,
-        providerData: { seriesId: data.series.id, chapterId: data.chapter.id },
         images,
     };
 }
@@ -104,7 +101,6 @@ export const asura: Provider = {
     },
 
     fetchHome: workerHome('asurascans'),
-    fetchRemoteHistory: workerRemoteHistory('asurascans'),
     loadChapter: chapterLoader(fetchAsuraChapter, asuraSeriesUrl),
     resolveHomeDestination: homeDestinationResolver({
         fetchChapter: fetchAsuraChapter,
@@ -112,7 +108,6 @@ export const asura: Provider = {
         readerUrl: asuraReaderUrl,
         seriesUrl: asuraSeriesUrl,
     }),
-    trackChapter: workerChapterTracker('asurascans'),
     fetchChaptersNewestFirst: fetchAsuraChaptersNewestFirst,
     readerUrl: asuraReaderUrl,
     seriesUrl: asuraSeriesUrl,

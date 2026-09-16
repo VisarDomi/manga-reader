@@ -1,0 +1,102 @@
+{
+  "date": "2026-09-16",
+  "nativeBuild": "5",
+  "userscriptVersion": "287",
+  "before": {
+    "requested": "the-magic-towers-problem-child-6f7fe6eb",
+    "resume": "the-magic-towers-problem-child-53fc8424",
+    "next": "the-magic-towers-problem-child-6f7fe6eb",
+    "resumePages": 25,
+    "nextPages": 25,
+    "appendAccepted": false
+  },
+  "validation": {
+    "typescript": "passed",
+    "unit": "34 passed",
+    "browser": "All six provider fixtures passed",
+    "extension": "Installed Chromium extension fixtures passed for all six providers",
+    "swift": "Passed route rotation, window movement, late shared reads, history, offline, PC and parser tests",
+    "providerBuilderAndSigningLock": "passed",
+    "physicalAsura": "Same cached Magic Tower 61 \u2192 62 probe now returns matching routes; no reading-progress writes performed by probe.",
+    "manualAsura": "User confirmed cover resume / chapter 61 \u2192 62 and bottom spacing are okay."
+  },
+  "assetsSHA256": {
+    "app.js": "38fd47ebe7f92148559a6d6b24fd10ae24afef9b916625bfa90269426a85ab07",
+    "reader-core.js": "4a1b984f873ba14d0d1a7314a2873f933c1236b21c1414fb5b7876260c0fa651",
+    "style.css": "edbfc2d37b06d57119858a31b5910d61c3006828c1af25117bdc38be045161f6"
+  },
+  "delivery": [
+    {
+      "provider": "asura",
+      "bundleId": "com.visar.AsuraReader.paid",
+      "version": "5",
+      "cssSHA256": "edbfc2d37b06d57119858a31b5910d61c3006828c1af25117bdc38be045161f6",
+      "installed": true,
+      "renewalPassed": true,
+      "nextDue": 1792109963.50204
+    },
+    {
+      "provider": "scythe",
+      "bundleId": "com.visar.ScytheReader.paid",
+      "version": "5",
+      "cssSHA256": "edbfc2d37b06d57119858a31b5910d61c3006828c1af25117bdc38be045161f6",
+      "installed": true,
+      "renewalPassed": true,
+      "nextDue": 1792109998.088988
+    },
+    {
+      "provider": "yaksha",
+      "bundleId": "com.visar.YakshaReader.paid",
+      "version": "5",
+      "cssSHA256": "edbfc2d37b06d57119858a31b5910d61c3006828c1af25117bdc38be045161f6",
+      "installed": true,
+      "renewalPassed": true,
+      "nextDue": 1792110033.218771
+    },
+    {
+      "provider": "qiscans",
+      "bundleId": "com.visar.QiMangaReader.paid",
+      "version": "5",
+      "cssSHA256": "edbfc2d37b06d57119858a31b5910d61c3006828c1af25117bdc38be045161f6",
+      "installed": true,
+      "renewalPassed": true,
+      "nextDue": 1792110066.922316
+    },
+    {
+      "provider": "lua",
+      "bundleId": "com.visar.LuaReader.paid",
+      "version": "5",
+      "cssSHA256": "edbfc2d37b06d57119858a31b5910d61c3006828c1af25117bdc38be045161f6",
+      "installed": true,
+      "renewalPassed": true,
+      "nextDue": 1792110101.430898
+    },
+    {
+      "provider": "ezmanga",
+      "bundleId": "com.visar.EzMangaReader.paid",
+      "version": "5",
+      "cssSHA256": "edbfc2d37b06d57119858a31b5910d61c3006828c1af25117bdc38be045161f6",
+      "installed": true,
+      "renewalPassed": true,
+      "nextDue": 1792110134.589968
+    }
+  ],
+  "after": {
+    "requested": "the-magic-towers-problem-child-6f7fe6eb",
+    "resume": "the-magic-towers-problem-child-6f7fe6eb",
+    "next": "the-magic-towers-problem-child-6f7fe6eb",
+    "resumePages": 25,
+    "nextPages": 25,
+    "appendAccepted": true
+  },
+  "renewal": {
+    "scheduler": "com.visar.installed-apps-refresh",
+    "active": true,
+    "lastExitStatus": 0,
+    "temporaryBuildJobRemoved": true
+  },
+  "diagnostics": {
+    "temporaryPhoneProbeRemoved": true,
+    "privateStateCopiesRemoved": true
+  }
+}

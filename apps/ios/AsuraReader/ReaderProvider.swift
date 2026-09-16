@@ -4,7 +4,7 @@ import Foundation
 protocol ReaderSource: Sendable {
     func catalog(onPage: CatalogUpdate?) async throws -> [Series]
     func chapters(_ slug: String) async throws -> [Chapter]
-    func manifest(_ slug: String, _ chapter: String, token: String?) async throws -> Manifest
+    func manifest(_ slug: String, _ chapter: String) async throws -> Manifest
     func image(_ raw: String, to destination: URL, urgent: Bool) async throws -> String
     func prioritize(_ url: String) async
 }
@@ -13,7 +13,7 @@ extension ReaderSource {
 }
 
 protocol AsuraSource: ReaderSource {
-    func request(_ path: String, method: String, body: Data?, token: String?) async throws -> Data
+    func request(_ path: String, method: String, body: Data?) async throws -> Data
     func image(_ raw: String, to destination: URL, urgent: Bool) async throws -> String
     func prioritize(_ url: String) async
 }

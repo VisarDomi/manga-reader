@@ -17,14 +17,9 @@ describe('local resume position', () => {
         expect(chapterTwo.id).not.toBe(createChapterProgress('other', 'series-a', '2', 0, 5).id);
     });
 
-    it('uses the local position even when server resume names another chapter', () => {
+    it('resumes the saved local chapter even with newer chapters', () => {
         const [result] = resolveHistory({
             cards: [card(['5', '4', '3', '2', '1'])],
-            remoteHistory: [{
-                seriesId: 'series-a',
-                readChapterIds: ['5', '4', '3', '2', '1'],
-                resumeChapterId: '5',
-            }],
             progress: [createChapterProgress('test', 'series-a', '2', 1, 5, 100)],
         });
 
@@ -35,27 +30,20 @@ describe('local resume position', () => {
         });
     });
 
-    it('uses server resume only when no local position exists', () => {
+    it('does not infer reading history when no local position exists', () => {
         const [result] = resolveHistory({
             cards: [card(['3', '2', '1'])],
-            remoteHistory: [{
-                seriesId: 'series-a',
-                readChapterIds: ['2', '1'],
-                resumeChapterId: '2',
-            }],
             progress: [],
         });
 
         expect(result.cover).toEqual({
-            kind: CoverResumeKind.Read,
-            resumeChapterId: '2',
+            kind: CoverResumeKind.None,
         });
     });
 
     it('derives read, partial, and unread chapter states from the local position', () => {
         const [result] = resolveHistory({
             cards: [card(['3', '2', '1'])],
-            remoteHistory: [],
             progress: [createChapterProgress('test', 'series-a', '2', 1, 5, 100)],
         });
 

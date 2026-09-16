@@ -8,7 +8,6 @@ import {
     type HomePage,
     type HomeSeries,
     type Provider,
-    type RemoteSeriesHistory,
 } from '../../src/provider';
 import { createChapterProgress } from '../../src/core/compute/progress';
 import { open as openHome } from '../../src/routes/home';
@@ -17,10 +16,9 @@ const historyState = vi.hoisted(() => ({ progress: [] as unknown[] }));
 vi.mock('../../src/core/compute/transport', async () => {
     const { resolveHistory } = await import('../../src/core/compute/history');
     return {
-        computeRequest: (_op: string, payload: { cards: unknown; remoteHistory: unknown }) => _op === 'manual-pc' ? Promise.resolve(false) : Promise.resolve(
+        computeRequest: (_op: string, payload: { cards: unknown }) => _op === 'manual-pc' ? Promise.resolve(false) : Promise.resolve(
             resolveHistory({
                 cards: payload.cards as never,
-                remoteHistory: payload.remoteHistory as never,
                 progress: historyState.progress as never,
             }),
         ),
@@ -43,14 +41,12 @@ function homeSeries(slug: string, chapters: string[] = []): HomeSeries {
 
 function testProvider(options: {
     fetchHome(cursor: string | null): Promise<HomePage>;
-    fetchRemoteHistory?: () => Promise<RemoteSeriesHistory[]>;
     resolveHomeDestination?: Provider['resolveHomeDestination'];
 }): Provider {
     return {
         key: 'test',
         matchRoute: () => ({ handler: Handler.Home }),
         fetchHome: options.fetchHome,
-        fetchRemoteHistory: options.fetchRemoteHistory,
         loadChapter: async () => ({ kind: ChapterLoadResultKind.Stop }),
         resolveHomeDestination: options.resolveHomeDestination ?? (async request => (
             request.kind === HomeDestinationKind.Resume
@@ -102,15 +98,10 @@ describe('Home behavior', () => {
         expect(document.querySelector('.hs-home-catalog-status')?.textContent).toBe('Loaded 3 series');
     });
 
-    it('uses a local resume position instead of a server resume position', async () => {
+    it('uses the saved local resume position', async () => {
         historyState.progress = [createChapterProgress('test', 'series-a', '2', 1, 5, 100)];
         const provider = testProvider({
             fetchHome: async () => ({ series: [homeSeries('series-a', ['5', '2'])], nextCursor: null }),
-            fetchRemoteHistory: async () => [{
-                seriesId: 'series-a',
-                readChapterIds: ['5', '2'],
-                resumeChapterId: '5',
-            }],
         });
 
         await openHome(provider);
@@ -120,15 +111,10 @@ describe('Home behavior', () => {
             .toBe('https://example.test/series-a/2#1');
     });
 
-    it('uses server resume only when no local resume position exists', async () => {
+    it('starts at the first chapter when no local position exists', async () => {
         const resolveHomeDestination = vi.fn(async () => window.location.href);
         const provider = testProvider({
             fetchHome: async () => ({ series: [homeSeries('series-a', ['3', '2'])], nextCursor: null }),
-            fetchRemoteHistory: async () => [{
-                seriesId: 'series-a',
-                readChapterIds: ['2'],
-                resumeChapterId: '2',
-            }],
             resolveHomeDestination,
         });
 
@@ -139,9 +125,8 @@ describe('Home behavior', () => {
         await Promise.resolve();
 
         expect(resolveHomeDestination).toHaveBeenCalledWith({
-            kind: HomeDestinationKind.Resume,
+            kind: HomeDestinationKind.Start,
             seriesSlug: 'series-a',
-            chapterId: '2',
         });
     });
 
@@ -150,11 +135,6 @@ describe('Home behavior', () => {
         const resolveHomeDestination = vi.fn(async () => window.location.href);
         const provider = testProvider({
             fetchHome: async () => ({ series: [homeSeries('series-a', ['3', '2', '1'])], nextCursor: null }),
-            fetchRemoteHistory: async () => [{
-                seriesId: 'series-a',
-                readChapterIds: ['2', '1'],
-                resumeChapterId: '2',
-            }],
             resolveHomeDestination,
         });
 

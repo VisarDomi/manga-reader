@@ -3,9 +3,7 @@ import type { PCCommand } from './manual-pc';
 // Both sides must stay DOM-free and serializable.
 
 import type {
-    ChapterData,
     HomePage,
-    RemoteSeriesHistory,
 } from '../../provider/types';
 import type { CardInput, CardResolution } from './history';
 import type { ChapterProgress } from './progress';
@@ -31,7 +29,6 @@ interface SaveProgressPayload {
 
 interface HistoryResolvePayload {
     cards: CardInput[];
-    remoteHistory: RemoteSeriesHistory[];
 }
 
 interface FetchHomePayload {
@@ -40,17 +37,7 @@ interface FetchHomePayload {
 }
 
 interface SnapshotPayload {
-    cookies: string;
     href: string;
-}
-
-interface RemoteHistoryPayload {
-    provider: string;
-}
-
-interface TrackPayload {
-    provider: string;
-    data: ChapterData;
 }
 
 export interface OpTypes {
@@ -60,22 +47,5 @@ export interface OpTypes {
     'save-progress': { payload: SaveProgressPayload; result: ChapterProgress };
     'history-resolve': { payload: HistoryResolvePayload; result: CardResolution[] };
     'fetch-home': { payload: FetchHomePayload; result: HomePage };
-    'cookie-snapshot': { payload: SnapshotPayload; result: undefined };
-    'remote-history': { payload: RemoteHistoryPayload; result: RemoteSeriesHistory[] };
-    'track-chapter': { payload: TrackPayload; result: undefined };
-}
-
-export enum ComputeNotificationKind {
-    Notify,
-}
-
-export enum ComputeNotificationName {
-    CookieWrite,
-}
-
-/** Unsolicited worker → main notification (e.g. cookie write-backs). */
-export interface ComputeNotification {
-    kind: ComputeNotificationKind.Notify;
-    name: ComputeNotificationName.CookieWrite;
-    value: string;
+    'page-context': { payload: SnapshotPayload; result: undefined };
 }

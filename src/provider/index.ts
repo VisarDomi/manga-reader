@@ -20,7 +20,6 @@ export type {
     HomeChapter,
     HomeSeries,
     HomePage,
-    RemoteSeriesHistory,
 } from './types';
 
 import type { Provider, RouteMatch } from './types';

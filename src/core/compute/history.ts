@@ -1,7 +1,6 @@
 // Pure, worker-safe resolution of per-card history state. The main thread
 // mechanically applies the returned models to DOM elements.
 
-import type { RemoteSeriesHistory } from '../../provider/types';
 import {
     isChapterComplete,
     progressBySeries,
@@ -10,7 +9,7 @@ import {
 
 export interface CardInput {
     seriesSlug: string;
-    /** Matches RemoteSeriesHistory.seriesId; provider-specific identity. */
+    /** Provider-specific local progress identity. */
     historyId: string;
     chapterIds: string[];
 }
@@ -26,10 +25,8 @@ export type CoverResumeModel =
     | { kind: CoverResumeKind.LocalPartial; chapterId: string; imageIndex: number }
     | {
         kind: CoverResumeKind.Read;
-        /** Present when remote history drives the resume; links straight to it. */
-        resumeChapterId?: string;
         /** Most recent local complete — the precise last page. */
-        latestLocalComplete?: { chapterId: string; imageIndex: number };
+        latestLocalComplete: { chapterId: string; imageIndex: number };
       };
 
 interface ChapterStateModel {
@@ -48,17 +45,13 @@ export interface CardResolution {
 
 interface ResolveHistoryInput {
     cards: CardInput[];
-    remoteHistory: RemoteSeriesHistory[];
     progress: ChapterProgress[];
 }
 
 export function resolveHistory(input: ResolveHistoryInput): CardResolution[] {
-    const remoteIndex = new Map(input.remoteHistory.map(item => [item.seriesId, item]));
     const localIndex = progressBySeries(input.progress);
 
     return input.cards.map(card => {
-        const remote = remoteIndex.get(card.historyId);
-        const remotelyRead = new Set(remote?.readChapterIds ?? []);
         const local = localIndex.get(card.historyId);
         const localChapterIndex = local === undefined
             ? -1
@@ -73,8 +66,6 @@ export function resolveHistory(input: ResolveHistoryInput): CardResolution[] {
                     state.read = isChapterComplete(local);
                     state.localImageIndex = local.imageIndex;
                 }
-            } else if (local === undefined && remotelyRead.has(chapterId)) {
-                state.read = true;
             }
             return state;
         });
@@ -93,11 +84,6 @@ export function resolveHistory(input: ResolveHistoryInput): CardResolution[] {
                     chapterId: local.chapterId,
                     imageIndex: local.imageIndex,
                 },
-            };
-        } else if (remote !== undefined) {
-            cover = {
-                kind: CoverResumeKind.Read,
-                resumeChapterId: remote.resumeChapterId,
             };
         } else {
             cover = { kind: CoverResumeKind.None };

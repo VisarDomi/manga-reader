@@ -26,13 +26,12 @@ actor ReaderHTTP {
         session = URLSession(configuration: config)
     }
     func prioritize(_ url: String) async { await gate.prioritize(url) }
-    func request(_ path: String, method: String = "GET", body: Data? = nil, token: String? = nil) async throws -> Data {
+    func request(_ path: String, method: String = "GET", body: Data? = nil) async throws -> Data {
         guard path.hasPrefix("/"), let url = URL(string: apiBase + path) else { throw ReaderError.message("Invalid provider request") }
         var request = URLRequest(url: url)
         request.httpMethod = method; request.httpBody = body
         request.setValue(origin, forHTTPHeaderField: "Referer")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if let token { request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization") }
         let (data, response) = try await session.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(status) else { throw ReaderError.http(status) }

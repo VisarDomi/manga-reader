@@ -58,9 +58,9 @@ actor LuaAPI: ReaderSource {
         guard !pages.isEmpty, !title.isEmpty, title != (try doc.title()) else { throw ReaderError.message("Lua chapter contains no reader data") }
         return (title, pages)
     }
-    func manifest(_ slug: String, _ chapter: String, token: String?) async throws -> Manifest {
+    func manifest(_ slug: String, _ chapter: String) async throws -> Manifest {
         let html = String(decoding: try await site.request("/series/\(slug)/\(chapter)"), as: UTF8.self)
         let parsed = try Self.reader(html)
-        return Manifest(slug: slug, chapter: chapter, title: parsed.title, seriesID: "", chapterID: chapter, pages: parsed.pages, chapters: [])
+        return Manifest(slug: slug, chapter: chapter, title: parsed.title, pages: parsed.pages, chapters: [])
     }
 }

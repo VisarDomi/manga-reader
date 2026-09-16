@@ -146,21 +146,6 @@ export async function progressPut(entry: ChapterProgress): Promise<void> {
     await awaitTransaction(transaction);
 }
 
-export async function tokensGet(key: string): Promise<unknown> {
-    const db = await openDatabase();
-    const transaction = db.transaction(STORE_TOKENS, 'readonly');
-    const request = transaction.objectStore(STORE_TOKENS).get(key);
-    const value = await withTimeout(request);
-    return (value as { key: string; value?: unknown } | undefined)?.value;
-}
-
-export async function tokensPut(key: string, value: unknown): Promise<void> {
-    const db = await openDatabase();
-    const transaction = db.transaction(STORE_TOKENS, 'readwrite');
-    transaction.objectStore(STORE_TOKENS).put({ key, value });
-    await awaitTransaction(transaction);
-}
-
 export async function databaseBackup(): Promise<DatabaseBackup> {
     const db = await openDatabase();
     const transaction = db.transaction([STORE_PROGRESS, STORE_TOKENS, STORE_METADATA], 'readonly');

@@ -9,13 +9,15 @@ actor ReaderStore {
     private var manifests: [String: Manifest] = [:]
     private var manifestTasks: [String: Task<Manifest, Error>] = [:]
     private var transfers: [String: Task<String, Error>] = [:]
-    private var preparing = false
-    private var prepareAgain = false
+    private var preparationTask: Task<Void, Never>?
     private var onHome = false
+    private var preparationEnabled = false
+    private var preparationRevision = 0
+    private var retainedWindows: [String: Set<String>] = [:]
+    private var chapterReaders: [String: Int] = [:]
     private var status = ""
     private var catalogPage: CatalogPage?
     private var catalogError: String?
-    private var sessionRefresh: Task<String, Error>?
     private let backup: PCBackup
     init(root: URL, source: any ReaderSource = ProviderConfiguration.current.makeSource(), backup: PCBackup = PCBackup()) {
         self.root = root; self.source = source; self.backup = backup
@@ -28,7 +30,26 @@ actor ReaderStore {
     }
     func persist() throws { try writeAtomically(JSONEncoder().encode(state), root.appendingPathComponent("state.json")) }
     func lastView() -> ViewPosition { state.view }
-    func setHome(_ home: Bool) { onHome = home }
+    func setPreparationContext(home: Bool, active: Bool) {
+        guard onHome != home || preparationEnabled != active else { return }
+        onHome = home; preparationEnabled = active
+        requestPreparation()
+    }
+    private func requestPreparation() {
+        preparationRevision += 1
+        guard preparationEnabled, preparationTask == nil else { return }
+        preparationTask = Task { [self] in
+            while preparationEnabled {
+                let revision = preparationRevision
+                await prepareDownloads()
+                if preparationRevision == revision { break }
+            }
+            preparationTask = nil
+        }
+    }
+    #if READER_TESTS
+    func waitForPreparation() async { await preparationTask?.value }
+    #endif
     func snapshot() throws -> String {
         var payload = try object(JSONEncoder().encode(state))
         payload.removeValue(forKey: "tokens")
@@ -87,30 +108,25 @@ actor ReaderStore {
     func manifest(_ slug: String, _ chapter: String) async throws -> Manifest {
         guard CachePolicy.validSlug(slug), CachePolicy.validChapter(chapter) else { throw ReaderError.message("Invalid chapter") }
         let key = CachePolicy.key(slug, chapter)
-        if let saved = manifests[key] { return saved }
+        if let saved = manifests[key] { return saved.routed(to: slug) }
         let file = root.appendingPathComponent("manifests/\(key).json")
         if let data = try? Data(contentsOf: file), let saved = try? JSONDecoder().decode(Manifest.self, from: data) {
-            manifests[key] = saved; return saved
+            manifests[key] = saved; return saved.routed(to: slug)
         }
-        if let existing = manifestTasks[key] { return try await existing.value }
-        let task = Task { [self] in
-            var token = state.tokens["asura:access_token"]
-            if source is any AsuraSource, token == nil, state.tokens["asura:refresh_token"] != nil { token = try await refreshSession() }
-            do { return try await source.manifest(slug, chapter, token: token) }
-            catch ReaderError.http(401) where source is any AsuraSource {
-                return try await source.manifest(slug, chapter, token: await refreshSession())
-            }
-        }
+        if let existing = manifestTasks[key] { return try await existing.value.routed(to: slug) }
+        let task = Task { [source] in try await source.manifest(slug, chapter) }
         manifestTasks[key] = task
         do {
             let result = try await task.value
             try writeAtomically(JSONEncoder().encode(result), file)
             manifests[key] = result; manifestTasks[key] = nil
-            return result
+            return result.routed(to: slug)
         } catch { manifestTasks[key] = nil; throw error }
     }
     func page(_ manifest: Manifest, _ index: Int, urgent: Bool) async throws -> (data: Data, mime: String) {
         guard manifest.pages.indices.contains(index) else { throw ReaderError.message("Invalid page") }
+        chapterReaders[manifest.key, default: 0] += 1
+        defer { releaseChapter(manifest) }
         let file = root.appendingPathComponent("images/\(manifest.key)/\(index)")
         let mime = try await ensureImage(manifest.pages[index].url, file: file, urgent: urgent)
         measurePage(manifest, index, file: file)
@@ -159,9 +175,11 @@ actor ReaderStore {
         guard CachePolicy.validSlug(p.slug), CachePolicy.validChapter(p.chapter), p.total > 0,
               p.page >= 0, p.page < p.total, p.fraction.isFinite, (0...1).contains(p.fraction), p.updatedAt.isFinite else { throw ReaderError.message("Invalid reading position") }
         let key = CachePolicy.identity(p.slug)
+        let changedChapter = state.progress[key]?.chapter != p.chapter
         state.progress[key] = p
         state.history[key, default: [:]][p.chapter] = max(state.history[key]?[p.chapter] ?? -1, p.page)
         try persist()
+        if changedChapter { requestPreparation() }
     }
     func saveCheckpoint(_ data: Data) throws {
         struct Checkpoint: Decodable { let view: ViewPosition; let progress: Position? }
@@ -183,7 +201,9 @@ actor ReaderStore {
         // Like Gallery's view-save, one acknowledged native write owns the
         // complete resume state; suspension cannot split progress from screen.
         try writeAtomically(JSONEncoder().encode(next), root.appendingPathComponent("state.json"))
+        let changedChapter = state.view.path != next.view.path || checkpoint.progress.map { state.progress[CachePolicy.identity($0.slug)]?.chapter != $0.chapter } == true
         state = next
+        if changedChapter { requestPreparation() }
     }
     func saveView(_ data: Data) throws {
         let position = try JSONDecoder().decode(ViewPosition.self, from: data)
@@ -193,30 +213,36 @@ actor ReaderStore {
         if position.path == "/" { state.home = position }
         try persist()
     }
-    func prepareHome() async {
-        guard onHome else { return }
-        if preparing { prepareAgain = true; return }
-        preparing = true
-        defer {
-            preparing = false; status = ""
-            if prepareAgain { prepareAgain = false; Task { await self.prepareHome() } }
-        }
-        var keep = Set<String>()
-        // Snapshot only drives enumeration. Recheck the live position after every await.
-        for initial in state.progress.values.sorted(by: { $0.updatedAt > $1.updatedAt }) {
-            guard onHome, !Task.isCancelled else { return }
+    private func prepareDownloads() async {
+        guard preparationEnabled else { return }
+        defer { status = "" }
+        let revision = preparationRevision
+        func current() -> Bool { preparationEnabled && preparationRevision == revision && !Task.isCancelled }
+        let readerSlug = URL(string: state.view.path)?.pathComponents.dropFirst(2).first
+        let positions = state.progress.values.filter { position in
+            onHome || readerSlug.map { CachePolicy.identity($0) == CachePolicy.identity(position.slug) } == true
+        }.sorted { $0.updatedAt > $1.updatedAt }
+        var keep = Set<String>(), allListsAvailable = true
+        for initial in positions {
+            guard current() else { return }
             let identity = CachePolicy.identity(initial.slug)
             let slug = state.catalog.first(where: { $0.identity == identity })?.slug ?? initial.slug
-            guard let list = try? await chapters(slug) else { return }
-            guard onHome, !Task.isCancelled, state.progress[identity]?.chapter == initial.chapter else { return }
-            for chapter in CachePolicy.window(current: initial.chapter, chapters: list) {
-                keep.insert(CachePolicy.key(slug, chapter))
-                guard onHome, !Task.isCancelled else { return }
+            guard let list = try? await chapters(slug) else { allListsAvailable = false; continue }
+            guard current() else { return }
+            let window = CachePolicy.window(current: initial.chapter, chapters: list)
+            let keys = Set(window.map { CachePolicy.key(slug, $0) })
+            retainedWindows[identity] = keys
+            keep.formUnion(keys)
+            // Move the disk window before fetching more. Other manga retain their own window.
+            try? pruneDownloads(keeping: keys, series: slug, chapters: list)
+            for chapter in window {
+                guard current() else { return }
                 if let m = try? await manifest(slug, chapter) {
+                    guard current() else { return }
                     status = "Preparing \(m.title) · \(chapter)"
-                    // Three transfers at a time leaves capacity for interactive cover/page requests.
+                    // Current, then next, then previous; leave capacity for visible images.
                     for start in stride(from: 0, to: m.pages.count, by: 3) {
-                        guard onHome, !Task.isCancelled else { return }
+                        guard current() else { return }
                         await withTaskGroup(of: Void.self) { group in
                             for index in start..<min(start + 3, m.pages.count) {
                                 group.addTask { [self] in
@@ -228,17 +254,42 @@ actor ReaderStore {
                     }
                 }
             }
+            guard current() else { return }
+            try? pruneDownloads(keeping: keys, series: slug, chapters: list)
         }
-        guard onHome, !Task.isCancelled else { return }
-        try? pruneImages(keeping: keep)
+        guard current(), onHome, allListsAvailable else { return }
+        try? pruneDownloads(keeping: keep)
     }
-    func pruneImages(keeping keys: Set<String>) throws {
-        let dir = root.appendingPathComponent("images")
-        let dirs = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
-        for item in dirs where !keys.contains(item.lastPathComponent) {
-            guard !transfers.keys.contains(where: { $0.hasPrefix(item.path + "/") }) else { continue }
-            try FileManager.default.removeItem(at: item)
+    func pruneDownloads(keeping keys: Set<String>, series: String? = nil, chapters: [Chapter] = []) throws {
+        let fm = FileManager.default
+        let imageDir = root.appendingPathComponent("images"), manifestDir = root.appendingPathComponent("manifests")
+        let files = (try? fm.contentsOfDirectory(at: manifestDir, includingPropertiesForKeys: nil)) ?? []
+        var eligible = Set(chapters.map { CachePolicy.key(series ?? "", $0.key) })
+        if let series {
+            for file in files {
+                if let data = try? Data(contentsOf: file), let m = try? JSONDecoder().decode(Manifest.self, from: data),
+                   CachePolicy.identity(m.slug) == CachePolicy.identity(series) { eligible.insert(m.key) }
+            }
         }
+        let images = (try? fm.contentsOfDirectory(at: imageDir, includingPropertiesForKeys: nil)) ?? []
+        let candidates = Set(images.map(\.lastPathComponent)).union(files.map { $0.deletingPathExtension().lastPathComponent }).union(manifests.keys)
+        for key in candidates where !keys.contains(key) && (series == nil || eligible.contains(key)) {
+            try removeDownload(key)
+        }
+    }
+    private func removeDownload(_ key: String) throws {
+        let fm = FileManager.default, dir = root.appendingPathComponent("images/\(key)")
+        guard chapterReaders[key, default: 0] == 0, manifestTasks[key] == nil,
+              !transfers.keys.contains(where: { $0.hasPrefix(dir.path + "/") }) else { return }
+        if fm.fileExists(atPath: dir.path) { try fm.removeItem(at: dir) }
+        let file = root.appendingPathComponent("manifests/\(key).json")
+        if fm.fileExists(atPath: file.path) { try fm.removeItem(at: file) }
+        manifests.removeValue(forKey: key)
+    }
+    private func releaseChapter(_ m: Manifest) {
+        chapterReaders[m.key, default: 1] -= 1
+        if chapterReaders[m.key] == 0 { chapterReaders.removeValue(forKey: m.key) }
+        if let keep = retainedWindows[CachePolicy.identity(m.slug)], !keep.contains(m.key) { try? removeDownload(m.key) }
     }
     func webReply(_ command: String, data: Data) async throws -> String {
         try load()
@@ -246,17 +297,6 @@ actor ReaderStore {
         let slug = args["slug"] as? String ?? ""
         switch command {
         case "snapshot": return try snapshot()
-        case "remote-history":
-            guard hasSession else { return try jsonText(["data": [String: String]()]) }
-            return String(decoding: try await authenticatedRequest("/me/read-chapters"), as: UTF8.self)
-        case "track-chapter":
-            guard hasSession else { return "{}" }
-            let chapter = args["chapter"] as? String ?? ""
-            let m = try await manifest(slug, chapter)
-            guard !m.seriesID.isEmpty, !m.chapterID.isEmpty else { throw ReaderError.message("Missing chapter tracking data") }
-            async let bookmark = authenticatedRequest("/bookmarks/\(m.seriesID)/read/\(m.chapter)", method: "POST")
-            async let view = authenticatedRequest("/views/chapter", method: "POST", body: jsonData(["chapter_id": m.chapterID, "series_id": m.seriesID]))
-            _ = try await (bookmark, view)
         case "chapters": return String(decoding: try JSONEncoder().encode(await chapters(slug)), as: UTF8.self)
         case "open":
             let chapter = args["chapter"] as? String ?? ""
@@ -272,6 +312,8 @@ actor ReaderStore {
         case "measure":
             let m = try await manifest(slug, args["chapter"] as? String ?? "")
             guard let index = args["index"] as? Int, m.pages.indices.contains(index) else { throw ReaderError.message("Invalid page") }
+            chapterReaders[m.key, default: 0] += 1
+            defer { releaseChapter(m) }
             let file = root.appendingPathComponent("images/\(m.key)/\(index)")
             _ = try await ensureImage(m.pages[index].url, file: file, urgent: true)
             measurePage(m, index, file: file)
@@ -289,43 +331,6 @@ actor ReaderStore {
         }
         return "{}"
     }
-    private var hasSession: Bool {
-        source is any AsuraSource && ["asura:access_token", "asura:refresh_token"].contains { !(state.tokens[$0] ?? "").isEmpty }
-    }
-    private func authenticatedRequest(_ path: String, method: String = "GET", body: Data? = nil) async throws -> Data {
-        guard let source = source as? any AsuraSource, hasSession else { throw ReaderError.message("Asura has no authenticated session") }
-        if let sessionRefresh { _ = try await sessionRefresh.value }
-        let token: String
-        if let current = state.tokens["asura:access_token"] { token = current }
-        else { token = try await refreshSession() }
-        do { return try await source.request(path, method: method, body: body, token: token) }
-        catch ReaderError.http(401) where state.tokens["asura:refresh_token"] != nil {
-            let fresh: String
-            if let current = state.tokens["asura:access_token"], current != token { fresh = current }
-            else { fresh = try await refreshSession() }
-            return try await source.request(path, method: method, body: body, token: fresh)
-        }
-    }
-    func setTokens(_ tokens: [String: String]) throws {
-        for (key, value) in tokens where ["asura:access_token", "asura:refresh_token"].contains(key) && !value.isEmpty { state.tokens[key] = value }
-        try persist()
-    }
-    private func refreshSession() async throws -> String {
-        if let sessionRefresh { return try await sessionRefresh.value }
-        guard let refresh = state.tokens["asura:refresh_token"] else { throw ReaderError.message("Sign in to Asura again") }
-        guard let source = source as? any AsuraSource else { throw ReaderError.message("This provider has no account session") }
-        let task = Task { [source] in
-            let json = try object(await source.request("/auth/refresh", method: "POST", body: jsonData(["refresh_token": refresh]), token: nil))
-            guard let data = json["data"] as? [String: Any], let access = data["access_token"] as? String, !access.isEmpty else { throw ReaderError.message("Asura session expired") }
-            var tokens = ["asura:access_token": access]
-            if let rotated = data["refresh_token"] as? String { tokens["asura:refresh_token"] = rotated }
-            try self.setTokens(tokens)
-            return access
-        }
-        sessionRefresh = task
-        defer { sessionRefresh = nil }
-        return try await task.value
-    }
     func importBackup(_ raw: Data) throws {
         let incoming = try BackupCodec.decode(raw)
         // Load is an explicit replacement, irrespective of timestamps.
@@ -335,5 +340,6 @@ actor ReaderStore {
         replacement.view = ViewPosition()
         try writeAtomically(JSONEncoder().encode(replacement), root.appendingPathComponent("state.json"))
         state = replacement
+        requestPreparation()
     }
 }

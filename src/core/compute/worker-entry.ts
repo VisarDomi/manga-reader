@@ -3,18 +3,12 @@
 // Ops are handled serially so save ordering is a hard invariant.
 
 import type { ComputeRequest, ComputeResponse } from './messages';
-import type { RemoteSeriesHistory } from '../../provider/types';
 import { createChapterProgress } from './progress';
 import { resolveHistory, type CardInput } from './history';
 import { loadProgress } from './migrations';
 import { progressPut, databaseBackup, restoreDatabaseBackup } from './store';
-import {
-    fetchProviderHome,
-    fetchProviderRemoteHistory,
-    trackProviderChapter,
-} from '../../provider/worker';
+import { fetchProviderHome } from '../../provider/worker';
 import { setWorkerContext } from './context';
-import type { ChapterData } from '../../provider/types';
 import { manualPC, type PCCommand } from './manual-pc';
 
 type Outcome =
@@ -53,30 +47,14 @@ async function handle(request: ComputeRequest): Promise<Outcome> {
                 return { ok: true, value: entry };
             }
 
-            case 'cookie-snapshot': {
-                const payload = request.payload as { cookies?: unknown; href?: unknown } | undefined;
-                if (typeof payload?.cookies !== 'string' || typeof payload.href !== 'string') {
-                    throw new Error('cookie-snapshot requires cookies and href');
+            case 'page-context': {
+                const payload = request.payload as { href?: unknown } | undefined;
+                if (typeof payload?.href !== 'string') {
+                    throw new Error('page-context requires href');
                 }
                 setWorkerContext({
-                    cookies: payload.cookies,
                     href: payload.href,
                 });
-                return { ok: true, value: undefined };
-            }
-
-            case 'remote-history': {
-                const payload = request.payload as { provider?: unknown } | undefined;
-                if (typeof payload?.provider !== 'string') throw new Error('remote-history requires a provider key');
-                return { ok: true, value: await fetchProviderRemoteHistory(payload.provider) };
-            }
-
-            case 'track-chapter': {
-                const payload = request.payload as { provider?: unknown; data?: ChapterData } | undefined;
-                if (typeof payload?.provider !== 'string' || !payload.data) {
-                    throw new Error('track-chapter requires provider data');
-                }
-                await trackProviderChapter(payload.provider, payload.data);
                 return { ok: true, value: undefined };
             }
 
@@ -96,14 +74,12 @@ async function handle(request: ComputeRequest): Promise<Outcome> {
             case 'history-resolve': {
                 const payload = request.payload as {
                     cards?: CardInput[];
-                    remoteHistory?: RemoteSeriesHistory[];
                 } | undefined;
-                if (!Array.isArray(payload?.cards) || !Array.isArray(payload?.remoteHistory)) {
-                    throw new Error('history-resolve requires cards and remoteHistory arrays');
+                if (!Array.isArray(payload?.cards)) {
+                    throw new Error('history-resolve requires cards array');
                 }
                 const result = resolveHistory({
                     cards: payload.cards,
-                    remoteHistory: payload.remoteHistory,
                     progress: await loadProgress(),
                 });
                 return { ok: true, value: result };
@@ -136,7 +112,6 @@ const WRITE_OPS: ReadonlySet<string> = new Set([
     'backup-import',
     'save-progress',
     'history-resolve',
-    'track-chapter',
 ]);
 
 self.onmessage = (event: MessageEvent<ComputeRequest>) => {

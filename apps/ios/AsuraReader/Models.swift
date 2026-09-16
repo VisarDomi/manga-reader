@@ -26,11 +26,13 @@ struct Manifest: Codable, Sendable {
     var slug: String
     var chapter: String
     var title: String
-    var seriesID: String
-    var chapterID: String
     var pages: [PageImage]
     var chapters: [Chapter]
     var key: String { CachePolicy.key(slug, chapter) }
+    // Cache identity survives Asura URL rotations; navigation uses the caller's route.
+    func routed(to slug: String) -> Manifest {
+        var result = self; result.slug = slug; return result
+    }
 }
 struct Position: Codable, Sendable {
     var slug: String
@@ -54,6 +56,7 @@ struct AppState: Codable, Sendable {
     var history: [String: [String: Int]] = [:]
     var view = ViewPosition()
     var home = ViewPosition()
+    // Legacy backup data only; no account requests or token refresh remain.
     var tokens: [String: String] = [:]
 }
 enum ReaderError: LocalizedError {
@@ -80,7 +83,7 @@ enum CachePolicy {
     static func window(current: String, chapters: [Chapter]) -> [String] {
         let ordered = chapters
         guard let i = ordered.firstIndex(where: { $0.key == current }) else { return [current] }
-        return [current] + (i + 1 < ordered.count ? [ordered[i + 1].key] : [])
+        return [current] + (i + 1 < ordered.count ? [ordered[i + 1].key] : []) + (i > 0 ? [ordered[i - 1].key] : [])
     }
     // Provider IDs are opaque path segments, not Asura-only numeric routes.
     static func validSlug(_ slug: String) -> Bool { validSegment(slug, limit: 250) }

@@ -63,7 +63,7 @@ actor AngularAPI: ReaderSource {
         }
         return CachePolicy.oldestFirst(result)
     }
-    func manifest(_ slug: String, _ chapter: String, token: String?) async throws -> Manifest {
+    func manifest(_ slug: String, _ chapter: String) async throws -> Manifest {
         let data = try await json("/series/\(slug)/chapters/\(chapter)")
         guard data["isFree"] as? Bool == true, data["requiresPurchase"] as? Bool != true else { throw ReaderError.unavailable }
         guard let rows = data["images"] as? [[String: Any]], !rows.isEmpty,
@@ -72,6 +72,6 @@ actor AngularAPI: ReaderSource {
             guard let url = row["url"] as? String else { throw ReaderError.message("Invalid page URL") }
             return try NativeProviderData.image(url, width: row["width"] as? Double ?? 0, height: row["height"] as? Double ?? 0)
         }
-        return Manifest(slug: slug, chapter: chapter, title: title, seriesID: "", chapterID: chapter, pages: pages, chapters: [])
+        return Manifest(slug: slug, chapter: chapter, title: title, pages: pages, chapters: [])
     }
 }

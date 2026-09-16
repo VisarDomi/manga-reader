@@ -12,7 +12,6 @@ vi.mock('../../src/core/compute/transport', () => ({
     computeRequest: vi.fn(async (op: string, payload: unknown) => {
         calls.push({ op, payload });
     }),
-    onComputeNotification: vi.fn(),
 }));
 
 function chapter(chapterId: string): ChapterData {
@@ -24,14 +23,13 @@ function chapter(chapterId: string): ChapterData {
     };
 }
 
-function provider(trackChapter?: Provider['trackChapter']): Provider {
+function provider(): Provider {
     return {
         key: 'test',
         matchRoute: () => ({ handler: Handler.Home }),
         fetchHome: async () => ({ series: [], nextCursor: null }),
         loadChapter: async () => ({ kind: ChapterLoadResultKind.Stop }),
         resolveHomeDestination: async () => '/series',
-        trackChapter,
         fetchChaptersNewestFirst: async () => [],
         readerUrl: () => '/chapter',
         seriesUrl: () => '/series',
@@ -41,9 +39,8 @@ function provider(trackChapter?: Provider['trackChapter']): Provider {
 beforeEach(() => calls.length = 0);
 
 describe('reader tracking', () => {
-    it('updates local page position while server tracking happens once per chapter', () => {
-        const trackChapter = vi.fn(async () => {});
-        const tracker = createReaderTracker(provider(trackChapter), {
+    it('saves only changed local page positions', () => {
+        const tracker = createReaderTracker(provider(), {
             seriesSlug: 'series',
             onError: vi.fn(),
         });
@@ -65,10 +62,10 @@ describe('reader tracking', () => {
             ['1', 0],
             ['2', 0],
         ]);
-        expect(trackChapter.mock.calls.map(([data]) => data.chapterId)).toEqual(['1', '2']);
+        expect(calls.every(call => call.op === 'save-progress')).toBe(true);
     });
 
-    it('still updates local position when the provider has no server tracking', () => {
+    it('saves the first observed local position', () => {
         const tracker = createReaderTracker(provider(), {
             seriesSlug: 'series',
             onError: vi.fn(),

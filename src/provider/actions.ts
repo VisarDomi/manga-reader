@@ -15,7 +15,6 @@ import type {
     ChapterOpenResult,
     HomeDestinationRequest,
     HomePage,
-    RemoteSeriesHistory,
 } from './types';
 
 type RawChapterFetcher = (slug: string, chapterId: string) => Promise<ChapterData | null>;
@@ -69,12 +68,4 @@ export function homeDestinationResolver(options: {
 
 export function workerHome(provider: string): (cursor: string | null) => Promise<HomePage> {
     return cursor => computeRequest('fetch-home', { provider, cursor });
-}
-
-export function workerRemoteHistory(provider: string): () => Promise<RemoteSeriesHistory[]> {
-    return () => computeRequest('remote-history', { provider });
-}
-
-export function workerChapterTracker(provider: string): (data: ChapterData) => Promise<void> {
-    return data => computeRequest('track-chapter', { provider, data });
 }

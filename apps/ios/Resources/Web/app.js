@@ -9,8 +9,6 @@
   const chapterID = chapter => chapter.id ?? chapter.number;
   const chapterURL = (slug, chapter, resume = false) => `/reader/${encodeURIComponent(slug)}/${encodeURIComponent(chapter)}${resume ? '?resume=1' : ''}`;
   let touching = false, skipPositionSave = false, heldAnchor, anchorFrame, trackingFailed = false;
-  let remoteHistory = [], remoteGeneration = 0;
-  const trackedChapters = new Set();
   let lastSavedCheckpoint = '';
   let state, home = route().length === 0, restoring = true, touched = false, currentManifest, saveChain = Promise.resolve();
   let chapterList = [], pages = [], observer, nextLoading = false, loadedChapters = new Set();
@@ -101,23 +99,10 @@
       if (progress) trackingError();
       throw error;
     });
-    if (progress && !trackedChapters.has(progress.chapter)) {
-      trackedChapters.add(progress.chapter);
-      void rpc('track-chapter', { slug: progress.slug, chapter: progress.chapter }).catch(trackingError);
-    }
     return saveChain;
   }
   function trackingError() {
     if (!trackingFailed) { trackingFailed = true; report(new Error('Progress sync failed')); }
-  }
-  async function refreshHistory() {
-    const generation = ++remoteGeneration;
-    try {
-      const data = await rpc('remote-history');
-      if (generation !== remoteGeneration) return;
-      remoteHistory = ReaderCore.parseAsuraRemoteHistory(data);
-      catalogSignature = ''; renderCatalog();
-    } catch { /* Local history remains usable when the provider account is offline. */ }
   }
   async function navigate(url) { await save().catch(() => {}); location.href = url; }
   // Gallery's held-anchor restoration: align now and after layout/image changes,
@@ -154,7 +139,7 @@
     state = await rpc('init'); skipPositionSave = !!state.resumeReader; await rpc('ready', { home });
     if (home) {
       for (const cover of app.querySelectorAll('.hs-home-cover-loading')) cover.classList.remove('hs-home-cover-loading');
-      renderCatalog(); void probePC(); void refreshHistory();
+      renderCatalog(); void probePC();
     } else schedulePositionUpdate();
   });
   document.addEventListener('click', event => {
@@ -206,7 +191,6 @@
       const visible = series.chapters.slice(-5).reverse();
       const [resolved] = ReaderCore.resolveHistory({
         cards: [{ seriesSlug: series.slug, historyId: series.identity, chapterIds: visible.map(chapterID) }],
-        remoteHistory,
         progress: p ? [{ seriesSlug: series.identity, chapterId: p.chapter, imageIndex: p.page, totalImages: p.total }] : [],
       });
       // Compare rendered values, not snapshot key order or progress timestamps.
@@ -215,7 +199,7 @@
         !!chapter.locked, chapter.unlockAt ?? null, resolved.chapters[index].read,
         resolved.chapters[index].partial, resolved.chapters[index].localImageIndex !== undefined,
       ])]);
-      const coverChapter = p?.chapter ?? resolved.cover.resumeChapterId;
+      const coverChapter = p?.chapter;
       const cardSignature = JSON.stringify([series.slug, series.title, series.cover, coverChapter ?? null, chapterSignature]);
       let card = document.getElementById(key);
       if (card?.dataset.signature === cardSignature) { cards.push(card); continue; }
@@ -229,7 +213,7 @@
       card.dataset.signature = cardSignature;
       const cover = card.querySelector('.cover'), img = cover.querySelector('img');
       cover.setAttribute('aria-label', `Resume ${series.title}`);
-      cover.href = coverChapter ? chapterURL(series.slug, coverChapter, !!p) + (p ? '' : '?end=1') : '#';
+      cover.href = coverChapter ? chapterURL(series.slug, coverChapter, true) : '#';
       cover.onclick = coverChapter ? null : event => {
         event.preventDefault(); event.stopPropagation();
         if (cover.classList.contains('hs-home-cover-loading')) return;
@@ -370,7 +354,6 @@
       skipPositionSave = !!state.resumeReader;
       if (home) {
         renderHome();
-        if (!state.resumeReader) void refreshHistory();
         if (state.resumeReader) { location.href = state.resumeReader + '?resume=1&view=1'; return; }
       } else await renderReader();
       await rpc('ready', { home });

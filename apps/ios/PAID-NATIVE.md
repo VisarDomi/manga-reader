@@ -123,3 +123,12 @@ corrections. Scythe was installed first and manually accepted by the user.
 All six apps use the same updated native code and provider builder. Userscript
 and extension source remain the reference; no source runtime changes were
 needed for this native pass. The all-image interaction rules are retained.
+
+## September 16: cover resume, local history and three-chapter downloads
+
+Build 5 fixes cached Asura URL rotation without discarding images/progress. It
+removes server tracking/authentication and uses local reading state plus explicit
+PC Load/Save. The shared reader padding is now 50svh at both ends. Home and
+reader maintain previous/current/next downloads per manga, pruning obsolete
+chapter files while retaining history. See the
+[resume/download audit](../../investigation/asura-resume-download-window.md).
