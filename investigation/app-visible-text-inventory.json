@@ -1,0 +1,4745 @@
+{
+  "date": "2026-09-16",
+  "note": "Source inventory, not proof each exception is rendered. See app-visible-text-audit.md for reachability and userscript comparison. Dynamic OS/provider text is not enumerable.",
+  "projects": {
+    "manga-reader": {
+      "root": "/home/visar/Documents/work/manga/manga-reader",
+      "baseCommit": "2867f1c5b23dbd71fd63c5a9d20a9cc8094c5ac7",
+      "scope": "working tree; gallery-downloader has unrelated background-sync WIP, not changed here",
+      "locations": [
+        {
+          "file": "apps/ios/AsuraReader/AngularAPI.swift",
+          "line": 14,
+          "kind": "exception/source-literal",
+          "source": "guard let id = row[\"slug\"] as? String, CachePolicy.validChapter(id) else { throw ReaderError.message(\"Invalid chapter ID\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/AngularAPI.swift",
+          "line": 22,
+          "kind": "exception/source-literal",
+          "source": "guard let slug = row[\"slug\"] as? String, CachePolicy.validSlug(slug), let title = row[\"title\"] as? String else { throw ReaderError.message(\"Incomplete catalog series\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/AngularAPI.swift",
+          "line": 33,
+          "kind": "exception/source-literal",
+          "source": "guard let rows = data[\"data\"] as? [[String: Any]] else { throw ReaderError.message(\"Invalid catalog response\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/AngularAPI.swift",
+          "line": 46,
+          "kind": "exception/source-literal",
+          "source": "guard !rows.isEmpty, page < 10000 else { throw ReaderError.message(\"Invalid catalog pagination\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/AngularAPI.swift",
+          "line": 57,
+          "kind": "exception/source-literal",
+          "source": "guard let rows = data[\"data\"] as? [[String: Any]] else { throw ReaderError.message(\"Invalid chapter list\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/AngularAPI.swift",
+          "line": 61,
+          "kind": "exception/source-literal",
+          "source": "guard !rows.isEmpty, page < 10000 else { throw ReaderError.message(\"Invalid chapter pagination\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/AngularAPI.swift",
+          "line": 68,
+          "kind": "exception/source-literal",
+          "source": "guard data[\"isFree\"] as? Bool == true, data[\"requiresPurchase\"] as? Bool != true else { throw ReaderError.unavailable }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/AngularAPI.swift",
+          "line": 70,
+          "kind": "exception/source-literal",
+          "source": "let series = data[\"series\"] as? [String: Any], let title = series[\"title\"] as? String else { throw ReaderError.message(\"Invalid chapter images\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/AngularAPI.swift",
+          "line": 72,
+          "kind": "exception/source-literal",
+          "source": "guard let url = row[\"url\"] as? String else { throw ReaderError.message(\"Invalid page URL\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/AsuraAPI.swift",
+          "line": 27,
+          "kind": "exception/source-literal",
+          "source": "guard let rows = json[\"data\"] as? [[String: Any]] else { throw ReaderError.message(\"Invalid Asura catalog\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/AsuraAPI.swift",
+          "line": 49,
+          "kind": "exception/source-literal",
+          "source": "guard let data = json[\"data\"] as? [String: Any] else { throw ReaderError.message(\"Invalid Asura chapter\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/AsuraAPI.swift",
+          "line": 50,
+          "kind": "exception/source-literal",
+          "source": "if data[\"is_locked\"] as? Bool == true { throw ReaderError.unavailable }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/AsuraAPI.swift",
+          "line": 53,
+          "kind": "exception/source-literal",
+          "source": "let pages = row[\"pages\"] as? [[String: Any]], !pages.isEmpty else { throw ReaderError.message(\"Invalid Asura chapter images\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/AsuraAPI.swift",
+          "line": 55,
+          "kind": "exception/source-literal",
+          "source": "guard let raw = page[\"url\"] as? String, let url = URL(string: raw), url.scheme == \"https\", url.host != nil else { throw ReaderError.message(\"Invalid page URL\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/LuaAPI.swift",
+          "line": 11,
+          "kind": "exception/source-literal",
+          "source": "guard let id = row[\"chapter_slug\"] as? String, CachePolicy.validChapter(id) else { throw ReaderError.message(\"Invalid Lua chapter\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/LuaAPI.swift",
+          "line": 17,
+          "kind": "exception/source-literal",
+          "source": "guard let rows = data[\"data\"] as? [[String: Any]] else { throw ReaderError.message(\"Invalid Lua catalog\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/LuaAPI.swift",
+          "line": 20,
+          "kind": "exception/source-literal",
+          "source": "let cover = row[\"thumbnail\"] as? String else { throw ReaderError.message(\"Incomplete Lua series\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/LuaAPI.swift",
+          "line": 37,
+          "kind": "exception/source-literal",
+          "source": "guard !id.isEmpty else { throw ReaderError.message(\"Missing Lua series ID\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/LuaAPI.swift",
+          "line": 42,
+          "kind": "exception/source-literal",
+          "source": "guard let rows = data[\"data\"] as? [[String: Any]], let meta = data[\"meta\"] as? [String: Any], let last = meta[\"last_page\"] as? Int else { throw ReaderError.message(\"Invalid Lua chapter list\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/LuaAPI.swift",
+          "line": 45,
+          "kind": "exception/source-literal",
+          "source": "guard !rows.isEmpty, page < 10000 else { throw ReaderError.message(\"Invalid Lua pagination\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/LuaAPI.swift",
+          "line": 58,
+          "kind": "exception/source-literal",
+          "source": "guard !pages.isEmpty, !title.isEmpty, title != (try doc.title()) else { throw ReaderError.message(\"Lua chapter contains no reader data\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/Models.swift",
+          "line": 63,
+          "kind": "exception/source-literal",
+          "source": "case message(String)"
+        },
+        {
+          "file": "apps/ios/AsuraReader/Models.swift",
+          "line": 66,
+          "kind": "exception/source-literal",
+          "source": "var errorDescription: String? { switch self { case .unavailable: return \"Chapter unavailable\"; case let .message(text): return text; case let .http(status): return \"Server returned HTTP \\(status)\" } }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/Models.swift",
+          "line": 99,
+          "kind": "exception/source-literal",
+          "source": "guard let result = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw ReaderError.message(\"Invalid server response\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/Models.swift",
+          "line": 142,
+          "kind": "exception/source-literal",
+          "source": "guard !firstPage else { throw ReaderError.message(\"First home page repeats series \\(incoming.slug)\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/PCBackup.swift",
+          "line": 53,
+          "kind": "exception/source-literal",
+          "source": "guard configured, let base else { throw ReaderError.message(\"PC unavailable\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/PCBackup.swift",
+          "line": 59,
+          "kind": "exception/source-literal",
+          "source": "guard let http = response as? HTTPURLResponse else { throw ReaderError.message(\"PC unavailable\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/PCBackup.swift",
+          "line": 60,
+          "kind": "exception/source-literal",
+          "source": "if http.statusCode == 404 { throw ReaderError.message(\"No saved reading state on PC\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/PCBackup.swift",
+          "line": 61,
+          "kind": "exception/source-literal",
+          "source": "guard (200..<300).contains(http.statusCode) else { throw ReaderError.message(\"PC request failed\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/PCBackup.swift",
+          "line": 87,
+          "kind": "exception/source-literal",
+          "source": "metadata.contains(where: { $0[\"key\"] as? String == \"progress-schema-version\" && $0[\"value\"] as? Int == 3 }) else { throw ReaderError.message(\"Unsupported reading backup\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/PCBackup.swift",
+          "line": 89,
+          "kind": "exception/source-literal",
+          "source": "guard rows.allSatisfy({ $0[\"provider\"] as? String == provider.rawValue }) else { throw ReaderError.message(\"Wrong provider in PC state\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/PCBackup.swift",
+          "line": 95,
+          "kind": "exception/source-literal",
+          "source": "row[\"id\"] as? String == provider.rawValue + \"\\u{0}\" + slug, state.progress[provider.identity(slug)] == nil else { throw ReaderError.message(\"Invalid backup position\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/PCBackup.swift",
+          "line": 103,
+          "kind": "exception/source-literal",
+          "source": "guard CachePolicy.validSlug(slug), chapters.allSatisfy({ CachePolicy.validChapter($0.key) && $0.value >= 0 }) else { throw ReaderError.message(\"Invalid backup history\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/ReaderHTTP.swift",
+          "line": 30,
+          "kind": "exception/source-literal",
+          "source": "guard path.hasPrefix(\"/\"), let url = URL(string: apiBase + path) else { throw ReaderError.message(\"Invalid provider request\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/ReaderHTTP.swift",
+          "line": 37,
+          "kind": "exception/source-literal",
+          "source": "guard (200..<300).contains(status) else { throw ReaderError.http(status) }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/ReaderHTTP.swift",
+          "line": 41,
+          "kind": "exception/source-literal",
+          "source": "guard let url = URL(string: raw), url.scheme == \"https\", url.host != nil else { throw ReaderError.message(\"Invalid image URL\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/ReaderHTTP.swift",
+          "line": 51,
+          "kind": "exception/source-literal",
+          "source": "(try temporary.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0) > 0 else { throw ReaderError.message(\"Image download failed\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/ReaderHTTP.swift",
+          "line": 70,
+          "kind": "exception/source-literal",
+          "source": "guard let url = URL(string: raw), url.scheme == \"https\", url.host != nil else { throw ReaderError.message(\"Invalid page URL\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/ReaderStore.swift",
+          "line": 77,
+          "kind": "exception/source-literal",
+          "source": "catalogError = error.localizedDescription"
+        },
+        {
+          "file": "apps/ios/AsuraReader/ReaderStore.swift",
+          "line": 93,
+          "kind": "exception/source-literal",
+          "source": "guard CachePolicy.validSlug(slug) else { throw ReaderError.message(\"Invalid series\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/ReaderStore.swift",
+          "line": 102,
+          "kind": "exception/source-literal",
+          "source": "guard !result.isEmpty else { throw ReaderError.message(\"No chapters found\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/ReaderStore.swift",
+          "line": 103,
+          "kind": "exception/source-literal",
+          "source": "guard Set(result.map(\\.key)).count == result.count else { throw ReaderError.message(\"Chapter list repeats a chapter\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/ReaderStore.swift",
+          "line": 109,
+          "kind": "exception/source-literal",
+          "source": "guard CachePolicy.validSlug(slug), CachePolicy.validChapter(chapter) else { throw ReaderError.message(\"Invalid chapter\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/ReaderStore.swift",
+          "line": 127,
+          "kind": "exception/source-literal",
+          "source": "guard manifest.pages.indices.contains(index) else { throw ReaderError.message(\"Invalid page\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/ReaderStore.swift",
+          "line": 158,
+          "kind": "exception/source-literal",
+          "source": "guard url.host == \"app\" else { throw ReaderError.message(\"Invalid local host\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/ReaderStore.swift",
+          "line": 171,
+          "kind": "exception/source-literal",
+          "source": "guard let file = Bundle.main.url(forResource: filename, withExtension: nil, subdirectory: \"Web\") else { throw ReaderError.message(\"Missing bundled reader\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/ReaderStore.swift",
+          "line": 176,
+          "kind": "exception/source-literal",
+          "source": "p.page >= 0, p.page < p.total, p.fraction.isFinite, (0...1).contains(p.fraction), p.updatedAt.isFinite else { throw ReaderError.message(\"Invalid reading position\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/ReaderStore.swift",
+          "line": 189,
+          "kind": "exception/source-literal",
+          "source": "view.fraction.isFinite else { throw ReaderError.message(\"Invalid view position\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/ReaderStore.swift",
+          "line": 194,
+          "kind": "exception/source-literal",
+          "source": "URL(string: view.path)?.path == \"/reader/\\(p.slug)/\\(p.chapter)\" else { throw ReaderError.message(\"Invalid reading checkpoint\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/ReaderStore.swift",
+          "line": 211,
+          "kind": "exception/source-literal",
+          "source": "position.fraction.isFinite else { throw ReaderError.message(\"Invalid view position\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/ReaderStore.swift",
+          "line": 314,
+          "kind": "exception/source-literal",
+          "source": "guard let index = args[\"index\"] as? Int, m.pages.indices.contains(index) else { throw ReaderError.message(\"Invalid page\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/ReaderStore.swift",
+          "line": 330,
+          "kind": "exception/source-literal",
+          "source": "default: throw ReaderError.message(\"Unknown reader request\")"
+        },
+        {
+          "file": "apps/ios/AsuraReader/ScytheAPI.swift",
+          "line": 20,
+          "kind": "exception/source-literal",
+          "source": "guard visited.insert(path).inserted else { throw ReaderError.message(\"Scythe repeated a catalog page\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/ScytheAPI.swift",
+          "line": 31,
+          "kind": "exception/source-literal",
+          "source": "guard let route = ScytheParser.route(chapter), route.slug == slug else { throw ReaderError.message(\"Invalid Scythe chapter\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/ScytheAPI.swift",
+          "line": 49,
+          "kind": "exception/source-literal",
+          "source": "url.path.split(separator: \"/\").count == 1, let route = route(url.lastPathComponent), route.slug == slug else { throw ReaderError.message(\"Invalid Scythe chapter link\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/ScytheAPI.swift",
+          "line": 60,
+          "kind": "exception/source-literal",
+          "source": "guard let latest = try doc.select(\".bixbox\").first(where: { try $0.select(\".releases h2\").text() == \"Latest Update\" }) else { throw ReaderError.message(\"Scythe home did not contain Latest Update\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/ScytheAPI.swift",
+          "line": 62,
+          "kind": "exception/source-literal",
+          "source": "guard !cards.isEmpty() else { throw ReaderError.message(\"Scythe Latest Update is empty\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/ScytheAPI.swift",
+          "line": 65,
+          "kind": "exception/source-literal",
+          "source": "guard let link = try card.select(\".bsx > a[href*=/manga/]\").first(), let cover = try card.select(\"img\").first() else { throw ReaderError.message(\"Incomplete Scythe card\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/ScytheAPI.swift",
+          "line": 67,
+          "kind": "exception/source-literal",
+          "source": "url.path.range(of: \"^/manga/[^/]+/?$\", options: .regularExpression) != nil else { throw ReaderError.message(\"Invalid Scythe series URL\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/ScytheAPI.swift",
+          "line": 70,
+          "kind": "exception/source-literal",
+          "source": "guard CachePolicy.validSlug(slug), !title.isEmpty else { throw ReaderError.message(\"Invalid Scythe series\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/ScytheAPI.swift",
+          "line": 79,
+          "kind": "exception/source-literal",
+          "source": "guard !chapters.isEmpty else { throw ReaderError.message(\"Scythe card has no chapters\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/ScytheAPI.swift",
+          "line": 97,
+          "kind": "exception/source-literal",
+          "source": "guard !result.isEmpty else { throw ReaderError.message(\"Scythe chapter list is empty\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/ScytheAPI.swift",
+          "line": 113,
+          "kind": "exception/source-literal",
+          "source": "let sources = data[\"sources\"] as? [[String: Any]] else { throw ReaderError.message(\"Scythe chapter has no reader data\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/ScytheAPI.swift",
+          "line": 116,
+          "kind": "exception/source-literal",
+          "source": "images.allSatisfy({ URL(string: $0)?.scheme == \"https\" && URL(string: $0)?.host != nil }) else { throw ReaderError.message(\"Invalid Scythe default image source\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/ScytheAPI.swift",
+          "line": 118,
+          "kind": "exception/source-literal",
+          "source": "guard !title.isEmpty else { throw ReaderError.message(\"Scythe chapter has no series title\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/WebController.swift",
+          "line": 75,
+          "kind": "exception/source-literal",
+          "source": "let args = body[\"args\"] as? [String: Any], let data = try? jsonData(args) else { replyHandler(nil, \"Invalid reader request\"); return }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/WebController.swift",
+          "line": 104,
+          "kind": "exception/source-literal",
+          "source": "} catch { replyHandler(nil, error.localizedDescription) }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/YakshaAPI.swift",
+          "line": 11,
+          "kind": "exception/source-literal",
+          "source": "guard let url = URL(string: raw, relativeTo: URL(string: ProviderConfiguration.yaksha.origin))?.absoluteURL, url.scheme == \"https\" else { throw ReaderError.message(\"Invalid Yaksha URL\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/YakshaAPI.swift",
+          "line": 17,
+          "kind": "exception/source-literal",
+          "source": "guard let link = try card.select(\".post-title a\").first(), let cover = try card.select(\".item-thumb img\").first() else { throw ReaderError.message(\"Incomplete Yaksha card\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/YakshaAPI.swift",
+          "line": 19,
+          "kind": "exception/source-literal",
+          "source": "guard CachePolicy.validSlug(slug) else { throw ReaderError.message(\"Invalid Yaksha series\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/YakshaAPI.swift",
+          "line": 21,
+          "kind": "exception/source-literal",
+          "source": "guard let link = try row.select(\".chapter a\").first() else { throw ReaderError.message(\"Incomplete Yaksha chapter\") }"
+        },
+        {
+          "file": "apps/ios/AsuraReader/YakshaAPI.swift",
+          "line": 38,
+          "kind": "exception/source-literal",
+          "source": "guard page < 10000 else { throw ReaderError.message(\"Invalid Yaksha pagination\") }; page += 1"
+        },
+        {
+          "file": "apps/ios/AsuraReader/YakshaAPI.swift",
+          "line": 57,
+          "kind": "exception/source-literal",
+          "source": "guard let link = try doc.select(\"ol.breadcrumb a[href*=/manga/]\").first(), !pages.isEmpty else { throw ReaderError.message(\"Yaksha chapter contains no reader data\") }"
+        },
+        {
+          "file": "apps/ios/Resources/Web/app.js",
+          "line": 6,
+          "kind": "text-sink",
+          "source": "const el = (tag, cls, text) => { const node = document.createElement(tag); if (cls) node.className = cls; if (text !== undefined) node.textContent = text; return node; };"
+        },
+        {
+          "file": "apps/ios/Resources/Web/app.js",
+          "line": 27,
+          "kind": "text-sink",
+          "source": "const img = new Image(); img.className = 'hs-reader-img'; img.decoding = 'async'; img.alt = `Page ${Number(slot.dataset.index) + 1}`;"
+        },
+        {
+          "file": "apps/ios/Resources/Web/app.js",
+          "line": 52,
+          "kind": "text-sink",
+          "source": "function report(error, parent = app) {"
+        },
+        {
+          "file": "apps/ios/Resources/Web/app.js",
+          "line": 53,
+          "kind": "text-sink",
+          "source": "const message = el('div', 'message hs-status hs-error', error?.message || String(error)); parent.append(message); return message;"
+        },
+        {
+          "file": "apps/ios/Resources/Web/app.js",
+          "line": 87,
+          "kind": "text-sink",
+          "source": "document.title = `${m.chapter} ${m.title}`;"
+        },
+        {
+          "file": "apps/ios/Resources/Web/app.js",
+          "line": 105,
+          "kind": "text-sink",
+          "source": "if (!trackingFailed) { trackingFailed = true; report(new Error('Progress sync failed')); }"
+        },
+        {
+          "file": "apps/ios/Resources/Web/app.js",
+          "line": 151,
+          "kind": "text-sink",
+          "source": "svg.classList.add('hs-home-lock'); svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('aria-label', 'Unavailable chapter');"
+        },
+        {
+          "file": "apps/ios/Resources/Web/app.js",
+          "line": 156,
+          "kind": "text-sink",
+          "source": "const link = el('a', 'chapter hs-home-chapter'), label = el('span', 'hs-home-chapter-label');"
+        },
+        {
+          "file": "apps/ios/Resources/Web/app.js",
+          "line": 157,
+          "kind": "text-sink",
+          "source": "label.append(el('span', '', chapter.label ?? `Chapter ${chapter.number}`));"
+        },
+        {
+          "file": "apps/ios/Resources/Web/app.js",
+          "line": 163,
+          "kind": "text-sink",
+          "source": "const time = el('time', '', ReaderCore.formatUploadedAt(chapter.published ?? null));"
+        },
+        {
+          "file": "apps/ios/Resources/Web/app.js",
+          "line": 168,
+          "kind": "text-sink",
+          "source": "time.textContent = chapter.unlockAt ? ReaderCore.unlockCountdown(chapter.unlockAt) : 'Locked';"
+        },
+        {
+          "file": "apps/ios/Resources/Web/app.js",
+          "line": 182,
+          "kind": "text-sink",
+          "source": "status.textContent = state.catalogError || (state.catalog.length || state.catalogLoaded !== undefined"
+        },
+        {
+          "file": "apps/ios/Resources/Web/app.js",
+          "line": 207,
+          "kind": "text-sink",
+          "source": "card = el('article', 'card hs-home-card'); card.id = key;"
+        },
+        {
+          "file": "apps/ios/Resources/Web/app.js",
+          "line": 208,
+          "kind": "text-sink",
+          "source": "const cover = el('a', 'cover hs-home-cover'), img = new Image();"
+        },
+        {
+          "file": "apps/ios/Resources/Web/app.js",
+          "line": 210,
+          "kind": "text-sink",
+          "source": "const detail = el('div', 'hs-home-details'); detail.append(el('div', 'chapters hs-home-chapters'));"
+        },
+        {
+          "file": "apps/ios/Resources/Web/app.js",
+          "line": 215,
+          "kind": "text-sink",
+          "source": "cover.setAttribute('aria-label', `Resume ${series.title}`);"
+        },
+        {
+          "file": "apps/ios/Resources/Web/app.js",
+          "line": 221,
+          "kind": "text-sink",
+          "source": "first(series).catch(() => { cover.classList.remove('hs-home-cover-loading'); cover.classList.add('hs-home-link-failed'); cover.title = 'Failed to open series'; });"
+        },
+        {
+          "file": "apps/ios/Resources/Web/app.js",
+          "line": 224,
+          "kind": "text-sink",
+          "source": "img.alt = series.title;"
+        },
+        {
+          "file": "apps/ios/Resources/Web/app.js",
+          "line": 235,
+          "kind": "text-sink",
+          "source": "if (!visible.length) chapters.append(el('p', 'hs-home-no-chapters', 'No chapters available'));"
+        },
+        {
+          "file": "apps/ios/Resources/Web/app.js",
+          "line": 236,
+          "kind": "text-sink",
+          "source": "const links = el('div', 'hs-home-chapter'), firstButton = el('button', 'native-link', 'First chapter');"
+        },
+        {
+          "file": "apps/ios/Resources/Web/app.js",
+          "line": 237,
+          "kind": "text-sink",
+          "source": "firstButton.onclick = () => first(series).catch(error => report(error));"
+        },
+        {
+          "file": "apps/ios/Resources/Web/app.js",
+          "line": 251,
+          "kind": "text-sink",
+          "source": "const controls = el('p', 'hs-home-pc'); controls.hidden = true;"
+        },
+        {
+          "file": "apps/ios/Resources/Web/app.js",
+          "line": 252,
+          "kind": "text-sink",
+          "source": "const status = el('span'); status.setAttribute('role', 'status');"
+        },
+        {
+          "file": "apps/ios/Resources/Web/app.js",
+          "line": 254,
+          "kind": "text-sink",
+          "source": "const button = el('button', '', label);"
+        },
+        {
+          "file": "apps/ios/Resources/Web/app.js",
+          "line": 255,
+          "kind": "text-sink",
+          "source": "button.title = label === 'Load' ? 'Replace local reading state with the PC save' : 'Replace the PC save with local reading state';"
+        },
+        {
+          "file": "apps/ios/Resources/Web/app.js",
+          "line": 257,
+          "kind": "text-sink",
+          "source": "buttons.forEach(b => b.disabled = true); status.textContent = '';"
+        },
+        {
+          "file": "apps/ios/Resources/Web/app.js",
+          "line": 261,
+          "kind": "text-sink",
+          "source": "status.textContent = label === 'Load' ? 'Loaded' : 'Saved';"
+        },
+        {
+          "file": "apps/ios/Resources/Web/app.js",
+          "line": 264,
+          "kind": "text-sink",
+          "source": "if (!controls.hidden) status.textContent = error?.message || 'PC request failed';"
+        },
+        {
+          "file": "apps/ios/Resources/Web/app.js",
+          "line": 273,
+          "kind": "text-sink",
+          "source": "const section = el('section', 'hs-home-section'), catalog = el('div', 'catalog hs-home-list'), status = el('p', 'hs-home-catalog-status');"
+        },
+        {
+          "file": "apps/ios/Resources/Web/app.js",
+          "line": 276,
+          "kind": "text-sink",
+          "source": "for (const time of section.querySelectorAll('time[data-unlock-at]')) time.textContent = ReaderCore.unlockCountdown(time.dataset.unlockAt);"
+        },
+        {
+          "file": "apps/ios/Resources/Web/app.js",
+          "line": 282,
+          "kind": "text-sink",
+          "source": "if (loadedChapters.size === 1) document.title = `${m.chapter} ${m.title}`;"
+        },
+        {
+          "file": "apps/ios/Resources/Web/app.js",
+          "line": 283,
+          "kind": "text-sink",
+          "source": "const section = el('div', 'hs-chapter'); section.dataset.chapter = m.chapter;"
+        },
+        {
+          "file": "apps/ios/Resources/Web/app.js",
+          "line": 285,
+          "kind": "text-sink",
+          "source": "const slot = el('div', 'page'); slot.id = `page-${m.chapter}-${index}`;"
+        },
+        {
+          "file": "apps/ios/Resources/Web/app.js",
+          "line": 299,
+          "kind": "text-sink",
+          "source": "const end = el('div', 'chapter-sentinel'); app.append(end);"
+        },
+        {
+          "file": "apps/ios/Resources/Web/app.js",
+          "line": 303,
+          "kind": "text-sink",
+          "source": "nextLoading = true; end.className = 'hs-status hs-loading'; end.textContent = 'Loading newer chapter...';"
+        },
+        {
+          "file": "apps/ios/Resources/Web/app.js",
+          "line": 305,
+          "kind": "text-sink",
+          "source": "if (chapter.unavailable) { end.className = 'hs-status hs-error'; end.textContent = 'Chapter unavailable'; succeeded = true; return; }"
+        },
+        {
+          "file": "apps/ios/Resources/Web/app.js",
+          "line": 306,
+          "kind": "exception/source-literal",
+          "source": "if (chapter.chapter !== chapterID(next) || chapter.slug !== m.slug) throw new Error('Unexpected chapter');"
+        },
+        {
+          "file": "apps/ios/Resources/Web/app.js",
+          "line": 308,
+          "kind": "text-sink",
+          "source": "} catch { end.className = 'hs-status hs-error'; end.textContent = 'Failed to load chapter'; succeeded = true; }"
+        },
+        {
+          "file": "apps/ios/Resources/Web/app.js",
+          "line": 319,
+          "kind": "text-sink",
+          "source": "const listStatus = el('div', 'hs-status hs-loading', 'Loading chapters...'); app.append(listStatus);"
+        },
+        {
+          "file": "apps/ios/Resources/Web/app.js",
+          "line": 322,
+          "kind": "exception/source-literal",
+          "source": "if (new Set(ids).size !== ids.length || !ids.includes(chapter)) throw new Error('Invalid chapter list');"
+        },
+        {
+          "file": "apps/ios/Resources/Web/app.js",
+          "line": 326,
+          "kind": "text-sink",
+          "source": "}).catch(() => { listStatus.className = 'hs-status hs-error'; listStatus.textContent = 'Failed to load chapter list'; });"
+        },
+        {
+          "file": "apps/ios/Resources/Web/app.js",
+          "line": 361,
+          "kind": "text-sink",
+          "source": "app.replaceChildren(); app.className = ''; report(error);"
+        },
+        {
+          "file": "apps/ios/Resources/Web/index.html",
+          "line": 1,
+          "kind": "html",
+          "source": "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1,viewport-fit=cover\"><meta name=\"color-scheme\" content=\"dark\"><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'self' asura:; script-src 'self' asura:; style-src 'self' asura:; img-src 'self' asura:; connect-src 'none'; frame-src 'none'; object-src 'none'\"><title>Asura Reader</title><link rel=\"stylesheet\" href=\"/style.css\"></head><body><main id=\"app\"><p class=\"message\">Opening library…</p></main><script src=\"/reader-core.js\"></script><script src=\"/app.js\"></script></body></html>"
+        },
+        {
+          "file": "src/core/compute/backup.ts",
+          "line": 14,
+          "kind": "exception/source-literal",
+          "source": "if (snapshot?.version !== 1 || !snapshot.indexedDB) throw new Error('Invalid manga backup');"
+        },
+        {
+          "file": "src/core/compute/backup.ts",
+          "line": 17,
+          "kind": "exception/source-literal",
+          "source": "if (!Array.isArray(stores[name])) throw new Error('Missing backup store: ' + name);"
+        },
+        {
+          "file": "src/core/compute/backup.ts",
+          "line": 21,
+          "kind": "exception/source-literal",
+          "source": "if (!entry || typeof entry.provider !== 'string' || typeof entry.seriesSlug !== 'string' || typeof entry.chapterId !== 'string' || !Number.isFinite(entry.updatedAt)) throw new Error('Invalid resume position');"
+        },
+        {
+          "file": "src/core/compute/backup.ts",
+          "line": 23,
+          "kind": "exception/source-literal",
+          "source": "if (valid.id !== entry.id || ids.has(entry.id)) throw new Error('Invalid or duplicate progress identity');"
+        },
+        {
+          "file": "src/core/compute/backup.ts",
+          "line": 29,
+          "kind": "exception/source-literal",
+          "source": "if (!entry || typeof entry.key !== 'string' || keys.has(entry.key) || !Object.hasOwn(entry, 'value')) throw new Error('Invalid ' + name + ' record');"
+        },
+        {
+          "file": "src/core/compute/backup.ts",
+          "line": 33,
+          "kind": "exception/source-literal",
+          "source": "if (!stores.metadata.some(entry => entry.key === 'progress-schema-version' && entry.value === 3)) throw new Error('Unsupported progress backup schema');"
+        },
+        {
+          "file": "src/core/compute/manual-pc.ts",
+          "line": 7,
+          "kind": "exception/source-literal",
+          "source": "if (!/^[a-z]+$/.test(provider)) throw new Error('Invalid provider');"
+        },
+        {
+          "file": "src/core/compute/manual-pc.ts",
+          "line": 27,
+          "kind": "exception/source-literal",
+          "source": "if (response.status === 404) throw new Error('No saved reading state on PC');"
+        },
+        {
+          "file": "src/core/compute/manual-pc.ts",
+          "line": 28,
+          "kind": "exception/source-literal",
+          "source": "throw new Error('PC request failed');"
+        },
+        {
+          "file": "src/core/compute/manual-pc.ts",
+          "line": 32,
+          "kind": "exception/source-literal",
+          "source": "if (incoming.indexedDB.progress.some(p => p.provider !== provider)) throw new Error('Wrong provider in PC state');"
+        },
+        {
+          "file": "src/core/compute/migrations.ts",
+          "line": 36,
+          "kind": "exception/source-literal",
+          "source": "throw new Error('Stored progress entry is not an object');"
+        },
+        {
+          "file": "src/core/compute/migrations.ts",
+          "line": 51,
+          "kind": "exception/source-literal",
+          "source": "throw new Error('Stored progress entry is invalid');"
+        },
+        {
+          "file": "src/core/compute/migrations.ts",
+          "line": 62,
+          "kind": "exception/source-literal",
+          "source": "throw new Error(`Unsupported progress schema version: ${String(value)}`);"
+        },
+        {
+          "file": "src/core/compute/migrations.ts",
+          "line": 100,
+          "kind": "exception/source-literal",
+          "source": "if (entry.id !== expectedId) throw new Error('Stored progress does not match the current schema');"
+        },
+        {
+          "file": "src/core/compute/migrations.ts",
+          "line": 101,
+          "kind": "exception/source-literal",
+          "source": "if (identities.has(expectedId)) throw new Error('Stored progress contains duplicate resume positions');"
+        },
+        {
+          "file": "src/core/compute/migrations.ts",
+          "line": 128,
+          "kind": "exception/source-literal",
+          "source": "throw new Error(`No migration to current progress schema from version ${version}`);"
+        },
+        {
+          "file": "src/core/compute/progress.ts",
+          "line": 31,
+          "kind": "exception/source-literal",
+          "source": "if (!Number.isInteger(imageIndex) || imageIndex < 0) throw new Error('Cannot save an invalid page index');"
+        },
+        {
+          "file": "src/core/compute/progress.ts",
+          "line": 33,
+          "kind": "exception/source-literal",
+          "source": "throw new Error('Cannot save progress outside the chapter page range');"
+        },
+        {
+          "file": "src/core/compute/store.ts",
+          "line": 42,
+          "kind": "exception/source-literal",
+          "source": "request.onerror = () => reject(request.error ?? new Error('IndexedDB open failed'));"
+        },
+        {
+          "file": "src/core/compute/store.ts",
+          "line": 43,
+          "kind": "exception/source-literal",
+          "source": "request.onblocked = () => reject(new Error('IndexedDB open blocked by another connection'));"
+        },
+        {
+          "file": "src/core/compute/store.ts",
+          "line": 57,
+          "kind": "exception/source-literal",
+          "source": "reject(new Error('IndexedDB request timed out'));"
+        },
+        {
+          "file": "src/core/compute/store.ts",
+          "line": 69,
+          "kind": "exception/source-literal",
+          "source": "reject(request.error ?? new Error('IndexedDB request failed'));"
+        },
+        {
+          "file": "src/core/compute/store.ts",
+          "line": 80,
+          "kind": "exception/source-literal",
+          "source": "reject(new Error('IndexedDB transaction timed out'));"
+        },
+        {
+          "file": "src/core/compute/store.ts",
+          "line": 92,
+          "kind": "exception/source-literal",
+          "source": "reject(transaction.error ?? new Error('IndexedDB transaction failed'));"
+        },
+        {
+          "file": "src/core/compute/store.ts",
+          "line": 98,
+          "kind": "exception/source-literal",
+          "source": "reject(transaction.error ?? new Error('IndexedDB transaction aborted'));"
+        },
+        {
+          "file": "src/core/compute/transport.ts",
+          "line": 6,
+          "kind": "exception/source-literal",
+          "source": "reject: (error: Error) => void;"
+        },
+        {
+          "file": "src/core/compute/transport.ts",
+          "line": 26,
+          "kind": "exception/source-literal",
+          "source": "else entry.reject(new Error(response.error));"
+        },
+        {
+          "file": "src/core/compute/transport.ts",
+          "line": 57,
+          "kind": "exception/source-literal",
+          "source": "reject(error instanceof Error ? error : new Error(String(error)));"
+        },
+        {
+          "file": "src/core/compute/worker-entry.ts",
+          "line": 37,
+          "kind": "exception/source-literal",
+          "source": "throw new Error('save-progress requires complete progress data');"
+        },
+        {
+          "file": "src/core/compute/worker-entry.ts",
+          "line": 53,
+          "kind": "exception/source-literal",
+          "source": "throw new Error('page-context requires href');"
+        },
+        {
+          "file": "src/core/compute/worker-entry.ts",
+          "line": 64,
+          "kind": "exception/source-literal",
+          "source": "throw new Error('fetch-home requires a provider key');"
+        },
+        {
+          "file": "src/core/compute/worker-entry.ts",
+          "line": 67,
+          "kind": "exception/source-literal",
+          "source": "throw new Error('fetch-home requires a string or null cursor');"
+        },
+        {
+          "file": "src/core/compute/worker-entry.ts",
+          "line": 79,
+          "kind": "exception/source-literal",
+          "source": "throw new Error('history-resolve requires cards array');"
+        },
+        {
+          "file": "src/core/compute/worker-entry.ts",
+          "line": 89,
+          "kind": "exception/source-literal",
+          "source": "throw new Error(`Unknown op: ${request.op}`);"
+        },
+        {
+          "file": "src/core/home-backup.ts",
+          "line": 8,
+          "kind": "text-sink",
+          "source": "const button = document.createElement('button'); button.textContent = label;"
+        },
+        {
+          "file": "src/core/home-backup.ts",
+          "line": 9,
+          "kind": "text-sink",
+          "source": "button.title = label === 'Load' ? 'Replace local reading state with the PC save' : 'Replace the PC save with local reading state';"
+        },
+        {
+          "file": "src/core/home-backup.ts",
+          "line": 11,
+          "kind": "text-sink",
+          "source": "buttons.forEach(b => b.disabled = true); status.textContent = '';"
+        },
+        {
+          "file": "src/core/home-backup.ts",
+          "line": 15,
+          "kind": "text-sink",
+          "source": "status.textContent = label === 'Load' ? 'Loaded' : 'Saved';"
+        },
+        {
+          "file": "src/core/home-backup.ts",
+          "line": 20,
+          "kind": "text-sink",
+          "source": "if (available) status.textContent = error instanceof Error ? error.message : 'PC request failed';"
+        },
+        {
+          "file": "src/core/http.ts",
+          "line": 3,
+          "kind": "exception/source-literal",
+          "source": "if (!res.ok) throw new Error(`Chapter request failed: ${res.status}`);"
+        },
+        {
+          "file": "src/core/shell.ts",
+          "line": 17,
+          "kind": "text-sink",
+          "source": "document.title = documentTitle;"
+        },
+        {
+          "file": "src/provider/angular-catalog.ts",
+          "line": 52,
+          "kind": "exception/source-literal",
+          "source": "throw new Error(`Invalid home cursor: ${cursor}`);"
+        },
+        {
+          "file": "src/provider/angular-catalog.ts",
+          "line": 65,
+          "kind": "exception/source-literal",
+          "source": "if (!res.ok) throw new Error(`Latest series failed: ${res.status}`);"
+        },
+        {
+          "file": "src/provider/angular-catalog.ts",
+          "line": 81,
+          "kind": "exception/source-literal",
+          "source": "if (!res.ok) throw new Error(`Series catalog failed: ${res.status}`);"
+        },
+        {
+          "file": "src/provider/angular.ts",
+          "line": 26,
+          "kind": "exception/source-literal",
+          "source": "if (data.images.length === 0) throw new Error('Chapter response contained no images');"
+        },
+        {
+          "file": "src/provider/angular.ts",
+          "line": 43,
+          "kind": "exception/source-literal",
+          "source": "if (!res.ok) throw new Error(`Chapter list failed: ${res.status}`);"
+        },
+        {
+          "file": "src/provider/asura-catalog.ts",
+          "line": 26,
+          "kind": "exception/source-literal",
+          "source": "if (!match) throw new Error(`Invalid Asura series URL: ${publicUrl}`);"
+        },
+        {
+          "file": "src/provider/asura-catalog.ts",
+          "line": 40,
+          "kind": "exception/source-literal",
+          "source": "if (!Number.isSafeInteger(page) || page < 1) throw new Error(`Invalid Asura home cursor: ${cursor}`);"
+        },
+        {
+          "file": "src/provider/asura-catalog.ts",
+          "line": 49,
+          "kind": "exception/source-literal",
+          "source": "if (!res.ok) throw new Error(`Series catalog failed: ${res.status}`);"
+        },
+        {
+          "file": "src/provider/asura.ts",
+          "line": 42,
+          "kind": "exception/source-literal",
+          "source": "if (images.length === 0) throw new Error('Chapter response contained no images');"
+        },
+        {
+          "file": "src/provider/asura.ts",
+          "line": 75,
+          "kind": "exception/source-literal",
+          "source": "if (!res.ok) throw new Error(`Chapter list failed: ${res.status}`);"
+        },
+        {
+          "file": "src/provider/index.ts",
+          "line": 59,
+          "kind": "exception/source-literal",
+          "source": "if (!provider) throw new Error('Unknown provider: ' + site.provider);"
+        },
+        {
+          "file": "src/provider/lua-catalog.ts",
+          "line": 30,
+          "kind": "exception/source-literal",
+          "source": "if (cursor !== null) throw new Error(`Invalid Lua home cursor: ${cursor}`);"
+        },
+        {
+          "file": "src/provider/lua-catalog.ts",
+          "line": 42,
+          "kind": "exception/source-literal",
+          "source": "if (!res.ok) throw new Error(`Series catalog failed: ${res.status}`);"
+        },
+        {
+          "file": "src/provider/lua.ts",
+          "line": 29,
+          "kind": "exception/source-literal",
+          "source": "if (srcs.length === 0) throw new Error('Chapter response contained no images');"
+        },
+        {
+          "file": "src/provider/lua.ts",
+          "line": 36,
+          "kind": "exception/source-literal",
+          "source": "if (!seriesTitle) throw new Error('Chapter response did not contain the series title');"
+        },
+        {
+          "file": "src/provider/lua.ts",
+          "line": 49,
+          "kind": "exception/source-literal",
+          "source": "if (!seriesRes.ok) throw new Error(`Series not found: ${seriesRes.status}`);"
+        },
+        {
+          "file": "src/provider/lua.ts",
+          "line": 58,
+          "kind": "exception/source-literal",
+          "source": "if (!res.ok) throw new Error(`Chapter list failed: ${res.status}`);"
+        },
+        {
+          "file": "src/provider/scythe.ts",
+          "line": 27,
+          "kind": "text-sink",
+          "source": "return element?.textContent?.replace(/\\s+/g, ' ').trim() ?? '';"
+        },
+        {
+          "file": "src/provider/scythe.ts",
+          "line": 54,
+          "kind": "exception/source-literal",
+          "source": "if (!link || !cover || !title) throw new Error('Scythe catalog card is incomplete');"
+        },
+        {
+          "file": "src/provider/scythe.ts",
+          "line": 56,
+          "kind": "exception/source-literal",
+          "source": "if (!match) throw new Error(`Invalid Scythe series URL: ${link.href}`);"
+        },
+        {
+          "file": "src/provider/scythe.ts",
+          "line": 70,
+          "kind": "exception/source-literal",
+          "source": "throw new Error(`Invalid Scythe home chapter URL: ${link.href}`);"
+        },
+        {
+          "file": "src/provider/scythe.ts",
+          "line": 80,
+          "kind": "exception/source-literal",
+          "source": "if (chapters.length === 0) throw new Error(`Scythe home card ${identity.slug} has no chapters`);"
+        },
+        {
+          "file": "src/provider/scythe.ts",
+          "line": 105,
+          "kind": "exception/source-literal",
+          "source": "throw new Error(`Invalid Scythe home cursor: ${cursor}`);"
+        },
+        {
+          "file": "src/provider/scythe.ts",
+          "line": 137,
+          "kind": "exception/source-literal",
+          "source": "if (tsData === undefined) throw new Error('Chapter response did not contain reader data');"
+        },
+        {
+          "file": "src/provider/scythe.ts",
+          "line": 145,
+          "kind": "exception/source-literal",
+          "source": "if (!seriesTitle) throw new Error('Chapter response did not contain the series title');"
+        },
+        {
+          "file": "src/provider/scythe.ts",
+          "line": 158,
+          "kind": "exception/source-literal",
+          "source": "if (!res.ok) throw new Error(`Manga page not found: ${res.status}`);"
+        },
+        {
+          "file": "src/provider/scythe.ts",
+          "line": 164,
+          "kind": "exception/source-literal",
+          "source": "if (!route || route.slug !== slug) throw new Error(`Invalid Scythe chapter-list URL: ${link.href}`);"
+        },
+        {
+          "file": "src/provider/scythe.ts",
+          "line": 169,
+          "kind": "exception/source-literal",
+          "source": "if (chapters.length === 0) throw new Error('Scythe chapter list is empty');"
+        },
+        {
+          "file": "src/provider/scythe.ts",
+          "line": 201,
+          "kind": "exception/source-literal",
+          "source": "if (!res.ok) throw new Error(`Latest series failed: ${res.status}`);"
+        },
+        {
+          "file": "src/provider/scythe.ts",
+          "line": 206,
+          "kind": "exception/source-literal",
+          "source": "if (!latest) throw new Error('Scythe home did not contain Latest Update');"
+        },
+        {
+          "file": "src/provider/scythe.ts",
+          "line": 208,
+          "kind": "exception/source-literal",
+          "source": "if (series.length === 0) throw new Error('Scythe Latest Update is empty');"
+        },
+        {
+          "file": "src/provider/scythe.ts",
+          "line": 218,
+          "kind": "exception/source-literal",
+          "source": "if (!res.ok) throw new Error(`Series catalog failed: ${res.status}`);"
+        },
+        {
+          "file": "src/provider/ts-reader.ts",
+          "line": 13,
+          "kind": "exception/source-literal",
+          "source": "throw new Error('Reader data is not an object');"
+        },
+        {
+          "file": "src/provider/ts-reader.ts",
+          "line": 17,
+          "kind": "exception/source-literal",
+          "source": "throw new Error('Reader data has no default source');"
+        },
+        {
+          "file": "src/provider/ts-reader.ts",
+          "line": 19,
+          "kind": "exception/source-literal",
+          "source": "if (!Array.isArray(data.sources)) throw new Error('Reader sources are not an array');"
+        },
+        {
+          "file": "src/provider/ts-reader.ts",
+          "line": 24,
+          "kind": "exception/source-literal",
+          "source": "throw new Error(`Reader default source ${data.defaultSource} matched ${matches.length} sources`);"
+        },
+        {
+          "file": "src/provider/ts-reader.ts",
+          "line": 31,
+          "kind": "exception/source-literal",
+          "source": "throw new Error('Reader default source has invalid images');"
+        },
+        {
+          "file": "src/provider/worker.ts",
+          "line": 20,
+          "kind": "exception/source-literal",
+          "source": "if (!fetchHome) throw new Error(`Provider ${provider} has no worker catalog`);"
+        },
+        {
+          "file": "src/provider/yaksha.ts",
+          "line": 31,
+          "kind": "exception/source-literal",
+          "source": "if (srcs.length === 0) throw new Error('Chapter response contained no images');"
+        },
+        {
+          "file": "src/provider/yaksha.ts",
+          "line": 37,
+          "kind": "exception/source-literal",
+          "source": "if (!seriesTitle) throw new Error('Chapter response did not contain the series title');"
+        },
+        {
+          "file": "src/provider/yaksha.ts",
+          "line": 50,
+          "kind": "exception/source-literal",
+          "source": "if (!res.ok) throw new Error(`Manga page not found: ${res.status}`);"
+        },
+        {
+          "file": "src/provider/yaksha.ts",
+          "line": 78,
+          "kind": "exception/source-literal",
+          "source": "if (!Number.isSafeInteger(page) || page < 1) throw new Error(`Invalid Yaksha home cursor: ${cursor}`);"
+        },
+        {
+          "file": "src/provider/yaksha.ts",
+          "line": 81,
+          "kind": "exception/source-literal",
+          "source": "if (!res.ok) throw new Error(`Series catalog failed: ${res.status}`);"
+        },
+        {
+          "file": "src/provider/yaksha.ts",
+          "line": 86,
+          "kind": "text-sink",
+          "source": "const title = link?.textContent?.replace(/\\s+/g, ' ').trim();"
+        },
+        {
+          "file": "src/provider/yaksha.ts",
+          "line": 88,
+          "kind": "exception/source-literal",
+          "source": "if (!href || !cover || !title) throw new Error('Yaksha catalog card is incomplete');"
+        },
+        {
+          "file": "src/provider/yaksha.ts",
+          "line": 90,
+          "kind": "exception/source-literal",
+          "source": "if (!match) throw new Error(`Invalid Yaksha series URL: ${href}`);"
+        },
+        {
+          "file": "src/provider/yaksha.ts",
+          "line": 98,
+          "kind": "text-sink",
+          "source": "const label = chapterLink?.textContent?.replace(/\\s+/g, ' ').trim();"
+        },
+        {
+          "file": "src/provider/yaksha.ts",
+          "line": 99,
+          "kind": "exception/source-literal",
+          "source": "if (!chapterHref || !label) throw new Error(`Yaksha chapter in ${match[1]} is incomplete`);"
+        },
+        {
+          "file": "src/provider/yaksha.ts",
+          "line": 102,
+          "kind": "exception/source-literal",
+          "source": "if (!chapterId) throw new Error(`Invalid Yaksha chapter URL: ${chapterHref}`);"
+        },
+        {
+          "file": "src/provider/yaksha.ts",
+          "line": 106,
+          "kind": "text-sink",
+          "source": "uploadedAt: row.querySelector<HTMLElement>('.post-on')?.textContent?.replace(/\\s+/g, ' ').trim() ?? null,"
+        },
+        {
+          "file": "src/provider/yaksha.ts",
+          "line": 114,
+          "kind": "text-sink",
+          "source": ".some(link => link.textContent?.replace(/\\s+/g, ' ').trim() === 'Older Posts');"
+        },
+        {
+          "file": "src/routes/home.ts",
+          "line": 63,
+          "kind": "text-sink",
+          "source": "if (text !== undefined) link.textContent = text;"
+        },
+        {
+          "file": "src/routes/home.ts",
+          "line": 77,
+          "kind": "exception/source-literal",
+          "source": "throw new Error(`Invalid link request state: ${String(state)}`);"
+        },
+        {
+          "file": "src/routes/home.ts",
+          "line": 96,
+          "kind": "exception/source-literal",
+          "source": "if (failureTitle === undefined) throw new Error('Failed link state requires a title');"
+        },
+        {
+          "file": "src/routes/home.ts",
+          "line": 97,
+          "kind": "text-sink",
+          "source": "link.title = failureTitle;"
+        },
+        {
+          "file": "src/routes/home.ts",
+          "line": 107,
+          "kind": "text-sink",
+          "source": "svg.setAttribute('aria-label', 'Unavailable chapter');"
+        },
+        {
+          "file": "src/routes/home.ts",
+          "line": 127,
+          "kind": "text-sink",
+          "source": "labelText.textContent = chapter.label;"
+        },
+        {
+          "file": "src/routes/home.ts",
+          "line": 134,
+          "kind": "text-sink",
+          "source": "uploadedAt.textContent = chapter.unlockAt ? unlockCountdown(chapter.unlockAt) : 'Locked';"
+        },
+        {
+          "file": "src/routes/home.ts",
+          "line": 136,
+          "kind": "text-sink",
+          "source": "uploadedAt.textContent = formatUploadedAt(chapter.uploadedAt);"
+        },
+        {
+          "file": "src/routes/home.ts",
+          "line": 179,
+          "kind": "text-sink",
+          "source": "cover.alt = series.title;"
+        },
+        {
+          "file": "src/routes/home.ts",
+          "line": 186,
+          "kind": "exception/source-literal",
+          "source": "throw new Error(`Cover resume state was not initialized for ${series.slug}`);"
+        },
+        {
+          "file": "src/routes/home.ts",
+          "line": 223,
+          "kind": "text-sink",
+          "source": "empty.textContent = 'No chapters available';"
+        },
+        {
+          "file": "src/routes/home.ts",
+          "line": 236,
+          "kind": "exception/source-literal",
+          "source": "if (!unlockAt) throw new Error('Locked countdown has no unlock time');"
+        },
+        {
+          "file": "src/routes/home.ts",
+          "line": 238,
+          "kind": "exception/source-literal",
+          "source": "if (!time) throw new Error('Locked chapter has no time element');"
+        },
+        {
+          "file": "src/routes/home.ts",
+          "line": 240,
+          "kind": "text-sink",
+          "source": "time.textContent = unlockCountdown(unlockAt);"
+        },
+        {
+          "file": "src/routes/home.ts",
+          "line": 243,
+          "kind": "text-sink",
+          "source": "time.textContent = '0m';"
+        },
+        {
+          "file": "src/routes/home.ts",
+          "line": 253,
+          "kind": "exception/source-literal",
+          "source": "if (!entry) throw new Error(`History patch references missing series ${patch.seriesSlug}`);"
+        },
+        {
+          "file": "src/routes/home.ts",
+          "line": 257,
+          "kind": "exception/source-literal",
+          "source": "if (!link) throw new Error(`History patch references missing chapter ${chapter.chapterId}`);"
+        },
+        {
+          "file": "src/routes/home.ts",
+          "line": 268,
+          "kind": "exception/source-literal",
+          "source": "if (!cover) throw new Error(`Series ${patch.seriesSlug} has no cover link`);"
+        },
+        {
+          "file": "src/routes/home.ts",
+          "line": 401,
+          "kind": "text-sink",
+          "source": "loading.textContent = 'Loading latest updates…';"
+        },
+        {
+          "file": "src/routes/home.ts",
+          "line": 437,
+          "kind": "exception/source-literal",
+          "source": "if (cards.has(series.slug)) throw new Error(`First home page repeats series ${series.slug}`);"
+        },
+        {
+          "file": "src/routes/home.ts",
+          "line": 442,
+          "kind": "text-sink",
+          "source": "status.textContent = statusText(cards.size, total, page.nextCursor !== null);"
+        },
+        {
+          "file": "src/routes/home.ts",
+          "line": 460,
+          "kind": "exception/source-literal",
+          "source": "throw new Error(`Provider repeated catalog cursor ${nextCursor}`);"
+        },
+        {
+          "file": "src/routes/home.ts",
+          "line": 468,
+          "kind": "text-sink",
+          "source": "status.textContent = statusText(cards.size, total, nextCursor !== null);"
+        },
+        {
+          "file": "src/routes/reader.ts",
+          "line": 9,
+          "kind": "exception/source-literal",
+          "source": "throw new Error(`Invalid initial chapter state: ${String(state)}`);"
+        },
+        {
+          "file": "src/routes/reader.ts",
+          "line": 58,
+          "kind": "exception/source-literal",
+          "source": "if (!firstImage) throw new Error('Cannot restore a chapter with no images');"
+        },
+        {
+          "file": "src/routes/reader.ts",
+          "line": 59,
+          "kind": "exception/source-literal",
+          "source": "if (targetIndex === -1) throw new Error('Scroll target does not belong to the chapter');"
+        },
+        {
+          "file": "src/routes/reader.ts",
+          "line": 122,
+          "kind": "text-sink",
+          "source": "function createStatus(text: string, className: string): HTMLDivElement {"
+        },
+        {
+          "file": "src/routes/reader.ts",
+          "line": 125,
+          "kind": "text-sink",
+          "source": "div.textContent = text;"
+        },
+        {
+          "file": "src/routes/reader.ts",
+          "line": 129,
+          "kind": "text-sink",
+          "source": "function setStatus(status: HTMLDivElement, text: string, className: string): void {"
+        },
+        {
+          "file": "src/routes/reader.ts",
+          "line": 131,
+          "kind": "text-sink",
+          "source": "status.textContent = text;"
+        },
+        {
+          "file": "src/routes/reader.ts",
+          "line": 136,
+          "kind": "exception/source-literal",
+          "source": "if (currentIdx === -1) throw new Error(`Chapter list does not contain ${currentChapterId}`);"
+        },
+        {
+          "file": "src/routes/reader.ts",
+          "line": 139,
+          "kind": "exception/source-literal",
+          "source": "if (chapter === undefined) throw new Error('Chapter ordering invariant failed');"
+        },
+        {
+          "file": "src/routes/reader.ts",
+          "line": 203,
+          "kind": "text-sink",
+          "source": "document.title = `${data.chapterId} ${data.seriesTitle}`;"
+        },
+        {
+          "file": "src/routes/reader.ts",
+          "line": 229,
+          "kind": "text-sink",
+          "source": "const chaptersLoadingStatus = createStatus('Loading chapters...', 'hs-loading');"
+        },
+        {
+          "file": "src/routes/reader.ts",
+          "line": 234,
+          "kind": "exception/source-literal",
+          "source": "throw new Error("
+        },
+        {
+          "file": "src/routes/reader.ts",
+          "line": 241,
+          "kind": "exception/source-literal",
+          "source": "throw new Error(`Chapter list repeats ${chapter.chapterId}`);"
+        },
+        {
+          "file": "src/routes/reader.ts",
+          "line": 246,
+          "kind": "exception/source-literal",
+          "source": "throw new Error(`Chapter list does not contain the loaded chapter ${data.chapterId}`);"
+        },
+        {
+          "file": "src/routes/reader.ts",
+          "line": 257,
+          "kind": "text-sink",
+          "source": "setStatus(chaptersLoadingStatus, 'Failed to load chapter list', 'hs-error');"
+        },
+        {
+          "file": "src/routes/reader.ts",
+          "line": 270,
+          "kind": "text-sink",
+          "source": "wrapper.appendChild(createStatus('Progress sync failed', 'hs-error'));"
+        },
+        {
+          "file": "src/routes/reader.ts",
+          "line": 284,
+          "kind": "exception/source-literal",
+          "source": "if (!chapterWrap) throw new Error('Reader image is outside a chapter wrapper');"
+        },
+        {
+          "file": "src/routes/reader.ts",
+          "line": 286,
+          "kind": "exception/source-literal",
+          "source": "if (visibleChapter === undefined) throw new Error('Chapter wrapper has no chapter identity');"
+        },
+        {
+          "file": "src/routes/reader.ts",
+          "line": 289,
+          "kind": "exception/source-literal",
+          "source": "if (imageIndex === undefined) throw new Error(`Invalid reader image identity: ${saveImg.id}`);"
+        },
+        {
+          "file": "src/routes/reader.ts",
+          "line": 291,
+          "kind": "exception/source-literal",
+          "source": "if (visibleData === undefined) throw new Error(`Missing data for visible chapter ${visibleChapter}`);"
+        },
+        {
+          "file": "src/routes/reader.ts",
+          "line": 296,
+          "kind": "text-sink",
+          "source": "document.title = `${visibleData.chapterId} ${visibleData.seriesTitle}`;"
+        },
+        {
+          "file": "src/routes/reader.ts",
+          "line": 318,
+          "kind": "text-sink",
+          "source": "const newerChapterLoadingStatus = createStatus('Loading newer chapter...', 'hs-loading');"
+        },
+        {
+          "file": "src/routes/reader.ts",
+          "line": 328,
+          "kind": "text-sink",
+          "source": "setStatus(newerChapterLoadingStatus, 'Chapter unavailable', 'hs-error');"
+        },
+        {
+          "file": "src/routes/reader.ts",
+          "line": 332,
+          "kind": "exception/source-literal",
+          "source": "throw new Error(`Loaded chapter ${result.data.chapterId} for ${newerChapter.chapterId}`);"
+        },
+        {
+          "file": "src/routes/reader.ts",
+          "line": 343,
+          "kind": "text-sink",
+          "source": "setStatus(newerChapterLoadingStatus, 'Failed to load chapter', 'hs-error');"
+        }
+      ]
+    },
+    "gallery-reader": {
+      "root": "/home/visar/Documents/work/manga/gallery-reader",
+      "baseCommit": "ba556bfdfb7b2a6a4a5797cd02b6cb0524a6c78b",
+      "scope": "working tree; gallery-downloader has unrelated background-sync WIP, not changed here",
+      "locations": [
+        {
+          "file": "apps/ios/GalleryReader/GalleryAPI.swift",
+          "line": 82,
+          "kind": "exception/source-literal",
+          "source": "guard let raw = args[\"url\"] as? String, let url = URL(string: raw), url.scheme == \"https\", url.host != nil else { throw ReaderError.invalidRequest }"
+        },
+        {
+          "file": "apps/ios/GalleryReader/GalleryAPI.swift",
+          "line": 93,
+          "kind": "exception/source-literal",
+          "source": "guard let http = response as? HTTPURLResponse else { throw ReaderError.invalidRequest }"
+        },
+        {
+          "file": "apps/ios/GalleryReader/GalleryStore.swift",
+          "line": 40,
+          "kind": "exception/source-literal",
+          "source": "guard url.host == \"app\" else { throw ReaderError.invalidRequest }"
+        },
+        {
+          "file": "apps/ios/GalleryReader/GalleryStore.swift",
+          "line": 42,
+          "kind": "exception/source-literal",
+          "source": "guard let raw = URLComponents(url:url,resolvingAgainstBaseURL:false)?.queryItems?.first(where:{$0.name == \"url\"})?.value else { throw ReaderError.invalidRequest }"
+        },
+        {
+          "file": "apps/ios/GalleryReader/GalleryStore.swift",
+          "line": 51,
+          "kind": "exception/source-literal",
+          "source": "guard response.statusCode == 200, let mime = response.mimeType, mime.hasPrefix(\"image/\"), !data.isEmpty else { throw ReaderError.badResponse(response.statusCode) }"
+        },
+        {
+          "file": "apps/ios/GalleryReader/GalleryStore.swift",
+          "line": 61,
+          "kind": "exception/source-literal",
+          "source": "guard [\"index.html\",\"app.js\",\"style.css\"].contains(name), let file = Bundle.main.url(forResource:name,withExtension:nil,subdirectory:\"Web\") else { throw ReaderError.invalidRequest }"
+        },
+        {
+          "file": "apps/ios/GalleryReader/Models.swift",
+          "line": 32,
+          "kind": "exception/source-literal",
+          "source": "else { throw ReaderError.invalidRequest }"
+        },
+        {
+          "file": "apps/ios/GalleryReader/Models.swift",
+          "line": 45,
+          "kind": "exception/source-literal",
+          "source": "var errorDescription: String? {"
+        },
+        {
+          "file": "apps/ios/GalleryReader/Models.swift",
+          "line": 46,
+          "kind": "exception/source-literal",
+          "source": "switch self { case .invalidRequest: return \"Invalid reader request\"; case .badResponse(let code): return \"Image request failed (HTTP \\(code))\" }"
+        },
+        {
+          "file": "apps/ios/GalleryReader/WebController.swift",
+          "line": 60,
+          "kind": "exception/source-literal",
+          "source": "replyHandler(nil, \"Invalid native request\"); return"
+        },
+        {
+          "file": "apps/ios/GalleryReader/WebController.swift",
+          "line": 71,
+          "kind": "exception/source-literal",
+          "source": "guard let input, let id = args[\"requestID\"] as? String else { replyHandler(nil, \"Invalid fetch request\"); return }"
+        },
+        {
+          "file": "apps/ios/GalleryReader/WebController.swift",
+          "line": 77,
+          "kind": "exception/source-literal",
+          "source": "catch { replyHandler(nil, error.localizedDescription) }"
+        },
+        {
+          "file": "apps/ios/GalleryReader/WebController.swift",
+          "line": 114,
+          "kind": "exception/source-literal",
+          "source": "default: replyHandler(nil, \"Unknown native request\")"
+        },
+        {
+          "file": "apps/ios/GalleryReader/WebController.swift",
+          "line": 116,
+          "kind": "exception/source-literal",
+          "source": "} catch { replyHandler(nil, error.localizedDescription) }"
+        },
+        {
+          "file": "apps/ios/web/gallery-app.js",
+          "line": 14,
+          "kind": "text-sink",
+          "source": "const say = text => { $('status').textContent = text; };"
+        },
+        {
+          "file": "apps/ios/web/gallery-app.js",
+          "line": 87,
+          "kind": "exception/source-literal",
+          "source": "if (!worker || suspended) return Promise.reject(new Error('App suspended'));"
+        },
+        {
+          "file": "apps/ios/web/gallery-app.js",
+          "line": 94,
+          "kind": "text-sink",
+          "source": "$('count').textContent = `~${online.pageState.total}${online.query === null ? ' Favorites' : ' Results'}`;"
+        },
+        {
+          "file": "apps/ios/web/gallery-app.js",
+          "line": 179,
+          "kind": "text-sink",
+          "source": "link.setAttribute('aria-label', `${item.title} · page ${index + 1}`);"
+        },
+        {
+          "file": "apps/ios/web/gallery-app.js",
+          "line": 180,
+          "kind": "text-sink",
+          "source": "img.className = 'hs-thumb'; img.alt = ''; img.decoding = 'async';"
+        },
+        {
+          "file": "apps/ios/web/gallery-app.js",
+          "line": 193,
+          "kind": "text-sink",
+          "source": "if (!suspended && row.isConnected) row.querySelector('.row-message').textContent = `Gallery ${item.id}: ${error.message}`;"
+        },
+        {
+          "file": "apps/ios/web/gallery-app.js",
+          "line": 201,
+          "kind": "text-sink",
+          "source": "gridVersion = signature; say(''); observer?.disconnect();"
+        },
+        {
+          "file": "apps/ios/web/gallery-app.js",
+          "line": 210,
+          "kind": "text-sink",
+          "source": "const link = document.createElement('a'); link.href = readUrl(item.key, 0); link.textContent = item.title; message.append(link);"
+        },
+        {
+          "file": "apps/ios/web/gallery-app.js",
+          "line": 217,
+          "kind": "text-sink",
+          "source": "favs.href = '/'; favs.className = 'hs-page-favs'; favs.textContent = 'Favs'; pagination.append(favs);"
+        },
+        {
+          "file": "apps/ios/web/gallery-app.js",
+          "line": 219,
+          "kind": "text-sink",
+          "source": "const link = document.createElement('span'); link.textContent = page;"
+        },
+        {
+          "file": "apps/ios/web/gallery-app.js",
+          "line": 220,
+          "kind": "text-sink",
+          "source": "if (page !== current) link.onclick = () => { void online.paginate(page).then(() => $('hs-grid').scrollIntoView()).catch(error => say(error.message)); };"
+        },
+        {
+          "file": "apps/ios/web/gallery-app.js",
+          "line": 233,
+          "kind": "text-sink",
+          "source": "if (!renderedReader) $('reader-message').textContent = 'Loading…';"
+        },
+        {
+          "file": "apps/ios/web/gallery-app.js",
+          "line": 237,
+          "kind": "text-sink",
+          "source": "document.title = manifest.title;"
+        },
+        {
+          "file": "apps/ios/web/gallery-app.js",
+          "line": 238,
+          "kind": "text-sink",
+          "source": "$('reader-message').textContent = manifest.pages.length ? '' : 'This gallery has no readable images.';"
+        },
+        {
+          "file": "apps/ios/web/gallery-app.js",
+          "line": 247,
+          "kind": "text-sink",
+          "source": "img.className = 'hs-reader-img'; img.alt = ''; img.decoding = 'async';"
+        },
+        {
+          "file": "apps/ios/web/gallery-app.js",
+          "line": 263,
+          "kind": "text-sink",
+          "source": "} catch (error) { $('reader-message').textContent = error.message; }"
+        },
+        {
+          "file": "apps/ios/web/gallery-app.js",
+          "line": 270,
+          "kind": "exception/source-literal",
+          "source": "for (const request of pending.values()) request.reject(new Error(error.message)); pending.clear();"
+        },
+        {
+          "file": "apps/ios/web/gallery-app.js",
+          "line": 271,
+          "kind": "text-sink",
+          "source": "totals(); say(`Storage error: ${error.message}`);"
+        },
+        {
+          "file": "apps/ios/web/gallery-app.js",
+          "line": 276,
+          "kind": "exception/source-literal",
+          "source": "if (data.error) request?.reject(new Error(data.error)); else request?.resolve(data.result); return;"
+        },
+        {
+          "file": "apps/ios/web/gallery-app.js",
+          "line": 279,
+          "kind": "text-sink",
+          "source": "if (data.type === 'notice') say(data.message);"
+        },
+        {
+          "file": "apps/ios/web/gallery-app.js",
+          "line": 294,
+          "kind": "text-sink",
+          "source": "} catch (error) { if (readerKey) $('reader-message').textContent = error.message; else say(error.message); }"
+        },
+        {
+          "file": "apps/ios/web/gallery-app.js",
+          "line": 304,
+          "kind": "exception/source-literal",
+          "source": "for (const request of pending.values()) request.reject(new Error('App suspended')); pending.clear();"
+        },
+        {
+          "file": "apps/ios/web/index.html",
+          "line": 8,
+          "kind": "html",
+          "source": "<title>Gallery Reader</title>"
+        },
+        {
+          "file": "apps/ios/web/index.html",
+          "line": 14,
+          "kind": "html",
+          "source": "<p id=\"status\" role=\"status\">Loading…</p><p id=\"sw-status\" role=\"status\"></p>"
+        },
+        {
+          "file": "apps/ios/web/online.ts",
+          "line": 25,
+          "kind": "exception/source-literal",
+          "source": "if (!new RegExp(`^${provider.providerId}-[1-9][0-9]*$`).test(key)) throw new Error('Invalid gallery');"
+        },
+        {
+          "file": "apps/ios/web/online.ts",
+          "line": 130,
+          "kind": "exception/source-literal",
+          "source": "if (!url) throw new Error('Image URL missing');"
+        },
+        {
+          "file": "apps/ios/web/provider.ts",
+          "line": 19,
+          "kind": "exception/source-literal",
+          "source": "if (route?.handler !== 1) throw new Error('Provider returned an invalid search route');"
+        },
+        {
+          "file": "apps/ios/web/transport.ts",
+          "line": 7,
+          "kind": "exception/source-literal",
+          "source": "const pending = new Map<number, {resolve: (value: any) => void; reject: (error: Error) => void}>();"
+        },
+        {
+          "file": "apps/ios/web/transport.ts",
+          "line": 12,
+          "kind": "exception/source-literal",
+          "source": "for (const item of pending.values()) item.reject(new Error('Document suspended'));"
+        },
+        {
+          "file": "apps/ios/web/transport.ts",
+          "line": 18,
+          "kind": "exception/source-literal",
+          "source": "if (suspended) return Promise.reject(new Error('Document suspended'));"
+        },
+        {
+          "file": "apps/ios/web/transport.ts",
+          "line": 36,
+          "kind": "exception/source-literal",
+          "source": "if (data.ok) item?.resolve(data.value); else item?.reject(new Error(data.error));"
+        },
+        {
+          "file": "apps/ios/web/transport.ts",
+          "line": 39,
+          "kind": "exception/source-literal",
+          "source": "for (const item of pending.values()) item.reject(new Error(event.message));"
+        },
+        {
+          "file": "apps/ios/web/worker.ts",
+          "line": 4,
+          "kind": "exception/source-literal",
+          "source": "const pending = new Map<number, {resolve: (value: any) => void; reject: (error: Error) => void}>();"
+        },
+        {
+          "file": "apps/ios/web/worker.ts",
+          "line": 14,
+          "kind": "exception/source-literal",
+          "source": "if (event.data.error) item?.reject(new Error(event.data.error));"
+        },
+        {
+          "file": "src/core/backup-engine.ts",
+          "line": 16,
+          "kind": "exception/source-literal",
+          "source": "const timer = setTimeout(() => { expired = true; dbPromise = undefined; reject(new Error('Backup database open timed out')); }, 10000);"
+        },
+        {
+          "file": "src/core/backup-engine.ts",
+          "line": 27,
+          "kind": "exception/source-literal",
+          "source": "request.onblocked = () => { clearTimeout(timer); dbPromise = undefined; reject(new Error('Backup database blocked by another tab')); };"
+        },
+        {
+          "file": "src/core/backup-engine.ts",
+          "line": 40,
+          "kind": "exception/source-literal",
+          "source": "reject(new Error('Backup identity transaction timed out'));"
+        },
+        {
+          "file": "src/core/backup-engine.ts",
+          "line": 49,
+          "kind": "exception/source-literal",
+          "source": "tx.onabort = tx.onerror = () => { clearTimeout(timer); reject(tx.error ?? new Error('Backup identity transaction failed')); };"
+        },
+        {
+          "file": "src/core/backup-engine.ts",
+          "line": 57,
+          "kind": "exception/source-literal",
+          "source": "if (!base || !key) throw new Error('Backup server/key missing; rebuild the userscript');"
+        },
+        {
+          "file": "src/core/backup-engine.ts",
+          "line": 70,
+          "kind": "exception/source-literal",
+          "source": "throw new Error('PC backup HTTP ' + response.status + (response.status === 409 ? ': revisit home to choose Backup or Restore' : ''));"
+        },
+        {
+          "file": "src/core/backup-engine.ts",
+          "line": 96,
+          "kind": "exception/source-literal",
+          "source": "if (!Array.isArray(backups)) throw new Error('Invalid backup listing');"
+        },
+        {
+          "file": "src/core/backup-engine.ts",
+          "line": 111,
+          "kind": "exception/source-literal",
+          "source": "if (!command.label?.trim()) throw new Error('Backup name required');"
+        },
+        {
+          "file": "src/core/backup-engine.ts",
+          "line": 114,
+          "kind": "exception/source-literal",
+          "source": "if (!selected) throw new Error('Backup selection expired; revisit home');"
+        },
+        {
+          "file": "src/core/backup-engine.ts",
+          "line": 125,
+          "kind": "exception/source-literal",
+          "source": "if (!current) throw new Error('Choose Backup or Restore first');"
+        },
+        {
+          "file": "src/core/backup-engine.ts",
+          "line": 133,
+          "kind": "exception/source-literal",
+          "source": "if (!current || saved.id !== current.id || typeof saved.current?.revision !== 'string') throw new Error('Unexpected backup acknowledgement');"
+        },
+        {
+          "file": "src/core/backup-engine.ts",
+          "line": 138,
+          "kind": "exception/source-literal",
+          "source": "throw new Error('Unknown backup operation: ' + action);"
+        },
+        {
+          "file": "src/core/compute/state.ts",
+          "line": 10,
+          "kind": "exception/source-literal",
+          "source": "const timer = setTimeout(() => { expired = true; opened = undefined; reject(new Error('Reader database open timed out')); }, 10000);"
+        },
+        {
+          "file": "src/core/compute/state.ts",
+          "line": 20,
+          "kind": "exception/source-literal",
+          "source": "request.onerror = request.onblocked = () => { clearTimeout(timer); opened = undefined; reject(request.error ?? new Error('Reader database blocked')); };"
+        },
+        {
+          "file": "src/core/compute/state.ts",
+          "line": 25,
+          "kind": "exception/source-literal",
+          "source": "if (!state || !Array.isArray(state.favorites) || !state.favorites.every(id => Number.isSafeInteger(id) && id > 0)) throw new Error('Invalid favorites');"
+        },
+        {
+          "file": "src/core/compute/state.ts",
+          "line": 26,
+          "kind": "exception/source-literal",
+          "source": "if (!Array.isArray(state.searches) || !state.searches.every(s => s && typeof s.query === 'string' && (s.page === undefined || (Number.isInteger(s.page) && s.page > 0)))) throw new Error('Invalid saved searches');"
+        },
+        {
+          "file": "src/core/compute/state.ts",
+          "line": 27,
+          "kind": "exception/source-literal",
+          "source": "if (!Number.isInteger(state.page) || state.page < 1 || !state.scroll || typeof state.scroll !== 'object' || Array.isArray(state.scroll) || !Object.values(state.scroll).every(y => Number.isFinite(y) && y >= 0)) throw new Error('Invalid page/scroll positions');"
+        },
+        {
+          "file": "src/core/compute/state.ts",
+          "line": 41,
+          "kind": "exception/source-literal",
+          "source": "reject(new Error('Reader database transaction timed out'));"
+        },
+        {
+          "file": "src/core/compute/state.ts",
+          "line": 55,
+          "kind": "exception/source-literal",
+          "source": "tx.onabort = tx.onerror = () => { clearTimeout(timer); reject(error ?? tx.error ?? new Error('Reader transaction aborted')); };"
+        },
+        {
+          "file": "src/core/compute/state.ts",
+          "line": 65,
+          "kind": "exception/source-literal",
+          "source": "if (!state) throw new Error('Reader storage has not been initialized');"
+        },
+        {
+          "file": "src/core/compute/state.ts",
+          "line": 70,
+          "kind": "exception/source-literal",
+          "source": "if (value?.version !== 1) throw new Error('Unsupported gallery backup');"
+        },
+        {
+          "file": "src/core/compute/transport.ts",
+          "line": 4,
+          "kind": "exception/source-literal",
+          "source": "const pending = new Map<number, { resolve(value: unknown): void; reject(error: Error): void }>();"
+        },
+        {
+          "file": "src/core/compute/transport.ts",
+          "line": 17,
+          "kind": "exception/source-literal",
+          "source": "if (ok) task.resolve(value); else task.reject(new Error(error));"
+        },
+        {
+          "file": "src/core/compute/transport.ts",
+          "line": 20,
+          "kind": "exception/source-literal",
+          "source": "for (const task of pending.values()) task.reject(new Error(event.message || 'Reader worker failed'));"
+        },
+        {
+          "file": "src/core/compute/worker-entry.ts",
+          "line": 17,
+          "kind": "exception/source-literal",
+          "source": "if (!['search', 'getMeta', 'getReaderData', 'imageUrls'].includes(payload.method)) throw new Error('Unknown provider operation');"
+        },
+        {
+          "file": "src/core/compute/worker-entry.ts",
+          "line": 40,
+          "kind": "exception/source-literal",
+          "source": "if (!response.ok) throw new Error('Favorites sync HTTP ' + response.status);"
+        },
+        {
+          "file": "src/core/compute/worker-entry.ts",
+          "line": 46,
+          "kind": "exception/source-literal",
+          "source": "if (!state) throw new Error('Reader storage has not been initialized');"
+        },
+        {
+          "file": "src/core/compute/worker-entry.ts",
+          "line": 54,
+          "kind": "exception/source-literal",
+          "source": "if (!Number.isSafeInteger(payload) || payload <= 0) throw new Error('Invalid gallery ID');"
+        },
+        {
+          "file": "src/core/compute/worker-entry.ts",
+          "line": 84,
+          "kind": "exception/source-literal",
+          "source": "default: throw new Error('Unknown storage operation: ' + op);"
+        },
+        {
+          "file": "src/core/pc-backup.ts",
+          "line": 11,
+          "kind": "text-sink",
+          "source": "function report(message: string, failed = false): void {"
+        },
+        {
+          "file": "src/core/pc-backup.ts",
+          "line": 17,
+          "kind": "text-sink",
+          "source": "element.textContent = message + ' (tap to dismiss)';"
+        },
+        {
+          "file": "src/core/pc-backup.ts",
+          "line": 35,
+          "kind": "text-sink",
+          "source": "box.setAttribute('aria-label', 'Reader backup setup');"
+        },
+        {
+          "file": "src/core/pc-backup.ts",
+          "line": 37,
+          "kind": "text-sink",
+          "source": "title.textContent = adapter.app + ' · ' + adapter.provider;"
+        },
+        {
+          "file": "src/core/pc-backup.ts",
+          "line": 39,
+          "kind": "text-sink",
+          "source": "phone.textContent = 'On this phone: ' + localStats;"
+        },
+        {
+          "file": "src/core/pc-backup.ts",
+          "line": 41,
+          "kind": "text-sink",
+          "source": "name.placeholder = 'Backup name (e.g. My iPhone)';"
+        },
+        {
+          "file": "src/core/pc-backup.ts",
+          "line": 42,
+          "kind": "text-sink",
+          "source": "name.setAttribute('aria-label', 'New backup name');"
+        },
+        {
+          "file": "src/core/pc-backup.ts",
+          "line": 46,
+          "kind": "text-sink",
+          "source": "save.textContent = 'Back up this phone';"
+        },
+        {
+          "file": "src/core/pc-backup.ts",
+          "line": 48,
+          "kind": "text-sink",
+          "source": "selector.setAttribute('aria-label', 'PC backup to restore');"
+        },
+        {
+          "file": "src/core/pc-backup.ts",
+          "line": 52,
+          "kind": "text-sink",
+          "source": "remote.textContent = options.length ? 'On PC: ' + options.find(option => option.selection === selector.value)!.stats : 'No backup for this provider on the PC yet.';"
+        },
+        {
+          "file": "src/core/pc-backup.ts",
+          "line": 57,
+          "kind": "text-sink",
+          "source": "restore.textContent = 'Restore from PC';"
+        },
+        {
+          "file": "src/core/pc-backup.ts",
+          "line": 60,
+          "kind": "text-sink",
+          "source": "note.textContent = 'Restore replaces this provider’s local reader data. It creates a new independent backup; the original stays intact.';"
+        },
+        {
+          "file": "src/core/pc-backup.ts",
+          "line": 62,
+          "kind": "text-sink",
+          "source": "later.textContent = 'Later';"
+        },
+        {
+          "file": "src/core/pc-backup.ts",
+          "line": 97,
+          "kind": "text-sink",
+          "source": "if (confirmSetup) report('Backed up to PC: ' + upload.label + ' · ' + adapter.provider + '\\n' + upload.stats);"
+        },
+        {
+          "file": "src/core/pc-backup.ts",
+          "line": 103,
+          "kind": "text-sink",
+          "source": "report(localDatabaseFailure"
+        },
+        {
+          "file": "src/provider/hitomi/autocomplete.ts",
+          "line": 43,
+          "kind": "text-sink",
+          "source": "name.textContent = result.name;"
+        },
+        {
+          "file": "src/provider/hitomi/autocomplete.ts",
+          "line": 46,
+          "kind": "text-sink",
+          "source": "namespace.textContent = ' (' + result.namespace + ')';"
+        },
+        {
+          "file": "src/provider/hitomi/autocomplete.ts",
+          "line": 50,
+          "kind": "text-sink",
+          "source": "count.textContent = String(result.count);"
+        },
+        {
+          "file": "src/provider/hitomi/decoder.ts",
+          "line": 21,
+          "kind": "exception/source-literal",
+          "source": "if (!resp.ok) throw Error(`HTTP ${resp.status}`);"
+        },
+        {
+          "file": "src/provider/hitomi/decoder.ts",
+          "line": 46,
+          "kind": "exception/source-literal",
+          "source": "if (!defaultOffsetMatch) throw new Error('Hitomi gg.js did not contain the default host offset');"
+        },
+        {
+          "file": "src/provider/hitomi/decoder.ts",
+          "line": 47,
+          "kind": "exception/source-literal",
+          "source": "if (!basePathMatch || basePathMatch[1] === '') throw new Error('Hitomi gg.js did not contain the image base path');"
+        },
+        {
+          "file": "src/provider/hitomi/decoder.ts",
+          "line": 57,
+          "kind": "exception/source-literal",
+          "source": "if (data.byteLength % 4 !== 0) throw new Error(`Invalid Nozomi response length: ${data.byteLength}`);"
+        },
+        {
+          "file": "src/provider/hitomi/decoder.ts",
+          "line": 88,
+          "kind": "exception/source-literal",
+          "source": "if (!resp.ok) throw new Error(`Nozomi request failed: ${resp.status}`);"
+        },
+        {
+          "file": "src/provider/hitomi/suggestions.ts",
+          "line": 17,
+          "kind": "exception/source-literal",
+          "source": "if (!response.ok) throw new Error('Hitomi suggestions HTTP ' + response.status);"
+        },
+        {
+          "file": "src/provider/hitomi/suggestions.ts",
+          "line": 19,
+          "kind": "exception/source-literal",
+          "source": "if (!Array.isArray(data)) throw new Error('Invalid Hitomi suggestions');"
+        },
+        {
+          "file": "src/provider/hitomi/suggestions.ts",
+          "line": 22,
+          "kind": "exception/source-literal",
+          "source": "throw new Error('Invalid Hitomi suggestion');"
+        },
+        {
+          "file": "src/provider/imhentai/data-provider.ts",
+          "line": 190,
+          "kind": "exception/source-literal",
+          "source": "if (thumbs.some(thumb => !thumb.url)) throw new Error('IMHentai source thumbnail URL is missing');"
+        },
+        {
+          "file": "src/provider/imhentai/decoder.ts",
+          "line": 6,
+          "kind": "exception/source-literal",
+          "source": "if (!resp.ok) throw Error(`HTTP ${resp.status}`);"
+        },
+        {
+          "file": "src/provider/index.ts",
+          "line": 15,
+          "kind": "exception/source-literal",
+          "source": "else throw Error('Unable to select provider');"
+        },
+        {
+          "file": "src/routes/home.ts",
+          "line": 33,
+          "kind": "text-sink",
+          "source": "btn.textContent = 'Import / Merge';"
+        },
+        {
+          "file": "src/routes/home.ts",
+          "line": 37,
+          "kind": "text-sink",
+          "source": "textarea.placeholder = 'Paste gallery IDs (space, newline, comma separated)';"
+        },
+        {
+          "file": "src/routes/home.ts",
+          "line": 46,
+          "kind": "text-sink",
+          "source": "mergeBtn.textContent = 'Merge';"
+        },
+        {
+          "file": "src/routes/home.ts",
+          "line": 50,
+          "kind": "text-sink",
+          "source": "exportBtn.textContent = 'Export';"
+        },
+        {
+          "file": "src/routes/home.ts",
+          "line": 73,
+          "kind": "text-sink",
+          "source": "mergeBtn.textContent = 'Merging...';"
+        },
+        {
+          "file": "src/routes/home.ts",
+          "line": 77,
+          "kind": "text-sink",
+          "source": "status.textContent = total ? `Added ${added} of ${total} IDs` : 'No IDs found';"
+        },
+        {
+          "file": "src/routes/home.ts",
+          "line": 81,
+          "kind": "text-sink",
+          "source": "status.textContent = 'Error: ' + (e as Error).message;"
+        },
+        {
+          "file": "src/routes/home.ts",
+          "line": 85,
+          "kind": "text-sink",
+          "source": "mergeBtn.textContent = 'Merge';"
+        },
+        {
+          "file": "src/routes/reader.ts",
+          "line": 10,
+          "kind": "text-sink",
+          "source": "if (!images.length) { wrapper.textContent = 'This gallery has no readable images.'; return; }"
+        },
+        {
+          "file": "src/ui/gallery-row.ts",
+          "line": 22,
+          "kind": "text-sink",
+          "source": "container.innerHTML = '';"
+        },
+        {
+          "file": "src/ui/gallery-row.ts",
+          "line": 58,
+          "kind": "text-sink",
+          "source": "infoBtn.textContent = 'i';"
+        },
+        {
+          "file": "src/ui/gallery-row.ts",
+          "line": 67,
+          "kind": "text-sink",
+          "source": "favBtn.textContent = '…';"
+        },
+        {
+          "file": "src/ui/gallery-row.ts",
+          "line": 73,
+          "kind": "text-sink",
+          "source": "favBtn.textContent = await toggleFav(gid) ? '\\u2764\\uFE0F' : '\\uD83E\\uDD0D';"
+        },
+        {
+          "file": "src/ui/gallery-row.ts",
+          "line": 80,
+          "kind": "text-sink",
+          "source": "favBtn.textContent = favorite ? '\\u2764\\uFE0F' : '\\uD83E\\uDD0D';"
+        },
+        {
+          "file": "src/ui/info-modal.ts",
+          "line": 6,
+          "kind": "text-sink",
+          "source": "el.textContent = display;"
+        },
+        {
+          "file": "src/ui/info-modal.ts",
+          "line": 17,
+          "kind": "text-sink",
+          "source": "function row(label: string): { div: HTMLDivElement; val: HTMLSpanElement } {"
+        },
+        {
+          "file": "src/ui/info-modal.ts",
+          "line": 22,
+          "kind": "text-sink",
+          "source": "lbl.textContent = label;"
+        },
+        {
+          "file": "src/ui/info-modal.ts",
+          "line": 30,
+          "kind": "text-sink",
+          "source": "function linkRow(label: string, ns: string, items: string[], lang: string): HTMLDivElement {"
+        },
+        {
+          "file": "src/ui/info-modal.ts",
+          "line": 31,
+          "kind": "text-sink",
+          "source": "const { div, val } = row(label);"
+        },
+        {
+          "file": "src/ui/info-modal.ts",
+          "line": 39,
+          "kind": "text-sink",
+          "source": "function textRow(label: string, text: string): HTMLDivElement {"
+        },
+        {
+          "file": "src/ui/info-modal.ts",
+          "line": 40,
+          "kind": "text-sink",
+          "source": "const { div, val } = row(label);"
+        },
+        {
+          "file": "src/ui/info-modal.ts",
+          "line": 41,
+          "kind": "text-sink",
+          "source": "val.textContent = text;"
+        },
+        {
+          "file": "src/ui/info-modal.ts",
+          "line": 49,
+          "kind": "text-sink",
+          "source": "dialog.setAttribute('aria-label', 'Gallery information');"
+        },
+        {
+          "file": "src/ui/info-modal.ts",
+          "line": 52,
+          "kind": "text-sink",
+          "source": "dialog.innerHTML = '<div class=\"hs-modal-body hs-modal-body-loading\">Loading...</div>';"
+        },
+        {
+          "file": "src/ui/info-modal.ts",
+          "line": 60,
+          "kind": "text-sink",
+          "source": "dialog.innerHTML = '<div class=\"hs-modal-body hs-modal-body-error\">Failed to load gallery info</div>';"
+        },
+        {
+          "file": "src/ui/info-modal.ts",
+          "line": 70,
+          "kind": "text-sink",
+          "source": "h.textContent = meta.title_jpn;"
+        },
+        {
+          "file": "src/ui/info-modal.ts",
+          "line": 74,
+          "kind": "text-sink",
+          "source": "h2.textContent = meta.title;"
+        },
+        {
+          "file": "src/ui/info-modal.ts",
+          "line": 80,
+          "kind": "text-sink",
+          "source": "if (meta.artists.length) body.appendChild(linkRow('Artist', 'artist', meta.artists, lang));"
+        },
+        {
+          "file": "src/ui/info-modal.ts",
+          "line": 81,
+          "kind": "text-sink",
+          "source": "if (meta.groups.length) body.appendChild(linkRow('Group', 'group', meta.groups, lang));"
+        },
+        {
+          "file": "src/ui/info-modal.ts",
+          "line": 82,
+          "kind": "text-sink",
+          "source": "if (meta.parody.length) body.appendChild(linkRow('Series', 'series', meta.parody, lang));"
+        },
+        {
+          "file": "src/ui/info-modal.ts",
+          "line": 83,
+          "kind": "text-sink",
+          "source": "if (meta.type) body.appendChild(linkRow('Type', 'type', [meta.type], lang));"
+        },
+        {
+          "file": "src/ui/info-modal.ts",
+          "line": 84,
+          "kind": "text-sink",
+          "source": "if (meta.characters.length) body.appendChild(linkRow('Characters', 'character', meta.characters, lang));"
+        },
+        {
+          "file": "src/ui/info-modal.ts",
+          "line": 85,
+          "kind": "text-sink",
+          "source": "if (meta.language) body.appendChild(linkRow('Language', 'language', [meta.language], lang));"
+        },
+        {
+          "file": "src/ui/info-modal.ts",
+          "line": 86,
+          "kind": "text-sink",
+          "source": "body.appendChild(textRow('Pages', String(meta.pageCount)));"
+        },
+        {
+          "file": "src/ui/info-modal.ts",
+          "line": 87,
+          "kind": "text-sink",
+          "source": "if (meta.date) body.appendChild(textRow('Date', meta.date));"
+        },
+        {
+          "file": "src/ui/info-modal.ts",
+          "line": 94,
+          "kind": "text-sink",
+          "source": "tagsLabel.textContent = 'Tags';"
+        },
+        {
+          "file": "src/ui/info-modal.ts",
+          "line": 111,
+          "kind": "text-sink",
+          "source": "closeBtn.textContent = 'Close';"
+        },
+        {
+          "file": "src/ui/info-modal.ts",
+          "line": 114,
+          "kind": "text-sink",
+          "source": "dialog.innerHTML = '';"
+        },
+        {
+          "file": "src/ui/paginated-grid.ts",
+          "line": 29,
+          "kind": "text-sink",
+          "source": "el.textContent = pageInfo.totalCount;"
+        },
+        {
+          "file": "src/ui/paginated-grid.ts",
+          "line": 31,
+          "kind": "text-sink",
+          "source": "grid.innerHTML = '';"
+        },
+        {
+          "file": "src/ui/paginated-grid.ts",
+          "line": 36,
+          "kind": "text-sink",
+          "source": "if (skeleton.isConnected) skeleton.textContent = `Gallery ${gid}: ${error instanceof Error ? error.message : 'failed to load'}`;"
+        },
+        {
+          "file": "src/ui/paginated-grid.ts",
+          "line": 54,
+          "kind": "text-sink",
+          "source": "favs.textContent = 'Favs';"
+        },
+        {
+          "file": "src/ui/paginated-grid.ts",
+          "line": 61,
+          "kind": "text-sink",
+          "source": "cur.textContent = String(pageNum);"
+        },
+        {
+          "file": "src/ui/paginated-grid.ts",
+          "line": 66,
+          "kind": "text-sink",
+          "source": "pageLink.textContent = String(pageNum);"
+        },
+        {
+          "file": "src/ui/saved-searches.ts",
+          "line": 14,
+          "kind": "text-sink",
+          "source": "container.innerHTML = '';"
+        },
+        {
+          "file": "src/ui/saved-searches.ts",
+          "line": 25,
+          "kind": "text-sink",
+          "source": "text.textContent = s.query;"
+        },
+        {
+          "file": "src/ui/saved-searches.ts",
+          "line": 29,
+          "kind": "text-sink",
+          "source": "x.textContent = '\\u00D7';"
+        },
+        {
+          "file": "src/ui/saved-searches.ts",
+          "line": 47,
+          "kind": "text-sink",
+          "source": "btn.textContent = `Show ${remaining} more`;"
+        },
+        {
+          "file": "src/ui/shell.ts",
+          "line": 22,
+          "kind": "text-sink",
+          "source": "document.title = documentTitle;"
+        },
+        {
+          "file": "src/ui/shell.ts",
+          "line": 38,
+          "kind": "text-sink",
+          "source": "input.placeholder = 'Search...';"
+        },
+        {
+          "file": "src/ui/shell.ts",
+          "line": 45,
+          "kind": "text-sink",
+          "source": "button.textContent = 'Search';"
+        },
+        {
+          "file": "src/ui/shell.ts",
+          "line": 107,
+          "kind": "text-sink",
+          "source": "document.getElementById('hs-grid')!.textContent = 'Could not load local reader data. Keep website data intact and reload to retry. ' + (error instanceof Error ? error.message : String(error));"
+        }
+      ]
+    },
+    "ytb": {
+      "root": "/home/visar/Documents/work/video/km-explorer",
+      "baseCommit": "58ea58843ad8f16adb9783459bcfb46e5d592d2b",
+      "scope": "working tree; gallery-downloader has unrelated background-sync WIP, not changed here",
+      "locations": [
+        {
+          "file": "apps/ios/Ytb/Models.swift",
+          "line": 21,
+          "kind": "exception/source-literal",
+          "source": "guard Self.route(path) != nil, y.isFinite, (0...1_000_000_000).contains(y) else { throw ReaderError.invalidRequest }"
+        },
+        {
+          "file": "apps/ios/Ytb/Models.swift",
+          "line": 31,
+          "kind": "exception/source-literal",
+          "source": "var errorDescription: String? { \"Invalid Ytb request\" }"
+        },
+        {
+          "file": "apps/ios/Ytb/WebController.swift",
+          "line": 60,
+          "kind": "exception/source-literal",
+          "source": "replyHandler(nil, \"Invalid native request\"); return"
+        },
+        {
+          "file": "apps/ios/Ytb/WebController.swift",
+          "line": 71,
+          "kind": "exception/source-literal",
+          "source": "guard let input, let id = args[\"requestID\"] as? String else { replyHandler(nil, \"Invalid fetch request\"); return }"
+        },
+        {
+          "file": "apps/ios/Ytb/WebController.swift",
+          "line": 77,
+          "kind": "exception/source-literal",
+          "source": "catch { replyHandler(nil, error.localizedDescription) }"
+        },
+        {
+          "file": "apps/ios/Ytb/WebController.swift",
+          "line": 118,
+          "kind": "exception/source-literal",
+          "source": "guard let text = args[\"text\"] as? String else { throw ReaderError.invalidRequest }"
+        },
+        {
+          "file": "apps/ios/Ytb/WebController.swift",
+          "line": 121,
+          "kind": "exception/source-literal",
+          "source": "default: replyHandler(nil, \"Unknown native request\")"
+        },
+        {
+          "file": "apps/ios/Ytb/WebController.swift",
+          "line": 123,
+          "kind": "exception/source-literal",
+          "source": "} catch { replyHandler(nil, error.localizedDescription) }"
+        },
+        {
+          "file": "apps/ios/Ytb/YtbAPI.swift",
+          "line": 54,
+          "kind": "exception/source-literal",
+          "source": "guard let raw = args[\"url\"] as? String, let url = URL(string: raw), url.scheme == \"https\", url.host != nil else { throw ReaderError.invalidRequest }"
+        },
+        {
+          "file": "apps/ios/Ytb/YtbAPI.swift",
+          "line": 62,
+          "kind": "exception/source-literal",
+          "source": "guard let http = response as? HTTPURLResponse else { throw ReaderError.invalidRequest }"
+        },
+        {
+          "file": "apps/ios/Ytb/YtbStore.swift",
+          "line": 30,
+          "kind": "exception/source-literal",
+          "source": "guard url.host == \"app\" else { throw ReaderError.invalidRequest }"
+        },
+        {
+          "file": "apps/ios/Ytb/YtbStore.swift",
+          "line": 34,
+          "kind": "exception/source-literal",
+          "source": "else { guard ViewPosition.route(url.path) != nil else { throw ReaderError.invalidRequest }; name = \"index.html\" }"
+        },
+        {
+          "file": "apps/ios/Ytb/YtbStore.swift",
+          "line": 35,
+          "kind": "exception/source-literal",
+          "source": "guard let file = Bundle.main.url(forResource: name, withExtension: nil, subdirectory: \"Web\") else { throw ReaderError.invalidRequest }"
+        },
+        {
+          "file": "apps/ios/web/app.ts",
+          "line": 58,
+          "kind": "text-sink",
+          "source": "void main().catch(error => { console.error(error); if (!document.body.textContent?.trim()) document.body.textContent = 'Could not load Ytb. Reopen to retry.'; });"
+        },
+        {
+          "file": "apps/ios/web/fetch.ts",
+          "line": 9,
+          "kind": "exception/source-literal",
+          "source": "if (!active) throw new DOMException('Document suspended', 'AbortError');"
+        },
+        {
+          "file": "apps/ios/web/fetch.ts",
+          "line": 20,
+          "kind": "exception/source-literal",
+          "source": "if (!active) throw new DOMException('Document suspended', 'AbortError');"
+        },
+        {
+          "file": "apps/ios/web/index.html",
+          "line": 1,
+          "kind": "html",
+          "source": "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>Ytb</title><script defer src=\"/app.js\"></script></head><body></body></html>"
+        },
+        {
+          "file": "apps/ios/web/native.ts",
+          "line": 2,
+          "kind": "exception/source-literal",
+          "source": "return JSON.parse(await (window as any).webkit.messageHandlers.ytb.postMessage({command, args}));"
+        },
+        {
+          "file": "apps/ios/web/native.ts",
+          "line": 7,
+          "kind": "exception/source-literal",
+          "source": "if (url.origin !== 'https://ytboob.com') throw new Error('Unsupported Ytb destination');"
+        },
+        {
+          "file": "apps/ios/web/transport.ts",
+          "line": 9,
+          "kind": "exception/source-literal",
+          "source": "const pending = new Map<number, {resolve:(value:any)=>void;reject:(error:Error)=>void}>();"
+        },
+        {
+          "file": "apps/ios/web/transport.ts",
+          "line": 17,
+          "kind": "exception/source-literal",
+          "source": "for (const item of pending.values()) item.reject(new Error('Document suspended'));"
+        },
+        {
+          "file": "apps/ios/web/transport.ts",
+          "line": 22,
+          "kind": "exception/source-literal",
+          "source": "if (!active) return op === 'scroll-save' ? Promise.resolve(undefined as T) : Promise.reject(new Error('Document suspended'));"
+        },
+        {
+          "file": "apps/ios/web/transport.ts",
+          "line": 38,
+          "kind": "exception/source-literal",
+          "source": "if (data.ok) item?.resolve(data.value); else item?.reject(new Error(data.error));"
+        },
+        {
+          "file": "apps/ios/web/transport.ts",
+          "line": 43,
+          "kind": "exception/source-literal",
+          "source": "for (const item of pending.values()) item.reject(new Error(event.message));"
+        },
+        {
+          "file": "apps/ios/web/worker.ts",
+          "line": 4,
+          "kind": "exception/source-literal",
+          "source": "const pending = new Map<number, {resolve:(value:any)=>void;reject:(error:Error)=>void}>();"
+        },
+        {
+          "file": "apps/ios/web/worker.ts",
+          "line": 12,
+          "kind": "exception/source-literal",
+          "source": "if (data.error) item?.reject(new Error(data.error)); else item?.resolve(data.result);"
+        },
+        {
+          "file": "src/core/backup-engine.ts",
+          "line": 15,
+          "kind": "exception/source-literal",
+          "source": "const timer = setTimeout(() => reject(new Error('Backup database open timed out')), 10000);"
+        },
+        {
+          "file": "src/core/backup-engine.ts",
+          "line": 24,
+          "kind": "exception/source-literal",
+          "source": "request.onblocked = () => { clearTimeout(timer); dbPromise = undefined; reject(new Error('Backup database blocked by another tab')); };"
+        },
+        {
+          "file": "src/core/backup-engine.ts",
+          "line": 33,
+          "kind": "exception/source-literal",
+          "source": "const timer = setTimeout(() => { tx.abort(); reject(new Error('Backup identity transaction timed out')); }, 10000);"
+        },
+        {
+          "file": "src/core/backup-engine.ts",
+          "line": 40,
+          "kind": "exception/source-literal",
+          "source": "tx.onabort = tx.onerror = () => { clearTimeout(timer); reject(tx.error ?? new Error('Backup identity transaction failed')); };"
+        },
+        {
+          "file": "src/core/backup-engine.ts",
+          "line": 48,
+          "kind": "exception/source-literal",
+          "source": "if (!base || !key) throw new Error('Backup server/key missing; rebuild the userscript');"
+        },
+        {
+          "file": "src/core/backup-engine.ts",
+          "line": 61,
+          "kind": "exception/source-literal",
+          "source": "throw new Error('PC backup HTTP ' + response.status + (response.status === 409 ? ': revisit home to choose Backup or Restore' : ''));"
+        },
+        {
+          "file": "src/core/backup-engine.ts",
+          "line": 87,
+          "kind": "exception/source-literal",
+          "source": "if (!Array.isArray(backups)) throw new Error('Invalid backup listing');"
+        },
+        {
+          "file": "src/core/backup-engine.ts",
+          "line": 102,
+          "kind": "exception/source-literal",
+          "source": "if (!command.label?.trim()) throw new Error('Backup name required');"
+        },
+        {
+          "file": "src/core/backup-engine.ts",
+          "line": 105,
+          "kind": "exception/source-literal",
+          "source": "if (!selected) throw new Error('Backup selection expired; revisit home');"
+        },
+        {
+          "file": "src/core/backup-engine.ts",
+          "line": 116,
+          "kind": "exception/source-literal",
+          "source": "if (!current) throw new Error('Choose Backup or Restore first');"
+        },
+        {
+          "file": "src/core/backup-engine.ts",
+          "line": 124,
+          "kind": "exception/source-literal",
+          "source": "if (!current || saved.id !== current.id || typeof saved.current?.revision !== 'string') throw new Error('Unexpected backup acknowledgement');"
+        },
+        {
+          "file": "src/core/backup-engine.ts",
+          "line": 129,
+          "kind": "exception/source-literal",
+          "source": "throw new Error('Unknown backup operation: ' + action);"
+        },
+        {
+          "file": "src/core/compute/database.ts",
+          "line": 85,
+          "kind": "exception/source-literal",
+          "source": "reject(new DOMException('IndexedDB open was cancelled by navigation', 'AbortError'));"
+        },
+        {
+          "file": "src/core/compute/database.ts",
+          "line": 102,
+          "kind": "exception/source-literal",
+          "source": "reject(req.error ?? new DOMException('Could not open IndexedDB', 'UnknownError'));"
+        },
+        {
+          "file": "src/core/compute/database.ts",
+          "line": 107,
+          "kind": "exception/source-literal",
+          "source": "reject(new DOMException('IndexedDB upgrade is blocked by another page', 'InvalidStateError'));"
+        },
+        {
+          "file": "src/core/compute/database.ts",
+          "line": 134,
+          "kind": "exception/source-literal",
+          "source": "finish(() => reject(new DOMException('IndexedDB transaction timed out', 'TimeoutError')));"
+        },
+        {
+          "file": "src/core/compute/database.ts",
+          "line": 260,
+          "kind": "exception/source-literal",
+          "source": "if (!p || !strings(p.favorites)) throw new Error('Invalid KM favorites');"
+        },
+        {
+          "file": "src/core/compute/database.ts",
+          "line": 261,
+          "kind": "exception/source-literal",
+          "source": "if (p.highlight !== null && (!p.highlight || typeof p.highlight.id !== 'string' || typeof p.highlight.pageUrl !== 'string')) throw new Error('Invalid KM card highlight');"
+        },
+        {
+          "file": "src/core/compute/database.ts",
+          "line": 262,
+          "kind": "exception/source-literal",
+          "source": "if (!p.scroll || typeof p.scroll !== 'object' || Array.isArray(p.scroll) || !Object.values(p.scroll).every(y => Number.isFinite(y) && y >= 0)) throw new Error('Invalid KM scroll positions');"
+        },
+        {
+          "file": "src/core/compute/database.ts",
+          "line": 267,
+          "kind": "exception/source-literal",
+          "source": "if (s?.version !== 1 || !s.indexedDB) throw new Error('Invalid KM backup version');"
+        },
+        {
+          "file": "src/core/compute/database.ts",
+          "line": 270,
+          "kind": "exception/source-literal",
+          "source": "if (!Array.isArray(d.videos) || !d.videos.every(v => v && typeof v.id === 'string' && typeof v.thumbnail === 'string' && typeof v.pageUrl === 'string')) throw new Error('Invalid KM video cache');"
+        },
+        {
+          "file": "src/core/compute/database.ts",
+          "line": 271,
+          "kind": "exception/source-literal",
+          "source": "if (!Array.isArray(d.details) || !d.details.every(v => v && typeof v.pageUrl === 'string' && typeof v.videoSrc === 'string' && Array.isArray(v.actors) && v.actors.every(a => a && typeof a.name === 'string' && typeof a.url === 'string'))) throw new Error('Invalid KM detail cache');"
+        },
+        {
+          "file": "src/core/compute/database.ts",
+          "line": 272,
+          "kind": "exception/source-literal",
+          "source": "if (!Array.isArray(d.channels) || !d.channels.every(v => v && typeof v.actorUrl === 'string' && typeof v.termId === 'string' && strings(v.videoIds))) throw new Error('Invalid KM channel cache');"
+        },
+        {
+          "file": "src/core/compute/transport.ts",
+          "line": 4,
+          "kind": "exception/source-literal",
+          "source": "const pending = new Map<number, { resolve(value: any): void; reject(error: Error): void }>();"
+        },
+        {
+          "file": "src/core/compute/transport.ts",
+          "line": 13,
+          "kind": "exception/source-literal",
+          "source": "if (data.ok) task.resolve(data.value); else task.reject(new Error(data.error));"
+        },
+        {
+          "file": "src/core/compute/transport.ts",
+          "line": 16,
+          "kind": "exception/source-literal",
+          "source": "for (const task of pending.values()) task.reject(new Error(error.message));"
+        },
+        {
+          "file": "src/core/compute/worker-entry.ts",
+          "line": 21,
+          "kind": "exception/source-literal",
+          "source": "if (!p) throw new Error('KM storage not initialized');"
+        },
+        {
+          "file": "src/core/compute/worker-entry.ts",
+          "line": 28,
+          "kind": "exception/source-literal",
+          "source": "if (typeof id !== 'string' || !id) throw new Error('Invalid favorite');"
+        },
+        {
+          "file": "src/core/compute/worker-entry.ts",
+          "line": 34,
+          "kind": "exception/source-literal",
+          "source": "if (!Array.isArray(args[0]) || !args[0].every((id: unknown) => typeof id === 'string')) throw new Error('Invalid favorite import');"
+        },
+        {
+          "file": "src/core/compute/worker-entry.ts",
+          "line": 43,
+          "kind": "exception/source-literal",
+          "source": "default: throw new Error('Unknown storage operation');"
+        },
+        {
+          "file": "src/core/pc-backup.ts",
+          "line": 11,
+          "kind": "text-sink",
+          "source": "function report(message: string, failed = false): void {"
+        },
+        {
+          "file": "src/core/pc-backup.ts",
+          "line": 17,
+          "kind": "text-sink",
+          "source": "element.textContent = message + ' (tap to dismiss)';"
+        },
+        {
+          "file": "src/core/pc-backup.ts",
+          "line": 35,
+          "kind": "text-sink",
+          "source": "box.setAttribute('aria-label', 'Reader backup setup');"
+        },
+        {
+          "file": "src/core/pc-backup.ts",
+          "line": 37,
+          "kind": "text-sink",
+          "source": "title.textContent = adapter.app + ' · ' + adapter.provider;"
+        },
+        {
+          "file": "src/core/pc-backup.ts",
+          "line": 39,
+          "kind": "text-sink",
+          "source": "phone.textContent = 'On this phone: ' + localStats;"
+        },
+        {
+          "file": "src/core/pc-backup.ts",
+          "line": 41,
+          "kind": "text-sink",
+          "source": "name.placeholder = 'Backup name (e.g. My iPhone)';"
+        },
+        {
+          "file": "src/core/pc-backup.ts",
+          "line": 42,
+          "kind": "text-sink",
+          "source": "name.setAttribute('aria-label', 'New backup name');"
+        },
+        {
+          "file": "src/core/pc-backup.ts",
+          "line": 46,
+          "kind": "text-sink",
+          "source": "save.textContent = 'Back up this phone';"
+        },
+        {
+          "file": "src/core/pc-backup.ts",
+          "line": 48,
+          "kind": "text-sink",
+          "source": "selector.setAttribute('aria-label', 'PC backup to restore');"
+        },
+        {
+          "file": "src/core/pc-backup.ts",
+          "line": 52,
+          "kind": "text-sink",
+          "source": "remote.textContent = options.length ? 'On PC: ' + options.find(option => option.selection === selector.value)!.stats : 'No backup for this provider on the PC yet.';"
+        },
+        {
+          "file": "src/core/pc-backup.ts",
+          "line": 57,
+          "kind": "text-sink",
+          "source": "restore.textContent = 'Restore from PC';"
+        },
+        {
+          "file": "src/core/pc-backup.ts",
+          "line": 60,
+          "kind": "text-sink",
+          "source": "note.textContent = 'Restore replaces this provider’s local reader data. It creates a new independent backup; the original stays intact.';"
+        },
+        {
+          "file": "src/core/pc-backup.ts",
+          "line": 62,
+          "kind": "text-sink",
+          "source": "later.textContent = 'Later';"
+        },
+        {
+          "file": "src/core/pc-backup.ts",
+          "line": 97,
+          "kind": "text-sink",
+          "source": "if (confirmSetup) report('Backed up to PC: ' + upload.label + ' · ' + adapter.provider + '\\n' + upload.stats);"
+        },
+        {
+          "file": "src/core/pc-backup.ts",
+          "line": 101,
+          "kind": "text-sink",
+          "source": "report('PC backup NOT completed: ' + (error instanceof Error ? error.message : String(error)) + '\\nKeep the phone’s data. Revisit home to retry.', true);"
+        },
+        {
+          "file": "src/provider/ytb.ts",
+          "line": 116,
+          "kind": "exception/source-literal",
+          "source": "if (!videoSrc) throw new Error(`No videoSrc found on ${pageUrl}`);"
+        },
+        {
+          "file": "src/provider/ytb.ts",
+          "line": 135,
+          "kind": "exception/source-literal",
+          "source": "if (!r.ok) throw new Error(`Actor lookup failed: ${r.status}`);"
+        },
+        {
+          "file": "src/provider/ytb.ts",
+          "line": 137,
+          "kind": "exception/source-literal",
+          "source": "if (!Array.isArray(data)) throw new Error('Actor lookup response is not an array');"
+        },
+        {
+          "file": "src/provider/ytb.ts",
+          "line": 140,
+          "kind": "exception/source-literal",
+          "source": "throw new Error('Actor lookup response contains an invalid actor');"
+        },
+        {
+          "file": "src/provider/ytb.ts",
+          "line": 147,
+          "kind": "exception/source-literal",
+          "source": "if (!r.ok) throw new Error(`Actor posts failed: ${r.status}`);"
+        },
+        {
+          "file": "src/provider/ytb.ts",
+          "line": 149,
+          "kind": "exception/source-literal",
+          "source": "if (!Array.isArray(data)) throw new Error('Actor posts response is not an array');"
+        },
+        {
+          "file": "src/provider/ytb.ts",
+          "line": 151,
+          "kind": "exception/source-literal",
+          "source": "throw new Error('Actor posts response contains an invalid post');"
+        },
+        {
+          "file": "src/provider/ytb.ts",
+          "line": 155,
+          "kind": "exception/source-literal",
+          "source": "throw new Error('Actor posts response has an invalid page count');"
+        },
+        {
+          "file": "src/routes/channel.ts",
+          "line": 10,
+          "kind": "text-sink",
+          "source": "grid.innerHTML = '';"
+        },
+        {
+          "file": "src/routes/channel.ts",
+          "line": 17,
+          "kind": "text-sink",
+          "source": "grid.innerHTML = '<div class=\"ke-empty\">No videos found</div>';"
+        },
+        {
+          "file": "src/routes/channel.ts",
+          "line": 24,
+          "kind": "text-sink",
+          "source": "grid.innerHTML = '<div class=\"ke-loading\">Loading...</div>';"
+        },
+        {
+          "file": "src/routes/favs.ts",
+          "line": 13,
+          "kind": "text-sink",
+          "source": "grid.innerHTML = '';"
+        },
+        {
+          "file": "src/routes/favs.ts",
+          "line": 20,
+          "kind": "text-sink",
+          "source": "grid.innerHTML = '<div class=\"ke-empty\">No favorites yet</div>';"
+        },
+        {
+          "file": "src/routes/favs.ts",
+          "line": 30,
+          "kind": "text-sink",
+          "source": "reveal.textContent = 'Import / Merge';"
+        },
+        {
+          "file": "src/routes/favs.ts",
+          "line": 34,
+          "kind": "text-sink",
+          "source": "textarea.placeholder = 'Paste IDs (space, newline, comma separated)';"
+        },
+        {
+          "file": "src/routes/favs.ts",
+          "line": 42,
+          "kind": "text-sink",
+          "source": "merge.textContent = 'Merge';"
+        },
+        {
+          "file": "src/routes/favs.ts",
+          "line": 47,
+          "kind": "text-sink",
+          "source": "exportButton.textContent = 'Export';"
+        },
+        {
+          "file": "src/routes/favs.ts",
+          "line": 66,
+          "kind": "text-sink",
+          "source": "status.textContent = 'No IDs found';"
+        },
+        {
+          "file": "src/routes/favs.ts",
+          "line": 71,
+          "kind": "text-sink",
+          "source": "merge.textContent = 'Merging...';"
+        },
+        {
+          "file": "src/routes/favs.ts",
+          "line": 75,
+          "kind": "text-sink",
+          "source": "status.textContent = `Added ${added} of ${imported.length} IDs`;"
+        },
+        {
+          "file": "src/routes/favs.ts",
+          "line": 77,
+          "kind": "text-sink",
+          "source": "status.textContent = error instanceof Error ? error.message : String(error);"
+        },
+        {
+          "file": "src/routes/favs.ts",
+          "line": 80,
+          "kind": "text-sink",
+          "source": "merge.textContent = 'Merge';"
+        },
+        {
+          "file": "src/routes/favs.ts",
+          "line": 92,
+          "kind": "text-sink",
+          "source": "grid.innerHTML = '<div class=\"ke-loading\">Loading...</div>';"
+        },
+        {
+          "file": "src/routes/search.ts",
+          "line": 24,
+          "kind": "text-sink",
+          "source": "grid.innerHTML = '<div class=\"ke-loading\">Loading...</div>';"
+        },
+        {
+          "file": "src/routes/search.ts",
+          "line": 31,
+          "kind": "text-sink",
+          "source": "grid.innerHTML = '';"
+        },
+        {
+          "file": "src/routes/video.ts",
+          "line": 48,
+          "kind": "text-sink",
+          "source": "copy.textContent = 'Copy';"
+        },
+        {
+          "file": "src/routes/video.ts",
+          "line": 49,
+          "kind": "text-sink",
+          "source": "copy.setAttribute('aria-label', 'Copy video URL');"
+        },
+        {
+          "file": "src/routes/video.ts",
+          "line": 57,
+          "kind": "text-sink",
+          "source": "copy.textContent = 'Copied';"
+        },
+        {
+          "file": "src/routes/video.ts",
+          "line": 59,
+          "kind": "text-sink",
+          "source": "copy.textContent = 'Copy failed — tap to retry';"
+        },
+        {
+          "file": "src/routes/video.ts",
+          "line": 71,
+          "kind": "text-sink",
+          "source": "time.textContent = '00:00.000 / 00:00.000';"
+        },
+        {
+          "file": "src/routes/video.ts",
+          "line": 76,
+          "kind": "text-sink",
+          "source": "progress.setAttribute('aria-label', 'Video progress');"
+        },
+        {
+          "file": "src/routes/video.ts",
+          "line": 90,
+          "kind": "text-sink",
+          "source": "play.textContent = '\\u23f8\\ufe0f';"
+        },
+        {
+          "file": "src/routes/video.ts",
+          "line": 91,
+          "kind": "text-sink",
+          "source": "play.setAttribute('aria-label', 'Pause');"
+        },
+        {
+          "file": "src/routes/video.ts",
+          "line": 100,
+          "kind": "text-sink",
+          "source": "play.textContent = '\\u23f8\\ufe0f';"
+        },
+        {
+          "file": "src/routes/video.ts",
+          "line": 101,
+          "kind": "text-sink",
+          "source": "play.setAttribute('aria-label', 'Pause');"
+        },
+        {
+          "file": "src/routes/video.ts",
+          "line": 104,
+          "kind": "text-sink",
+          "source": "play.textContent = '\\u25b6\\ufe0f';"
+        },
+        {
+          "file": "src/routes/video.ts",
+          "line": 105,
+          "kind": "text-sink",
+          "source": "play.setAttribute('aria-label', 'Play');"
+        },
+        {
+          "file": "src/routes/video.ts",
+          "line": 110,
+          "kind": "text-sink",
+          "source": "mute.textContent = '\\ud83d\\udd07';"
+        },
+        {
+          "file": "src/routes/video.ts",
+          "line": 111,
+          "kind": "text-sink",
+          "source": "mute.setAttribute('aria-label', 'Unmute');"
+        },
+        {
+          "file": "src/routes/video.ts",
+          "line": 114,
+          "kind": "text-sink",
+          "source": "mute.textContent = video.muted ? '\\ud83d\\udd07' : '\\ud83d\\udd0a';"
+        },
+        {
+          "file": "src/routes/video.ts",
+          "line": 115,
+          "kind": "text-sink",
+          "source": "mute.setAttribute('aria-label', video.muted ? 'Unmute' : 'Mute');"
+        },
+        {
+          "file": "src/routes/video.ts",
+          "line": 126,
+          "kind": "text-sink",
+          "source": "time.textContent = `${formatTime(currentTime)} / ${formatTime(duration)}`;"
+        },
+        {
+          "file": "src/routes/video.ts",
+          "line": 151,
+          "kind": "text-sink",
+          "source": "grid.innerHTML = '<div class=\"ke-loading\">Loading...</div>';"
+        },
+        {
+          "file": "src/routes/video.ts",
+          "line": 180,
+          "kind": "text-sink",
+          "source": "grid.innerHTML = '';"
+        },
+        {
+          "file": "src/routes/video.ts",
+          "line": 194,
+          "kind": "text-sink",
+          "source": "grid.innerHTML = '<div class=\"ke-empty\">No actor videos found</div>';"
+        },
+        {
+          "file": "src/routes/video.ts",
+          "line": 203,
+          "kind": "text-sink",
+          "source": "document.body.textContent = 'Could not load this video’s source. Reload to retry.';"
+        },
+        {
+          "file": "src/routes/video.ts",
+          "line": 207,
+          "kind": "text-sink",
+          "source": "document.body.textContent = 'No video source is available.';"
+        },
+        {
+          "file": "src/ui/pagination.ts",
+          "line": 11,
+          "kind": "text-sink",
+          "source": "bar.setAttribute('aria-label', 'Client pages');"
+        },
+        {
+          "file": "src/ui/pagination.ts",
+          "line": 15,
+          "kind": "text-sink",
+          "source": "favorites.textContent = 'Favs';"
+        },
+        {
+          "file": "src/ui/pagination.ts",
+          "line": 16,
+          "kind": "text-sink",
+          "source": "favorites.setAttribute('aria-label', 'Favorites');"
+        },
+        {
+          "file": "src/ui/pagination.ts",
+          "line": 27,
+          "kind": "text-sink",
+          "source": "button.textContent = String(page);"
+        },
+        {
+          "file": "src/ui/shell.ts",
+          "line": 21,
+          "kind": "text-sink",
+          "source": "loading.textContent = 'Loading…';"
+        },
+        {
+          "file": "src/ui/shell.ts",
+          "line": 24,
+          "kind": "text-sink",
+          "source": "catch (error) { loading.textContent = 'Could not load KM data. Keep website data intact and reload to retry.'; throw error; }"
+        },
+        {
+          "file": "src/ui/video-card.ts",
+          "line": 76,
+          "kind": "text-sink",
+          "source": "favorite.textContent = '\\u2661';"
+        },
+        {
+          "file": "src/ui/video-card.ts",
+          "line": 83,
+          "kind": "text-sink",
+          "source": "favorite.textContent = nowFavorite ? '\\u2764' : '\\u2661';"
+        },
+        {
+          "file": "src/ui/video-card.ts",
+          "line": 85,
+          "kind": "text-sink",
+          "source": "} catch (error) { favorite.title = String(error); console.error(error); }"
+        },
+        {
+          "file": "src/ui/video-card.ts",
+          "line": 89,
+          "kind": "text-sink",
+          "source": "favorite.textContent = isFavorite ? '\\u2764' : '\\u2661';"
+        },
+        {
+          "file": "src/ui/video-card.ts",
+          "line": 92,
+          "kind": "text-sink",
+          "source": "}).catch(error => { favorite.title = String(error); console.error(error); });"
+        }
+      ]
+    },
+    "stream-viewer": {
+      "root": "/home/visar/Documents/work/video/stream-viewer",
+      "baseCommit": "63738d2a404e224beb8c98d028bc171a4d528fce",
+      "scope": "working tree; gallery-downloader has unrelated background-sync WIP, not changed here",
+      "locations": [
+        {
+          "file": "apps/ios/App/MediaRelay.swift",
+          "line": 43,
+          "kind": "exception/source-literal",
+          "source": "guard let port = server.port else { throw AuthFailure.invalid }"
+        },
+        {
+          "file": "apps/ios/App/MediaRelay.swift",
+          "line": 59,
+          "kind": "exception/source-literal",
+          "source": "host.hasSuffix(\".tango.me\"), url.user == nil, url.password == nil else { throw AuthFailure.invalid }"
+        },
+        {
+          "file": "apps/ios/App/MediaRelay.swift",
+          "line": 70,
+          "kind": "exception/source-literal",
+          "source": "guard let text = String(data:data,encoding:.utf8), text.hasPrefix(\"#EXTM3U\") else { throw AuthFailure.invalid }"
+        },
+        {
+          "file": "apps/ios/App/MediaRelay.swift",
+          "line": 75,
+          "kind": "exception/source-literal",
+          "source": "target.scheme == \"https\", target.user == nil, target.password == nil else { throw AuthFailure.invalid }"
+        },
+        {
+          "file": "apps/ios/App/TangoAuth.swift",
+          "line": 5,
+          "kind": "exception/source-literal",
+          "source": "var errorDescription: String? {"
+        },
+        {
+          "file": "apps/ios/App/TangoAuth.swift",
+          "line": 7,
+          "kind": "exception/source-literal",
+          "source": "case .login: return \"Tango login is required.\""
+        },
+        {
+          "file": "apps/ios/App/TangoAuth.swift",
+          "line": 8,
+          "kind": "exception/source-literal",
+          "source": "case .pending: return \"Confirm that Tango’s Safari website data has been cleared.\""
+        },
+        {
+          "file": "apps/ios/App/TangoAuth.swift",
+          "line": 9,
+          "kind": "exception/source-literal",
+          "source": "case .http(let code): return \"Tango returned HTTP \\(code).\""
+        },
+        {
+          "file": "apps/ios/App/TangoAuth.swift",
+          "line": 10,
+          "kind": "exception/source-literal",
+          "source": "case .invalid: return \"Invalid Tango response.\""
+        },
+        {
+          "file": "apps/ios/App/TangoAuth.swift",
+          "line": 46,
+          "kind": "exception/source-literal",
+          "source": "guard let login = try readLogin() else { throw AuthFailure.login }"
+        },
+        {
+          "file": "apps/ios/App/TangoAuth.swift",
+          "line": 47,
+          "kind": "exception/source-literal",
+          "source": "guard login.handoffComplete == true else { throw AuthFailure.pending }"
+        },
+        {
+          "file": "apps/ios/App/TangoAuth.swift",
+          "line": 50,
+          "kind": "exception/source-literal",
+          "source": "if needsLogin { throw AuthFailure.login }; return"
+        },
+        {
+          "file": "apps/ios/App/TangoAuth.swift",
+          "line": 89,
+          "kind": "exception/source-literal",
+          "source": "guard let client = isPC ? pc : session else { throw AuthFailure.login }"
+        },
+        {
+          "file": "apps/ios/App/TangoAuth.swift",
+          "line": 91,
+          "kind": "exception/source-literal",
+          "source": "guard let http = response as? HTTPURLResponse else { throw AuthFailure.invalid }"
+        },
+        {
+          "file": "apps/ios/App/TangoAuth.swift",
+          "line": 96,
+          "kind": "exception/source-literal",
+          "source": "guard let fields = currentLogin().session else { throw AuthFailure.login }"
+        },
+        {
+          "file": "apps/ios/App/TangoAuth.swift",
+          "line": 101,
+          "kind": "exception/source-literal",
+          "source": "if code == 401 || code == 403 { needsLogin = true; throw AuthFailure.login }"
+        },
+        {
+          "file": "apps/ios/App/TangoAuth.swift",
+          "line": 102,
+          "kind": "exception/source-literal",
+          "source": "throw AuthFailure.http(code)"
+        },
+        {
+          "file": "apps/ios/App/TangoAuth.swift",
+          "line": 139,
+          "kind": "exception/source-literal",
+          "source": "guard code == 200 else { throw AuthFailure.http(code) }"
+        },
+        {
+          "file": "apps/ios/App/TangoAuth.swift",
+          "line": 143,
+          "kind": "exception/source-literal",
+          "source": "guard Set(cookies.map(\\.name)) == Set([\"tt\",\"ttu\",\"tte\"]) else { throw AuthFailure.invalid }"
+        },
+        {
+          "file": "apps/ios/App/TangoAuth.swift",
+          "line": 154,
+          "kind": "exception/source-literal",
+          "source": "guard url.scheme == \"https\", let host = url.host, url.user == nil, url.password == nil else { throw AuthFailure.invalid }"
+        },
+        {
+          "file": "apps/ios/App/TangoAuth.swift",
+          "line": 164,
+          "kind": "exception/source-literal",
+          "source": "guard let session else { throw AuthFailure.login }"
+        },
+        {
+          "file": "apps/ios/App/TangoAuth.swift",
+          "line": 166,
+          "kind": "exception/source-literal",
+          "source": "guard let http = response as? HTTPURLResponse else { throw AuthFailure.invalid }"
+        },
+        {
+          "file": "apps/ios/App/TangoAuth.swift",
+          "line": 176,
+          "kind": "exception/source-literal",
+          "source": "else { throw AuthFailure.invalid }"
+        },
+        {
+          "file": "apps/ios/App/WebController.swift",
+          "line": 71,
+          "kind": "text-sink",
+          "source": "switch failure { case .login, .pending: showLogin(failure.localizedDescription); default: if !started { showLogin(failure.localizedDescription) } }"
+        },
+        {
+          "file": "apps/ios/App/WebController.swift",
+          "line": 72,
+          "kind": "text-sink",
+          "source": "} else if !started { showLogin(\"Could not connect to Tango. Retrying…\") }"
+        },
+        {
+          "file": "apps/ios/App/WebController.swift",
+          "line": 82,
+          "kind": "text-sink",
+          "source": "private func showLogin(_ message: String) {"
+        },
+        {
+          "file": "apps/ios/App/WebController.swift",
+          "line": 86,
+          "kind": "text-sink",
+          "source": "label.text = message + \"\\n\\nSign in with Google on Tango in Safari. Enable Tango Login and choose Import login into Tango. Close Tango tabs, then delete only Tango in Safari’s Website Data settings.\""
+        },
+        {
+          "file": "apps/ios/App/WebController.swift",
+          "line": 87,
+          "kind": "text-sink",
+          "source": "let open = UIButton(type:.system); open.setTitle(\"Open Tango in Safari\",for:.normal)"
+        },
+        {
+          "file": "apps/ios/App/WebController.swift",
+          "line": 89,
+          "kind": "text-sink",
+          "source": "let confirm = UIButton(type:.system); confirm.setTitle(\"Safari data cleared — continue\",for:.normal)"
+        },
+        {
+          "file": "apps/ios/App/WebController.swift",
+          "line": 103,
+          "kind": "exception/source-literal",
+          "source": "} catch { (loginView?.arrangedSubviews.first as? UILabel)?.text = error.localizedDescription }"
+        },
+        {
+          "file": "apps/ios/App/WebController.swift",
+          "line": 109,
+          "kind": "exception/source-literal",
+          "source": "let command = body[\"command\"] as? String else { replyHandler(nil,\"Invalid native request\"); return }"
+        },
+        {
+          "file": "apps/ios/App/WebController.swift",
+          "line": 125,
+          "kind": "exception/source-literal",
+          "source": "let multi = args[\"multi\"] as? String, [\"on\",\"off\"].contains(multi) else { throw AuthFailure.invalid }"
+        },
+        {
+          "file": "apps/ios/App/WebController.swift",
+          "line": 132,
+          "kind": "exception/source-literal",
+          "source": "guard let url = args[\"url\"] as? String else { throw AuthFailure.invalid }"
+        },
+        {
+          "file": "apps/ios/App/WebController.swift",
+          "line": 140,
+          "kind": "exception/source-literal",
+          "source": "default: replyHandler(nil,\"Unknown native request\")"
+        },
+        {
+          "file": "apps/ios/App/WebController.swift",
+          "line": 142,
+          "kind": "exception/source-literal",
+          "source": "} catch { replyHandler(nil,error.localizedDescription) }"
+        },
+        {
+          "file": "apps/ios/Login/Handler.swift",
+          "line": 12,
+          "kind": "exception/source-literal",
+          "source": "throw LoginStore.failure(\"Invalid import\", -1)"
+        },
+        {
+          "file": "apps/ios/Login/Handler.swift",
+          "line": 20,
+          "kind": "exception/source-literal",
+          "source": "}) else { throw LoginStore.failure(\"Invalid Tango cookies\", -1) }"
+        },
+        {
+          "file": "apps/ios/Login/Resources/cookies.js",
+          "line": 4,
+          "kind": "exception/source-literal",
+          "source": "throw new Error('Open Tango in the active Safari tab first.');"
+        },
+        {
+          "file": "apps/ios/Login/Resources/cookies.js",
+          "line": 7,
+          "kind": "exception/source-literal",
+          "source": "if (stores.length !== 1) throw new Error('Unable to identify this Safari tab’s cookie store.');"
+        },
+        {
+          "file": "apps/ios/Login/Resources/popup.html",
+          "line": 1,
+          "kind": "html",
+          "source": "<!doctype html><html><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><style>body{font:16px system-ui;min-width:250px;padding:16px;color-scheme:light dark}button{font:inherit;padding:12px}p{max-width:300px}</style></head><body><button id=\"import\">Import login into Tango</button><p id=\"status\">Sign in on tango.me first. You can disable this helper after import.</p><script type=\"module\" src=\"popup.js\"></script></body></html>"
+        },
+        {
+          "file": "apps/ios/Login/Resources/popup.js",
+          "line": 5,
+          "kind": "text-sink",
+          "source": "status.textContent = 'Importing…';"
+        },
+        {
+          "file": "apps/ios/Login/Resources/popup.js",
+          "line": 9,
+          "kind": "text-sink",
+          "source": "status.textContent = 'No Tango login found. Sign in on tango.me and allow this helper access to Tango websites.';"
+        },
+        {
+          "file": "apps/ios/Login/Resources/popup.js",
+          "line": 15,
+          "kind": "text-sink",
+          "source": "status.textContent = response?.ok ? 'Login saved. Close Tango tabs and remove tango.me in Safari Settings → Advanced → Website Data. Then open Tango and confirm cleanup. Do not use Log out.' : 'Import failed. Check website access and try again.';"
+        },
+        {
+          "file": "apps/ios/Login/Resources/popup.js",
+          "line": 17,
+          "kind": "text-sink",
+          "source": "status.textContent = 'Import failed. Check website access and try again.';"
+        },
+        {
+          "file": "apps/ios/Shared/Login.swift",
+          "line": 44,
+          "kind": "exception/source-literal",
+          "source": "guard status == errSecSuccess, let data = result as? Data else { throw failure(\"Keychain read\", status) }"
+        },
+        {
+          "file": "apps/ios/Shared/Login.swift",
+          "line": 50,
+          "kind": "exception/source-literal",
+          "source": "throw failure(\"Incomplete Tango login\", -1)"
+        },
+        {
+          "file": "apps/ios/Shared/Login.swift",
+          "line": 59,
+          "kind": "exception/source-literal",
+          "source": "guard status == errSecSuccess else { throw failure(\"Keychain save\", status) }"
+        },
+        {
+          "file": "apps/ios/Shared/Login.swift",
+          "line": 62,
+          "kind": "exception/source-literal",
+          "source": "static func failure(_ operation: String, _ code: Int32) -> NSError {"
+        },
+        {
+          "file": "apps/ios/web/app.ts",
+          "line": 67,
+          "kind": "text-sink",
+          "source": "const retry=document.createElement('a'); retry.href=location.pathname; retry.textContent='Retry';"
+        },
+        {
+          "file": "apps/ios/web/index.html",
+          "line": 1,
+          "kind": "html",
+          "source": "<!doctype html><html><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1,viewport-fit=cover\"><title>Streams</title></head><body><script src=\"/app.js\"></script></body></html>"
+        },
+        {
+          "file": "apps/ios/web/native.ts",
+          "line": 2,
+          "kind": "exception/source-literal",
+          "source": "return JSON.parse(await (window as any).webkit.messageHandlers.viewer.postMessage({command, args}));"
+        },
+        {
+          "file": "src/core/page.ts",
+          "line": 22,
+          "kind": "text-sink",
+          "source": "export function showStatus(message: string, error = false, links: { href: string; label: string }[] = []): void {"
+        },
+        {
+          "file": "src/core/page.ts",
+          "line": 26,
+          "kind": "text-sink",
+          "source": "status.textContent = message;"
+        },
+        {
+          "file": "src/core/page.ts",
+          "line": 30,
+          "kind": "text-sink",
+          "source": "link.textContent = label;"
+        },
+        {
+          "file": "src/core/request.ts",
+          "line": 16,
+          "kind": "exception/source-literal",
+          "source": "xhr.onerror = () => reject(new Error(`Request failed: ${url}`));"
+        },
+        {
+          "file": "src/core/start.ts",
+          "line": 18,
+          "kind": "text-sink",
+          "source": "showStatus(\"Loading…\");"
+        },
+        {
+          "file": "src/core/start.ts",
+          "line": 34,
+          "kind": "text-sink",
+          "source": "showStatus(message, true, provider.playback === \"video\""
+        },
+        {
+          "file": "src/core/state.ts",
+          "line": 33,
+          "kind": "exception/source-literal",
+          "source": "if (typeof value !== \"object\" || value === null) throw new Error(\"Stored stream state is not an object\");"
+        },
+        {
+          "file": "src/core/state.ts",
+          "line": 38,
+          "kind": "exception/source-literal",
+          "source": "throw new Error(\"Stored stream state is invalid\");"
+        },
+        {
+          "file": "src/core/state.ts",
+          "line": 40,
+          "kind": "exception/source-literal",
+          "source": "if (state.nextPage !== undefined && typeof state.nextPage !== \"string\") throw new Error(\"Stored pagination is invalid\");"
+        },
+        {
+          "file": "src/provider/index.ts",
+          "line": 12,
+          "kind": "exception/source-literal",
+          "source": "throw new Error(`Unsupported provider host: ${hostname}`);"
+        },
+        {
+          "file": "src/provider/tango/provider.ts",
+          "line": 12,
+          "kind": "exception/source-literal",
+          "source": "throw new Error(`${url} returned ${response.status}`);"
+        },
+        {
+          "file": "src/provider/tango/provider.ts",
+          "line": 19,
+          "kind": "exception/source-literal",
+          "source": "throw new Error(`${label} is not an object`);"
+        },
+        {
+          "file": "src/provider/tango/provider.ts",
+          "line": 26,
+          "kind": "exception/source-literal",
+          "source": "throw new Error(`${label} is not a string array`);"
+        },
+        {
+          "file": "src/provider/tango/provider.ts",
+          "line": 41,
+          "kind": "exception/source-literal",
+          "source": "if (!response.ok) throw new Error(`Download-list ${action} failed: ${response.status}`);"
+        },
+        {
+          "file": "src/provider/tango/provider.ts",
+          "line": 43,
+          "kind": "exception/source-literal",
+          "source": "if (body.success !== true) throw new Error(`Download-list ${action} was not confirmed`);"
+        },
+        {
+          "file": "src/provider/tango/provider.ts",
+          "line": 54,
+          "kind": "exception/source-literal",
+          "source": "if (typeof value !== \"object\" || value === null) throw new Error(\"Tango's stored user is not an object\");"
+        },
+        {
+          "file": "src/provider/tango/provider.ts",
+          "line": 57,
+          "kind": "exception/source-literal",
+          "source": "if (typeof persisted.accountId !== \"string\") throw new Error(\"Tango's stored account ID is invalid\");"
+        },
+        {
+          "file": "src/provider/tango/provider.ts",
+          "line": 59,
+          "kind": "exception/source-literal",
+          "source": "if (typeof parsed !== \"string\") throw new Error(\"Tango's stored account ID is invalid\");"
+        },
+        {
+          "file": "src/provider/tango/provider.ts",
+          "line": 68,
+          "kind": "exception/source-literal",
+          "source": "if (typeof value !== \"object\" || value === null) throw new Error(\"Tango's stored session is not an object\");"
+        },
+        {
+          "file": "src/provider/tango/provider.ts",
+          "line": 71,
+          "kind": "exception/source-literal",
+          "source": "if (typeof persisted.data !== \"string\") throw new Error(\"Tango's stored session details are invalid\");"
+        },
+        {
+          "file": "src/provider/tango/provider.ts",
+          "line": 73,
+          "kind": "exception/source-literal",
+          "source": "if (typeof details !== \"object\" || details === null) throw new Error(\"Tango's stored session details are invalid\");"
+        },
+        {
+          "file": "src/provider/tango/provider.ts",
+          "line": 76,
+          "kind": "exception/source-literal",
+          "source": "throw new Error(\"Tango's stored session ID is invalid\");"
+        },
+        {
+          "file": "src/provider/tango/provider.ts",
+          "line": 82,
+          "kind": "exception/source-literal",
+          "source": "if (!accountId || !sessionId) throw new Error(\"Log in to Tango, then refresh this page.\");"
+        },
+        {
+          "file": "src/provider/tango/provider.ts",
+          "line": 109,
+          "kind": "exception/source-literal",
+          "source": "if (!Array.isArray(body.records)) throw new Error(\"Tango recommendation records are not an array\");"
+        },
+        {
+          "file": "src/provider/tango/provider.ts",
+          "line": 118,
+          "kind": "exception/source-literal",
+          "source": "if (Array.isArray(body)) return new Set(requiredStringArray(body, \"Tango blocklist\"));"
+        },
+        {
+          "file": "src/provider/tango/provider.ts",
+          "line": 120,
+          "kind": "exception/source-literal",
+          "source": "return new Set(requiredStringArray(object.users, \"Tango blocklist users\"));"
+        },
+        {
+          "file": "src/provider/tango/provider.ts",
+          "line": 134,
+          "kind": "exception/source-literal",
+          "source": "return bestEffort(\"Tango batch profile enrichment\", streams, async () => {"
+        },
+        {
+          "file": "src/provider/tango/provider.ts",
+          "line": 211,
+          "kind": "exception/source-literal",
+          "source": "throw new Error(\"Tango multi-broadcast streams are not an array\");"
+        },
+        {
+          "file": "src/provider/tango/provider.ts",
+          "line": 235,
+          "kind": "exception/source-literal",
+          "source": "return bestEffort(\"Tango profile enrichment\", stream, async () => {"
+        },
+        {
+          "file": "src/provider/tango/provider.ts",
+          "line": 261,
+          "kind": "exception/source-literal",
+          "source": "if (result.error_code !== 0) throw new Error(result.error_message || \"Tango did not block this streamer.\");"
+        },
+        {
+          "file": "src/provider/tango/provider.ts",
+          "line": 266,
+          "kind": "exception/source-literal",
+          "source": "if (!response.ok) throw new Error(`Download-list request failed: ${response.status}`);"
+        },
+        {
+          "file": "src/provider/xvideos/provider.ts",
+          "line": 11,
+          "kind": "exception/source-literal",
+          "source": "throw new Error(\"Unexpected XVideos page URL.\");"
+        },
+        {
+          "file": "src/provider/xvideos/provider.ts",
+          "line": 19,
+          "kind": "exception/source-literal",
+          "source": "if (response.status === 401 || response.status === 403) throw new AuthenticationRequiredError(\"XVideos login is required.\");"
+        },
+        {
+          "file": "src/provider/xvideos/provider.ts",
+          "line": 20,
+          "kind": "exception/source-literal",
+          "source": "if (!response.ok) throw new Error(`XVideos page unavailable (${response.status}).`);"
+        },
+        {
+          "file": "src/provider/xvideos/provider.ts",
+          "line": 21,
+          "kind": "exception/source-literal",
+          "source": "if (new URL(response.url).origin !== location.origin) throw new Error(\"Log in to XVideos at /account, then return to your uploads.\");"
+        },
+        {
+          "file": "src/provider/xvideos/provider.ts",
+          "line": 27,
+          "kind": "exception/source-literal",
+          "source": "throw new Error(\"XVideos redirected this uploads page.\");"
+        },
+        {
+          "file": "src/provider/xvideos/provider.ts",
+          "line": 45,
+          "kind": "text-sink",
+          "source": "firstName: link.textContent?.trim() || `Video ${id}`,"
+        },
+        {
+          "file": "src/provider/xvideos/provider.ts",
+          "line": 56,
+          "kind": "exception/source-literal",
+          "source": "throw new AuthenticationRequiredError(\"Log in to XVideos at /account, then return to your uploads.\");"
+        },
+        {
+          "file": "src/provider/xvideos/provider.ts",
+          "line": 59,
+          "kind": "exception/source-literal",
+          "source": "throw new Error(\"Could not read your XVideos uploads. Open /account to check your session.\");"
+        },
+        {
+          "file": "src/provider/xvideos/provider.ts",
+          "line": 68,
+          "kind": "exception/source-literal",
+          "source": "throw new Error(\"Invalid uploads page cursor.\");"
+        },
+        {
+          "file": "src/provider/xvideos/provider.ts",
+          "line": 110,
+          "kind": "text-sink",
+          "source": "const match = script.textContent?.match(pattern);"
+        },
+        {
+          "file": "src/provider/xvideos/provider.ts",
+          "line": 118,
+          "kind": "exception/source-literal",
+          "source": "if (url.protocol !== \"https:\") throw new Error(\"Unexpected video source protocol.\");"
+        },
+        {
+          "file": "src/provider/xvideos/provider.ts",
+          "line": 131,
+          "kind": "exception/source-literal",
+          "source": "if (!manifest.trimStart().startsWith(\"#EXTM3U\")) throw new Error(\"Invalid XVideos quality playlist.\");"
+        },
+        {
+          "file": "src/provider/xvideos/provider.ts",
+          "line": 142,
+          "kind": "exception/source-literal",
+          "source": "if (!target || target.startsWith(\"#\")) throw new Error(\"Missing XVideos quality variant.\");"
+        },
+        {
+          "file": "src/provider/xvideos/provider.ts",
+          "line": 143,
+          "kind": "exception/source-literal",
+          "source": "if (line.match(/\\b(?:AUDIO|VIDEO)=\"/)) throw new Error(\"Unsupported external media tracks in XVideos playlist.\");"
+        },
+        {
+          "file": "src/provider/xvideos/provider.ts",
+          "line": 147,
+          "kind": "exception/source-literal",
+          "source": "if (!variants.length) throw new Error(\"XVideos did not expose selectable video qualities.\");"
+        },
+        {
+          "file": "src/provider/xvideos/provider.ts",
+          "line": 156,
+          "kind": "exception/source-literal",
+          "source": "if (!response.ok) throw new Error(`Could not load video qualities (${response.status}).`);"
+        },
+        {
+          "file": "src/provider/xvideos/provider.ts",
+          "line": 162,
+          "kind": "exception/source-literal",
+          "source": "if (low) return { url: low, quality: \"Only available source\" };"
+        },
+        {
+          "file": "src/provider/xvideos/provider.ts",
+          "line": 163,
+          "kind": "exception/source-literal",
+          "source": "throw new Error(\"This upload is unavailable or is still processing. Check its status in your XVideos account.\");"
+        },
+        {
+          "file": "src/routes/home.ts",
+          "line": 10,
+          "kind": "text-sink",
+          "source": "function row(provider: Provider, stream: Stream): HTMLAnchorElement {"
+        },
+        {
+          "file": "src/routes/home.ts",
+          "line": 17,
+          "kind": "text-sink",
+          "source": "name.textContent = streamLabel(provider, stream);"
+        },
+        {
+          "file": "src/routes/home.ts",
+          "line": 28,
+          "kind": "text-sink",
+          "source": "if (name) name.textContent = streamLabel(provider, stream);"
+        },
+        {
+          "file": "src/routes/home.ts",
+          "line": 33,
+          "kind": "text-sink",
+          "source": "document.title = provider.listTitle;"
+        },
+        {
+          "file": "src/routes/home.ts",
+          "line": 35,
+          "kind": "text-sink",
+          "source": "for (const stream of streams) document.body.append(row(provider, stream));"
+        },
+        {
+          "file": "src/routes/home.ts",
+          "line": 39,
+          "kind": "text-sink",
+          "source": "empty.textContent = provider.playback === \"video\" ? \"No uploads yet.\" : \"No live streams are available.\";"
+        },
+        {
+          "file": "src/routes/home.ts",
+          "line": 88,
+          "kind": "text-sink",
+          "source": "progress.textContent = \"Loading more uploads…\";"
+        },
+        {
+          "file": "src/routes/home.ts",
+          "line": 92,
+          "kind": "text-sink",
+          "source": "for (const stream of added) progress!.before(row(provider, stream));"
+        },
+        {
+          "file": "src/routes/home.ts",
+          "line": 94,
+          "kind": "text-sink",
+          "source": "progress!.textContent = \"Loading more uploads…\";"
+        },
+        {
+          "file": "src/routes/home.ts",
+          "line": 99,
+          "kind": "text-sink",
+          "source": "progress!.textContent = \"XVideos login is required. \";"
+        },
+        {
+          "file": "src/routes/home.ts",
+          "line": 102,
+          "kind": "text-sink",
+          "source": "login.textContent = \"Log in\";"
+        },
+        {
+          "file": "src/routes/home.ts",
+          "line": 106,
+          "kind": "text-sink",
+          "source": "progress!.textContent = \"Loading more uploads… Retrying automatically.\";"
+        },
+        {
+          "file": "src/routes/home.ts",
+          "line": 149,
+          "kind": "text-sink",
+          "source": "for (const stream of streams.slice(existing.length)) document.body.append(row(provider, stream));"
+        },
+        {
+          "file": "src/routes/stream.ts",
+          "line": 49,
+          "kind": "exception/source-literal",
+          "source": "throw new Error(\"This video is not in your uploads. Open your uploads list to refresh it.\");"
+        },
+        {
+          "file": "src/routes/stream.ts",
+          "line": 54,
+          "kind": "exception/source-literal",
+          "source": "throw new Error(provider.playback === \"video\" ? \"No uploads are available.\" : \"No live streams are available.\");"
+        },
+        {
+          "file": "src/routes/stream.ts",
+          "line": 173,
+          "kind": "text-sink",
+          "source": "document.title = stream.alias || stream.firstName;"
+        },
+        {
+          "file": "src/routes/stream.ts",
+          "line": 175,
+          "kind": "text-sink",
+          "source": "controls.querySelector<HTMLElement>(\".stream-name\")!.textContent ="
+        },
+        {
+          "file": "src/routes/stream.ts",
+          "line": 179,
+          "kind": "text-sink",
+          "source": "controls.querySelector<HTMLElement>(\".playback-status\")!.textContent ="
+        },
+        {
+          "file": "src/routes/stream.ts",
+          "line": 182,
+          "kind": "text-sink",
+          "source": "controls.querySelector<HTMLButtonElement>(\".play-pause\")!.textContent = current.video.paused ? \"▶\" : \"⏸\";"
+        },
+        {
+          "file": "src/routes/stream.ts",
+          "line": 185,
+          "kind": "text-sink",
+          "source": "mute.textContent = slots[1].video.muted ? \"🔇\" : \"🔊\";"
+        },
+        {
+          "file": "src/routes/stream.ts",
+          "line": 187,
+          "kind": "text-sink",
+          "source": "multiple.textContent = multipleVideos ? \"Multi: On\" : \"Multi: Off\";"
+        },
+        {
+          "file": "src/routes/stream.ts",
+          "line": 190,
+          "kind": "text-sink",
+          "source": "follow.textContent = stream.isFollowing ? \"❤️\" : \"🤍\";"
+        },
+        {
+          "file": "src/routes/stream.ts",
+          "line": 194,
+          "kind": "text-sink",
+          "source": "block.textContent = \"🚫\";"
+        },
+        {
+          "file": "src/routes/stream.ts",
+          "line": 197,
+          "kind": "text-sink",
+          "source": "download.title = \"Download list\";"
+        },
+        {
+          "file": "src/routes/stream.ts",
+          "line": 199,
+          "kind": "text-sink",
+          "source": "download.textContent = \"⏳\";"
+        },
+        {
+          "file": "src/routes/stream.ts",
+          "line": 202,
+          "kind": "text-sink",
+          "source": "download.textContent = \"⚠️\";"
+        },
+        {
+          "file": "src/routes/stream.ts",
+          "line": 205,
+          "kind": "text-sink",
+          "source": "download.title = downloadError;"
+        },
+        {
+          "file": "src/routes/stream.ts",
+          "line": 208,
+          "kind": "text-sink",
+          "source": "download.textContent = downloaded ? \"➖\" : \"➕\";"
+        },
+        {
+          "file": "src/routes/stream.ts",
+          "line": 213,
+          "kind": "text-sink",
+          "source": "download.title = downloadError;"
+        },
+        {
+          "file": "src/routes/stream.ts",
+          "line": 271,
+          "kind": "text-sink",
+          "source": "message.textContent = \"No live streams are available.\";"
+        },
+        {
+          "file": "src/routes/stream.ts",
+          "line": 457,
+          "kind": "text-sink",
+          "source": "button.textContent = \"❓\";"
+        },
+        {
+          "file": "src/routes/stream.ts",
+          "line": 550,
+          "kind": "text-sink",
+          "source": "controls.innerHTML = `"
+        }
+      ]
+    },
+    "gallery-downloader": {
+      "root": "/home/visar/Documents/work/manga/gallery-downloader",
+      "baseCommit": "2f59d0b3d4ad115761a9b3b930407247606524d1",
+      "scope": "working tree; gallery-downloader has unrelated background-sync WIP, not changed here",
+      "locations": [
+        {
+          "file": "apps/ios/GalleryReader/BackgroundSync.swift",
+          "line": 54,
+          "kind": "exception/source-literal",
+          "source": "} catch { record(\"schedule-failed\", identifier + \": \" + error.localizedDescription) }"
+        },
+        {
+          "file": "apps/ios/GalleryReader/BackgroundSync.swift",
+          "line": 97,
+          "kind": "exception/source-literal",
+          "source": "stopReason ?? error.localizedDescription, progress: progress)"
+        },
+        {
+          "file": "apps/ios/GalleryReader/BackgroundSync.swift",
+          "line": 103,
+          "kind": "exception/source-literal",
+          "source": "catch { success = false; await journal.append(\"checkpoint-failed\", error.localizedDescription) }"
+        },
+        {
+          "file": "apps/ios/GalleryReader/GalleryAPI.swift",
+          "line": 99,
+          "kind": "exception/source-literal",
+          "source": "else { throw ReaderError.invalidManifest }"
+        },
+        {
+          "file": "apps/ios/GalleryReader/GalleryAPI.swift",
+          "line": 108,
+          "kind": "exception/source-literal",
+          "source": "throw ReaderError.badResponse((response as? HTTPURLResponse)?.statusCode ?? 0)"
+        },
+        {
+          "file": "apps/ios/GalleryReader/GalleryAPI.swift",
+          "line": 137,
+          "kind": "exception/source-literal",
+          "source": "throw ReaderError.badResponse((response as? HTTPURLResponse)?.statusCode ?? 0)"
+        },
+        {
+          "file": "apps/ios/GalleryReader/GalleryAPI.swift",
+          "line": 140,
+          "kind": "exception/source-literal",
+          "source": "guard size?.int64Value == page.size else { throw ReaderError.wrongSize }"
+        },
+        {
+          "file": "apps/ios/GalleryReader/GalleryStore.swift",
+          "line": 68,
+          "kind": "text-sink",
+          "source": "private func publish(_ message: String) {"
+        },
+        {
+          "file": "apps/ios/GalleryReader/GalleryStore.swift",
+          "line": 143,
+          "kind": "text-sink",
+          "source": "publish(summary())"
+        },
+        {
+          "file": "apps/ios/GalleryReader/GalleryStore.swift",
+          "line": 205,
+          "kind": "exception/source-literal",
+          "source": "guard index >= 0, index < available else { throw ReaderError.missingImage }"
+        },
+        {
+          "file": "apps/ios/GalleryReader/GalleryStore.swift",
+          "line": 212,
+          "kind": "exception/source-literal",
+          "source": "guard url.scheme == \"gallery\", url.host == \"app\" else { throw ReaderError.missingImage }"
+        },
+        {
+          "file": "apps/ios/GalleryReader/GalleryStore.swift",
+          "line": 218,
+          "kind": "exception/source-literal",
+          "source": "headers[components[1]] != nil else { throw ReaderError.missingImage }"
+        },
+        {
+          "file": "apps/ios/GalleryReader/GalleryStore.swift",
+          "line": 225,
+          "kind": "exception/source-literal",
+          "source": "else { throw ReaderError.missingImage }"
+        },
+        {
+          "file": "apps/ios/GalleryReader/GalleryStore.swift",
+          "line": 230,
+          "kind": "exception/source-literal",
+          "source": "let found = Bundle.main.url(forResource: name, withExtension: nil, subdirectory: \"Web\") else { throw ReaderError.missingImage }"
+        },
+        {
+          "file": "apps/ios/GalleryReader/GalleryStore.swift",
+          "line": 254,
+          "kind": "exception/source-literal",
+          "source": "guard old.version == 1 else { throw ReaderError.invalidCatalog }"
+        },
+        {
+          "file": "apps/ios/GalleryReader/GalleryStore.swift",
+          "line": 268,
+          "kind": "exception/source-literal",
+          "source": "guard headers[header.item.key] == nil else { throw ReaderError.invalidCatalog }"
+        },
+        {
+          "file": "apps/ios/GalleryReader/GalleryStore.swift",
+          "line": 288,
+          "kind": "text-sink",
+          "source": "publish(headers.isEmpty ? \"Connecting to your favorites…\" : \"Opening saved favorites…\")"
+        },
+        {
+          "file": "apps/ios/GalleryReader/GalleryStore.swift",
+          "line": 303,
+          "kind": "exception/source-literal",
+          "source": "guard data.count < 100_000 else { throw ReaderError.invalidCatalog }"
+        },
+        {
+          "file": "apps/ios/GalleryReader/GalleryStore.swift",
+          "line": 344,
+          "kind": "exception/source-literal",
+          "source": "guard manifest.revision == header.revision, manifest.thumbnails?.revision == header.thumbnailRevision else { throw ReaderError.invalidManifest }"
+        },
+        {
+          "file": "apps/ios/GalleryReader/GalleryStore.swift",
+          "line": 356,
+          "kind": "exception/source-literal",
+          "source": "guard let item = catalogItems.first(where: { $0.key == key }) else { throw ReaderError.missingImage }"
+        },
+        {
+          "file": "apps/ios/GalleryReader/GalleryStore.swift",
+          "line": 382,
+          "kind": "text-sink",
+          "source": "publish(\"\\(catalogItems.count) favorites · \\(library.galleries.count) ready\")"
+        },
+        {
+          "file": "apps/ios/GalleryReader/GalleryStore.swift",
+          "line": 389,
+          "kind": "text-sink",
+          "source": "defer { syncing = false; publish(message) }"
+        },
+        {
+          "file": "apps/ios/GalleryReader/GalleryStore.swift",
+          "line": 400,
+          "kind": "text-sink",
+          "source": "publish(\"\\(catalogItems.count) favorites · loading new gallery details…\")"
+        },
+        {
+          "file": "apps/ios/GalleryReader/GalleryStore.swift",
+          "line": 415,
+          "kind": "text-sink",
+          "source": "if !busy { publish(summary()) }"
+        },
+        {
+          "file": "apps/ios/GalleryReader/GalleryStore.swift",
+          "line": 418,
+          "kind": "text-sink",
+          "source": "publish(library.galleries.isEmpty ? error.localizedDescription : \"PC unavailable; keeping saved galleries. \" + summary())"
+        },
+        {
+          "file": "apps/ios/GalleryReader/GalleryStore.swift",
+          "line": 451,
+          "kind": "text-sink",
+          "source": "publish(\"Saved for offline reading. \" + summary())"
+        },
+        {
+          "file": "apps/ios/GalleryReader/GalleryStore.swift",
+          "line": 455,
+          "kind": "text-sink",
+          "source": "publish(\"Saving source thumbnails…\")"
+        },
+        {
+          "file": "apps/ios/GalleryReader/GalleryStore.swift",
+          "line": 474,
+          "kind": "exception/source-literal",
+          "source": "return (error.localizedDescription, network || fullDisk)"
+        },
+        {
+          "file": "apps/ios/GalleryReader/GalleryStore.swift",
+          "line": 491,
+          "kind": "text-sink",
+          "source": "publish(failures == 0 ? \"Saved for offline reading. \" + summary()"
+        },
+        {
+          "file": "apps/ios/GalleryReader/GalleryStore.swift",
+          "line": 496,
+          "kind": "text-sink",
+          "source": "publish(Task.isCancelled ? \"Paused. Downloads resume in foreground or when iOS grants background time.\" : error.localizedDescription)"
+        },
+        {
+          "file": "apps/ios/GalleryReader/GalleryStore.swift",
+          "line": 525,
+          "kind": "exception/source-literal",
+          "source": "let destination = Self.file(root: root, saved: saved, page: id.page, thumbnail: id.thumbnail) else { throw ReaderError.missingImage }"
+        },
+        {
+          "file": "apps/ios/GalleryReader/GalleryStore.swift",
+          "line": 569,
+          "kind": "text-sink",
+          "source": "publish(\"\\(kind) · gallery \\(id.gallery + 1)/\\(library.galleries.count) · \\(id.page + 1)/\\(pages.count)\")"
+        },
+        {
+          "file": "apps/ios/GalleryReader/GalleryStore.swift",
+          "line": 597,
+          "kind": "exception/source-literal",
+          "source": "guard matches(source, size: expectedSize) else { throw ReaderError.wrongSize }"
+        },
+        {
+          "file": "apps/ios/GalleryReader/GalleryStore.swift",
+          "line": 604,
+          "kind": "exception/source-literal",
+          "source": "throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))"
+        },
+        {
+          "file": "apps/ios/GalleryReader/LibraryRuntime.swift",
+          "line": 58,
+          "kind": "exception/source-literal",
+          "source": "NSLog(\"Gallery background journal: %@\", error.localizedDescription)"
+        },
+        {
+          "file": "apps/ios/GalleryReader/Models.swift",
+          "line": 55,
+          "kind": "exception/source-literal",
+          "source": "pages.count == item.pages else { throw ReaderError.invalidManifest }"
+        },
+        {
+          "file": "apps/ios/GalleryReader/Models.swift",
+          "line": 58,
+          "kind": "exception/source-literal",
+          "source": "guard thumbnails.pages.count == pages.count else { throw ReaderError.invalidManifest }"
+        },
+        {
+          "file": "apps/ios/GalleryReader/Models.swift",
+          "line": 67,
+          "kind": "exception/source-literal",
+          "source": "else { throw ReaderError.invalidManifest }"
+        },
+        {
+          "file": "apps/ios/GalleryReader/Models.swift",
+          "line": 77,
+          "kind": "exception/source-literal",
+          "source": "else { throw ReaderError.invalidManifest }"
+        },
+        {
+          "file": "apps/ios/GalleryReader/Models.swift",
+          "line": 80,
+          "kind": "exception/source-literal",
+          "source": "guard offset == bytes else { throw ReaderError.invalidManifest }"
+        },
+        {
+          "file": "apps/ios/GalleryReader/Models.swift",
+          "line": 100,
+          "kind": "exception/source-literal",
+          "source": "var errorDescription: String? {"
+        },
+        {
+          "file": "apps/ios/GalleryReader/Models.swift",
+          "line": 102,
+          "kind": "exception/source-literal",
+          "source": "case .invalidManifest: return \"The PC returned an invalid gallery manifest.\""
+        },
+        {
+          "file": "apps/ios/GalleryReader/Models.swift",
+          "line": 103,
+          "kind": "exception/source-literal",
+          "source": "case .invalidCatalog: return \"The PC returned an invalid favorites catalog.\""
+        },
+        {
+          "file": "apps/ios/GalleryReader/Models.swift",
+          "line": 104,
+          "kind": "exception/source-literal",
+          "source": "case .badResponse(let code): return \"The PC returned HTTP \\(code).\""
+        },
+        {
+          "file": "apps/ios/GalleryReader/Models.swift",
+          "line": 105,
+          "kind": "exception/source-literal",
+          "source": "case .missingImage: return \"This page isn't saved yet.\""
+        },
+        {
+          "file": "apps/ios/GalleryReader/Models.swift",
+          "line": 106,
+          "kind": "exception/source-literal",
+          "source": "case .wrongSize: return \"An image download was incomplete. It will retry automatically.\""
+        },
+        {
+          "file": "apps/ios/GalleryReader/Models.swift",
+          "line": 113,
+          "kind": "exception/source-literal",
+          "source": "guard catalog.version == 1 else { throw ReaderError.invalidCatalog }"
+        },
+        {
+          "file": "apps/ios/GalleryReader/Models.swift",
+          "line": 156,
+          "kind": "exception/source-literal",
+          "source": "else { throw ReaderError.invalidManifest }"
+        },
+        {
+          "file": "apps/ios/GalleryReader/Models.swift",
+          "line": 189,
+          "kind": "exception/source-literal",
+          "source": "else { throw ReaderError.invalidCatalog }"
+        },
+        {
+          "file": "apps/ios/GalleryReader/WebController.swift",
+          "line": 153,
+          "kind": "exception/source-literal",
+          "source": "replyHandler(nil, \"Invalid native request\"); return"
+        },
+        {
+          "file": "apps/ios/GalleryReader/WebController.swift",
+          "line": 204,
+          "kind": "exception/source-literal",
+          "source": "default: replyHandler(nil, \"Unknown native request\")"
+        },
+        {
+          "file": "apps/ios/GalleryReader/WebController.swift",
+          "line": 206,
+          "kind": "exception/source-literal",
+          "source": "} catch { replyHandler(nil, error.localizedDescription) }"
+        },
+        {
+          "file": "apps/ios/Resources/native.js",
+          "line": 6,
+          "kind": "exception/source-literal",
+          "source": "return window.webkit.messageHandlers.gallery.postMessage({ command: 'view-save', args: { document: nativeDocument, position } }).catch(() => {});"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/app.js",
+          "line": 97,
+          "kind": "text-sink",
+          "source": "const say = text => { $('status').textContent = text; };"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/app.js",
+          "line": 170,
+          "kind": "exception/source-literal",
+          "source": "if (!worker || suspended) return Promise.reject(new Error('App suspended'));"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/app.js",
+          "line": 179,
+          "kind": "text-sink",
+          "source": "$('count').textContent = `${catalog.length} Favorites`;"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/app.js",
+          "line": 180,
+          "kind": "text-sink",
+          "source": "$('download').textContent = active ? 'Stop' : downloads.size ? 'Resume downloads' : 'Download all';"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/app.js",
+          "line": 182,
+          "kind": "text-sink",
+          "source": "if (!active) say(`${originals.filter(s => s.complete).length}/${catalog.length} saved · ${size([...originals, ...thumbs].reduce((n, s) => n + s.bytes, 0))} · ${thumbs.filter(s => s.complete).length} thumbnail sets`);"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/app.js",
+          "line": 214,
+          "kind": "text-sink",
+          "source": "function pageError(slot, text) {"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/app.js",
+          "line": 217,
+          "kind": "text-sink",
+          "source": "error.textContent = `Page ${slot.index + 1}: ${text}`;"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/app.js",
+          "line": 230,
+          "kind": "exception/source-literal",
+          "source": "if (window.nativeGallery) throw new Error('Thumbnail not saved');"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/app.js",
+          "line": 231,
+          "kind": "exception/source-literal",
+          "source": "if (!slot.source || navigator.onLine === false) throw new Error('Thumbnail not saved');"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/app.js",
+          "line": 233,
+          "kind": "exception/source-literal",
+          "source": "if (!response.ok || !response.headers.get('content-type')?.startsWith('image/')) throw new Error('Thumbnail unavailable');"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/app.js",
+          "line": 251,
+          "kind": "text-sink",
+          "source": "if (readerKey) pageError(slot, 'Saved image could not be decoded.');"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/app.js",
+          "line": 257,
+          "kind": "text-sink",
+          "source": "if (readerKey) pageError(slot, error.message);"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/app.js",
+          "line": 258,
+          "kind": "text-sink",
+          "source": "else img.alt = `${slot.index + 1} · ${error.message}`;"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/app.js",
+          "line": 290,
+          "kind": "text-sink",
+          "source": "link.setAttribute('aria-label', `${item.title} · page ${index + 1}`);"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/app.js",
+          "line": 291,
+          "kind": "text-sink",
+          "source": "img.className = 'hs-thumb'; img.alt = ''; img.decoding = 'async';"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/app.js",
+          "line": 300,
+          "kind": "text-sink",
+          "source": "if (!suspended && row.isConnected) row.querySelector('.row-message').textContent = `${item.title} · ${error.message}`;"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/app.js",
+          "line": 317,
+          "kind": "text-sink",
+          "source": "const link = document.createElement('a'); link.href = readUrl(item.key, 0); link.textContent = item.title; message.append(link);"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/app.js",
+          "line": 319,
+          "kind": "text-sink",
+          "source": "const info = document.createElement('button'); info.className = 'row-action-btn info-btn'; info.textContent = 'i';"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/app.js",
+          "line": 320,
+          "kind": "text-sink",
+          "source": "info.setAttribute('aria-label', `Information: ${item.title}`); info.onclick = () => showInfo(row, item);"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/app.js",
+          "line": 325,
+          "kind": "text-sink",
+          "source": "favs.href = '/'; favs.className = 'hs-page-favs'; favs.textContent = 'Favs'; pagination.append(favs);"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/app.js",
+          "line": 327,
+          "kind": "text-sink",
+          "source": "const link = document.createElement('a'); link.href = `/?p=${page}`; link.textContent = page;"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/app.js",
+          "line": 338,
+          "kind": "text-sink",
+          "source": "dialog.setAttribute('closedby', 'any'); dialog.setAttribute('aria-label', 'Gallery information');"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/app.js",
+          "line": 340,
+          "kind": "text-sink",
+          "source": "const title = document.createElement('h2'); title.textContent = item.title; header.append(title);"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/app.js",
+          "line": 343,
+          "kind": "text-sink",
+          "source": "const close = document.createElement('button'); close.textContent = 'Close'; footer.append(close);"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/app.js",
+          "line": 350,
+          "kind": "text-sink",
+          "source": "key.className = 'hs-modal-label'; key.textContent = label;"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/app.js",
+          "line": 351,
+          "kind": "text-sink",
+          "source": "val.className = 'hs-modal-value'; val.textContent = value; div.append(key, val); body.append(div);"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/app.js",
+          "line": 356,
+          "kind": "text-sink",
+          "source": "if (meta.title && meta.title !== item.title) { const other = document.createElement('h2'); other.textContent = meta.title; header.append(other); }"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/app.js",
+          "line": 357,
+          "kind": "text-sink",
+          "source": "for (const [label, key] of [['Artist','artists'],['Group','groups'],['Series','parody'],['Characters','characters']]) textRow(label, meta[key]?.join(', '));"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/app.js",
+          "line": 358,
+          "kind": "text-sink",
+          "source": "for (const [label, key] of [['Type','type'],['Language','language'],['Date','date']]) textRow(label, meta[key]);"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/app.js",
+          "line": 359,
+          "kind": "text-sink",
+          "source": "textRow('Pages', String(manifest.pages.length)); textRow('Source', item.key);"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/app.js",
+          "line": 361,
+          "kind": "text-sink",
+          "source": "textRow('Device', `${saved?.downloaded || 0}/${manifest.pages.length} pages · ${thumbs?.downloaded || 0} thumbnails`);"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/app.js",
+          "line": 362,
+          "kind": "text-sink",
+          "source": "textRow('Error', saved?.error || thumbs?.error);"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/app.js",
+          "line": 365,
+          "kind": "text-sink",
+          "source": "for (const tag of meta.tags) { const chip = document.createElement('span'); chip.className = 'hs-tag-chip'; chip.textContent = tag; cloud.append(chip); } body.append(cloud);"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/app.js",
+          "line": 367,
+          "kind": "text-sink",
+          "source": "} catch (error) { textRow('Status', error.message); }"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/app.js",
+          "line": 373,
+          "kind": "text-sink",
+          "source": "if (!renderedReader) $('reader-message').textContent = 'Opening saved pages…';"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/app.js",
+          "line": 375,
+          "kind": "text-sink",
+          "source": "const { manifest, state } = await call('open', { key: readerKey }); document.title = manifest.title;"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/app.js",
+          "line": 376,
+          "kind": "text-sink",
+          "source": "$('reader-message').textContent = state.complete ? '' : `${state.downloaded}/${state.total} pages saved`;"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/app.js",
+          "line": 384,
+          "kind": "text-sink",
+          "source": "img.className = 'hs-reader-img'; img.alt = ''; img.decoding = 'async';"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/app.js",
+          "line": 389,
+          "kind": "text-sink",
+          "source": "if (!window.nativeGallery && Number(params.get('page')) > state.downloaded) $('reader-message').textContent = `Page ${params.get('page')} is not saved. Only the first ${state.downloaded} pages are available.`;"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/app.js",
+          "line": 395,
+          "kind": "text-sink",
+          "source": "} catch (error) { $('reader-message').textContent = error.message; }"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/app.js",
+          "line": 402,
+          "kind": "exception/source-literal",
+          "source": "for (const request of pending.values()) request.reject(new Error(error.message)); pending.clear();"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/app.js",
+          "line": 403,
+          "kind": "text-sink",
+          "source": "active = false; supported = false; totals(); say(`Storage error: ${error.message}`);"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/app.js",
+          "line": 408,
+          "kind": "exception/source-literal",
+          "source": "if (data.error) request?.reject(new Error(data.error)); else request?.resolve(data.result); return;"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/app.js",
+          "line": 411,
+          "kind": "text-sink",
+          "source": "if (data.type === 'notice') say(data.message);"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/app.js",
+          "line": 422,
+          "kind": "text-sink",
+          "source": "if (active) say(`${data.state.key.replace(':thumbs', ' thumbnails')} · ${data.state.downloaded}/${data.state.total}`);"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/app.js",
+          "line": 430,
+          "kind": "text-sink",
+          "source": "if (data.type === 'download-status') { active = data.running; totals(); say(data.message); }"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/app.js",
+          "line": 440,
+          "kind": "text-sink",
+          "source": "} catch (error) { if (readerKey) $('reader-message').textContent = error.message; else say(error.message); }"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/app.js",
+          "line": 447,
+          "kind": "text-sink",
+          "source": "active = true; totals(); say('Downloading thumbnails, then remaining pages…');"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/app.js",
+          "line": 451,
+          "kind": "text-sink",
+          "source": "} catch (error) { active = false; totals(); say(error.message); }"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/app.js",
+          "line": 460,
+          "kind": "exception/source-literal",
+          "source": "for (const request of pending.values()) request.reject(new Error('App suspended')); pending.clear();"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/app.js",
+          "line": 465,
+          "kind": "text-sink",
+          "source": "const notice = () => { if (registration.waiting) $('sw-status').textContent = 'Update ready. Close all app windows and reopen; saved downloads stay.'; };"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/app.js",
+          "line": 469,
+          "kind": "text-sink",
+          "source": "}).catch(error => { $('sw-status').textContent = `Offline shell unavailable: ${error.message}`; });"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/app.js",
+          "line": 472,
+          "kind": "text-sink",
+          "source": "else if (!isSecureContext || !('serviceWorker' in navigator)) say('Trusted HTTPS is required.');"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/index.html",
+          "line": 8,
+          "kind": "html",
+          "source": "<title>Gallery Reader</title>"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/index.html",
+          "line": 15,
+          "kind": "html",
+          "source": "<div class=\"controls\"><span id=\"count\">Favorites</span><button id=\"download\" disabled>Download all</button></div>"
+        },
+        {
+          "file": "gallery-server/downloader/public/offline/index.html",
+          "line": 16,
+          "kind": "html",
+          "source": "<p id=\"status\" role=\"status\">Loading…</p><p id=\"sw-status\" role=\"status\"></p>"
+        }
+      ]
+    }
+  }
+}
