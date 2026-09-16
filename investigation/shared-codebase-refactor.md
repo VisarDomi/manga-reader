@@ -27,8 +27,7 @@ Implementation plan:
 - No migration code. Use existing PC Save in each installed app before updating,
   then PC Load in each refactored app. Old extracted manifests must not be reused
   (Lua's are incomplete). Keep the standard shared backup format.
-- Browser source/native parity fixtures for all six providers; native file/queue
-  tests; Lua real response and physical device restore/download validation.
+- Shared unit/provider checks and native file/queue tests; Lua real response and physical device restore/download validation.
 - Build/install all six, approve delivered renewal baselines, restore existing
   monthly scheduler, verify no extra background items or caffeinate processes.
 
@@ -55,8 +54,9 @@ no latest_chapters field. Asura now treats that catalog entry as having no
 chapters. The correction and regression test live in the shared provider.
 
 Validation: TypeScript check; 39 unit tests; provider/signing-lock builder tests;
-six bundled native-reader browser fixtures including Lua src/data-src extraction;
-six installed-extension fixtures; Swift downloader/storage tests on the Mac.
+Swift downloader/storage tests on the Mac. The three Chromium-only fixtures used
+during delivery were subsequently removed at the user’s request. Runtime checks
+target the physical iPhone and Safari/WebKit; do not reinstate those fixtures.
 All six monthly renewal runs built/signed/installed successfully over USB with
 history retained. Provider-specific generated Web assets are approved inputs;
 building another provider does not invalidate another provider's approval.

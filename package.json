@@ -6,7 +6,6 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "build:extension": "node scripts/build-extension.mjs",
-    "test:extension": "node tests/browser/extension.mjs",
     "ios:foreground": "node investigation/ios-foreground-connection.mjs",
     "test:unit": "vitest run tests/unit",
     "tests": "node tests/ios/run-fresh.mjs",

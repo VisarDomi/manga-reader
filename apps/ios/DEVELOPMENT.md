@@ -91,13 +91,18 @@ create extra daily jobs or background items.
 npx tsc -p apps/ios/tsconfig.json
 npm run test:unit
 npm run test:ios:builder
-node apps/ios/Tests/browser.mjs
 ```
 
-The browser suite builds all six bundles and exercises source reader/tracking,
-whole-chapter preparation without scrolling, native image URLs and Lua's mixed
-`src`/`data-src` extraction. On the Mac run `swift run ReaderCoreTests` from the
-native mirror to test the real downloader: bounded jobs, promotion, deduplication,
-file reuse, pruning, pause/resume and preservation of history. These checks do not
-establish physical scroll smoothness; inspect the installed app and test gestures
-on the phone. The shared-refactor investigation records physical delivery checks.
+Runtime validation targets the physical iPhone and Safari/WebKit. All three
+Chromium-only fixtures and the `test:extension` command were removed at the
+user's request. Retain the unit, provider-builder and signing-lock checks above.
+For Safari userscript flows use `npm run tests` / `npm run tests:single`; inspect
+installed native provider apps with `scripts/app-inspector.py` on the Mac.
+Verify reader images, whole-chapter preparation, Home/Back and cover resume on
+the phone, including Lua's mixed `src`/`data-src` chapter images.
+
+On the Mac run `swift run ReaderCoreTests` from the native mirror to test the
+real downloader: bounded jobs, promotion, deduplication, file reuse, pruning,
+pause/resume and preservation of history. These checks do not establish physical
+scroll smoothness; test gestures on the phone. The shared-refactor investigation
+records physical delivery checks.
