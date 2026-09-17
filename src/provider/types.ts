@@ -93,6 +93,8 @@ export interface HomePage {
     series: HomeSeries[];
     /** Opaque provider-owned cursor for the next bulk catalog request. */
     nextCursor: string | null;
+    /** Known later cursors, in provider order, available for bounded prefetch. */
+    prefetchCursors?: string[];
     total?: number;
 }
 

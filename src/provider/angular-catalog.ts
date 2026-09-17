@@ -74,6 +74,7 @@ export async function fetchAngularHome(site: Site, cursor: string | null, referr
             series: data.data.map(homeSeries),
             total: data.totalItems,
             nextCursor: hasMore ? `latest:${page + 1}` : 'catalog:1',
+            prefetchCursors: Array.from({ length: Math.max(0, Math.min(3, data.totalPages - page)) }, (_, i) => `latest:${page + i + 1}`),
         };
     }
 
@@ -90,5 +91,6 @@ export async function fetchAngularHome(site: Site, cursor: string | null, referr
         series: data.data.map(homeSeries),
         total: data.totalItems,
         nextCursor: hasMore ? `catalog:${page + 1}` : null,
+        prefetchCursors: Array.from({ length: Math.max(0, Math.min(3, data.totalPages - page)) }, (_, i) => `catalog:${page + i + 1}`),
     };
 }

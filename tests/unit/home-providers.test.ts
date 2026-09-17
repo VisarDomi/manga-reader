@@ -98,6 +98,25 @@ describe('Home behavior', () => {
         expect(document.querySelector('.hs-home-catalog-status')?.textContent).toBe('Loaded 3 series');
     });
 
+    it('pauses pagination on leaving Home and retains responses for Back', async () => {
+        const complete = new Map<string, (page: HomePage) => void>();
+        const fetchHome = vi.fn((cursor: string | null): Promise<HomePage> => cursor === null
+            ? Promise.resolve({series: [homeSeries('1')], nextCursor: '2', prefetchCursors: ['2', '3', '4']})
+            : new Promise(resolve => complete.set(cursor, resolve)));
+        const opening = openHome(testProvider({fetchHome}));
+        await settleHistory();
+        expect(fetchHome.mock.calls.map(([cursor]) => cursor)).toEqual([null, '2', '3', '4']);
+        window.dispatchEvent(new PageTransitionEvent('pagehide', {persisted: true}));
+        for (const n of [2, 3, 4]) complete.get(String(n))!({series: [homeSeries(String(n))], nextCursor: n === 4 ? null : String(n + 1)});
+        await settleHistory();
+        expect(document.querySelectorAll('.hs-home-card')).toHaveLength(1);
+        expect(fetchHome).toHaveBeenCalledTimes(4);
+        window.dispatchEvent(new PageTransitionEvent('pageshow', {persisted: true}));
+        await opening;
+        expect([...document.querySelectorAll<HTMLImageElement>('.hs-home-card img')].map(img => img.alt)).toEqual(['1', '2', '3', '4']);
+        expect(fetchHome).toHaveBeenCalledTimes(4);
+    });
+
     it('uses the saved local resume position', async () => {
         historyState.progress = [createChapterProgress('test', 'series-a', '2', 1, 5, 100)];
         const provider = testProvider({

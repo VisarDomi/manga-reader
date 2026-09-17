@@ -13,8 +13,7 @@ import { CoverResumeKind } from '../core/compute/history';
 import type { CardResolution, CoverResumeModel } from '../core/compute/history';
 import { onBfcacheRestore } from '../core/lifecycle';
 import { installManualPC } from '../core/home-backup';
-
-const POLITE_PAGE_DELAY_MS = 1_000;
+import { remainingHomePages } from '../core/home-pages';
 
 enum PauseOutcomeKind {
     Complete,
@@ -383,18 +382,19 @@ export async function open(provider: Provider): Promise<void> {
         await new Promise<void>(resolve => resumeWaiters.push(resolve));
     }
 
-    async function waitForNextRequest(): Promise<void> {
-        await waitUntilActive();
-        await new Promise<void>(resolve => window.setTimeout(resolve, POLITE_PAGE_DELAY_MS));
-        await waitUntilActive();
-    }
-
-    async function fetchPageWhileActive(cursor: string | null, politeDelay: boolean): Promise<HomePage> {
+    async function fetchPageWhileActive(cursor: string | null): Promise<HomePage> {
         for (;;) {
-            if (politeDelay) await waitForNextRequest();
-            else await waitUntilActive();
-            const outcome = await settleBeforePause(() => provider.fetchHome(cursor), activePeriod.signal);
-            if (outcome.kind === PauseOutcomeKind.Complete) return outcome.value;
+            await waitUntilActive();
+            const period = activePeriod.signal;
+            try {
+                const page = await provider.fetchHome(cursor);
+                await waitUntilActive();
+                return page;
+            } catch (error) {
+                // Native navigation can cancel the departing document's requests.
+                // Keep successful in-flight results; retry canceled work on Back.
+                if (!period.aborted) throw error;
+            }
         }
     }
 
@@ -403,7 +403,7 @@ export async function open(provider: Provider): Promise<void> {
     loading.textContent = 'Loading latest updates…';
     document.body.appendChild(loading);
 
-    const firstPage = await fetchPageWhileActive(null, false);
+    const firstPage = await fetchPageWhileActive(null);
 
     const main = document.createElement('main');
     main.className = 'hs-home';
@@ -455,18 +455,11 @@ export async function open(provider: Provider): Promise<void> {
     onBfcacheRestore(reconcilePageShow);
     window.setInterval(() => updateUnlockCountdowns(section), 60_000);
 
-    const seenCursors = new Set<string>();
-    let nextCursor = firstPage.nextCursor;
-    while (nextCursor !== null) {
-        if (seenCursors.has(nextCursor)) {
-            throw new Error(`Provider repeated catalog cursor ${nextCursor}`);
-        }
-        seenCursors.add(nextCursor);
-        const page = await fetchPageWhileActive(nextCursor, true);
+    for await (const page of remainingHomePages(firstPage, fetchPageWhileActive)) {
+        await waitUntilActive();
         if (page.total !== undefined) total = page.total;
         appendPage(imageRetry, provider, cards, list, page);
         refreshHistory();
-        nextCursor = page.nextCursor;
-        status.textContent = statusText(cards.size, total, nextCursor !== null);
+        status.textContent = statusText(cards.size, total, page.nextCursor !== null);
     }
 }

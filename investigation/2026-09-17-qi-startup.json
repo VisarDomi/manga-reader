@@ -1,0 +1,295 @@
+{
+  "date": "2026-09-17",
+  "provider": "qiscans",
+  "device": "iPhone 12 Pro Max",
+  "build": 8,
+  "clock": "Web document performance.now; begins after native launch",
+  "firstRowsMs": 1168,
+  "fullCatalogMs": 67827,
+  "catalogRequests": [
+    {
+      "t": 1133,
+      "type": "end",
+      "command": "fetch",
+      "url": "https://api.qimanga.com/api/v1/home/latest?page=1&perPage=50",
+      "ms": 1003,
+      "status": 200,
+      "bytes": 63376
+    },
+    {
+      "t": 4186,
+      "type": "end",
+      "command": "fetch",
+      "url": "https://api.qimanga.com/api/v1/home/latest?page=2&perPage=50",
+      "ms": 2015,
+      "status": 200,
+      "bytes": 63800
+    },
+    {
+      "t": 6533,
+      "type": "end",
+      "command": "fetch",
+      "url": "https://api.qimanga.com/api/v1/home/latest?page=3&perPage=50",
+      "ms": 1317,
+      "status": 200,
+      "bytes": 63684
+    },
+    {
+      "t": 8731,
+      "type": "end",
+      "command": "fetch",
+      "url": "https://api.qimanga.com/api/v1/home/latest?page=4&perPage=50",
+      "ms": 1167,
+      "status": 200,
+      "bytes": 64640
+    },
+    {
+      "t": 10759,
+      "type": "end",
+      "command": "fetch",
+      "url": "https://api.qimanga.com/api/v1/home/latest?page=5&perPage=50",
+      "ms": 1002,
+      "status": 200,
+      "bytes": 63108
+    },
+    {
+      "t": 12776,
+      "type": "end",
+      "command": "fetch",
+      "url": "https://api.qimanga.com/api/v1/home/latest?page=6&perPage=50",
+      "ms": 983,
+      "status": 200,
+      "bytes": 62688
+    },
+    {
+      "t": 14870,
+      "type": "end",
+      "command": "fetch",
+      "url": "https://api.qimanga.com/api/v1/home/latest?page=7&perPage=50",
+      "ms": 1067,
+      "status": 200,
+      "bytes": 62444
+    },
+    {
+      "t": 18222,
+      "type": "end",
+      "command": "fetch",
+      "url": "https://api.qimanga.com/api/v1/home/latest?page=8&perPage=50",
+      "ms": 2321,
+      "status": 200,
+      "bytes": 61892
+    },
+    {
+      "t": 20248,
+      "type": "end",
+      "command": "fetch",
+      "url": "https://api.qimanga.com/api/v1/home/latest?page=9&perPage=50",
+      "ms": 997,
+      "status": 200,
+      "bytes": 61172
+    },
+    {
+      "t": 21836,
+      "type": "end",
+      "command": "fetch",
+      "url": "https://api.qimanga.com/api/v1/home/latest?page=10&perPage=50",
+      "ms": 558,
+      "status": 200,
+      "bytes": 62232
+    },
+    {
+      "t": 23435,
+      "type": "end",
+      "command": "fetch",
+      "url": "https://api.qimanga.com/api/v1/home/latest?page=11&perPage=50",
+      "ms": 572,
+      "status": 200,
+      "bytes": 60284
+    },
+    {
+      "t": 24959,
+      "type": "end",
+      "command": "fetch",
+      "url": "https://api.qimanga.com/api/v1/home/latest?page=12&perPage=50",
+      "ms": 502,
+      "status": 200,
+      "bytes": 63368
+    },
+    {
+      "t": 30148,
+      "type": "end",
+      "command": "fetch",
+      "url": "https://api.qimanga.com/api/v1/home/latest?page=13&perPage=50",
+      "ms": 4163,
+      "status": 200,
+      "bytes": 62712
+    },
+    {
+      "t": 32426,
+      "type": "end",
+      "command": "fetch",
+      "url": "https://api.qimanga.com/api/v1/home/latest?page=14&perPage=50",
+      "ms": 1247,
+      "status": 200,
+      "bytes": 58924
+    },
+    {
+      "t": 33857,
+      "type": "end",
+      "command": "fetch",
+      "url": "https://api.qimanga.com/api/v1/home/latest?page=15&perPage=50",
+      "ms": 402,
+      "status": 200,
+      "bytes": 54092
+    },
+    {
+      "t": 38716,
+      "type": "end",
+      "command": "fetch",
+      "url": "https://api.qimanga.com/api/v1/home/latest?page=16&perPage=50",
+      "ms": 3827,
+      "status": 200,
+      "bytes": 58176
+    },
+    {
+      "t": 40845,
+      "type": "end",
+      "command": "fetch",
+      "url": "https://api.qimanga.com/api/v1/home/latest?page=17&perPage=50",
+      "ms": 1096,
+      "status": 200,
+      "bytes": 55808
+    },
+    {
+      "t": 42397,
+      "type": "end",
+      "command": "fetch",
+      "url": "https://api.qimanga.com/api/v1/home/latest?page=18&perPage=50",
+      "ms": 522,
+      "status": 200,
+      "bytes": 58968
+    },
+    {
+      "t": 43908,
+      "type": "end",
+      "command": "fetch",
+      "url": "https://api.qimanga.com/api/v1/home/latest?page=19&perPage=50",
+      "ms": 481,
+      "status": 200,
+      "bytes": 70576
+    },
+    {
+      "t": 45477,
+      "type": "end",
+      "command": "fetch",
+      "url": "https://api.qimanga.com/api/v1/home/latest?page=20&perPage=50",
+      "ms": 536,
+      "status": 200,
+      "bytes": 22220
+    },
+    {
+      "t": 47014,
+      "type": "end",
+      "command": "fetch",
+      "url": "https://api.qimanga.com/api/v1/series?perPage=100&page=1",
+      "ms": 513,
+      "status": 200,
+      "bytes": 66972
+    },
+    {
+      "t": 48659,
+      "type": "end",
+      "command": "fetch",
+      "url": "https://api.qimanga.com/api/v1/series?perPage=100&page=2",
+      "ms": 625,
+      "status": 200,
+      "bytes": 68808
+    },
+    {
+      "t": 50533,
+      "type": "end",
+      "command": "fetch",
+      "url": "https://api.qimanga.com/api/v1/series?perPage=100&page=3",
+      "ms": 854,
+      "status": 200,
+      "bytes": 69376
+    },
+    {
+      "t": 52018,
+      "type": "end",
+      "command": "fetch",
+      "url": "https://api.qimanga.com/api/v1/series?perPage=100&page=4",
+      "ms": 465,
+      "status": 200,
+      "bytes": 65416
+    },
+    {
+      "t": 54005,
+      "type": "end",
+      "command": "fetch",
+      "url": "https://api.qimanga.com/api/v1/series?perPage=100&page=5",
+      "ms": 973,
+      "status": 200,
+      "bytes": 64476
+    },
+    {
+      "t": 55973,
+      "type": "end",
+      "command": "fetch",
+      "url": "https://api.qimanga.com/api/v1/series?perPage=100&page=6",
+      "ms": 948,
+      "status": 200,
+      "bytes": 64820
+    },
+    {
+      "t": 61530,
+      "type": "end",
+      "command": "fetch",
+      "url": "https://api.qimanga.com/api/v1/series?perPage=100&page=7",
+      "ms": 4532,
+      "status": 200,
+      "bytes": 63256
+    },
+    {
+      "t": 64887,
+      "type": "end",
+      "command": "fetch",
+      "url": "https://api.qimanga.com/api/v1/series?perPage=100&page=8",
+      "ms": 2338,
+      "status": 200,
+      "bytes": 62364
+    },
+    {
+      "t": 66413,
+      "type": "end",
+      "command": "fetch",
+      "url": "https://api.qimanga.com/api/v1/series?perPage=100&page=9",
+      "ms": 506,
+      "status": 200,
+      "bytes": 62452
+    },
+    {
+      "t": 67807,
+      "type": "end",
+      "command": "fetch",
+      "url": "https://api.qimanga.com/api/v1/series?perPage=100&page=10",
+      "ms": 374,
+      "status": 200,
+      "bytes": 45780
+    }
+  ],
+  "nativeCommandsMaxMs": 50,
+  "totalCatalogRequestMs": 37906,
+  "deliberatePaginationWaitMs": 29000,
+  "largerPageProbe": {
+    "perPage": 1000,
+    "latestStatus": 400,
+    "catalogStatus": 400
+  },
+  "limitations": [
+    "One physical-phone run, instrumented through Web Inspector. Times are relative to Web document startup, not the Home Screen tap.",
+    "Inspector event stream disconnected during capture; complete in-page timing buffer was retrieved after reconnection.",
+    "Native fetch timing includes the HTTP round trip and bridge response, not a server-only processing measurement.",
+    "No source or installed binary changed."
+  ]
+}

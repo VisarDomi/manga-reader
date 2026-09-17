@@ -67,7 +67,12 @@ across app launches. Covers use the same local-file path and foreground-priority
 policy as pages; Home rendering does not await their downloads.
 
 Home still uses the actual userscript catalog flow: first response, then each
-additional page as it arrives (with the shared pagination delay). Lua's source
+additional page in provider order. The shared loader buffers up to three known
+upcoming pages concurrently, without a pagination timer, and pauses scheduling
+while Home is hidden. Successful in-flight responses are retained for Back;
+requests canceled by native navigation restart on return. QiScans, EzScans and
+Asura expose known upcoming cursors from their API page counts. Providers with
+only a next-page link remain sequential. Lua's source
 requests its catalog in one response. Catalog metadata is live; this image
 ownership change does not introduce a separate cached catalog or copied Home UI.
 
@@ -135,3 +140,18 @@ from being saved as Home during startup. The reader saves again once rendered.
 Scythe reproduced the persistent empty Home before this correction and populated
 40 then 63 rows afterward. All 63 cover files were present without scrolling.
 See `investigation/2026-09-17-verification.json` for final delivery and checks.
+
+## September 17: shared catalog pagination (build 9 / userscript 289)
+
+`src/core/home-pages.ts` buffers at most three known upcoming pages and emits
+them in provider order. QiScans/EzScans and Asura expose bounded cursor lookahead
+from provider page counts. The first request is unchanged. No speculative page
+numbers or separate native pagination are used. A paused Home retains successful
+responses and resumes interrupted requests on Back. A killed process starts a
+fresh catalog request; durable reading history and native view checkpoints remain.
+
+Physical QiScans timing: first 50 rows at 744 ms, all 973 at 5,724 ms, versus
+1,168 / 67,827 ms before. Maximum observed catalog concurrency was three. Killing
+during a partially loaded catalog and restarting completed all rows again. Killing
+in chapter 1 restored the same chapter/image, and Back completed Home with both
+existing resume links intact. See `investigation/2026-09-17-pagination-verification.json`.

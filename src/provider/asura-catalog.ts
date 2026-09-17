@@ -55,6 +55,7 @@ export async function fetchAsuraHome(cursor: string | null, referrer?: string): 
     return {
         total: response.meta.total,
         nextCursor: response.meta.has_more ? String(page + 1) : null,
+        prefetchCursors: Array.from({ length: Math.max(0, Math.min(3, Math.ceil(response.meta.total / limit) - page)) }, (_, i) => String(page + i + 1)),
         series: response.data.map(series => ({
             slug: publicSlug(series.public_url),
             historyId: asuraHistoryId(series.slug),

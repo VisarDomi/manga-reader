@@ -1,0 +1,728 @@
+{
+  "date": "2026-09-17",
+  "nativeBuild": 9,
+  "sharedVersion": 289,
+  "device": "iPhone 12 Pro Max",
+  "clock": "Web document performance.now (not Home Screen tap)",
+  "before": {
+    "firstRowsMs": 1168,
+    "fullCatalogMs": 67827
+  },
+  "after": {
+    "firstRowsMs": 744,
+    "fullCatalogMs": 5724,
+    "maxCatalogRequestsInFlight": 3,
+    "events": [
+      {
+        "t": 157,
+        "type": "start",
+        "url": "https://api.qimanga.com/api/v1/series/extracted-into-the-god-of-necromancy/chapters?perPage=100&page=1"
+      },
+      {
+        "t": 157,
+        "type": "start",
+        "url": "https://api.qimanga.com/api/v1/series/after-being-expelled-i-awakened-a-barrier-skill-and-became-unmatched/chapters?perPage=100&page=1"
+      },
+      {
+        "t": 158,
+        "type": "rows",
+        "count": 0
+      },
+      {
+        "t": 161,
+        "type": "start",
+        "url": "https://api.qimanga.com/api/v1/home/latest?page=1&perPage=50"
+      },
+      {
+        "t": 513,
+        "type": "end",
+        "url": "https://api.qimanga.com/api/v1/series/extracted-into-the-god-of-necromancy/chapters?perPage=100&page=1",
+        "ms": 356,
+        "status": 200
+      },
+      {
+        "t": 558,
+        "type": "end",
+        "url": "https://api.qimanga.com/api/v1/series/after-being-expelled-i-awakened-a-barrier-skill-and-became-unmatched/chapters?perPage=100&page=1",
+        "ms": 401,
+        "status": 200
+      },
+      {
+        "t": 719,
+        "type": "end",
+        "url": "https://api.qimanga.com/api/v1/home/latest?page=1&perPage=50",
+        "ms": 558,
+        "status": 200
+      },
+      {
+        "t": 744,
+        "type": "rows",
+        "count": 50,
+        "status": "Loaded 50 of 965 series \u00b7 loading more\u2026"
+      },
+      {
+        "t": 744,
+        "type": "start",
+        "url": "https://192.168.1.197:7777/api/reader-backups/manual/manga-reader/qimanga/status"
+      },
+      {
+        "t": 762,
+        "type": "start",
+        "url": "https://api.qimanga.com/api/v1/home/latest?page=2&perPage=50"
+      },
+      {
+        "t": 762,
+        "type": "start",
+        "url": "https://api.qimanga.com/api/v1/home/latest?page=3&perPage=50"
+      },
+      {
+        "t": 762,
+        "type": "start",
+        "url": "https://api.qimanga.com/api/v1/home/latest?page=4&perPage=50"
+      },
+      {
+        "t": 998,
+        "type": "end",
+        "url": "https://192.168.1.197:7777/api/reader-backups/manual/manga-reader/qimanga/status",
+        "ms": 254,
+        "status": 200
+      },
+      {
+        "t": 1292,
+        "type": "end",
+        "url": "https://api.qimanga.com/api/v1/home/latest?page=3&perPage=50",
+        "ms": 530,
+        "status": 200
+      },
+      {
+        "t": 1297,
+        "type": "end",
+        "url": "https://api.qimanga.com/api/v1/home/latest?page=4&perPage=50",
+        "ms": 535,
+        "status": 200
+      },
+      {
+        "t": 1297,
+        "type": "end",
+        "url": "https://api.qimanga.com/api/v1/home/latest?page=2&perPage=50",
+        "ms": 535,
+        "status": 200
+      },
+      {
+        "t": 1309,
+        "type": "rows",
+        "count": 100,
+        "status": "Loaded 100 of 965 series \u00b7 loading more\u2026"
+      },
+      {
+        "t": 1313,
+        "type": "rows",
+        "count": 150,
+        "status": "Loaded 150 of 965 series \u00b7 loading more\u2026"
+      },
+      {
+        "t": 1316,
+        "type": "rows",
+        "count": 200,
+        "status": "Loaded 200 of 965 series \u00b7 loading more\u2026"
+      },
+      {
+        "t": 1317,
+        "type": "start",
+        "url": "https://api.qimanga.com/api/v1/home/latest?page=5&perPage=50"
+      },
+      {
+        "t": 1317,
+        "type": "start",
+        "url": "https://api.qimanga.com/api/v1/home/latest?page=6&perPage=50"
+      },
+      {
+        "t": 1338,
+        "type": "start",
+        "url": "https://api.qimanga.com/api/v1/home/latest?page=7&perPage=50"
+      },
+      {
+        "t": 1789,
+        "type": "end",
+        "url": "https://api.qimanga.com/api/v1/home/latest?page=5&perPage=50",
+        "ms": 472,
+        "status": 200
+      },
+      {
+        "t": 1805,
+        "type": "rows",
+        "count": 250,
+        "status": "Loaded 250 of 965 series \u00b7 loading more\u2026"
+      },
+      {
+        "t": 1820,
+        "type": "end",
+        "url": "https://api.qimanga.com/api/v1/home/latest?page=6&perPage=50",
+        "ms": 503,
+        "status": 200
+      },
+      {
+        "t": 1820,
+        "type": "start",
+        "url": "https://api.qimanga.com/api/v1/home/latest?page=8&perPage=50"
+      },
+      {
+        "t": 1830,
+        "type": "rows",
+        "count": 300,
+        "status": "Loaded 300 of 965 series \u00b7 loading more\u2026"
+      },
+      {
+        "t": 1840,
+        "type": "end",
+        "url": "https://api.qimanga.com/api/v1/home/latest?page=7&perPage=50",
+        "ms": 502,
+        "status": 200
+      },
+      {
+        "t": 1840,
+        "type": "start",
+        "url": "https://api.qimanga.com/api/v1/home/latest?page=9&perPage=50"
+      },
+      {
+        "t": 1849,
+        "type": "rows",
+        "count": 350,
+        "status": "Loaded 350 of 965 series \u00b7 loading more\u2026"
+      },
+      {
+        "t": 1860,
+        "type": "start",
+        "url": "https://api.qimanga.com/api/v1/home/latest?page=10&perPage=50"
+      },
+      {
+        "t": 2277,
+        "type": "end",
+        "url": "https://api.qimanga.com/api/v1/home/latest?page=8&perPage=50",
+        "ms": 457,
+        "status": 200
+      },
+      {
+        "t": 2292,
+        "type": "rows",
+        "count": 400,
+        "status": "Loaded 400 of 965 series \u00b7 loading more\u2026"
+      },
+      {
+        "t": 2308,
+        "type": "start",
+        "url": "https://api.qimanga.com/api/v1/home/latest?page=11&perPage=50"
+      },
+      {
+        "t": 2425,
+        "type": "end",
+        "url": "https://api.qimanga.com/api/v1/home/latest?page=9&perPage=50",
+        "ms": 585,
+        "status": 200
+      },
+      {
+        "t": 2425,
+        "type": "end",
+        "url": "https://api.qimanga.com/api/v1/home/latest?page=10&perPage=50",
+        "ms": 565,
+        "status": 200
+      },
+      {
+        "t": 2436,
+        "type": "rows",
+        "count": 450,
+        "status": "Loaded 450 of 965 series \u00b7 loading more\u2026"
+      },
+      {
+        "t": 2443,
+        "type": "rows",
+        "count": 500,
+        "status": "Loaded 500 of 965 series \u00b7 loading more\u2026"
+      },
+      {
+        "t": 2464,
+        "type": "start",
+        "url": "https://api.qimanga.com/api/v1/home/latest?page=12&perPage=50"
+      },
+      {
+        "t": 2464,
+        "type": "start",
+        "url": "https://api.qimanga.com/api/v1/home/latest?page=13&perPage=50"
+      },
+      {
+        "t": 2827,
+        "type": "end",
+        "url": "https://api.qimanga.com/api/v1/home/latest?page=11&perPage=50",
+        "ms": 519,
+        "status": 200
+      },
+      {
+        "t": 2842,
+        "type": "rows",
+        "count": 550,
+        "status": "Loaded 550 of 965 series \u00b7 loading more\u2026"
+      },
+      {
+        "t": 2859,
+        "type": "start",
+        "url": "https://api.qimanga.com/api/v1/home/latest?page=14&perPage=50"
+      },
+      {
+        "t": 2931,
+        "type": "end",
+        "url": "https://api.qimanga.com/api/v1/home/latest?page=12&perPage=50",
+        "ms": 467,
+        "status": 200
+      },
+      {
+        "t": 2939,
+        "type": "rows",
+        "count": 600,
+        "status": "Loaded 600 of 965 series \u00b7 loading more\u2026"
+      },
+      {
+        "t": 2954,
+        "type": "start",
+        "url": "https://api.qimanga.com/api/v1/home/latest?page=15&perPage=50"
+      },
+      {
+        "t": 2968,
+        "type": "end",
+        "url": "https://api.qimanga.com/api/v1/home/latest?page=13&perPage=50",
+        "ms": 504,
+        "status": 200
+      },
+      {
+        "t": 2976,
+        "type": "rows",
+        "count": 650,
+        "status": "Loaded 650 of 965 series \u00b7 loading more\u2026"
+      },
+      {
+        "t": 2993,
+        "type": "start",
+        "url": "https://api.qimanga.com/api/v1/home/latest?page=16&perPage=50"
+      },
+      {
+        "t": 3210,
+        "type": "end",
+        "url": "https://api.qimanga.com/api/v1/home/latest?page=14&perPage=50",
+        "ms": 351,
+        "status": 200
+      },
+      {
+        "t": 3221,
+        "type": "rows",
+        "count": 700,
+        "status": "Loaded 700 of 965 series \u00b7 loading more\u2026"
+      },
+      {
+        "t": 3241,
+        "type": "start",
+        "url": "https://api.qimanga.com/api/v1/home/latest?page=17&perPage=50"
+      },
+      {
+        "t": 3302,
+        "type": "end",
+        "url": "https://api.qimanga.com/api/v1/home/latest?page=15&perPage=50",
+        "ms": 348,
+        "status": 200
+      },
+      {
+        "t": 3308,
+        "type": "rows",
+        "count": 750,
+        "status": "Loaded 750 of 965 series \u00b7 loading more\u2026"
+      },
+      {
+        "t": 3326,
+        "type": "start",
+        "url": "https://api.qimanga.com/api/v1/home/latest?page=18&perPage=50"
+      },
+      {
+        "t": 3381,
+        "type": "end",
+        "url": "https://api.qimanga.com/api/v1/home/latest?page=16&perPage=50",
+        "ms": 387,
+        "status": 200
+      },
+      {
+        "t": 3388,
+        "type": "rows",
+        "count": 800,
+        "status": "Loaded 800 of 965 series \u00b7 loading more\u2026"
+      },
+      {
+        "t": 3406,
+        "type": "start",
+        "url": "https://api.qimanga.com/api/v1/home/latest?page=19&perPage=50"
+      },
+      {
+        "t": 3576,
+        "type": "end",
+        "url": "https://api.qimanga.com/api/v1/home/latest?page=17&perPage=50",
+        "ms": 335,
+        "status": 200
+      },
+      {
+        "t": 3586,
+        "type": "rows",
+        "count": 850,
+        "status": "Loaded 850 of 965 series \u00b7 loading more\u2026"
+      },
+      {
+        "t": 3608,
+        "type": "start",
+        "url": "https://api.qimanga.com/api/v1/home/latest?page=20&perPage=50"
+      },
+      {
+        "t": 3674,
+        "type": "end",
+        "url": "https://api.qimanga.com/api/v1/home/latest?page=18&perPage=50",
+        "ms": 348,
+        "status": 200
+      },
+      {
+        "t": 3681,
+        "type": "rows",
+        "count": 900,
+        "status": "Loaded 900 of 965 series \u00b7 loading more\u2026"
+      },
+      {
+        "t": 3860,
+        "type": "end",
+        "url": "https://api.qimanga.com/api/v1/home/latest?page=19&perPage=50",
+        "ms": 454,
+        "status": 200
+      },
+      {
+        "t": 3870,
+        "type": "rows",
+        "count": 950,
+        "status": "Loaded 950 of 965 series \u00b7 loading more\u2026"
+      },
+      {
+        "t": 3945,
+        "type": "end",
+        "url": "https://api.qimanga.com/api/v1/home/latest?page=20&perPage=50",
+        "ms": 337,
+        "status": 200
+      },
+      {
+        "t": 3953,
+        "type": "rows",
+        "count": 965,
+        "status": "Loaded 965 of 965 series \u00b7 loading more\u2026"
+      },
+      {
+        "t": 3970,
+        "type": "start",
+        "url": "https://api.qimanga.com/api/v1/series?perPage=100&page=1"
+      },
+      {
+        "t": 4380,
+        "type": "end",
+        "url": "https://api.qimanga.com/api/v1/series?perPage=100&page=1",
+        "ms": 410,
+        "status": 200
+      },
+      {
+        "t": 4405,
+        "type": "start",
+        "url": "https://api.qimanga.com/api/v1/series?perPage=100&page=2"
+      },
+      {
+        "t": 4406,
+        "type": "start",
+        "url": "https://api.qimanga.com/api/v1/series?perPage=100&page=3"
+      },
+      {
+        "t": 4406,
+        "type": "start",
+        "url": "https://api.qimanga.com/api/v1/series?perPage=100&page=4"
+      },
+      {
+        "t": 4832,
+        "type": "end",
+        "url": "https://api.qimanga.com/api/v1/series?perPage=100&page=4",
+        "ms": 426,
+        "status": 200
+      },
+      {
+        "t": 4832,
+        "type": "end",
+        "url": "https://api.qimanga.com/api/v1/series?perPage=100&page=2",
+        "ms": 427,
+        "status": 200
+      },
+      {
+        "t": 4832,
+        "type": "end",
+        "url": "https://api.qimanga.com/api/v1/series?perPage=100&page=3",
+        "ms": 426,
+        "status": 200
+      },
+      {
+        "t": 4857,
+        "type": "start",
+        "url": "https://api.qimanga.com/api/v1/series?perPage=100&page=5"
+      },
+      {
+        "t": 4857,
+        "type": "start",
+        "url": "https://api.qimanga.com/api/v1/series?perPage=100&page=6"
+      },
+      {
+        "t": 4857,
+        "type": "start",
+        "url": "https://api.qimanga.com/api/v1/series?perPage=100&page=7"
+      },
+      {
+        "t": 5259,
+        "type": "end",
+        "url": "https://api.qimanga.com/api/v1/series?perPage=100&page=7",
+        "ms": 401,
+        "status": 200
+      },
+      {
+        "t": 5265,
+        "type": "end",
+        "url": "https://api.qimanga.com/api/v1/series?perPage=100&page=6",
+        "ms": 407,
+        "status": 200
+      },
+      {
+        "t": 5280,
+        "type": "end",
+        "url": "https://api.qimanga.com/api/v1/series?perPage=100&page=5",
+        "ms": 422,
+        "status": 200
+      },
+      {
+        "t": 5296,
+        "type": "start",
+        "url": "https://api.qimanga.com/api/v1/series?perPage=100&page=8"
+      },
+      {
+        "t": 5296,
+        "type": "start",
+        "url": "https://api.qimanga.com/api/v1/series?perPage=100&page=9"
+      },
+      {
+        "t": 5296,
+        "type": "start",
+        "url": "https://api.qimanga.com/api/v1/series?perPage=100&page=10"
+      },
+      {
+        "t": 5621,
+        "type": "end",
+        "url": "https://api.qimanga.com/api/v1/series?perPage=100&page=10",
+        "ms": 325,
+        "status": 200
+      },
+      {
+        "t": 5703,
+        "type": "end",
+        "url": "https://api.qimanga.com/api/v1/series?perPage=100&page=9",
+        "ms": 407,
+        "status": 200
+      },
+      {
+        "t": 5705,
+        "type": "end",
+        "url": "https://api.qimanga.com/api/v1/series?perPage=100&page=8",
+        "ms": 409,
+        "status": 200
+      },
+      {
+        "t": 5724,
+        "type": "rows",
+        "count": 973,
+        "status": "Loaded 973 of 973 series"
+      }
+    ]
+  },
+  "killDuringCatalog": {
+    "beforeKill": {
+      "t": 1104,
+      "url": "asura://app/",
+      "diag": {
+        "home": true,
+        "view": null,
+        "restored": {
+          "fraction": 0,
+          "home": true,
+          "path": "/",
+          "series": "infinite-breakthrough",
+          "y": 0
+        },
+        "ready": true
+      },
+      "cards": 200,
+      "status": "Loaded 200 of 965 series \u00b7 loading more\u2026",
+      "chapters": [],
+      "covers": [
+        {
+          "title": "After Being Expelled, I Awakened a Barrier Skill and Became Unmatched",
+          "href": "asura://app/series/after-being-expelled-i-awakened-a-barrier-skill-and-became-unmatched/chapter-1#0"
+        }
+      ]
+    },
+    "afterRestart": {
+      "t": 10112,
+      "url": "asura://app/",
+      "diag": {
+        "home": true,
+        "view": null,
+        "restored": {
+          "fraction": 0,
+          "home": true,
+          "path": "/",
+          "series": "infinite-breakthrough",
+          "y": 0
+        },
+        "ready": true
+      },
+      "cards": 973,
+      "status": "Loaded 973 of 973 series",
+      "chapters": [],
+      "covers": [
+        {
+          "title": "After Being Expelled, I Awakened a Barrier Skill and Became Unmatched",
+          "href": "asura://app/series/after-being-expelled-i-awakened-a-barrier-skill-and-became-unmatched/chapter-1#0"
+        },
+        {
+          "title": "Extracted into the God of Necromancy",
+          "href": "asura://app/series/extracted-into-the-god-of-necromancy/chapter-0#0"
+        }
+      ]
+    }
+  },
+  "killFromReader": {
+    "beforeKill": {
+      "t": 3010,
+      "url": "asura://app/series/after-being-expelled-i-awakened-a-barrier-skill-and-became-unmatched/chapter-1#0",
+      "diag": {
+        "home": false,
+        "view": {
+          "path": "/series/after-being-expelled-i-awakened-a-barrier-skill-and-became-unmatched/chapter-1#0",
+          "home": false,
+          "y": 463,
+          "fraction": 0,
+          "series": "after-being-expelled-i-awakened-a-barrier-skill-and-became-unmatched",
+          "chapter": "chapter-1",
+          "index": 0
+        },
+        "restored": null,
+        "ready": true
+      },
+      "cards": 0,
+      "chapters": [
+        {
+          "id": "chapter-1",
+          "images": 27,
+          "loaded": 1
+        },
+        {
+          "id": "chapter-2",
+          "images": 21,
+          "loaded": 0
+        }
+      ],
+      "covers": []
+    },
+    "afterRestart": {
+      "t": 2981,
+      "url": "asura://app/series/after-being-expelled-i-awakened-a-barrier-skill-and-became-unmatched/chapter-1#0",
+      "diag": {
+        "home": false,
+        "view": {
+          "path": "/series/after-being-expelled-i-awakened-a-barrier-skill-and-became-unmatched/chapter-1#0",
+          "home": false,
+          "y": 463,
+          "fraction": 0,
+          "series": "after-being-expelled-i-awakened-a-barrier-skill-and-became-unmatched",
+          "chapter": "chapter-1",
+          "index": 0
+        },
+        "restored": {
+          "chapter": "chapter-1",
+          "fraction": 0,
+          "home": false,
+          "index": 0,
+          "path": "/series/after-being-expelled-i-awakened-a-barrier-skill-and-became-unmatched/chapter-1#0",
+          "series": "after-being-expelled-i-awakened-a-barrier-skill-and-became-unmatched",
+          "y": 463
+        },
+        "ready": true
+      },
+      "cards": 0,
+      "chapters": [
+        {
+          "id": "chapter-1",
+          "images": 27,
+          "loaded": 1
+        },
+        {
+          "id": "chapter-2",
+          "images": 21,
+          "loaded": 0
+        }
+      ],
+      "covers": []
+    },
+    "afterBack": {
+      "t": 21318,
+      "url": "asura://app/",
+      "diag": {
+        "home": true,
+        "view": null,
+        "restored": {
+          "fraction": 0,
+          "home": true,
+          "path": "/",
+          "series": "infinite-breakthrough",
+          "y": 0
+        },
+        "ready": true
+      },
+      "cards": 973,
+      "status": "Loaded 973 of 973 series",
+      "chapters": [],
+      "covers": [
+        {
+          "title": "After Being Expelled, I Awakened a Barrier Skill and Became Unmatched",
+          "href": "asura://app/series/after-being-expelled-i-awakened-a-barrier-skill-and-became-unmatched/chapter-1#0"
+        },
+        {
+          "title": "Extracted into the God of Necromancy",
+          "href": "asura://app/series/extracted-into-the-god-of-necromancy/chapter-0#0"
+        }
+      ]
+    }
+  },
+  "validation": {
+    "unitTests": 44,
+    "typecheck": "passed",
+    "providerBuilderTests": 2,
+    "signingLockTests": 2,
+    "userscriptBuild": "passed",
+    "extensionBuild": "passed",
+    "installedProviders": [
+      "asura",
+      "scythe",
+      "yaksha",
+      "qiscans",
+      "lua",
+      "ezmanga"
+    ],
+    "monthlyRenewals": "All six passed; verified delivered bundle identities, signatures and generated Web hashes; existing scheduler restored."
+  },
+  "notes": [
+    "Same Home/provider code in userscript, extension and native apps. No Swift runtime edits.",
+    "No catalog snapshot/migration introduced; interrupted catalog requests restart from the provider on cold launch.",
+    "Successful in-flight pages retained across Back; canceled native requests retry after reactivation.",
+    "Expected cancellation console messages occurred when leaving reader; Home completed and saved resume links remained intact.",
+    "Backend response times vary between runs; the trace directly confirms removal of pagination sleeps and concurrency limit three."
+  ]
+}
