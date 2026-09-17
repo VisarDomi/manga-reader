@@ -21,12 +21,12 @@ function capture(): View {
         ...(home?{series:node?.dataset.series}:{series:route?.handler===Handler.Reader?route.slug:undefined,chapter:node?.closest<HTMLElement>('.hs-chapter')?.dataset.chapter,index:Number(node?.id.slice(1)||0)})};
 }
 function save() {
-    if(skipSaving||(!ready&&restored))return saving;
+    if(!initialized||!ready||skipSaving)return saving;
     view=capture();saving=saving.catch(()=>{}).then(()=>native('view-save',{view}));return saving;
 }
 async function resume() {
-    if(!initialized)return;
     await native('activate',{home});
+    if(!initialized)return;
     updateProgress((await computeRequest('backup-export',undefined)).indexedDB.progress);
     resumeDownloads();
 }
@@ -60,6 +60,7 @@ async function main() {
         await opening;
     } else if(match.handler===Handler.Reader) {
         await openReader(provider,{...match,...(saved?{imageIndex:String(saved.index??0)}:{})});
+        void save();
     }
 }
 void main().catch(console.error);

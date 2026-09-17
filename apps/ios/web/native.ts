@@ -1,6 +1,22 @@
 export const documentID = crypto.randomUUID();
-export async function native<T = any>(command: string, args: Record<string, unknown> = {}): Promise<T> {
-    return JSON.parse(await (window as any).webkit.messageHandlers.asura.postMessage({command,args,document:documentID}));
+let activation: Promise<any> = Promise.resolve();
+let resumeBridge: (()=>void) | undefined;
+addEventListener('pagehide', () => {
+    // Frozen workers can deliver queued messages before pageshow. Hold reads and
+    // requests until this document has reclaimed the native bridge.
+    activation = new Promise<void>(resolve => { resumeBridge = resolve; });
+});
+export function native<T = any>(command: string, args: Record<string, unknown> = {}): Promise<T> {
+    const send = () => (window as any).webkit.messageHandlers.asura.postMessage({command,args,document:documentID}).then(JSON.parse);
+    // A cached document must reacquire the bridge before its shared pageshow
+    // callbacks resume provider/history work. They run in the same event turn.
+    if (command === 'init' || command === 'activate') {
+        const resume = resumeBridge; resumeBridge = undefined;
+        activation = send();
+        if (resume) void activation.then(resume, resume);
+        return activation;
+    }
+    return activation.then(send);
 }
 export function localURL(raw: string): string {
     const url = new URL(raw, __IOS_ORIGIN__);

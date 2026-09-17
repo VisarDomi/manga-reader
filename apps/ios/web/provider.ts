@@ -31,9 +31,11 @@ export async function originalChapter(request: ChapterLoadRequest, urgent=false)
     return {...result,data:{...data,seriesSlug:identity(data.seriesSlug)===identity(request.slug)?request.slug:data.seriesSlug}};
 }
 const lists=new Map<string,ReturnType<Provider['fetchChaptersNewestFirst']>>();
-export function chapterList(slug:string) {
+export function chapterList(slug:string, urgent=true) {
+    const key="list:"+identity(slug);
+    if(urgent)prioritizeMetadata(key);
     let task=lists.get(slug);
-    if(!task) { task=metadata(()=>selected.fetchChaptersNewestFirst(slug));lists.set(slug,task);void task.catch(()=>lists.delete(slug)); }
+    if(!task) { task=metadata(()=>selected.fetchChaptersNewestFirst(slug),urgent,key);lists.set(slug,task);void task.catch(()=>lists.delete(slug)); }
     return task;
 }
 export function refreshLists() { lists.clear(); }
@@ -42,12 +44,13 @@ export const provider: Provider = {
     async fetchHome(cursor) {
         const page=await selected.fetchHome(cursor);
         for(const series of page.series) routes.set(series.historyId??identity(series.slug),series.slug);
-        void native('write',{key:'routes',value:Object.fromEntries(routes)});
+        void native('write',{key:'routes',value:Object.fromEntries(routes)}).catch(console.error);
+        void native('prepare-covers',{urls:page.series.map(series=>series.coverUrl)}).catch(console.error);
         return {...page,series:page.series.map(series=>({...series,coverUrl:imageURL(series.coverUrl,true)}))};
     },
     loadChapter: (async(request: ChapterLoadRequest)=>{
         const key=chapterKey(request.slug,request.chapterId);
-        if(request.intent===ChapterLoadIntent.Open)await native('window-current',{series:identity(request.slug),key});
+        await native('window-current',{series:identity(request.slug),key});
         const result=await originalChapter(request,true);
         if(result.kind!==ChapterLoadResultKind.Chapter) return {...result,...('url' in result?{url:localURL(result.url)}:{})};
         await native('prepare',{key,urls:result.data.images.map((image: any)=>image.url)});

@@ -9,6 +9,7 @@ function spawn() {
     workerURL=URL.createObjectURL(new Blob([workerCode],{type:'text/javascript'}));
     const current=new Worker(workerURL); worker=current;
     current.onmessage=async ({data})=>{
+        if(worker!==current)return;
         if(data.bridgeID) {
             try { const value=await native(data.command,data.args); if(worker===current)current.postMessage({bridgeID:data.bridgeID,value}); }
             catch(error) { if(worker===current)current.postMessage({bridgeID:data.bridgeID,error:String(error)}); }

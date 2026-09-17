@@ -1,0 +1,142 @@
+{
+  "date": "2026-09-17",
+  "build": 8,
+  "providers": [
+    "asura",
+    "scythe",
+    "lua",
+    "yaksha",
+    "qiscans",
+    "ezmanga"
+  ],
+  "changes": [
+    "Document activation owns request cancellation; commit callbacks cannot invalidate restored Home",
+    "No view checkpoint before initialized/rendered route",
+    "Queued worker bridge messages wait through bfcache suspension",
+    "Foreground metadata promotion, independent image/metadata connection pools, preemptible background images",
+    "Yielding cache maintenance; unchanged windows/chapter image lists avoid rewrites",
+    "All catalog cover URLs prepared and persisted; reader and covers consume local downloader files"
+  ],
+  "tests": {
+    "unit": 40,
+    "typescript": "passed",
+    "builderAndSigningLock": "passed",
+    "nativeDownloader": "passed: promotion, cancellation/requeue, deduplication, cached reads, pruning, pause/resume, offscreen covers"
+  },
+  "physical": {
+    "scythe": {
+      "before": "Cold reader restart then Back left Home empty with Document is no longer active",
+      "afterFirstCheck": 40,
+      "afterComplete": 63,
+      "coverFiles": 63,
+      "coverMimeFiles": 63,
+      "historyEntries": 5
+    },
+    "asura": {
+      "cachedChapter": 62,
+      "readerImages": 25,
+      "decodedAtOneSecondAfterCover": 25,
+      "coldRestartBackCardsAtFourSeconds": 100,
+      "liveTotal": 348
+    },
+    "lua": {
+      "homeCards": 618,
+      "coldReaderChapter": 67,
+      "readerImages": 9,
+      "decoded": 9,
+      "backCards": 618
+    }
+  },
+  "catalog": "Shared userscript behavior: render first response then subsequent pages, no dependency on image completion. Lua returns its whole catalog in one response. No separate offline catalog added.",
+  "renewal": {
+    "asura": {
+      "build": "8",
+      "bundle": "com.visar.AsuraReader.paid",
+      "lastSuccess": 1789626960.569932,
+      "nextDue": 1792218960.569932,
+      "lastError": null,
+      "approvedInputsMatch": true,
+      "webSHA256": "c8def9902538eeb6653e2a7414efc8a6fbb718ebc64aa8a924f21708b5f3ef8c",
+      "profileExpiries": {
+        "65U58U86DD.com.visar.AsuraReader.paid": 1821162957.0
+      }
+    },
+    "scythe": {
+      "build": "8",
+      "bundle": "com.visar.ScytheReader.paid",
+      "lastSuccess": 1789626968.255736,
+      "nextDue": 1792218968.255736,
+      "lastError": null,
+      "approvedInputsMatch": true,
+      "webSHA256": "4d921fd80b173936efd4bee0369082f1ec0ce501bbe834f1ba46e42d008eaa90",
+      "profileExpiries": {
+        "65U58U86DD.com.visar.ScytheReader.paid": 1821162957.0
+      }
+    },
+    "lua": {
+      "build": "8",
+      "bundle": "com.visar.LuaReader.paid",
+      "lastSuccess": 1789626976.392229,
+      "nextDue": 1792218976.392229,
+      "lastError": null,
+      "approvedInputsMatch": true,
+      "webSHA256": "bdfdb87c75844102a25c7e3079d6e8c4842d828ea0ed538be502bba31228d36b",
+      "profileExpiries": {
+        "65U58U86DD.com.visar.LuaReader.paid": 1821162957.0
+      }
+    },
+    "yaksha": {
+      "build": "8",
+      "bundle": "com.visar.YakshaReader.paid",
+      "lastSuccess": 1789626983.955328,
+      "nextDue": 1792218983.955328,
+      "lastError": null,
+      "approvedInputsMatch": true,
+      "webSHA256": "343701a4cf6992cea9b1a92e0bbbf4a2d2997ce7687e9351b3f0fb5420bf5c15",
+      "profileExpiries": {
+        "65U58U86DD.com.visar.YakshaReader.paid": 1821162957.0
+      }
+    },
+    "qiscans": {
+      "build": "8",
+      "bundle": "com.visar.QiMangaReader.paid",
+      "lastSuccess": 1789626991.664912,
+      "nextDue": 1792218991.664912,
+      "lastError": null,
+      "approvedInputsMatch": true,
+      "webSHA256": "90e0463fcbfd184c024619f50e64d9a5ab5f99e9205f52fcb41d87d3ffb6dcd4",
+      "profileExpiries": {
+        "65U58U86DD.com.visar.QiMangaReader.paid": 1821162957.0
+      }
+    },
+    "ezmanga": {
+      "build": "8",
+      "bundle": "com.visar.EzMangaReader.paid",
+      "lastSuccess": 1789626999.3982,
+      "nextDue": 1792218999.3982,
+      "lastError": null,
+      "approvedInputsMatch": true,
+      "webSHA256": "ec2105b57c6d1f258b2d9095e111e5dbd1441c155ab7ba8697e805e3603e49d5",
+      "profileExpiries": {
+        "65U58U86DD.com.visar.EzMangaReader.paid": 1821162957.0
+      }
+    }
+  },
+  "webSHA256": {
+    "asura": "c8def9902538eeb6653e2a7414efc8a6fbb718ebc64aa8a924f21708b5f3ef8c",
+    "scythe": "4d921fd80b173936efd4bee0369082f1ec0ce501bbe834f1ba46e42d008eaa90",
+    "lua": "bdfdb87c75844102a25c7e3079d6e8c4842d828ea0ed538be502bba31228d36b",
+    "yaksha": "343701a4cf6992cea9b1a92e0bbbf4a2d2997ce7687e9351b3f0fb5420bf5c15",
+    "qiscans": "90e0463fcbfd184c024619f50e64d9a5ab5f99e9205f52fcb41d87d3ffb6dcd4",
+    "ezmanga": "ec2105b57c6d1f258b2d9095e111e5dbd1441c155ab7ba8697e805e3603e49d5"
+  },
+  "cleanup": {
+    "schedulerRestored": true,
+    "installedAppCheck": "passed, exit 0",
+    "backgroundItems": [
+      "com.visar.installed-apps-refresh"
+    ],
+    "temporaryProbesRemoved": true,
+    "newBackgroundJobs": false
+  }
+}

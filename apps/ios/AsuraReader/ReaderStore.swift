@@ -8,16 +8,18 @@ actor ReaderStore {
     let downloader: ImageDownloader
     private var windows: [String:[String]] = [:]
     private var images: [String:[String]] = [:]
+    private var covers = Set<String>()
     private var loaded = false
     init(root: URL, http: ReaderHTTP = ReaderHTTP(), origin: String) { self.root=root;self.http=http;self.origin=origin; self.downloader=ImageDownloader(root:root.appendingPathComponent("shared"),transfer:http,referrer:origin) }
     private func load() throws {
         guard !loaded else { return }
         if let data=try read("windows") { windows=try JSONDecoder().decode([String:[String]].self,from:data) }
         if let data=try read("images") { images=try JSONDecoder().decode([String:[String]].self,from:data) }
+        if let data=try read("covers") { covers=try JSONDecoder().decode(Set<String>.self,from:data) }
         loaded=true
     }
     func read(_ key: String) throws -> Data? {
-        guard ["database","views","routes","windows","images"].contains(key) else { throw ReaderError.message("Invalid storage key") }
+        guard ["database","views","routes","windows","images","covers"].contains(key) else { throw ReaderError.message("Invalid storage key") }
         let file=root.appendingPathComponent("shared/\(key).json")
         return FileManager.default.fileExists(atPath:file.path) ? try Data(contentsOf:file) : nil
     }
@@ -54,12 +56,23 @@ actor ReaderStore {
             try prune();try write("windows",data:jsonData(windows));try write("images",data:jsonData(images));try await downloader.setRetained(retainedURLs())
         case "window-current", "window":
             guard let series=args["series"] as? String else { throw ReaderError.message("Invalid download window") }
-            if command == "window-current", let key=args["key"] as? String { windows[series]=Array(Set((windows[series] ?? [])+[key])) }
-            else if let keys=args["keys"] as? [String] { windows[series]=keys }
+            if command == "window-current", let key=args["key"] as? String {
+                if windows[series]?.contains(key) == true { return Data("{}".utf8) }
+                windows[series]=Array(Set((windows[series] ?? [])+[key]))
+            }
+            else if let keys=args["keys"] as? [String] {
+                if Set(windows[series] ?? []) == Set(keys) { return Data("{}".utf8) }
+                windows[series]=keys
+            }
             try prune();try write("windows",data:jsonData(windows));try write("images",data:jsonData(images));try await downloader.setRetained(retainedURLs())
         case "prepare":
             guard let key=args["key"] as? String,let urls=args["urls"] as? [String],windows.values.contains(where:{$0.contains(key)}) else { return Data("{}".utf8) }
+            if images[key] == urls { return Data("{}".utf8) }
             images[key]=urls;try write("images",data:jsonData(images));try await downloader.setRetained(retainedURLs())
+        case "prepare-covers":
+            let added=Set(args["urls"] as? [String] ?? []).subtracting(covers)
+            if !added.isEmpty { covers.formUnion(added);try write("covers",data:JSONEncoder().encode(covers)) }
+            await downloader.prepareCovers(added)
         case "downloads-active":
             await downloader.setActive(args["active"] as? Bool == true)
         case "downloads-status": return try jsonData(await downloader.diagnostics())
@@ -74,7 +87,7 @@ actor ReaderStore {
         return Data("{}".utf8)
     }
     func bootstrap() async throws -> Data {
-        try load();try await downloader.setRetained(retainedURLs())
+        try load();try await downloader.setRetained(retainedURLs());await downloader.prepareCovers(covers)
         var values=try read("views").map(object) ?? [:]
         values["routes"]=try read("routes").map { try JSONSerialization.jsonObject(with:$0) } ?? [:]
         return try jsonData(values)

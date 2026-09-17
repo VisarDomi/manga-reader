@@ -46,7 +46,12 @@ moves the retained window. Obsolete images/metadata are deleted; history remains
 
 `ImageDownloader` is the sole image network/cache owner. Background preparation
 and visible WebKit image requests use the same job and local file. Visible work
-promotes an existing queued request; it never starts a duplicate transfer. Files
+promotes an existing queued request and cancels/requeues unrelated background
+transfers while foreground images are pending; it never starts a duplicate
+transfer for the same image. Cached-file checks run in bounded yielding batches,
+and pruning no longer blocks chapter/bootstrap responses. Metadata has a separate
+URLSession connection pool from images. Foreground chapter lists also promote
+queued background metadata. Files
 become readable individually, without waiting for an entire chapter. Native
 `asura://app/image` serves these files; the reader never fetches image URLs itself.
 
@@ -54,13 +59,23 @@ The shared reader still uses its normal lazy image elements. This controls local
 loading/decoding/display, **not network preparation**: all images in the retained
 chapters are downloaded independently of scrolling. Do not introduce a second
 IntersectionObserver, image queue, DOM-window removal or app-specific retries.
-Downloads pause in the background and resume on foreground.
+Downloads pause when iOS backgrounds the app and resume on foreground.
+
+Every Home catalog page registers **all** its cover URLs with the downloader,
+including offscreen rows. `shared/covers.json` retains those preparation targets
+across app launches. Covers use the same local-file path and foreground-priority
+policy as pages; Home rendering does not await their downloads.
+
+Home still uses the actual userscript catalog flow: first response, then each
+additional page as it arrives (with the shared pagination delay). Lua's source
+requests its catalog in one response. Catalog metadata is live; this image
+ownership change does not introduce a separate cached catalog or copied Home UI.
 
 ## Native-only additions
 
 - First chapter link per Home card.
 - Cold Home/reader/position restoration and WebKit back-swipe navigation.
-- Previous/current/next file retention and preparation described above.
+- Previous/current/next file retention and all-cover preparation described above.
 - Atomic native storage and HTTPS transport. The transport preserves the
   provider's real referrer; Fetch otherwise normalizes it against the local
   custom-scheme origin, which caused Lua API HTTP 403 during verification.
@@ -106,3 +121,17 @@ real downloader: bounded jobs, promotion, deduplication, file reuse, pruning,
 pause/resume and preservation of history. These checks do not establish physical
 scroll smoothness; test gestures on the phone. The shared-refactor investigation
 records physical delivery checks.
+
+## September 17: Back and download priority (build 8)
+
+The bridge's document handshake now owns request cancellation and activation.
+Do not clear that ownership in `didCommit`: on a cached Back navigation it can
+run after reactivation and strand Home with “Document is no longer active.”
+Queued worker calls wait for reactivation. Even an incompletely initialized
+cached page must reactivate before resuming its pending initialization.
+View checkpoints require an initialized, rendered route, preventing a reader URL
+from being saved as Home during startup. The reader saves again once rendered.
+
+Scythe reproduced the persistent empty Home before this correction and populated
+40 then 63 rows afterward. All 63 cover files were present without scrolling.
+See `investigation/2026-09-17-verification.json` for final delivery and checks.

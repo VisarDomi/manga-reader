@@ -30,8 +30,8 @@ it('promotes already queued chapter metadata when a reader opens it',async()=>{
  const {metadata,prioritizeMetadata}=await import('../../apps/ios/web/metadata-queue');
  const finished=Array.from({length:6},()=>deferred<void>()),started:number[]=[];
  const jobs=finished.map((gate,index)=>metadata(()=>{started.push(index);return gate.promise;},false,String(index)));
- expect(started).toEqual([0,1,2,3]);
- prioritizeMetadata('5');expect(started).toEqual([0,1,2,3,5]);
+ expect(started).toEqual([0,1]);
+ prioritizeMetadata('5');expect(started).toEqual([0,1,5]);
  for(const gate of finished)gate.resolve();await Promise.all(jobs);
 });
 it('PC Load cannot let pending work recreate a removed series window',async()=>{

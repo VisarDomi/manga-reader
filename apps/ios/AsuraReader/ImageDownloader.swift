@@ -14,12 +14,12 @@ actor ImageDownloader {
     private let root: URL
     private let transfer: any ImageTransfer
     private let referrer: String
-    private var retained = Set<String>()
+    private var retained = Set<String>(), covers = Set<String>(), retainedKeys = Set<String>()
     private var jobs: [String: Job] = [:]
     private var queue: [String] = []
     private var tasks: [String: Task<Void, Never>] = [:]
-    private var active = true
-    private var scanned = false
+    private var preempted = Set<String>()
+    private var active = true, pumping = false, scanned = false
 
     init(root: URL, transfer: any ImageTransfer, referrer: String) {
         self.root = root; self.transfer = transfer; self.referrer = referrer
@@ -32,6 +32,7 @@ actor ImageDownloader {
     private func read(_ key: String) throws -> (Data, String) {
         (try Data(contentsOf: file(key), options: .mappedIfSafe), try String(contentsOf: file(key).appendingPathExtension("mime"), encoding: .utf8))
     }
+    private func keep(_ job: Job) -> Bool { job.cover ? covers.contains(job.url) : retained.contains(job.url) }
     func image(_ url: String, cover: Bool) async throws -> (Data, String) {
         let key = key(url, cover), id = UUID()
         try Task.checkCancellation()
@@ -40,7 +41,10 @@ actor ImageDownloader {
             try await withCheckedThrowingContinuation { continuation in
                 if jobs[key] == nil { jobs[key] = Job(url: url, cover: cover); queue.append(key) }
                 jobs[key]!.waiters[id] = continuation
-                // An already queued background download is now visible work.
+                // Release background connections as soon as visible work arrives.
+                for (other, task) in tasks where jobs[other]?.waiters.isEmpty == true {
+                    preempted.insert(other); task.cancel()
+                }
                 pump()
             }
         } onCancel: { Task { await self.cancel(key, id: id) } }
@@ -50,72 +54,96 @@ actor ImageDownloader {
         discardUnused(); pump()
     }
     func setRetained(_ urls: Set<String>) throws {
-        let removed = retained.subtracting(urls)
-        retained = urls
+        let removed = retained.subtracting(urls), added = urls.subtracting(retained)
+        retained = urls; retainedKeys = Set(urls.map { key($0, false) })
         discardUnused()
-        if !scanned {
-            let keep = Set(urls.map { key($0, false) })
-            let directory = root.appendingPathComponent("images")
-            for entry in (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? [] {
-                let key = "images/" + entry.deletingPathExtension().lastPathComponent
-                if !keep.contains(key), jobs[key] == nil { try FileManager.default.removeItem(at: entry) }
-            }
-            scanned = true
-        } else {
+        enqueue(added, cover: false)
+        // File maintenance must not gate chapter metadata or bootstrap replies.
+        Task(priority: .utility) {
             for url in removed {
                 let key = key(url, false)
-                if jobs[key] == nil {
-                    try? FileManager.default.removeItem(at: file(key))
-                    try? FileManager.default.removeItem(at: file(key).appendingPathExtension("mime"))
+                if !retained.contains(url), jobs[key] == nil { remove(key) }
+                await Task.yield()
+            }
+            if !scanned {
+                scanned = true
+                let entries = (try? FileManager.default.contentsOfDirectory(at: root.appendingPathComponent("images"), includingPropertiesForKeys: nil)) ?? []
+                for entry in entries where entry.pathExtension != "mime" {
+                    let candidate = "images/" + entry.lastPathComponent
+                    if !retainedKeys.contains(candidate), jobs[candidate] == nil { remove(candidate) }
+                    await Task.yield()
                 }
             }
         }
-        prepare()
+    }
+    func prepareCovers(_ urls: Set<String>) {
+        let added = urls.subtracting(covers); covers.formUnion(urls)
+        enqueue(added, cover: true)
     }
     func setActive(_ value: Bool) {
         active = value
-        if active { prepare() } else { discardUnused() }
+        if active { enqueue(retained, cover: false); enqueue(covers, cover: true) }
+        else { discardUnused() }
     }
-    private func prepare() {
+    private func enqueue(_ urls: Set<String>, cover: Bool) {
         guard active else { return }
-        for url in retained.sorted() {
-            let key = key(url, false)
-            if jobs[key] == nil, !cached(key) { jobs[key] = Job(url: url, cover: false); queue.append(key) }
+        // No per-file stat scan here: a bounded pump checks cached files later.
+        for url in urls.sorted() {
+            let key = key(url, cover)
+            if jobs[key] == nil { jobs[key] = Job(url: url, cover: cover); queue.append(key) }
         }
         pump()
     }
+    private func remove(_ key: String) {
+        try? FileManager.default.removeItem(at: file(key))
+        try? FileManager.default.removeItem(at: file(key).appendingPathExtension("mime"))
+    }
     private func discardUnused() {
-        for (key, job) in jobs where job.waiters.isEmpty && (!active || !retained.contains(job.url)) {
+        for (key, job) in jobs where job.waiters.isEmpty && (!active || !keep(job)) {
             if let task = tasks[key] { task.cancel() }
             else { jobs[key] = nil; queue.removeAll { $0 == key } }
         }
     }
     private func pump() {
-        while !queue.isEmpty {
-            let urgent = queue.firstIndex { !(jobs[$0]?.waiters.isEmpty ?? true) }
-            guard tasks.count < (urgent == nil ? 3 : 4) else { return }
-            let key = queue.remove(at: urgent ?? 0)
-            guard let job = jobs[key] else { continue }
-            tasks[key] = Task { [transfer, referrer] in
-                do {
-                    _ = try await transfer.image(job.url, to: file(key), referrer: referrer)
-                    finish(key, error: nil)
-                } catch { finish(key, error: error) }
+        guard !pumping else { return }
+        pumping = true
+        Task {
+            defer { pumping = false }
+            var checked = 0
+            while !queue.isEmpty {
+                let urgent = queue.firstIndex { !(jobs[$0]?.waiters.isEmpty ?? true) }
+                let foregroundRunning = tasks.keys.contains { !(jobs[$0]?.waiters.isEmpty ?? true) }
+                if urgent == nil && (foregroundRunning || !active) { return }
+                guard tasks.count < (urgent == nil ? 3 : 4) else { return }
+                let key = queue.remove(at: urgent ?? 0)
+                guard let job = jobs[key] else { continue }
+                if cached(key) { finish(key, error: nil) }
+                else {
+                    tasks[key] = Task { [transfer, referrer] in
+                        do {
+                            _ = try await transfer.image(job.url, to: file(key), referrer: referrer)
+                            finish(key, error: nil)
+                        } catch { finish(key, error: error) }
+                    }
+                }
+                checked += 1
+                if checked % 16 == 0 { await Task.yield() }
             }
         }
     }
     private func finish(_ key: String, error: Error?) {
         tasks[key] = nil
-        guard let job = jobs.removeValue(forKey: key) else { pump(); return }
+        guard let job = jobs[key] else { pump(); return }
+        if preempted.remove(key) != nil, error != nil, (!job.waiters.isEmpty || (active && keep(job))) {
+            queue.append(key); pump(); return
+        }
+        jobs[key] = nil
         if !job.waiters.isEmpty {
             let result: Result<(Data, String), Error> = Result { if let error { throw error }; return try read(key) }
             for waiter in job.waiters.values { waiter.resume(with: result) }
         }
-        if !job.cover && !retained.contains(job.url) {
-            try? FileManager.default.removeItem(at: file(key))
-            try? FileManager.default.removeItem(at: file(key).appendingPathExtension("mime"))
-        }
+        if !job.cover && !retained.contains(job.url) { remove(key) }
         pump()
     }
-    func diagnostics() -> [String: Int] { ["running": tasks.count, "queued": queue.count, "retained": retained.count] }
+    func diagnostics() -> [String: Int] { ["running": tasks.count, "queued": queue.count, "retained": retained.count, "covers": covers.count] }
 }

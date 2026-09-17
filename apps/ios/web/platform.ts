@@ -14,6 +14,7 @@ function align() {
 const resize=new ResizeObserver(()=>requestAnimationFrame(align));
 resize.observe(document.body);
 export function seriesRendered(card: HTMLElement,series: HomeSeries,provider: Provider) {
+    if (!restored || restored.home) ready=true;
     card.dataset.series=series.historyId??series.slug;
     seriesAvailable(card.dataset.series);
     const first=document.createElement('a');first.className='hs-home-chapter';first.href=provider.seriesUrl(series.slug);first.textContent='First chapter';

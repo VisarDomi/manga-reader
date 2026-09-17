@@ -8,7 +8,7 @@ actor ControlledTransfer: ImageTransfer {
         started.append(url)
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in
-                if cancelled.contains(url) { c.resume(throwing: CancellationError()) } else { waiting[url] = c }
+                if cancelled.remove(url) != nil { c.resume(throwing: CancellationError()) } else { waiting[url] = c }
             }
         } onCancel: { Task { await self.cancel(url) } }
         try Task.checkCancellation()
@@ -16,7 +16,7 @@ actor ControlledTransfer: ImageTransfer {
         try writeAtomically(Data("image/png".utf8), file.appendingPathExtension("mime"))
         return "image/png"
     }
-    func cancel(_ url: String) { cancelled.insert(url); waiting.removeValue(forKey: url)?.resume(throwing: CancellationError()) }
+    func cancel(_ url: String) { if let waiter = waiting.removeValue(forKey: url) { waiter.resume(throwing: CancellationError()) } else { cancelled.insert(url) } }
     func complete(_ url: String) { waiting.removeValue(forKey: url)?.resume() }
     func starts() -> [String] { started }
 }
@@ -51,7 +51,7 @@ func eventually(_ message: String, _ condition: @Sendable () async -> Bool) asyn
         try await eventually("Obsolete preparation is cancelled") { await downloader.diagnostics()["running"] == 0 }
         try check(FileManager.default.fileExists(atPath: root.appendingPathComponent("images/" + fileKey("f")).path), "Retained file survives")
         try await downloader.setRetained([])
-        try check(!FileManager.default.fileExists(atPath: root.appendingPathComponent("images/" + fileKey("f")).path), "Obsolete file is deleted")
+        try await eventually("Obsolete file is deleted") { !FileManager.default.fileExists(atPath: root.appendingPathComponent("images/" + fileKey("f")).path) }
         await downloader.setActive(false)
         try await downloader.setRetained(Set(["g"]))
         try check(!(await transfer.starts()).contains("g"), "Background state does not start preparation")
@@ -59,6 +59,14 @@ func eventually(_ message: String, _ condition: @Sendable () async -> Bool) asyn
         try await eventually("Foreground resumes preparation") { await transfer.starts().contains("g") }
         await transfer.complete("g")
         try await eventually("Download completes") { await downloader.diagnostics()["running"] == 0 }
+        try await downloader.setRetained([])
+        await downloader.prepareCovers(Set(["cover-one", "cover-two"]))
+        try await eventually("Offscreen covers download without image requests") { Set(await transfer.starts()).isSuperset(of: ["cover-one", "cover-two"]) }
+        await transfer.complete("cover-one"); await transfer.complete("cover-two")
+        try await eventually("Covers finish") { await downloader.diagnostics()["running"] == 0 }
+        let (cover, _) = try await downloader.image("cover-two", cover: true)
+        try check(String(decoding: cover, as: UTF8.self) == "cover-two", "Cover is served from disk")
+        try check(await transfer.starts().filter { $0 == "cover-two" }.count == 1, "Cover is not fetched twice")
         print("PASS: shared image queue, visible priority, deduplication, disk cache, pruning, pause/resume")
 
         let store = ReaderStore(root: root.appendingPathComponent("store"), origin: "https://reader.test/")

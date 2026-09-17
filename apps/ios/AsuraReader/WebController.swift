@@ -45,7 +45,12 @@ final class WebController: UIViewController, WKNavigationDelegate, WKScriptMessa
               let body = message.body as? [String: Any], let command = body["command"] as? String,
               let args = body["args"] as? [String: Any], let data = try? jsonData(args),
               let document = body["document"] as? String else { replyHandler(nil, "Invalid reader request"); return }
-        if command == "init" || command == "activate" { activeDocument = document }
+        if (command == "init" || command == "activate") && activeDocument != document {
+            // The document handshake owns the bridge and its requests. A WebKit
+            // commit callback may arrive after a cached page has reactivated.
+            for task in requests.values { task.cancel() }; requests.removeAll()
+            activeDocument = document
+        }
         guard document == activeDocument else { replyHandler(nil, "Document is no longer active"); return }
         if command == "fetch-cancel" {
             if let id = args["requestID"] as? String { requests[id]?.cancel() }
@@ -82,10 +87,6 @@ final class WebController: UIViewController, WKNavigationDelegate, WKScriptMessa
         let url = navigationAction.request.url
         let allowed = url?.scheme == "asura" && url?.host == "app"
         decisionHandler(allowed ? .allow : .cancel)
-    }
-    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
-        activeDocument = ""
-        for task in requests.values { task.cancel() }; requests.removeAll()
     }
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         firstLaunch = true; webView.load(URLRequest(url: URL(string: "asura://app/")!))

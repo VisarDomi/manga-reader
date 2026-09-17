@@ -4,7 +4,7 @@ const waiting: Array<{key?:string;urgent:boolean;start():void}>=[];
 function pump() {
     while(waiting.length) {
         const urgent=waiting.findIndex(job=>job.urgent);
-        if(active>=(urgent<0?4:6))return;
+        if(active>=(urgent<0?2:6))return;
         active++;waiting.splice(urgent<0?0:urgent,1)[0].start();
     }
 }

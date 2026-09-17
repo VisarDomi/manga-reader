@@ -8,7 +8,7 @@ let active=false, positions: ChapterProgress[]=[], currentSeries: string|null=nu
 const generations=new Map<string,number>();
 const running=new Map<string,string>();
 export function preparationContext(home: boolean, series: string|null=null) { currentSeries=home?null:series; }
-export function pauseDownloads() { active=false;running.clear();for(const [key,value] of generations)generations.set(key,value+1);void native('downloads-active',{active:false}); }
+export function pauseDownloads() { active=false;running.clear();for(const [key,value] of generations)generations.set(key,value+1); }
 export function resumeDownloads() { if(active)return;active=true;refreshLists();void native('downloads-active',{active:true});for(const p of positions) schedule(p); }
 export function updateProgress(progress: ChapterProgress[]) {
     positions=progress;
@@ -39,7 +39,7 @@ async function prepare(position: ChapterProgress,slug: string,generation: number
     const valid=()=>active&&generations.get(position.seriesSlug)===generation;
     // Current metadata does not wait for the chapter list (or any other series).
     const current=originalChapter({slug,chapterId:position.chapterId,intent:ChapterLoadIntent.Open});
-    const list=chapterList(slug);
+    const list=chapterList(slug,false);
     await native('window-current',{series:position.seriesSlug,key:chapterKey(slug,position.chapterId)});
     const prepareChapter=async(chapterId: string,task=originalChapter({slug,chapterId,intent:ChapterLoadIntent.Append}))=>{
         const result=await task;if(!valid()||result.kind!==ChapterLoadResultKind.Chapter)return;

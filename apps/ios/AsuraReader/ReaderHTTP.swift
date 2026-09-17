@@ -2,6 +2,7 @@ import Foundation
 
 actor ReaderHTTP: ImageTransfer {
     private let session: URLSession
+    private let images: URLSession
     init() {
         let config = URLSessionConfiguration.default
         config.urlCache = nil
@@ -9,6 +10,10 @@ actor ReaderHTTP: ImageTransfer {
         let file = Bundle.main.url(forResource: "BackupConfig", withExtension: "json", subdirectory: "Native")
         let settings = file.flatMap { try? Data(contentsOf: $0) }.flatMap { try? object($0) }
         let host = (settings?["url"] as? String).flatMap { URL(string: $0)?.host } ?? ""
+        images = URLSession(configuration: config, delegate: LocalTrust(host: host,
+            certificateURL: Bundle.main.url(forResource: "LocalCA", withExtension: "cer", subdirectory: "Native")), delegateQueue: nil)
+        // Metadata has its own connection pool; image preparation cannot occupy it.
+        config.httpMaximumConnectionsPerHost = 8
         session = URLSession(configuration: config, delegate: LocalTrust(host: host,
             certificateURL: Bundle.main.url(forResource: "LocalCA", withExtension: "cer", subdirectory: "Native")), delegateQueue: nil)
     }
@@ -30,7 +35,7 @@ actor ReaderHTTP: ImageTransfer {
         guard let url = URL(string: raw), url.scheme == "https", url.host != nil else { throw ReaderError.message("Invalid image URL") }
         do {
             var request = URLRequest(url:url); request.setValue(referrer, forHTTPHeaderField:"Referer")
-            let (temporary,response) = try await session.download(for:request)
+            let (temporary,response) = try await images.download(for:request)
             defer { try? FileManager.default.removeItem(at:temporary) }
             try Task.checkCancellation()
             guard let http=response as? HTTPURLResponse, http.statusCode == 200,
