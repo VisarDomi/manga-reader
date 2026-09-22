@@ -1,0 +1,217 @@
+{
+  "date": "2026-09-22T16:17:02.849345+00:00",
+  "scope": [
+    "asura",
+    "scythe",
+    "yaksha",
+    "qiscans",
+    "lua",
+    "ezmanga"
+  ],
+  "device": "iPhone 12 Pro Max",
+  "builds": {
+    "asura": 10,
+    "scythe": 10,
+    "yaksha": 10,
+    "qiscans": 10,
+    "lua": 10,
+    "ezmanga": 10
+  },
+  "coldLaunch": {
+    "asura": {
+      "ready": "complete",
+      "sameRoute": true,
+      "scrollBefore": 6106,
+      "scrollAfter": 6106,
+      "rowsBefore": 348,
+      "rowsAfter": 348,
+      "imagesAfter": 348,
+      "loadedImagesAfter": 15,
+      "errors": []
+    },
+    "scythe": {
+      "ready": "complete",
+      "sameRoute": true,
+      "scrollBefore": 3440,
+      "scrollAfter": 3440,
+      "rowsBefore": 62,
+      "rowsAfter": 62,
+      "imagesAfter": 62,
+      "loadedImagesAfter": 17,
+      "errors": []
+    },
+    "yaksha": {
+      "ready": "complete",
+      "sameRoute": true,
+      "scrollBefore": 949,
+      "scrollAfter": 949,
+      "rowsBefore": 58,
+      "rowsAfter": 58,
+      "imagesAfter": 58,
+      "loadedImagesAfter": 15,
+      "errors": []
+    },
+    "qiscans": {
+      "ready": "complete",
+      "sameRoute": true,
+      "scrollBefore": 20827,
+      "scrollAfter": 20827,
+      "rowsBefore": 977,
+      "rowsAfter": 977,
+      "imagesAfter": 977,
+      "loadedImagesAfter": 25,
+      "errors": []
+    },
+    "lua": {
+      "ready": "complete",
+      "sameRoute": true,
+      "scrollBefore": 37670,
+      "scrollAfter": 37670,
+      "rowsBefore": 0,
+      "rowsAfter": 0,
+      "imagesAfter": 20,
+      "loadedImagesAfter": 6,
+      "errors": []
+    },
+    "ezmanga": {
+      "ready": "complete",
+      "sameRoute": true,
+      "scrollBefore": 32977,
+      "scrollAfter": 32977,
+      "rowsBefore": 771,
+      "rowsAfter": 771,
+      "imagesAfter": 771,
+      "loadedImagesAfter": 25,
+      "errors": []
+    }
+  },
+  "physicalNetworkRecovery": {
+    "asura": {
+      "offline": {
+        "state": "pending",
+        "start": 1790093142467,
+        "online": false
+      },
+      "afterWiFiReturned": {
+        "state": "completed",
+        "status": 200,
+        "bytes": 734078,
+        "elapsed": 345614
+      },
+      "reissued": false,
+      "reloaded": false
+    }
+  },
+  "tests": {
+    "mangaNative": [
+      "PASS: automatic network/503 recovery; permanent errors and writes are not replayed; cancellation interrupts backoff",
+      "PASS: fresh downloader skips committed images and restarts incomplete files",
+      "PASS: shared image queue, visible priority, deduplication, disk cache, pruning, pause/resume",
+      "PASS: chapter window pruning retains history"
+    ],
+    "mangaSharedUnit": "44 tests passed",
+    "nativeTypecheck": "passed for Manga, Gallery Reader, Ytb, Tango"
+  },
+  "boundaries": [
+    "Force-quit stops foreground transfers. Retained download work resumes when the app reopens; no execution while force-quit is claimed.",
+    "PC commands and account mutations are not automatically replayed."
+  ],
+  "renewal": {
+    "asura": {
+      "inputHash": "42814d947ca523664ca30b89ae4de44663ff69b37b5ce9e3a96a7c0f886b2f27",
+      "lastSuccess": 1790093920.332146,
+      "nextDue": 1792685920.332146,
+      "transport": "wired",
+      "installedProfiles": {
+        "65U58U86DD.com.visar.AsuraReader.paid": {
+          "id": "65U58U86DD.*",
+          "uuid": "1cdf8a74-2f46-43d7-aee7-25bfa6dc903a",
+          "created": 1790093916.0,
+          "expires": 1821629916.0
+        }
+      },
+      "attempts": 1
+    },
+    "scythe": {
+      "inputHash": "4844e2e31a04e0987031e8e752d11b0326702f2cf70aa9d256f9650d1b7c8443",
+      "lastSuccess": 1790093928.004976,
+      "nextDue": 1792685928.004976,
+      "transport": "wired",
+      "installedProfiles": {
+        "65U58U86DD.com.visar.ScytheReader.paid": {
+          "id": "65U58U86DD.*",
+          "uuid": "1cdf8a74-2f46-43d7-aee7-25bfa6dc903a",
+          "created": 1790093916.0,
+          "expires": 1821629916.0
+        }
+      },
+      "attempts": 1
+    },
+    "yaksha": {
+      "inputHash": "5d4cd0398e4d033edf53a99e7acabd77369190e56c7f96959446f15c09ecc26c",
+      "lastSuccess": 1790093935.4983711,
+      "nextDue": 1792685935.498371,
+      "transport": "wired",
+      "installedProfiles": {
+        "65U58U86DD.com.visar.YakshaReader.paid": {
+          "id": "65U58U86DD.*",
+          "uuid": "1cdf8a74-2f46-43d7-aee7-25bfa6dc903a",
+          "created": 1790093916.0,
+          "expires": 1821629916.0
+        }
+      },
+      "attempts": 1
+    },
+    "qiscans": {
+      "inputHash": "294d7b6b380fdeacd316a7dddd48e780451756e17eedd4890b5b8aec0b9433f0",
+      "lastSuccess": 1790093942.9998279,
+      "nextDue": 1792685942.999828,
+      "transport": "wired",
+      "installedProfiles": {
+        "65U58U86DD.com.visar.QiMangaReader.paid": {
+          "id": "65U58U86DD.*",
+          "uuid": "1cdf8a74-2f46-43d7-aee7-25bfa6dc903a",
+          "created": 1790093916.0,
+          "expires": 1821629916.0
+        }
+      },
+      "attempts": 1
+    },
+    "lua": {
+      "inputHash": "2a7ba69453a352ffc6902a5db4d3586627ddca264a36a468b93a317b5e780275",
+      "lastSuccess": 1790093950.775002,
+      "nextDue": 1792685950.775002,
+      "transport": "wired",
+      "installedProfiles": {
+        "65U58U86DD.com.visar.LuaReader.paid": {
+          "id": "65U58U86DD.*",
+          "uuid": "1cdf8a74-2f46-43d7-aee7-25bfa6dc903a",
+          "created": 1790093916.0,
+          "expires": 1821629916.0
+        }
+      },
+      "attempts": 1
+    },
+    "ezmanga": {
+      "inputHash": "f3e836a656b7d9045441a4b3ff7d344112f13dea32bde3112ae8d0960455480c",
+      "lastSuccess": 1790093958.311265,
+      "nextDue": 1792685958.311265,
+      "transport": "wired",
+      "installedProfiles": {
+        "65U58U86DD.com.visar.EzMangaReader.paid": {
+          "id": "65U58U86DD.*",
+          "uuid": "1cdf8a74-2f46-43d7-aee7-25bfa6dc903a",
+          "created": 1790093916.0,
+          "expires": 1821629916.0
+        }
+      },
+      "attempts": 1
+    }
+  },
+  "scheduler": {
+    "label": "com.visar.installed-apps-refresh",
+    "resumed": true,
+    "lastExitStatus": 0,
+    "newJobsCreated": false
+  }
+}

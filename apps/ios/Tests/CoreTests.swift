@@ -30,8 +30,42 @@ func eventually(_ message: String, _ condition: @Sendable () async -> Bool) asyn
     }
     throw ReaderError.message(message)
 }
+actor NetworkAttempts {
+    var count = 0
+    func read() async throws -> Int {
+        try await recoverNetworkRead {
+            count += 1
+            if count == 1 { throw URLError(.networkConnectionLost) }
+            if count == 2 {
+                try retryableResponse(HTTPURLResponse(url: URL(string:"https://fixture.invalid/")!, statusCode:503, httpVersion:nil, headerFields:["Retry-After":"0"])!)
+            }
+            return count
+        }
+    }
+    func permanent() async throws -> Int {
+        try await recoverNetworkRead { count += 1; throw URLError(.serverCertificateUntrusted) }
+    }
+    func write() async throws -> Int {
+        try await recoverNetworkRead(enabled:false) { count += 1; throw URLError(.networkConnectionLost) }
+    }
+}
 @main struct Tests {
     static func main() async throws {
+        let recovering = NetworkAttempts()
+        try check(try await recovering.read() == 3, "Disconnected reads and HTTP 503 recover without another caller")
+        let permanent = NetworkAttempts()
+        do { _ = try await permanent.permanent(); throw ReaderError.message("Permanent TLS failure was swallowed") }
+        catch is URLError { }
+        try check(await permanent.count == 1, "TLS/security failures are never retried")
+        let writes = NetworkAttempts()
+        do { _ = try await writes.write(); throw ReaderError.message("Write failure was swallowed") }
+        catch is URLError { }
+        try check(await writes.count == 1, "Explicit writes are never replayed")
+        let cancel = Task { try await recoverNetworkRead { () async throws -> Int in throw URLError(.notConnectedToInternet) } }
+        try await Task.sleep(for:.milliseconds(20)); cancel.cancel()
+        do { _ = try await cancel.value; throw ReaderError.message("Cancelled recovery continued") }
+        catch is CancellationError { }
+        print("PASS: automatic network/503 recovery; permanent errors and writes are not replayed; cancellation interrupts backoff")
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let transfer = ControlledTransfer()
@@ -59,6 +93,19 @@ func eventually(_ message: String, _ condition: @Sendable () async -> Bool) asyn
         try await eventually("Foreground resumes preparation") { await transfer.starts().contains("g") }
         await transfer.complete("g")
         try await eventually("Download completes") { await downloader.diagnostics()["running"] == 0 }
+        await downloader.setActive(false)
+        try writeAtomically(Data("partial".utf8),root.appendingPathComponent("images/"+fileKey("h")))
+        let resumedTransfer=ControlledTransfer()
+        let resumed=ImageDownloader(root:root,transfer:resumedTransfer,referrer:"https://reader.test/")
+        try await resumed.setRetained(["g","h"])
+        try await eventually("Fresh downloader resumes only the unfinished file") { await resumedTransfer.starts() == ["h"] }
+        await resumedTransfer.complete("h")
+        try await eventually("Interrupted file is replaced completely") { await resumed.diagnostics()["running"] == 0 }
+        let (recoveredFile,_) = try await resumed.image("h",cover:false)
+        try check(recoveredFile == Data("h".utf8),"An uncommitted partial file is never accepted as a cached image")
+        await resumed.setActive(false)
+        print("PASS: fresh downloader skips committed images and restarts incomplete files")
+        await downloader.setActive(true)
         try await downloader.setRetained([])
         await downloader.prepareCovers(Set(["cover-one", "cover-two"]))
         try await eventually("Offscreen covers download without image requests") { Set(await transfer.starts()).isSuperset(of: ["cover-one", "cover-two"]) }
@@ -82,6 +129,10 @@ func eventually(_ message: String, _ condition: @Sendable () async -> Bool) asyn
         try check(String(decoding: removed, as: UTF8.self) == "null", "Old chapter metadata is pruned with its images")
         let history = try await store.read("database")!
         try check(try object(history)["history"] as? String == "keep", "Pruning retains reading history")
+        let reopened = ReaderStore(root: root.appendingPathComponent("store"), origin: "https://reader.test/")
+        _ = try await reopened.command("downloads-active", data: Data("{\"active\":false}".utf8))
+        try check(try await reopened.read("database") == history, "A fresh store preserves durable progress")
+        try check(try await reopened.read("windows") == store.read("windows"), "A fresh store recovers the exact download window")
         print("PASS: chapter window pruning retains history")
     }
 }
