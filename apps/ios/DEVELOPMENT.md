@@ -34,9 +34,10 @@ The Mac build runs attached in the existing GUI login using `launchctl asuser`
 and `caffeinate -i`. It registers no LaunchAgent/background item. Existing monthly
 renewal configurations fingerprint `build/<provider>/Web`, not the shared staging
 folder, so building another provider cannot invalidate the approved app.
+This repository renews its own apps with its Mac scheduler,
+`com.visar.renewal.manga-reader` ([ios-tools renewal](../../../../ios-tools/renewal/PAID-REFRESH.md)):
 `scripts/renewal.py` lists every provider in `build/providers.json` (identity plus
-`.paid`, inputs, builder) for ios-app-renewal's `configure-refresh.py`; a new
-provider needs no change in that repository.
+`.paid`, inputs, builder), so a new provider needs no change outside this repository.
 
 ## Image ownership
 
@@ -103,8 +104,9 @@ existing deliberate PC commands, not background sync. New native files are under
 `Library/Application Support/<productName>/shared`; incomplete old manifests are
 never imported. Later updates retain this shared storage normally.
 
-After final installation, deliberately approve each delivered app in the existing
-monthly renewal runner, run a real renewal, then restore that scheduler. Keep its
+After final installation, deliberately approve each delivered app, run a real
+renewal (`refresh-installed.py refresh --force --repo manga-reader`), then resume
+this repository's scheduler. Keep its
 recovery copy in `/home/visar/Documents/environment/mac-renewal` updated. Do not
 create extra daily jobs or background items.
 
@@ -120,7 +122,9 @@ Runtime validation targets the physical iPhone and Safari/WebKit. All three
 Chromium-only fixtures and the `test:extension` command were removed at the
 user's request. Retain the unit, provider-builder and signing-lock checks above.
 For Safari userscript flows use `npm run tests` / `npm run tests:single`; inspect
-installed native provider apps with `scripts/app-inspector.py` on the Mac.
+installed native provider apps on the Mac with ios-tools' inspector
+(`~/Developer/ios-tools/inspector/app-inspector.py --url-prefix asura://app/ --snapshot-file
+scripts/inspector-snapshot.js`; see its README).
 Verify reader images, whole-chapter preparation, Home/Back and cover resume on
 the phone, including Lua's mixed `src`/`data-src` chapter images.
 

@@ -1,6 +1,6 @@
 """Observe an explicit Asura reload without injecting a page probe or startup guard.
 
-Run with the Mac inspector-venv. No storage access. Native debugger/profiler
+Run with ios-tools' inspector Python on the Mac. No storage access. Native debugger/profiler
 instrumentation adds overhead; script reinjection counts are not timing benchmarks.
 """
 import argparse

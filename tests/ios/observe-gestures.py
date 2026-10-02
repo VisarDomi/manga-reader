@@ -1,4 +1,4 @@
-"""Bounded real Asura touch/restore observation. Run in the Mac inspector-venv.
+"""Bounded real Asura touch/restore observation. Run with ios-tools' inspector Python on the Mac.
 
 No navigation unless --reload is requested; no userscript or storage access. Build with
 MANGA_GESTURE_PROBE=1 to observe new documents. --profile adds

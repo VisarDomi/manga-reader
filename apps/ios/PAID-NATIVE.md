@@ -67,16 +67,13 @@ The user's Xcode Get-button download installed iOS 26.3.1 Universal Simulator.
 After verification, the real phone became an available scheme destination.
 Reader Extensions' physical scheme build registered it automatically using the
 existing login. No further account-owner action was required. Its lessons are
-kept in the [renewal runbook](../../../../ios-app-renewal/PAID-REFRESH.md#paid-signing-lessons).
+kept in the [renewal runbook](../../../../ios-tools/renewal/PAID-REFRESH.md#paid-signing-lessons).
 
 All six native profiles use team `65U58U86DD` and contain this phone. Initial
 profiles expired September 12, 2027; current renewal deadlines are recorded in
 the scheduler state described below. The existing target/SDK provider builds now work with
-that enrolled profile. The paid batch now has a monthly renewal workflow; see
-[monthly renewal](../../../../ios-app-renewal/PAID-REFRESH.md) for activation
-status, verified tests and maintenance. The old individual Gallery/Reader Extensions/LC jobs remain disabled. One
-installed-app scheduler handles all eight paid apps monthly, including Gallery.
-The user deleted free Gallery and LC; their daily configurations are retired.
+that enrolled profile. The six apps renew monthly through this repository's scheduler,
+`com.visar.renewal.manga-reader`; see [renewal](../../../../ios-tools/renewal/PAID-REFRESH.md).
 
 ## Verification and cleanup
 

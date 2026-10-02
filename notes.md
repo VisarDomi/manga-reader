@@ -1,9 +1,7 @@
 For extension deployment or real iPhone Safari investigations, start with
 `investigation/iphone-extension-debugging.md` (Hackintosh SSH, Xcode signing,
 native inspection, and physical gesture capture). Update that runbook as steps
-are verified; keep runtime behavior in this repo. The Reader Extensions host that
-packaged the Safari extension is retired; its source is in the history of the
-[ios-app-renewal](https://github.com/VisarDomi/ios-app-renewal) repo.
+are verified; keep runtime behavior in this repo.
 
 ## more notes
 

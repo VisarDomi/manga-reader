@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Print this repo's paid apps for ios-app-renewal's configure-refresh.py (runs on the Mac mirror)."""
+"""Print this repo's paid apps for its renewal scheduler (ios-tools renewal; runs on the Mac mirror)."""
 import argparse
 import json
 from pathlib import Path
@@ -21,4 +21,4 @@ for key, provider in json.loads((root / 'build/providers.json').read_text()).ite
                      build=['/usr/bin/python3', 'scripts/build-guest.py', key],
                      environment={'DEVELOPMENT_TEAM': args.team, 'DEVELOPMENT_DEVICE': args.device,
                                   'READER_BUNDLE_SUFFIX': '.paid'}))
-print(json.dumps(apps))
+print(json.dumps(dict(repo='manga-reader', apps=apps)))
