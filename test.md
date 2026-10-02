@@ -18,7 +18,7 @@ npm install
 ```
 
 Phone-harness setup is documented by
-[`userscript-ios-test`](../../userscript-ios-test/README.md). Keep Safari
+[`ios-tools`](../../ios-tools/README.md). Keep Safari
 unlocked and foregrounded while a run is active.
 
 Run the complete matrix:

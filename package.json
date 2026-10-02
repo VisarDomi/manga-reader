@@ -17,7 +17,7 @@
     "esbuild": "0.27.7",
     "jsdom": "^29.1.1",
     "typescript": "^5.9.3",
-    "userscript-ios-test": "file:../../userscript-ios-test",
+    "ios-tools": "file:../../ios-tools",
     "vite": "^7.1.9",
     "vite-plugin-monkey": "^7.1.4",
     "vitest": "^4.1.9"
