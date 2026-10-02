@@ -34,6 +34,9 @@ The Mac build runs attached in the existing GUI login using `launchctl asuser`
 and `caffeinate -i`. It registers no LaunchAgent/background item. Existing monthly
 renewal configurations fingerprint `build/<provider>/Web`, not the shared staging
 folder, so building another provider cannot invalidate the approved app.
+`scripts/renewal.py` lists every provider in `build/providers.json` (identity plus
+`.paid`, inputs, builder) for ios-app-renewal's `configure-refresh.py`; a new
+provider needs no change in that repository.
 
 ## Image ownership
 
