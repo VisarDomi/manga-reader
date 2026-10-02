@@ -5,6 +5,7 @@ import { SITE_CONFIG, userscriptMatch } from "./src/core/sites";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -21,8 +22,8 @@ function getMatchPatterns(): string[] {
 const buildName = process.env.BUILD_NAME || '';
 const excluded = (process.env.EXCLUDE_PROVIDERS || '').split(',').filter(Boolean);
 const env = loadEnv('production', process.cwd(), '');
-const backupUrl = env.VITE_READER_BACKUP_URL ?? 'https://192.168.1.197:7777';
-const backupKey = env.VITE_READER_BACKUP_KEY || readFileSync(new URL('../gallery-downloader/backups/readers/access-key', import.meta.url), 'utf8').trim();
+const backupUrl = env.VITE_READER_BACKUP_URL ?? 'https://192.168.1.197:7711';
+const backupKey = env.VITE_READER_BACKUP_KEY || readFileSync(resolve(homedir(), '.local/share/manga-reader/backups/access-key'), 'utf8').trim();
 
 export default defineConfig(({ mode }) => ({
     define: { __READER_BACKUP_URL__: JSON.stringify(backupUrl), __READER_BACKUP_KEY__: JSON.stringify(backupKey) },

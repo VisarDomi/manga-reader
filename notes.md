@@ -24,8 +24,8 @@ One canonical snapshot per provider, with the previous save retained for recover
 Load validates first and replaces IndexedDB atomically; sessions stay local.
 The app preserves fractional progress/history in compatible metadata. See
 [manual PC details](apps/ios/DEVELOPMENT.md) and
-[server operations](../gallery-downloader/ASURA-MANUAL-STATE.md).
-Builds read the sibling server's private key automatically; see [.env.example](.env.example).
+[server operations](server/BACKUPS.md).
+Builds read this repository's server key automatically; see [.env.example](.env.example).
 Do not publish built userscripts or extension bundles containing that key.
 Database/network work remains in the compute worker.
 
