@@ -34,11 +34,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
         const args = process.argv.slice(2);
         const sites = JSON.parse(readFileSync(resolve(root, 'src/core/sites.json'), 'utf8'));
         const provider = selectProvider(args, sites);
-        if (args.includes('--prepare-only')) prepare(provider, sites);
-        else {
-            const deploy = resolve(root, 'apps/ios/scripts/deploy.py');
-            execFileSync('python3', [deploy, 'sync', provider], { stdio: 'inherit' });
-            execFileSync('python3', [deploy, 'guest', provider], { stdio: 'inherit' });
-        }
+        // Prepares the provider's Web bundle; deploy the app with apps/ios/scripts/deploy.py.
+        prepare(provider, sites);
     } catch (error) { console.error(error.message); process.exitCode = 1; }
 }

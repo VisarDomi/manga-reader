@@ -2,7 +2,7 @@
 """Deploy one provider app using the configured trusted Mac and signing team."""
 import argparse, hashlib, json, pathlib, re, shlex, subprocess
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-parser = argparse.ArgumentParser(); parser.add_argument('command', choices=['sync','guest','build','status','check','install','launch','finish']); parser.add_argument('provider'); args = parser.parse_args()
+parser = argparse.ArgumentParser(); parser.add_argument('command', choices=['sync','build','status','check','install','launch','finish']); parser.add_argument('provider'); args = parser.parse_args()
 subprocess.run(['node', str(ROOT.parent.parent/'scripts/build-ios.mjs'), args.provider, '--prepare-only'], check=True) if args.command == 'sync' else None
 registry = json.loads((ROOT/'build/providers.json').read_text())
 if args.provider not in registry: parser.error('Unsupported iOS provider: '+args.provider)
@@ -25,7 +25,6 @@ if args.command == 'sync':
     subprocess.run(['scp',*ssh[1:-1],str(build/'providers.json'),host+':'+remote+'/build/providers.json'],check=True)
     run('mkdir -p '+q(remote+'/build/'+args.provider))
     subprocess.run(['rsync','-az','-e',shlex.join(ssh[:-1]),str(build/args.provider/'Web'),host+':'+remote+'/build/'+args.provider+'/'],check=True)
-elif args.command == 'guest': run('cd '+q(remote)+' && env -u DEVELOPMENT_TEAM /usr/bin/caffeinate -i /usr/bin/python3 scripts/build-guest.py '+q(args.provider))
 elif args.command == 'build':
     # Enter the GUI signing session without registering a background item;
     # immediately drop root and keep SSH attached until the build exits.
