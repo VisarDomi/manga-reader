@@ -8,7 +8,7 @@ it('waits for cached-document activation before forwarding shared Home requests'
     const events = new Map<string, ()=>void>();
     vi.stubGlobal('addEventListener', (name:string, handler:()=>void)=>events.set(name,handler));
     vi.stubGlobal('window', {webkit:{messageHandlers:{asura:{postMessage}}}});
-    const {native} = await import('../../apps/ios/web/native');
+    const {native} = await import('../../src/app/native');
     events.get('pagehide')!();
     const frozen = native('read', {key:'views'});
     await Promise.resolve();

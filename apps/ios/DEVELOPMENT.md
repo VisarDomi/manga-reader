@@ -1,9 +1,9 @@
 # Manga Reader provider apps
 
-The userscript, Safari extension and iOS apps run the same implementation from
-`src/`: provider extraction, Home, reader, styles, history, progress, image retry,
-scroll settling and explicit PC Load/Save. Do not copy these into Swift or a
-second app UI. `apps/ios/web/app.ts` imports the source routes directly.
+The six apps run the implementation in `src/`: provider extraction, Home, reader,
+styles, history, progress, image retry, scroll settling and explicit PC Load/Save,
+with the app's entry points and native bridge in `src/app/`. Do not copy these
+into Swift or a second app UI.
 
 ## Build one provider
 
@@ -18,26 +18,26 @@ python3 apps/ios/scripts/deploy.py install lua
 
 Replace `lua` with `asura`, `scythe`, `yaksha`, `qiscans` or `ezmanga`. A provider
 is mandatory; identities and names come from `src/core/sites.json`. All six apps
-have independent containers and retain their existing paid bundle identifiers,
-names and absence of icons. No Swift provider adapters or SwiftSoup dependency
-remain. See [paid signing](PAID-NATIVE.md) for Mac/iPhone configuration.
+have independent containers, their paid bundle identifiers and names, and no icons.
+See [paid deployment](PAID-NATIVE.md) for Mac/iPhone configuration.
 
-`prepare-web.mjs` bundles the selected source provider, source routes/CSS and
-source compute worker. Its aliases replace only native boundaries: HTTP, durable
-storage, local navigation, document creation, and the platform hooks. Generated
-assets live in `build/<provider>/Web`; they are not source files. `build-guest.py`
-stages that provider's assets into `Resources/Web` **inside the signing lock**.
-Never edit or commit generated Web assets. Without the paid deploy command,
-`npm run build:ios -- <provider>` still builds an unsigned LiveContainer guest.
+`prepare-web.mjs` bundles `src/app` with the selected provider
+(`@selected-provider`) and the embedded compute worker; nothing else is swapped.
+Generated assets live in `build/<provider>/Web`; they are not source files.
+`build-guest.py` stages that provider's assets into `Resources/Web` **inside the
+signing lock**. Never edit or commit generated Web assets.
 
 The Mac build runs attached in the existing GUI login using `launchctl asuser`
-and `caffeinate -i`. It registers no LaunchAgent/background item. Existing monthly
-renewal configurations fingerprint `build/<provider>/Web`, not the shared staging
-folder, so building another provider cannot invalidate the approved app.
-This repository renews its own apps with its Mac scheduler,
-`com.visar.renewal.manga-reader` ([ios-tools renewal](../../../../ios-tools/renewal/PAID-REFRESH.md)):
+and `caffeinate -i`. It registers no LaunchAgent or background item. Renewal
+configurations fingerprint `build/<provider>/Web`, not the shared staging folder,
+so building another provider cannot invalidate an approved app. This repository
+renews its own apps with its Mac scheduler, `com.visar.renewal.manga-reader`
+([ios-tools renewal](../../../../ios-tools/renewal/PAID-REFRESH.md)):
 `scripts/renewal.py` lists every provider in `build/providers.json` (identity plus
 `.paid`, inputs, builder), so a new provider needs no change outside this repository.
+After delivering a build, approve each changed app, run a real renewal
+(`refresh-installed.py refresh --force --repo manga-reader`), then resume the
+scheduler.
 
 ## Image ownership
 
@@ -70,8 +70,8 @@ including offscreen rows. `shared/covers.json` retains those preparation targets
 across app launches. Covers use the same local-file path and foreground-priority
 policy as pages; Home rendering does not await their downloads.
 
-Home still uses the actual userscript catalog flow: first response, then each
-additional page in provider order. The shared loader buffers up to three known
+Home uses the shared catalog flow (`src/core/home-pages.ts`): first response, then
+each additional page in provider order. The shared loader buffers up to three known
 upcoming pages concurrently, without a pagination timer, and pauses scheduling
 while Home is hidden. Successful in-flight responses are retained for Back;
 requests canceled by native navigation restart on return. QiScans, EzScans and
@@ -95,70 +95,32 @@ retry/error text, image ordering, 50svh reader padding and no-image-callout rule
 are shared. PC Load/Save use the actual source worker/UI and are hidden when PC
 is unavailable.
 
-## History and delivery
+## Bridge ownership
 
-No conversion/migration from the former Swift AppState is provided. Before the
-first shared-code installation, press **Save** in each existing app and verify
-**Saved**. After installing, press **Load** and verify **Loaded**. These are the
-existing deliberate PC commands, not background sync. New native files are under
-`Library/Application Support/<productName>/shared`; incomplete old manifests are
-never imported. Later updates retain this shared storage normally.
-
-After final installation, deliberately approve each delivered app, run a real
-renewal (`refresh-installed.py refresh --force --repo manga-reader`), then resume
-this repository's scheduler. Keep its
-recovery copy in `/home/visar/Documents/environment/mac-renewal` updated. Do not
-create extra daily jobs or background items.
+The bridge's document handshake owns request cancellation and activation. Do not
+clear that ownership in `didCommit`: on a cached Back navigation it can run after
+reactivation and strand Home with "Document is no longer active." Queued worker
+calls wait for reactivation; an incompletely initialized cached page reactivates
+before resuming its pending initialization. View checkpoints require an
+initialized, rendered route, so a reader URL is never saved as Home during startup.
 
 ## Verification
 
 ```sh
-npx tsc -p apps/ios/tsconfig.json
+npx tsc --noEmit -p apps/ios/tsconfig.json
 npm run test:unit
 npm run test:ios:builder
+npm run test:server
 ```
 
-Runtime validation targets the physical iPhone and Safari/WebKit. All three
-Chromium-only fixtures and the `test:extension` command were removed at the
-user's request. Retain the unit, provider-builder and signing-lock checks above.
-For Safari userscript flows use `npm run tests` / `npm run tests:single`; inspect
-installed native provider apps on the Mac with ios-tools' inspector
-(`~/Developer/ios-tools/inspector/app-inspector.py --url-prefix asura://app/ --snapshot-file
-scripts/inspector-snapshot.js`; see its README).
-Verify reader images, whole-chapter preparation, Home/Back and cover resume on
-the phone, including Lua's mixed `src`/`data-src` chapter images.
+Unit tests run the app code in jsdom with Asura as the selected provider. Inspect
+installed apps on the Mac with ios-tools' inspector
+(`~/Developer/ios-tools/inspector/app-inspector.py --url-prefix asura://app/
+--snapshot-file scripts/inspector-snapshot.js`; see its README). Verify reader
+images, whole-chapter preparation, Home/Back and cover resume on the phone,
+including Lua's mixed `src`/`data-src` chapter images.
 
 On the Mac run `swift run ReaderCoreTests` from the native mirror to test the
 real downloader: bounded jobs, promotion, deduplication, file reuse, pruning,
 pause/resume and preservation of history. These checks do not establish physical
-scroll smoothness; test gestures on the phone. The shared-refactor investigation
-records physical delivery checks.
-
-## September 17: Back and download priority (build 8)
-
-The bridge's document handshake now owns request cancellation and activation.
-Do not clear that ownership in `didCommit`: on a cached Back navigation it can
-run after reactivation and strand Home with “Document is no longer active.”
-Queued worker calls wait for reactivation. Even an incompletely initialized
-cached page must reactivate before resuming its pending initialization.
-View checkpoints require an initialized, rendered route, preventing a reader URL
-from being saved as Home during startup. The reader saves again once rendered.
-
-Scythe reproduced the persistent empty Home before this correction and populated
-40 then 63 rows afterward. All 63 cover files were present without scrolling.
-See `investigation/2026-09-17-verification.json` for final delivery and checks.
-
-## September 17: shared catalog pagination (build 9 / userscript 289)
-
-`src/core/home-pages.ts` buffers at most three known upcoming pages and emits
-them in provider order. QiScans/EzScans and Asura expose bounded cursor lookahead
-from provider page counts. The first request is unchanged. No speculative page
-numbers or separate native pagination are used. A paused Home retains successful
-responses and resumes interrupted requests on Back. A killed process starts a
-fresh catalog request; durable reading history and native view checkpoints remain.
-
-Physical QiScans timing: first 50 rows at 744 ms, all 973 at 5,724 ms, versus
-1,168 / 67,827 ms before. Maximum observed catalog concurrency was three. Killing
-during a partially loaded catalog and restarting completed all rows again. Killing
-in chapter 1 restored the same chapter/image, and Back completed Home with both
-existing resume links intact. See `investigation/2026-09-17-pagination-verification.json`.
+scroll smoothness; test gestures on the phone.

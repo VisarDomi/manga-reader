@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// PC Load/Save for the manga apps (and the userscript): HTTPS on port 7711 and a private access key.
+// PC Load/Save for the manga apps: HTTPS on port 7711 and a private access key.
 // Each provider's file holds the current and previous complete reading state; Save replaces it.
 //   node server/backups.mjs          serve
 //   node server/backups.mjs status   print saved states (counts only)
@@ -13,7 +13,6 @@ import { pathToFileURL } from 'node:url';
 export const PORT = 7711;
 export const ROOT = path.join(os.homedir(), '.local/share/manga-reader/backups');
 const PROVIDERS = ['asurascans', 'ezmanga', 'qimanga', 'yakshacomics', 'scythescans', 'luacomic'];
-const ORIGINS = new Set(['ezmanga.org', 'qimanga.com', 'yakshacomics.com', 'asurascans.com', 'scythescans.com', 'luacomic.org'].map(host => 'https://' + host));
 const LIMIT = 5 * 1024 * 1024;
 
 function privateDirectory(directory) {
@@ -103,13 +102,6 @@ export function handler(root) {
     const key = Buffer.from(fs.readFileSync(keyFile, 'utf8').trim());
     return async (req, res) => {
         res.setHeader('Cache-Control', 'no-store');
-        res.setHeader('Vary', 'Origin');
-        // Worker fetch is allowed only from the reader origins; every data request still requires the private key.
-        if (ORIGINS.has(req.headers.origin)) res.setHeader('Access-Control-Allow-Origin', req.headers.origin);
-        if (req.method === 'OPTIONS') {
-            res.writeHead(204, { 'Access-Control-Allow-Methods': 'GET,PUT', 'Access-Control-Allow-Headers': 'Content-Type,X-Reader-Backup-Key' }).end();
-            return;
-        }
         const supplied = Buffer.from(String(req.headers['x-reader-backup-key'] ?? ''));
         if (key.length !== supplied.length || !timingSafeEqual(key, supplied)) return send(res, 401, { error: 'Backup access key required' });
         try {

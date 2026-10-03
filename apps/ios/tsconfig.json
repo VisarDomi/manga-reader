@@ -1,1 +1,1 @@
-{"extends":"../../tsconfig.json","compilerOptions":{"noUnusedLocals":true,"noUnusedParameters":true},"include":["web","../../src"],"exclude":[]}
+{"extends":"../../tsconfig.json","compilerOptions":{"noUnusedLocals":true,"noUnusedParameters":true},"include":["../../src"],"exclude":[]}

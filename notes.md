@@ -1,12 +1,7 @@
-For extension deployment or real iPhone Safari investigations, start with
-`investigation/iphone-extension-debugging.md` (Hackintosh SSH, Xcode signing,
-native inspection, and physical gesture capture). Update that runbook as steps
-are verified; keep runtime behavior in this repo.
+# notes
 
-## more notes
-
-An iOS Safari extension inside **Reader Extensions**, also buildable as a
-userscript. See [extension setup and validation](extension/README.md).
+The six provider apps are the only products: see `apps/ios/DEVELOPMENT.md` and
+`apps/ios/PAID-NATIVE.md`. Keep runtime behavior in `src/`.
 
 ## Sites supported
 [sites.ts](src/core/sites.ts)
@@ -16,35 +11,20 @@ userscript. See [extension setup and validation](extension/README.md).
 Home shows **Load** and **Save** beneath the loaded-series text when the PC is
 available. Save replaces the shared PC reading state; Load replaces local reading
 state with that save, even if older. No timestamp merging, automatic home backup,
-progress publisher, or periodic app imports. Discovery checks availability only.
-Offline PC hides the controls. First explicit Save creates the shared state;
-older automatic backups remain on disk without being silently selected.
+progress publisher, or periodic imports. Discovery checks availability only.
+Offline PC hides the controls. The first explicit Save creates the shared state.
 
 One canonical snapshot per provider, with the previous save retained for recovery.
 Load validates first and replaces IndexedDB atomically; sessions stay local.
 The app preserves fractional progress/history in compatible metadata. See
-[manual PC details](apps/ios/DEVELOPMENT.md) and
-[server operations](server/BACKUPS.md).
-Builds read this repository's server key automatically; see [.env.example](.env.example).
-Do not publish built userscripts or extension bundles containing that key.
-Database/network work remains in the compute worker.
+[manual PC details](apps/ios/DEVELOPMENT.md) and [server operations](server/BACKUPS.md).
+Builds read this repository's server key; see [.env.example](.env.example). Built
+app bundles contain the key: never publish them. Database/network work remains in
+the compute worker.
 
-## [Testing](test.md)
-See the [Linux → Hackintosh → real iPhone debugging runbook](investigation/iphone-extension-debugging.md)
-for verified SSH options, Xcode deployment, native inspection, and gesture capture.
-For the installed extension, use native Safari inspection and normal taps/swipe
-Back. The optional userscript harness (`npm run tests`) injects a build; disable
-the extension before using that harness so two versions cannot compete.
+## Downloads
 
-## September 16: Asura resume and sliding downloads
-
-Build 5 separates Asura's stable file identity from its rotating navigation
-slug. Reusing chapter 61's old route alongside cached 62's new route caused
-Magic Tower's cover continuation failure. Manifest returns now use the requested
-route without changing downloaded files.
-
-The user changed the download requirement: previous + current + next per manga,
-prepared on Home and moved/pruned while reading. Keep local history and other
-manga's windows. Server history/tracking/auth refresh are removed in every
-runtime. Manual PC Load/Save remains. Both reader ends now use 50svh padding.
-See `investigation/asura-resume-download-window.md` and its verification receipt.
+Each manga keeps previous + current + next chapters downloaded, prepared on Home
+and moved/pruned while reading; local history and other manga's windows stay.
+There is no server history, tracking or provider authentication. Both reader ends
+use 50svh padding.

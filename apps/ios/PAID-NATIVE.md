@@ -1,10 +1,5 @@
 # Six provider apps: paid native deployment
 
-Verified September 12, 2026: all six apps are installed directly on the iPhone
-and each launched successfully. They coexist with Gallery Reader, Reader
-Extensions, and the LC host. No LC-to-native data copy was performed: the user
-requested a fresh start and the existing intentional PC Load/Save remains.
-
 | Builder argument | iOS name | Paid native bundle ID |
 | --- | --- | --- |
 | asura | Asura | com.visar.AsuraReader.paid |
@@ -20,13 +15,12 @@ There are no custom icon declarations, icon artwork or asset catalogs; iOS
 supplies its standard fallback appearance. Internal product/data-directory names
 remain the registry's existing values. Provider and PC namespaces are unchanged.
 
-## Configuration and repeat builds
+## Configuration and builds
 
-Start with `../../investigation/iphone-extension-debugging.md` for trusted SSH.
+Start with `/home/visar/Documents/environment/mac-access.md` for trusted SSH.
 Ignored `deploy.local.json` selects paid team `65U58U86DD`, `bundleSuffix: .paid`,
-GUI UID 501, and phone `00008101-000639912881401E`. The Mac mirror remains
-`/Users/visar/Developer/asura-reader` for every provider; there are no separate
-provider repos. Output example:
+GUI UID 501, and phone `00008101-000639912881401E`. The Mac mirror is
+`/Users/visar/Developer/asura-reader` for every provider. Output example:
 `build/asura.paid/Release-iphoneos/AsuraReader.app`.
 
 Run from the manga-reader root, for each provider, one at a time:
@@ -34,116 +28,23 @@ Run from the manga-reader root, for each provider, one at a time:
 ```sh
 python3 apps/ios/scripts/deploy.py sync asura
 python3 apps/ios/scripts/deploy.py build asura
-python3 apps/ios/scripts/deploy.py status asura
-# The attached build must exit 0 and report BUILD SUCCEEDED.
 python3 apps/ios/scripts/deploy.py install asura
 python3 apps/ios/scripts/deploy.py launch asura
 ```
 
 The attached build enters GUI UID 501 with `sudo launchctl asuser`, immediately
-drops back to that user, and supplies signing team, bundle suffix and device.
-It creates no LaunchAgent or Allow in Background entry. Keep SSH attached until
-completion; `status` reads the log and `finish` is only a compatibility no-op.
-The shared
-builder checks the actual built display name, provider, bundle identity,
-absence of icon declarations, complete signature, profile team and phone
-inclusion. Installation additionally checks every bundled web/native-resource
-hash. Existing signing locks prevent overlapping builds.
+drops back to that user, and supplies signing team, bundle suffix and device. It
+creates no LaunchAgent; keep SSH attached until it reports BUILD SUCCEEDED. The
+builder checks the built display name, provider, bundle identity, absence of icon
+declarations, complete signature, profile team and phone inclusion. Installation
+also checks every bundled web/native-resource hash. Signing locks prevent
+overlapping builds. Omitting the suffix selects the registry's unsuffixed
+identities; keep it when updating these installed apps.
 
-`npm run build:ios -- <provider>` remains the unsigned LC guest workflow.
-Use the native commands above for the paid apps. Unsigned and paid outputs are
-separate. Omitting the suffix selects the old registry identities; do not change
-it when intending an update of these installed native apps.
+All images and image links disable callouts, selection and dragging
+(`-webkit-touch-callout: none`, `user-select: none`, `-webkit-user-drag: none` in
+`src/style.css`); taps and scrolling are unchanged.
 
-## First-time registration, already completed on this Mac
-
-Erdal's account is logged into Xcode. Its original wildcard profile excluded
-this phone, so generic builds signed but could not install (`0xe8008012`).
-Adding a destination to a target-only invocation did not register it. The
-physical scheme was initially unavailable because Xcode reported missing iOS
-26.2 platform support, despite the compiler/SDK working.
-
-The user's Xcode Get-button download installed iOS 26.3.1 Universal Simulator.
-After verification, the real phone became an available scheme destination.
-Reader Extensions' physical scheme build registered it automatically using the
-existing login. No further account-owner action was required. Its lessons are
-kept in the [renewal runbook](../../../../ios-tools/renewal/PAID-REFRESH.md#paid-signing-lessons).
-
-All six native profiles use team `65U58U86DD` and contain this phone. Initial
-profiles expired September 12, 2027; current renewal deadlines are recorded in
-the scheduler state described below. The existing target/SDK provider builds now work with
-that enrolled profile. The six apps renew monthly through this repository's scheduler,
-`com.visar.renewal.manga-reader`; see [renewal](../../../../ios-tools/renewal/PAID-REFRESH.md).
-
-## Verification and cleanup
-
-All six builds passed their identity/icon/signature/profile checks; their staged
-resources matched before installation. The device's installed-app inventory
-reported the exact six names above and `appClip: false`. All six native launches
-succeeded. Gallery Reader and Reader Extensions remained installed, establishing
-more than three simultaneous native development apps on this phone. LC also
-remains installed. This is installation/launch verification; no new physical
-scroll or reading-history acceptance test was performed for this batch.
-
-Builder unit checks passed. Private evidence is in `.ios-debug/paid/batch.log`
-and Mac `/Users/visar/Developer/paid-native-data/six-native-verification.json`.
-The completed build jobs were unloaded. No library copies or native inspectors
-were run during this batch.
-
-Earlier cancelled Gallery copies and abandoned paid build/probe artifacts were
-removed before this batch. Killing the old devicectl copy CLI had left its
-transfer active inside CoreDeviceService; stopping the owning service and
-verifying stable destination counts was required before deletion. The user
-confirmed the fans stopped after cleanup. The broader idle/audio audit was
-postponed; no driver or EFI change was made here. APNs work remains paused.
-
-
-## September 13: disable image selection and long-press menus
-
-All `img` elements and image-containing links use `-webkit-touch-callout: none`,
-`user-select: none` (including WebKit's prefix), and `-webkit-user-drag: none`.
-This includes covers, thumbnails, previews and reader pages. Taps and native
-scroll gestures remain enabled; no touch listener or gesture interception was
-added. Apple's [Safari CSS reference](https://developer.apple.com/library/archive/documentation/AppleApplications/Reference/SafariCSSRef/Articles/StandardCSSProperties.html)
-documents the callout property.
-
-The rule lives in `src/style.css`; native preparation copies that shared CSS.
-Userscript 286 and its extension were rebuilt. All six paid provider apps use
-build 3. Browser checks cover image selection/drag, link taps, text editing and
-scrolling. Physical Asura WebKit inspection found all 345 images and their linked
-containers protected. The user also verified that long-pressing Asura images no
-longer opens the system menu.
-
-
-## Third fidelity pass, build 4
-
-See [the third-pass audit](../../investigation/third-port-fidelity-audit.md) for
-the Home row/lifecycle, reader, optional Asura account, backup and provider
-corrections. Scythe was installed first and manually accepted by the user.
-All six apps use the same updated native code and provider builder. Userscript
-and extension source remain the reference; no source runtime changes were
-needed for this native pass. The all-image interaction rules are retained.
-
-## September 16: cover resume, local history and three-chapter downloads
-
-Build 5 fixes cached Asura URL rotation without discarding images/progress. It
-removes server tracking/authentication and uses local reading state plus explicit
-PC Load/Save. The shared reader padding is now 50svh at both ends. Home and
-reader maintain previous/current/next downloads per manga, pruning obsolete
-chapter files while retaining history. See the
-[resume/download audit](../../investigation/asura-resume-download-window.md).
-
-Build 6 starts preparation for every saved current position immediately on
-Home readiness/foreground return, concurrently with catalog pagination.
-
-
-## September 16: shared-source build 7
-
-All six apps now run the userscript's actual provider/Home/reader/worker modules.
-Swift parsers and the copied reader UI were removed. See [current development
-instructions](DEVELOPMENT.md) and [shared refactor verification](../../investigation/shared-codebase-refactor.md).
-History moved through the existing explicit PC Save/Load controls; all 54 current
-positions were retained. The downloader owns all image bytes, prepares complete
-previous/current/next windows independently of lazy rendering, and serves local
-files to the shared reader. All six paid apps passed actual monthly renewal after
-delivery; their generated provider bundles are included in approved inputs.
+The six apps renew monthly through this repository's scheduler,
+`com.visar.renewal.manga-reader`; see [renewal](../../../../ios-tools/renewal/PAID-REFRESH.md)
+and its paid-signing lessons.

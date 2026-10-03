@@ -1,15 +1,10 @@
 {
   "name": "manga-reader",
   "version": "289",
-  "description": "Userscript to improve ux of supported sites",
+  "description": "The native manga reader apps (Asura, Scythe, Yaksha, QiScans, Lua, EzScans), with their PC Load/Save server",
   "type": "module",
   "scripts": {
-    "build": "node scripts/build.mjs",
-    "build:extension": "node scripts/build-extension.mjs",
-    "ios:foreground": "node investigation/ios-foreground-connection.mjs",
     "test:unit": "vitest run tests/unit",
-    "tests": "node tests/ios/run-fresh.mjs",
-    "tests:single": "node tests/ios/run.mjs",
     "build:ios": "node scripts/build-ios.mjs",
     "test:ios:builder": "node --test apps/ios/Tests/builder.test.mjs && python3 -B apps/ios/Tests/test_signing_lock.py",
     "test:server": "node --test server/backups.test.mjs",
@@ -19,9 +14,6 @@
     "esbuild": "0.27.7",
     "jsdom": "^29.1.1",
     "typescript": "^5.9.3",
-    "ios-tools": "file:../../ios-tools",
-    "vite": "^7.1.9",
-    "vite-plugin-monkey": "^7.1.4",
     "vitest": "^4.1.9"
   }
 }

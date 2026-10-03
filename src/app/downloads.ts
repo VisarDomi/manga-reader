@@ -1,6 +1,6 @@
 // App-only download policy; provider extraction and chapter order remain shared.
-import type { ChapterProgress } from '../../../src/core/compute/progress';
-import { ChapterLoadIntent, ChapterLoadResultKind } from '../../../src/provider/types';
+import type { ChapterProgress } from '../core/compute/progress';
+import { ChapterLoadIntent, ChapterLoadResultKind } from '../provider/types';
 import { originalChapter, chapterKey, routes, chapterList, refreshLists } from './provider';
 import { native } from './native';
 let retainedSeries="";

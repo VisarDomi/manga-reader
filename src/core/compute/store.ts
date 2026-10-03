@@ -1,175 +1,26 @@
-// Worker-owned IndexedDB layer. This module runs inside the compute worker;
-// the main thread never touches IndexedDB.
-
+// The shared worker owns ordering, progress rules, validation and backup format.
+// This adapter changes only the durable storage boundary from IDB to atomic files.
 import type { ChapterProgress } from './progress';
-import { validateDatabaseBackup, type DatabaseBackup } from './backup';
-
-const DB_NAME = 'manga-reader-compute';
-const DB_VERSION = 2;
-const STORE_PROGRESS = 'progress';
-const STORE_TOKENS = 'tokens';
-const STORE_METADATA = 'metadata';
-
-/** WebKit bug 251203: IDB requests can occasionally hang instead of erroring. */
-const REQUEST_TIMEOUT_MS = 10_000;
-
-let database: Promise<IDBDatabase> | null = null;
-
-function openDatabase(): Promise<IDBDatabase> {
-    if (database !== null) return database;
-    database = new Promise((resolve, reject) => {
-        const request = self.indexedDB.open(DB_NAME, DB_VERSION);
-        request.onupgradeneeded = () => {
-            const db = request.result;
-            if (!db.objectStoreNames.contains(STORE_PROGRESS)) {
-                db.createObjectStore(STORE_PROGRESS, { keyPath: 'id' });
-            }
-            if (!db.objectStoreNames.contains(STORE_TOKENS)) {
-                db.createObjectStore(STORE_TOKENS, { keyPath: 'key' });
-            }
-            if (!db.objectStoreNames.contains(STORE_METADATA)) {
-                db.createObjectStore(STORE_METADATA, { keyPath: 'key' });
-            }
-        };
-        request.onsuccess = () => {
-            const opened = request.result;
-            opened.onversionchange = () => {
-                opened.close();
-                database = null;
-            };
-            resolve(opened);
-        };
-        request.onerror = () => reject(request.error ?? new Error('IndexedDB open failed'));
-        request.onblocked = () => reject(new Error('IndexedDB open blocked by another connection'));
-    });
-    void database.catch(() => {
-        database = null; // allow retry after failure
-    });
-    return database;
+import { validateDatabaseBackup, emptyDatabaseBackup, type DatabaseBackup } from './backup';
+import { host } from '../../app/worker-bridge';
+async function read(): Promise<DatabaseBackup> { return validateDatabaseBackup(await host('read',{key:'database'}) ?? emptyDatabaseBackup()); }
+async function write(data: DatabaseBackup): Promise<void> {
+    await host('write',{key:'database',value:data});
+    self.postMessage({progressChanged:true,progress:data.indexedDB.progress});
 }
-
-function withTimeout<T>(request: IDBRequest<T>): Promise<T> {
-    return new Promise<T>((resolve, reject) => {
-        let settled = false;
-        const timer = self.setTimeout(() => {
-            if (settled) return;
-            settled = true;
-            reject(new Error('IndexedDB request timed out'));
-        }, REQUEST_TIMEOUT_MS);
-        request.onsuccess = () => {
-            if (settled) return;
-            settled = true;
-            self.clearTimeout(timer);
-            resolve(request.result);
-        };
-        request.onerror = () => {
-            if (settled) return;
-            settled = true;
-            self.clearTimeout(timer);
-            reject(request.error ?? new Error('IndexedDB request failed'));
-        };
-    });
+export async function progressSnapshot(metadataKey: string) {
+    const data = await read();
+    return {entries:data.indexedDB.progress,metadata:data.indexedDB.metadata.find(row=>row.key===metadataKey)?.value};
 }
-
-function awaitTransaction(transaction: IDBTransaction): Promise<void> {
-    return new Promise<void>((resolve, reject) => {
-        let settled = false;
-        const timer = self.setTimeout(() => {
-            if (settled) return;
-            settled = true;
-            reject(new Error('IndexedDB transaction timed out'));
-        }, REQUEST_TIMEOUT_MS);
-        transaction.oncomplete = () => {
-            if (settled) return;
-            settled = true;
-            self.clearTimeout(timer);
-            resolve();
-        };
-        transaction.onerror = () => {
-            if (settled) return;
-            settled = true;
-            self.clearTimeout(timer);
-            reject(transaction.error ?? new Error('IndexedDB transaction failed'));
-        };
-        transaction.onabort = () => {
-            if (settled) return;
-            settled = true;
-            self.clearTimeout(timer);
-            reject(transaction.error ?? new Error('IndexedDB transaction aborted'));
-        };
-    });
+export async function replaceProgress(entries: ChapterProgress[], metadataKey: string, metadataValue: unknown) {
+    const data = await read(); data.indexedDB.progress = entries;
+    data.indexedDB.metadata = data.indexedDB.metadata.filter(row=>row.key!==metadataKey);
+    data.indexedDB.metadata.push({key:metadataKey,value:metadataValue}); await write(data);
 }
-
-export async function replaceProgress(
-    entries: ChapterProgress[],
-    metadataKey: string,
-    metadataValue: unknown,
-): Promise<void> {
-    const db = await openDatabase();
-    const transaction = db.transaction(
-        [STORE_PROGRESS, STORE_METADATA],
-        'readwrite',
-        { durability: 'strict' },
-    );
-    const progress = transaction.objectStore(STORE_PROGRESS);
-    progress.clear();
-    for (const entry of entries) progress.put(entry);
-    transaction.objectStore(STORE_METADATA).put({
-        key: metadataKey,
-        value: metadataValue,
-    });
-    await awaitTransaction(transaction);
+export async function progressPut(entry: ChapterProgress) {
+    const data = await read();
+    data.indexedDB.progress = data.indexedDB.progress.filter(row=>row.id!==entry.id);
+    data.indexedDB.progress.push(entry); await write(data);
 }
-
-export async function progressSnapshot(
-    metadataKey: string,
-): Promise<{ entries: unknown[]; metadata: unknown }> {
-    const db = await openDatabase();
-    const transaction = db.transaction([STORE_PROGRESS, STORE_METADATA], 'readonly');
-    const entriesRequest = transaction.objectStore(STORE_PROGRESS).getAll();
-    const metadataRequest = transaction.objectStore(STORE_METADATA).get(metadataKey);
-    const [entries, metadata] = await Promise.all([
-        withTimeout(entriesRequest),
-        withTimeout(metadataRequest),
-    ]);
-    return {
-        entries,
-        metadata: (metadata as { value?: unknown } | undefined)?.value,
-    };
-}
-
-/** Progress saves use strict durability: transaction success means disk flush. */
-export async function progressPut(entry: ChapterProgress): Promise<void> {
-    const db = await openDatabase();
-    const transaction = db.transaction(STORE_PROGRESS, 'readwrite', { durability: 'strict' });
-    transaction.objectStore(STORE_PROGRESS).put(entry);
-    await awaitTransaction(transaction);
-}
-
-export async function databaseBackup(): Promise<DatabaseBackup> {
-    const db = await openDatabase();
-    const transaction = db.transaction([STORE_PROGRESS, STORE_TOKENS, STORE_METADATA], 'readonly');
-    const [progress, tokens, metadata] = await Promise.all(
-        [STORE_PROGRESS, STORE_TOKENS, STORE_METADATA].map(name => withTimeout(transaction.objectStore(name).getAll())),
-    );
-    return validateDatabaseBackup({ version: 1, indexedDB: { progress, tokens, metadata } });
-}
-
-export async function restoreDatabaseBackup(data: unknown): Promise<void> {
-    const snapshot = validateDatabaseBackup(data);
-    const db = await openDatabase();
-    const transaction = db.transaction([STORE_PROGRESS, STORE_TOKENS, STORE_METADATA], 'readwrite', { durability: 'strict' });
-    const committed = awaitTransaction(transaction);
-    try {
-        for (const name of [STORE_PROGRESS, STORE_TOKENS, STORE_METADATA] as const) {
-            const store = transaction.objectStore(name);
-            store.clear();
-            for (const record of snapshot.indexedDB[name]) store.put(record);
-        }
-    } catch (error) {
-        transaction.abort();
-        await committed.catch(() => {});
-        throw error;
-    }
-    await committed;
-}
+export const databaseBackup = read;
+export async function restoreDatabaseBackup(raw: unknown) { await write(validateDatabaseBackup(raw)); }

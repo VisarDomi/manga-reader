@@ -1,4 +1,4 @@
-// Shared source formatting for userscript and native Home.
+// Home card formatting.
 
 export function formatUploadedAt(value: string | null): string {
     if (value === null || value.trim() === '') return '';

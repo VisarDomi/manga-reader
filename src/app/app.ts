@@ -1,13 +1,13 @@
-import { startInit } from '../../../src/core/shell';
-import { open as openHome } from '../../../src/routes/home';
-import { open as openReader } from '../../../src/routes/reader';
-import { Handler } from '../../../src/provider/types';
+import { startInit } from '../core/shell';
+import { open as openHome } from '../routes/home';
+import { open as openReader } from '../routes/reader';
+import { Handler } from '../provider/types';
 import { provider, selected, routes, identity } from './provider';
 import { native, localURL } from './native';
 import { installFetch } from './fetch';
-import { computeRequest, onProgressChange } from './transport';
+import { computeRequest, onProgressChange } from '../core/compute/transport';
 import { preparationContext, pauseDownloads, resumeDownloads, updateProgress } from './downloads';
-import { setRestore, restored, ready, viewReady, type View } from './platform';
+import { setRestore, restored, ready, viewReady, type View } from '../core/platform';
 installFetch(args=>native('fetch',args as any),requestID=>{void native('fetch-cancel',{requestID});});
 let view: View|null=null, home=true, saving=Promise.resolve(), skipSaving=false, initialized=false;
 function capture(): View {

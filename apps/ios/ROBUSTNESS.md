@@ -1,6 +1,6 @@
 # September 22 recovery pass — native build 10
 
-The six provider builds still share the userscript UI and provider extraction.
+The six provider builds share the UI and provider extraction in `src/`.
 Public GET/HEAD metadata and image requests now retry connectivity failures,
 timeouts and HTTP 408/429/500/502/503/504 with cancellable exponential backoff.
 URLSession waits for a usable connection. PC requests remain finite and optional;

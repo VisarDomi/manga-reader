@@ -1,6 +1,6 @@
 import { selected } from '@selected-provider';
-import { ChapterLoadIntent, ChapterLoadResultKind, type Provider, type ChapterLoadRequest, type ChapterData } from '../../../src/provider/types';
-import { chapterLoader, homeDestinationResolver } from '../../../src/provider/actions';
+import { ChapterLoadIntent, ChapterLoadResultKind, type Provider, type ChapterLoadRequest, type ChapterData } from '../provider/types';
+import { chapterLoader, homeDestinationResolver } from '../provider/actions';
 import { metadata, prioritizeMetadata } from './metadata-queue';
 import { imageURL, localURL, native } from './native';
 export { selected };

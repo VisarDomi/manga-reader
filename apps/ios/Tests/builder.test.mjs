@@ -10,7 +10,7 @@ test('requires one implemented provider before any build or remote operation', (
     assert.equal(selectProvider(['asura'], sites), 'asura');
     assert.equal(selectProvider(['scythe', '--prepare-only'], sites), 'scythe');
 });
-test('uses userscript registry and preserves independent installed app identities', () => {
+test('uses the site registry and preserves independent installed app identities', () => {
     const registry = providerRegistry(sites);
     assert.equal(registry.asura.key, 'asurascans');
     assert.equal(registry.scythe.key, 'scythescans');
