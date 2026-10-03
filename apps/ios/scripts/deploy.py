@@ -11,7 +11,7 @@ config = json.loads((ROOT / 'deploy.local.json').read_text())
 suffix = config.get('bundleSuffix', '')
 if suffix and not re.fullmatch(r'\.[A-Za-z0-9-]+', suffix): parser.error('Invalid bundleSuffix')
 bundle_id = provider['bundleIdentifier'] + suffix
-remote = '/Users/visar/Developer/asura-reader'
+remote = '/Users/visar/Developer/manga-reader/apps/ios'
 host = config['host']; uid = int(config['guiUid'])
 ssh = ['ssh','-o','BatchMode=yes','-o','ConnectTimeout=8','-o','StrictHostKeyChecking=yes','-o','UserKnownHostsFile='+config['knownHosts'],host]
 def run(script): subprocess.run(ssh + [script], check=True)

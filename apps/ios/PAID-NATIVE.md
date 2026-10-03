@@ -20,7 +20,7 @@ remain the registry's existing values. Provider and PC namespaces are unchanged.
 Start with `/home/visar/Documents/environment/mac-access.md` for trusted SSH.
 Ignored `deploy.local.json` selects paid team `65U58U86DD`, `bundleSuffix: .paid`,
 GUI UID 501, and phone `00008101-000639912881401E`. The Mac mirror is
-`/Users/visar/Developer/asura-reader` for every provider. Output example:
+`/Users/visar/Developer/manga-reader/apps/ios` for every provider. Output example:
 `build/asura.paid/Release-iphoneos/AsuraReader.app`.
 
 Run from the manga-reader root, for each provider, one at a time:
