@@ -71,7 +71,10 @@ interface AsuraChapterResponse {
 }
 
 async function fetchAsuraChaptersNewestFirst(slug: string): Promise<ChapterMeta[]> {
-    const res = await fetch(`${API_BASE}/series/${slug}/chapters`);
+    // The chapter list is edge-cached for an hour (s-maxage=3600) while the
+    // catalog refreshes every 5 minutes, so the cached list can omit a chapter
+    // Home already shows. A unique query string misses that cache.
+    const res = await fetch(`${API_BASE}/series/${slug}/chapters?nocache=${Date.now()}`);
     if (!res.ok) throw new Error(`Chapter list failed: ${res.status}`);
     const response = await res.json() as { data: Array<{ number: number }> };
     return response.data.map(chapter => ({ chapterId: String(chapter.number) }));

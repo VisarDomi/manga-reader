@@ -153,7 +153,10 @@ async function fetchScytheChapter(slug: string, chapterId: string): Promise<Chap
 }
 
 async function fetchScytheChaptersNewestFirst(slug: string): Promise<ChapterMeta[]> {
-    const url = `https://${DOMAIN}/manga/${slug}/`;
+    // The series page is edge-cached and not purged when a chapter is published,
+    // so the cached list can omit the newest chapters. A query string bypasses
+    // that cache (cf-cache-status: BYPASS).
+    const url = `https://${DOMAIN}/manga/${slug}/?nocache=${Date.now()}`;
     const res = await fetch(url);
     if (!res.ok) throw new Error(`Manga page not found: ${res.status}`);
     const document = new DOMParser().parseFromString(await res.text(), 'text/html');
