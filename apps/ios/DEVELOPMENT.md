@@ -35,9 +35,10 @@ renews its own apps with its Mac scheduler, `com.visar.renewal.manga-reader`
 ([ios-tools renewal](../../../../ios-tools/renewal/PAID-REFRESH.md)):
 `scripts/renewal.py` lists every provider in `build/providers.json` (identity plus
 `.paid`, inputs, builder), so a new provider needs no change outside this repository.
-After delivering a build, approve each changed app, run a real renewal
-(`refresh-installed.py refresh --force --repo manga-reader`), then resume the
-scheduler.
+`deploy.py install` approves the installed build as that app's renewal baseline,
+keeping its renewal date, when neither its inputs nor the app changed since
+`deploy.py build`; otherwise it prints why approval was skipped. No scheduler pause
+or forced renewal is needed.
 
 ## Image ownership
 
