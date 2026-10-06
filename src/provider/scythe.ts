@@ -110,31 +110,29 @@ function homeCursor(cursor: string | null): { source: ScytheHomeSource; page: nu
     };
 }
 
+// The page's base64-encoded ts_reader.run({...}) JSON.
+function readerData(html: string): unknown {
+    const b64Match = html.match(/<script defer src="data:text\/javascript;base64,([A-Za-z0-9+/=]+)"><\/script>/g);
+    for (const tag of b64Match ?? []) {
+        const b64 = tag.match(/base64,([A-Za-z0-9+/=]+)/);
+        if (!b64) continue;
+        const decoded = atob(b64[1]);
+        if (decoded.includes('ts_reader.run(')) {
+            const jsonMatch = /^ts_reader\.run\((\{[\s\S]*\})\);?$/u.exec(decoded.trim());
+            if (jsonMatch) return JSON.parse(jsonMatch[1]) as unknown;
+            break;
+        }
+    }
+    throw new Error('Chapter response did not contain reader data');
+}
+
 async function fetchScytheChapter(slug: string, chapterId: string): Promise<ChapterData | null> {
     const url = `https://${DOMAIN}/${chapterId}/`;
     const res = await fetch(url);
     if (isChapterUnavailable(res)) return null;
     const html = await res.text();
 
-    // Extract base64-encoded ts_reader.run({...}) JSON
-    let tsData: unknown;
-    const b64Match = html.match(/<script defer src="data:text\/javascript;base64,([A-Za-z0-9+/=]+)"><\/script>/g);
-    if (b64Match) {
-        for (const tag of b64Match) {
-            const b64 = tag.match(/base64,([A-Za-z0-9+/=]+)/);
-            if (!b64) continue;
-            const decoded = atob(b64[1]);
-            if (decoded.includes('ts_reader.run(')) {
-                const jsonMatch = /^ts_reader\.run\((\{[\s\S]*\})\);?$/u.exec(decoded.trim());
-                if (jsonMatch) {
-                    tsData = JSON.parse(jsonMatch[1]) as unknown;
-                }
-                break;
-            }
-        }
-    }
-
-    if (tsData === undefined) throw new Error('Chapter response did not contain reader data');
+    const tsData = readerData(html);
     const srcs = defaultReaderImages(tsData);
 
     const images: ChapterImage[] = srcs.map(url => ({ url }));
@@ -152,14 +150,24 @@ async function fetchScytheChapter(slug: string, chapterId: string): Promise<Chap
     };
 }
 
-async function fetchScytheChaptersNewestFirst(slug: string): Promise<ChapterMeta[]> {
-    // The series page is edge-cached and not purged when a chapter is published,
-    // so the cached list can omit the newest chapters. A query string bypasses
-    // that cache (cf-cache-status: BYPASS).
-    const url = `https://${DOMAIN}/manga/${slug}/?nocache=${Date.now()}`;
+async function fetchDocument(url: string, failure: string): Promise<Document> {
     const res = await fetch(url);
-    if (!res.ok) throw new Error(`Manga page not found: ${res.status}`);
-    const document = new DOMParser().parseFromString(await res.text(), 'text/html');
+    if (!res.ok) throw new Error(`${failure}: ${res.status}`);
+    return new DOMParser().parseFromString(await res.text(), 'text/html');
+}
+
+function latestUpdateSeries(document: Document): HomePage['series'] {
+    const latest = [...document.querySelectorAll('.bixbox')].find(box =>
+        text(box.querySelector('.releases h2')) === 'Latest Update'
+    );
+    if (!latest) throw new Error('Scythe home did not contain Latest Update');
+    const series = [...latest.querySelectorAll('.listupd .bs')].map(richHomeSeries);
+    if (series.length === 0) throw new Error('Scythe Latest Update is empty');
+    return series;
+}
+
+async function fetchListedChapters(slug: string): Promise<ChapterMeta[]> {
+    const document = await fetchDocument(`https://${DOMAIN}/manga/${slug}/`, 'Manga page not found');
     const chapters: ChapterMeta[] = [];
     const seen = new Set<string>();
     for (const link of document.querySelectorAll<HTMLAnchorElement>('#chapterlist a[href]')) {
@@ -171,6 +179,70 @@ async function fetchScytheChaptersNewestFirst(slug: string): Promise<ChapterMeta
     }
     if (chapters.length === 0) throw new Error('Scythe chapter list is empty');
     return chapters;
+}
+
+// The series' newest chapters on the first Latest Update page, newest first.
+async function fetchLatestChapters(slug: string): Promise<ChapterMeta[]> {
+    const document = await fetchDocument(`https://${DOMAIN}/`, 'Latest series failed');
+    const series = latestUpdateSeries(document).find(entry => entry.slug === slug);
+    return series?.chapters.map(chapter => ({ chapterId: chapter.chapterId })) ?? [];
+}
+
+async function previousChapterId(slug: string, chapterId: string, signal: AbortSignal): Promise<string | null> {
+    const res = await fetch(`https://${DOMAIN}/${chapterId}/`, { signal });
+    if (isChapterUnavailable(res)) return null;
+    const prevUrl = (readerData(await res.text()) as { prevUrl?: unknown }).prevUrl;
+    if (typeof prevUrl !== 'string' || prevUrl === '') return null;
+    const route = chapterRoute(new URL(prevUrl, `https://${DOMAIN}`).pathname);
+    return route?.slug === slug ? route.chapterId : null;
+}
+
+// Most chapters missing from the cached list that are filled in through
+// previous-chapter links, and the time allowed for them, before the cached list
+// is used as it is. An uncached chapter page can take longer than a minute.
+const MAX_CHAPTER_GAP = 10;
+const CHAPTER_GAP_MS = 10_000;
+
+// Scythe's origin renders an uncached page slowly (6 to 85 s measured, past the
+// app's 20 s request timeout), so this reads only Cloudflare-cached pages. The
+// cached series page is not purged when a chapter is published and can omit the
+// newest chapters; the first Latest Update page is purged, so the series' newest
+// chapters there are added in front. A chapter page's previous link (set when it
+// is published) connects them when the cached list is further behind.
+async function fetchScytheChaptersNewestFirst(slug: string): Promise<ChapterMeta[]> {
+    const [listed, latest] = await Promise.all([
+        fetchListedChapters(slug),
+        fetchLatestChapters(slug).catch((error: unknown) => {
+            console.error(error);
+            return [];
+        }),
+    ]);
+    const listedIds = new Set(listed.map(chapter => chapter.chapterId));
+    const newer: ChapterMeta[] = [];
+    for (const chapter of latest) {
+        if (listedIds.has(chapter.chapterId)) return [...newer, ...listed];
+        newer.push(chapter);
+    }
+    if (newer.length === 0) return listed;
+
+    const gap = new AbortController();
+    const deadline = setTimeout(() => gap.abort(), CHAPTER_GAP_MS);
+    try {
+        let oldest = newer[newer.length - 1].chapterId;
+        for (let step = 0; step < MAX_CHAPTER_GAP; step++) {
+            const previous = await previousChapterId(slug, oldest, gap.signal);
+            if (previous === null) break;
+            if (listedIds.has(previous)) return [...newer, ...listed];
+            newer.push({ chapterId: previous });
+            oldest = previous;
+        }
+    } catch (error) {
+        console.error(error);
+    } finally {
+        clearTimeout(deadline);
+    }
+    // Never return a list with a hole in it; the next refresh retries.
+    return listed;
 }
 
 function scytheReaderUrl(_slug: string, chapterId: string, imageIndex?: string): string {
@@ -200,15 +272,8 @@ export const scythe: Provider = {
         const { source, page } = homeCursor(cursor);
         if (source === ScytheHomeSource.Home) {
             const url = page === 1 ? `https://${DOMAIN}/` : `https://${DOMAIN}/page/${page}/`;
-            const res = await fetch(url);
-            if (!res.ok) throw new Error(`Latest series failed: ${res.status}`);
-            const document = new DOMParser().parseFromString(await res.text(), 'text/html');
-            const latest = [...document.querySelectorAll('.bixbox')].find(box =>
-                text(box.querySelector('.releases h2')) === 'Latest Update'
-            );
-            if (!latest) throw new Error('Scythe home did not contain Latest Update');
-            const series = [...latest.querySelectorAll('.listupd .bs')].map(richHomeSeries);
-            if (series.length === 0) throw new Error('Scythe Latest Update is empty');
+            const document = await fetchDocument(url, 'Latest series failed');
+            const series = latestUpdateSeries(document);
             return {
                 series,
                 nextCursor: document.querySelector('.pagination a.next')
