@@ -18,6 +18,8 @@ remain the registry's existing values. Provider and PC namespaces are unchanged.
 ## Configuration and builds
 
 Start with `/home/visar/Documents/environment/mac-access.md` for trusted SSH.
+If `192.168.1.198` does not answer, `deploy.py` still reaches the Mac through its
+Wi-Fi automatically; `/home/visar/Documents/environment/mac-access/mac-connect --check` shows why.
 Ignored `deploy.local.json` selects paid team `65U58U86DD`, `bundleSuffix: .paid`,
 GUI UID 501, and phone `00008101-000639912881401E`. The Mac mirror is
 `/Users/visar/Developer/manga-reader/apps/ios` for every provider. Output example:
