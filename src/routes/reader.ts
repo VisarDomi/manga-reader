@@ -5,6 +5,7 @@ import { createReaderTracker } from '../core/tracking';
 import { ImageRetryRegistry } from '../core/image-retry';
 import { onBfcacheRestore } from '../core/lifecycle';
 import { onSettledScroll } from '../core/scroll-settle';
+import { withNewerChapters } from '../core/chapter-list';
 
 function invalidInitialChapterState(state: never): never {
     throw new Error(`Invalid initial chapter state: ${String(state)}`);
@@ -132,24 +133,43 @@ function setStatus(status: HTMLDivElement, text: string, className: string): voi
     status.textContent = text;
 }
 
+// A reader can stay open for days (a suspended app, Back/Forward cache), so the
+// list it fetched can predate the next release. While the newest listed chapter
+// is being read, the list is fetched again once it is this old.
+const CHAPTER_LIST_REFRESH_MS = 5 * 60_000;
+// A failed chapter list or newer chapter is requested again on a later settled
+// position, no sooner than this.
+const RETRY_MS = 15_000;
+
+function validChapterList(chapters: ChapterMeta[], loadedChapterId: string): ChapterMeta[] {
+    const chapterIds = new Set<string>();
+    for (const chapter of chapters) {
+        if (chapterIds.has(chapter.chapterId)) {
+            throw new Error(`Chapter list repeats ${chapter.chapterId}`);
+        }
+        chapterIds.add(chapter.chapterId);
+    }
+    if (!chapterIds.has(loadedChapterId)) {
+        throw new Error(`Chapter list does not contain the loaded chapter ${loadedChapterId}`);
+    }
+    return chapters;
+}
+
 function findNewerChapter(chaptersNewestFirst: ChapterMeta[], currentChapterId: string): ChapterMeta | null {
     const currentIdx = chaptersNewestFirst.findIndex(chapter => chapter.chapterId === currentChapterId);
-    if (currentIdx === -1) throw new Error(`Chapter list does not contain ${currentChapterId}`);
-    if (currentIdx === 0) return null;
+    // Not listed (a refreshed list dropped it) or newest: nothing newer is known.
+    if (currentIdx <= 0) return null;
     const chapter = chaptersNewestFirst[currentIdx - 1];
     if (chapter === undefined) throw new Error('Chapter ordering invariant failed');
     return chapter;
 }
 
-type ChapterListState =
-    | { kind: ChapterListStateKind.Loading; pendingScrollEnd: boolean }
-    | { kind: ChapterListStateKind.Ready; chapters: ChapterMeta[] }
-    | { kind: ChapterListStateKind.Failed };
-
-enum ChapterListStateKind {
-    Loading,
-    Ready,
-    Failed,
+interface ChapterListState {
+    /** Latest valid list; kept while a refresh is pending or after one fails. */
+    chapters: ChapterMeta[] | null;
+    loading: boolean;
+    /** Earliest time the list may be fetched again. */
+    dueAt: number;
 }
 
 enum ChapterLoadState {
@@ -158,6 +178,12 @@ enum ChapterLoadState {
     Unavailable,
     Failed,
 }
+
+type ChapterLoad =
+    | { state: ChapterLoadState.Loading }
+    | { state: ChapterLoadState.Loaded }
+    | { state: ChapterLoadState.Unavailable; retryAt: number }
+    | { state: ChapterLoadState.Failed; retryAt: number };
 
 enum TrackingState {
     Healthy,
@@ -221,43 +247,112 @@ export async function open(
     if (!target) cancelRestore();
 
     // 3. Async: fetch chapter list
-    let chapterListState: ChapterListState = {
-        kind: ChapterListStateKind.Loading,
-        pendingScrollEnd: false,
-    };
-    const chapterLoadStates = new Map<string, ChapterLoadState>([[data.chapterId, ChapterLoadState.Loaded]]);
+    const chapterList: ChapterListState = { chapters: null, loading: false, dueAt: 0 };
+    const chapterLoads = new Map<string, ChapterLoad>([[data.chapterId, { state: ChapterLoadState.Loaded }]]);
+    const chapterStatuses = new Map<string, HTMLDivElement>();
 
-    const chaptersLoadingStatus = createStatus('Loading chapters...', 'hs-loading');
-    wrapper.appendChild(chaptersLoadingStatus);
-    void provider.fetchChaptersNewestFirst(slug).then(
-        chapters => {
-            if (chapterListState.kind !== ChapterListStateKind.Loading) {
-                throw new Error(
-                    `Cannot finish chapter list from ${ChapterListStateKind[chapterListState.kind]} state`,
-                );
-            }
-            const chapterIds = new Set<string>();
-            for (const chapter of chapters) {
-                if (chapterIds.has(chapter.chapterId)) {
-                    throw new Error(`Chapter list repeats ${chapter.chapterId}`);
+    // Statuses describe a reader with no list at all; refreshing a usable list
+    // (saved or fetched earlier) happens silently.
+    const chapterListStatus = createStatus('Loading chapters...', 'hs-loading');
+    function fetchChapterList(): void {
+        if (chapterList.loading) return;
+        chapterList.loading = true;
+        if (chapterList.chapters === null) {
+            setStatus(chapterListStatus, 'Loading chapters...', 'hs-loading');
+            wrapper.appendChild(chapterListStatus);
+        }
+        void provider.fetchChaptersNewestFirst(slug)
+            .then(chapters => {
+                const fresh = validChapterList(chapters, data.chapterId);
+                // A source answering from an older cache must not drop a newer
+                // chapter already known from the saved list or an earlier answer.
+                chapterList.chapters = chapterList.chapters === null
+                    ? fresh
+                    : withNewerChapters(fresh, chapterList.chapters);
+                chapterList.dueAt = Date.now() + CHAPTER_LIST_REFRESH_MS;
+                chapterListStatus.remove();
+            })
+            .catch(() => {
+                chapterList.dueAt = Date.now() + RETRY_MS;
+                if (chapterList.chapters === null) {
+                    setStatus(chapterListStatus, 'Failed to load chapter list', 'hs-error');
+                    wrapper.appendChild(chapterListStatus);
                 }
-                chapterIds.add(chapter.chapterId);
-            }
-            if (!chapterIds.has(data.chapterId)) {
-                throw new Error(`Chapter list does not contain the loaded chapter ${data.chapterId}`);
-            }
-            const { pendingScrollEnd } = chapterListState;
-            chapterListState = { kind: ChapterListStateKind.Ready, chapters };
-            chaptersLoadingStatus.remove();
-            if (pendingScrollEnd) {
+            })
+            .finally(() => {
+                chapterList.loading = false;
+                // Continue from wherever the reader settled while this was pending.
                 schedulePositionUpdate();
+            });
+    }
+    // A resumed chapter continues at once from the list prepared with it, while
+    // the provider is asked for a current one.
+    void provider.savedChaptersNewestFirst?.(slug)
+        .then(saved => {
+            if (saved === null || chapterList.chapters !== null) return;
+            chapterList.chapters = validChapterList(saved, data.chapterId);
+            chapterListStatus.remove();
+            schedulePositionUpdate();
+        })
+        // A saved list that lacks this chapter is ignored; the provider's answer decides.
+        .catch(() => {});
+    fetchChapterList();
+
+    function loadNewerChapter(newerChapter: ChapterMeta): void {
+        const previous = chapterLoads.get(newerChapter.chapterId);
+        if (previous !== undefined) {
+            if (previous.state === ChapterLoadState.Loading || previous.state === ChapterLoadState.Loaded) return;
+            if (Date.now() < previous.retryAt) return;
+        }
+        chapterLoads.set(newerChapter.chapterId, { state: ChapterLoadState.Loading });
+        const status = chapterStatuses.get(newerChapter.chapterId)
+            ?? createStatus('Loading newer chapter...', 'hs-loading');
+        chapterStatuses.set(newerChapter.chapterId, status);
+        setStatus(status, 'Loading newer chapter...', 'hs-loading');
+        wrapper.appendChild(status);
+        void provider.loadChapter({
+            slug,
+            chapterId: newerChapter.chapterId,
+            intent: ChapterLoadIntent.Append,
+        }).then(result => {
+            if (result.kind === ChapterLoadResultKind.Stop) {
+                chapterLoads.set(newerChapter.chapterId, {
+                    state: ChapterLoadState.Unavailable,
+                    retryAt: Date.now() + RETRY_MS,
+                });
+                setStatus(status, 'Chapter unavailable', 'hs-error');
+                return;
             }
-        },
-        () => {
-            chapterListState = { kind: ChapterListStateKind.Failed };
-            setStatus(chaptersLoadingStatus, 'Failed to load chapter list', 'hs-error');
-        },
-    );
+            if (result.data.chapterId !== newerChapter.chapterId) {
+                throw new Error(`Loaded chapter ${result.data.chapterId} for ${newerChapter.chapterId}`);
+            }
+            chapterLoads.set(newerChapter.chapterId, { state: ChapterLoadState.Loaded });
+            chapterData.set(newerChapter.chapterId, result.data);
+            const wrapEl = createChapterWrapper(result.data.chapterId);
+            renderChapterImages(wrapEl, result.data, imageRetry);
+            status.replaceWith(wrapEl);
+            chapterStatuses.delete(newerChapter.chapterId);
+        }).catch(() => {
+            chapterLoads.set(newerChapter.chapterId, {
+                state: ChapterLoadState.Failed,
+                retryAt: Date.now() + RETRY_MS,
+            });
+            setStatus(status, 'Failed to load chapter', 'hs-error');
+        });
+    }
+
+    // Reading the last appended chapter: append the next listed one, or, when
+    // none is known, check the provider's list again once it is due.
+    function continueAfter(chapterId: string): void {
+        const newerChapter = chapterList.chapters === null
+            ? null
+            : findNewerChapter(chapterList.chapters, chapterId);
+        if (newerChapter !== null) {
+            loadNewerChapter(newerChapter);
+        } else if (Date.now() >= chapterList.dueAt) {
+            fetchChapterList();
+        }
+    }
 
     // 4. Scroll handler
     let lastSavedImage = '';
@@ -299,54 +394,16 @@ export async function open(
 
         tracker.track(visibleData, imageIndex);
 
-        switch (chapterListState.kind) {
-            case ChapterListStateKind.Loading:
-                chapterListState = { kind: ChapterListStateKind.Loading, pendingScrollEnd: true };
-                return;
-            case ChapterListStateKind.Failed:
-                return;
-            case ChapterListStateKind.Ready:
-                break;
-        }
-
         const chapterWraps = wrapper.querySelectorAll<HTMLDivElement>('.hs-chapter');
         if (chapterWrap !== chapterWraps[chapterWraps.length - 1]) return;
-
-        const newerChapter = findNewerChapter(chapterListState.chapters, visibleChapter);
-        if (newerChapter === null || chapterLoadStates.has(newerChapter.chapterId)) return;
-
-        chapterLoadStates.set(newerChapter.chapterId, ChapterLoadState.Loading);
-        const newerChapterLoadingStatus = createStatus('Loading newer chapter...', 'hs-loading');
-        wrapper.appendChild(newerChapterLoadingStatus);
-        void provider.loadChapter({
-            slug,
-            chapterId: newerChapter.chapterId,
-            intent: ChapterLoadIntent.Append,
-        }).then(
-            result => {
-                if (result.kind === ChapterLoadResultKind.Stop) {
-                    chapterLoadStates.set(newerChapter.chapterId, ChapterLoadState.Unavailable);
-                    setStatus(newerChapterLoadingStatus, 'Chapter unavailable', 'hs-error');
-                    return;
-                }
-                if (result.data.chapterId !== newerChapter.chapterId) {
-                    throw new Error(`Loaded chapter ${result.data.chapterId} for ${newerChapter.chapterId}`);
-                }
-                chapterLoadStates.set(newerChapter.chapterId, ChapterLoadState.Loaded);
-                chapterData.set(newerChapter.chapterId, result.data);
-                const wrapEl = createChapterWrapper(result.data.chapterId);
-                renderChapterImages(wrapEl, result.data, imageRetry);
-                wrapper.appendChild(wrapEl);
-                newerChapterLoadingStatus.remove();
-            },
-            () => {
-                chapterLoadStates.set(newerChapter.chapterId, ChapterLoadState.Failed);
-                setStatus(newerChapterLoadingStatus, 'Failed to load chapter', 'hs-error');
-            },
-        );
+        continueAfter(visibleChapter);
     }
     const schedulePositionUpdate = onSettledScroll(updateSettledPosition);
     onBfcacheRestore(schedulePositionUpdate);
+    // Returning to a suspended app re-checks a list that may now be stale.
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) schedulePositionUpdate();
+    });
     window.addEventListener('load', schedulePositionUpdate, { once: true });
     firstWrap.querySelector<HTMLImageElement>('.hs-reader-img')
         ?.addEventListener('load', schedulePositionUpdate, { once: true });

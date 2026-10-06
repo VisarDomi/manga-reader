@@ -124,6 +124,191 @@ describe('Reader behavior', () => {
         expect(loadChapter).toHaveBeenCalledTimes(2);
     });
 
+    it('re-checks a stale list on the newest listed chapter and appends a new release', async () => {
+        // The reader opened before chapter 2 was published (a suspended app).
+        const first = chapter('1');
+        const second = chapter('2');
+        const fetchChaptersNewestFirst = vi.fn()
+            .mockResolvedValueOnce([{ chapterId: '1' }])
+            .mockResolvedValue([{ chapterId: '2' }, { chapterId: '1' }]);
+        const loadChapter = vi.fn(async (request: { intent: ChapterLoadIntent }) => ({
+            kind: ChapterLoadResultKind.Chapter,
+            data: request.intent === ChapterLoadIntent.Open ? first : second,
+        })) as Provider['loadChapter'];
+        await open(
+            { ...providerFor(first), loadChapter, fetchChaptersNewestFirst },
+            { handler: Handler.Reader, slug: 'series', chapterId: '1' },
+        );
+        await vi.advanceTimersByTimeAsync(0);
+        loadImage(document.querySelector<HTMLImageElement>('.hs-reader-img')!);
+        window.dispatchEvent(new Event('scrollend'));
+        await vi.advanceTimersByTimeAsync(0);
+        expect(fetchChaptersNewestFirst).toHaveBeenCalledTimes(1);
+
+        await vi.advanceTimersByTimeAsync(5 * 60_000);
+        window.dispatchEvent(new Event('scrollend'));
+        await vi.advanceTimersByTimeAsync(0);
+        expect(fetchChaptersNewestFirst).toHaveBeenCalledTimes(2);
+        expect([...document.querySelectorAll<HTMLElement>('.hs-chapter')]
+            .map(element => element.dataset.chapter)).toEqual(['1', '2']);
+        expect(document.querySelector('.hs-status')).toBeNull();
+    });
+
+    it('continues at once from the saved list while the provider has not answered', async () => {
+        const loadChapter = vi.fn(async (request: { chapterId: string }) => ({
+            kind: ChapterLoadResultKind.Chapter,
+            data: chapter(request.chapterId),
+        })) as Provider['loadChapter'];
+        await open(
+            {
+                ...providerFor(chapter('1')),
+                loadChapter,
+                fetchChaptersNewestFirst: () => new Promise(() => {}),
+                savedChaptersNewestFirst: async () => [{ chapterId: '2' }, { chapterId: '1' }],
+            },
+            { handler: Handler.Reader, slug: 'series', chapterId: '1' },
+        );
+        loadImage(document.querySelector<HTMLImageElement>('.hs-reader-img')!);
+        await vi.advanceTimersByTimeAsync(0);
+        expect([...document.querySelectorAll<HTMLElement>('.hs-chapter')]
+            .map(element => element.dataset.chapter)).toEqual(['1', '2']);
+        expect(document.querySelector('.hs-status')).toBeNull();
+    });
+
+    it('keeps a newer chapter from the saved list when the provider answers from an older cache', async () => {
+        let answer!: (chapters: { chapterId: string }[]) => void;
+        const loadChapter = vi.fn(async (request: { chapterId: string }) => ({
+            kind: ChapterLoadResultKind.Chapter,
+            data: chapter(request.chapterId),
+        })) as Provider['loadChapter'];
+        await open(
+            {
+                ...providerFor(chapter('2', 2)),
+                loadChapter,
+                fetchChaptersNewestFirst: () => new Promise(resolve => { answer = resolve; }),
+                savedChaptersNewestFirst: async () => [{ chapterId: '3' }, { chapterId: '2' }, { chapterId: '1' }],
+            },
+            { handler: Handler.Reader, slug: 'series', chapterId: '2' },
+        );
+        await vi.advanceTimersByTimeAsync(0);
+        answer([{ chapterId: '2' }, { chapterId: '1' }]);
+        await vi.advanceTimersByTimeAsync(0);
+        loadImage(document.querySelector<HTMLImageElement>('.hs-reader-img')!);
+        await vi.advanceTimersByTimeAsync(0);
+        expect([...document.querySelectorAll<HTMLElement>('.hs-chapter')]
+            .map(element => element.dataset.chapter)).toEqual(['2', '3']);
+    });
+
+    it('ignores a saved list without the opened chapter and waits for the provider', async () => {
+        let answer!: (chapters: { chapterId: string }[]) => void;
+        const loadChapter = vi.fn(async (request: { chapterId: string }) => ({
+            kind: ChapterLoadResultKind.Chapter,
+            data: chapter(request.chapterId),
+        })) as Provider['loadChapter'];
+        await open(
+            {
+                ...providerFor(chapter('3')),
+                loadChapter,
+                fetchChaptersNewestFirst: () => new Promise(resolve => { answer = resolve; }),
+                savedChaptersNewestFirst: async () => [{ chapterId: '2' }, { chapterId: '1' }],
+            },
+            { handler: Handler.Reader, slug: 'series', chapterId: '3' },
+        );
+        loadImage(document.querySelector<HTMLImageElement>('.hs-reader-img')!);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(document.querySelector('.hs-status')?.textContent).toBe('Loading chapters...');
+        answer([{ chapterId: '4' }, { chapterId: '3' }]);
+        await vi.advanceTimersByTimeAsync(0);
+        expect([...document.querySelectorAll<HTMLElement>('.hs-chapter')]
+            .map(element => element.dataset.chapter)).toEqual(['3', '4']);
+    });
+
+    it('re-checks a stale list when a resumed app becomes visible, without a scroll', async () => {
+        const fetchChaptersNewestFirst = vi.fn()
+            .mockResolvedValueOnce([{ chapterId: '1' }])
+            .mockResolvedValue([{ chapterId: '2' }, { chapterId: '1' }]);
+        const loadChapter = vi.fn(async (request: { chapterId: string }) => ({
+            kind: ChapterLoadResultKind.Chapter,
+            data: chapter(request.chapterId),
+        })) as Provider['loadChapter'];
+        await open(
+            { ...providerFor(chapter('1')), loadChapter, fetchChaptersNewestFirst },
+            { handler: Handler.Reader, slug: 'series', chapterId: '1' },
+        );
+        loadImage(document.querySelector<HTMLImageElement>('.hs-reader-img')!);
+        await vi.advanceTimersByTimeAsync(6 * 60 * 60_000);
+        document.dispatchEvent(new Event('visibilitychange'));
+        await vi.advanceTimersByTimeAsync(0);
+        expect([...document.querySelectorAll<HTMLElement>('.hs-chapter')]
+            .map(element => element.dataset.chapter)).toEqual(['1', '2']);
+    });
+
+    it('retries a failed chapter list and a failed newer chapter on a later position', async () => {
+        const fetchChaptersNewestFirst = vi.fn()
+            .mockRejectedValueOnce(new Error('HTTP 500'))
+            .mockResolvedValue([{ chapterId: '2' }, { chapterId: '1' }]);
+        const loadChapter = vi.fn()
+            .mockResolvedValueOnce({ kind: ChapterLoadResultKind.Chapter, data: chapter('1') })
+            .mockRejectedValueOnce(new Error('HTTP 500'))
+            .mockResolvedValue({ kind: ChapterLoadResultKind.Chapter, data: chapter('2') });
+        await open(
+            { ...providerFor(chapter('1')), loadChapter, fetchChaptersNewestFirst },
+            { handler: Handler.Reader, slug: 'series', chapterId: '1' },
+        );
+        loadImage(document.querySelector<HTMLImageElement>('.hs-reader-img')!);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(document.querySelector('.hs-status')?.textContent).toBe('Failed to load chapter list');
+
+        // Not retried on every position: only once the retry delay has passed.
+        window.dispatchEvent(new Event('scrollend'));
+        await vi.advanceTimersByTimeAsync(0);
+        expect(fetchChaptersNewestFirst).toHaveBeenCalledTimes(1);
+
+        await vi.advanceTimersByTimeAsync(15_000);
+        window.dispatchEvent(new Event('scrollend'));
+        await vi.advanceTimersByTimeAsync(0);
+        expect(fetchChaptersNewestFirst).toHaveBeenCalledTimes(2);
+        expect([...document.querySelectorAll('.hs-status')].map(node => node.textContent))
+            .toEqual(['Failed to load chapter']);
+
+        await vi.advanceTimersByTimeAsync(15_000);
+        window.dispatchEvent(new Event('scrollend'));
+        await vi.advanceTimersByTimeAsync(0);
+        expect(loadChapter).toHaveBeenCalledTimes(3);
+        expect([...document.querySelectorAll<HTMLElement>('.hs-chapter')]
+            .map(element => element.dataset.chapter)).toEqual(['1', '2']);
+        expect(document.querySelector('.hs-status')).toBeNull();
+    });
+
+    it('reports an inconsistent chapter list instead of loading forever', async () => {
+        await open(
+            { ...providerFor(chapter('1')), fetchChaptersNewestFirst: async () => [{ chapterId: '2' }] },
+            { handler: Handler.Reader, slug: 'series', chapterId: '1' },
+        );
+        await vi.advanceTimersByTimeAsync(0);
+        expect([...document.querySelectorAll('.hs-status')].map(node => node.textContent))
+            .toEqual(['Failed to load chapter list']);
+    });
+
+    it('reports a mismatched newer chapter instead of loading forever', async () => {
+        const loadChapter = vi.fn(async () => ({
+            kind: ChapterLoadResultKind.Chapter,
+            data: chapter('1'),
+        })) as Provider['loadChapter'];
+        await open(
+            {
+                ...providerFor(chapter('1')),
+                loadChapter,
+                fetchChaptersNewestFirst: async () => [{ chapterId: '2' }, { chapterId: '1' }],
+            },
+            { handler: Handler.Reader, slug: 'series', chapterId: '1' },
+        );
+        loadImage(document.querySelector<HTMLImageElement>('.hs-reader-img')!);
+        await vi.advanceTimersByTimeAsync(0);
+        expect([...document.querySelectorAll('.hs-status')].map(node => node.textContent))
+            .toEqual(['Failed to load chapter']);
+    });
+
     it('restores the corresponding image from a reader URL', async () => {
         const data = chapter('1', 2);
         const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => {});

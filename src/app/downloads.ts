@@ -1,12 +1,18 @@
 // App-only download policy; provider extraction and chapter order remain shared.
 import type { ChapterProgress } from '../core/compute/progress';
 import { ChapterLoadIntent, ChapterLoadResultKind } from '../provider/types';
-import { originalChapter, chapterKey, routes, chapterList, refreshLists } from './provider';
+import { originalChapter, chapterKey, routes, chapterList, refreshLists, onChapterListChange } from './provider';
 import { native } from './native';
 let retainedSeries="";
 let active=false, positions: ChapterProgress[]=[], currentSeries: string|null=null;
 const generations=new Map<string,number>();
 const running=new Map<string,string>();
+// A refreshed list can add the next chapter of an unchanged current position.
+onChapterListChange(series=>{
+    for(const position of positions)if(position.seriesSlug===series) {
+        running.delete(position.seriesSlug);if(active)schedule(position);
+    }
+});
 export function preparationContext(home: boolean, series: string|null=null) { currentSeries=home?null:series; }
 export function pauseDownloads() { active=false;running.clear();for(const [key,value] of generations)generations.set(key,value+1); }
 export function resumeDownloads() { if(active)return;active=true;refreshLists();void native('downloads-active',{active:true});for(const p of positions) schedule(p); }

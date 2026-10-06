@@ -49,6 +49,19 @@ metadata and image concurrency are bounded. Home prepares every saved current
 position without waiting for catalog pagination. While reading, changing current
 moves the retained window. Obsolete images/metadata are deleted; history remains.
 
+Resuming must never wait for the network. Every fetched chapter list is saved
+beside the chapter manifests (`["chapters", identity]`); background preparation
+starts from it, and a reader continues from it at once, so the prepared next
+chapter appends immediately. Both still ask the provider: a different answer
+replaces the saved list and moves that series' window. Home rows (each series'
+newest chapters) extend a kept list at once when the rest of the row continues it
+exactly for two or more chapters (`src/core/chapter-list.ts`), so a chapter released
+since the last visit is prepared before its slow list request returns; a reader never
+lets a source's older cached answer drop a chapter it already knows. Readers re-check
+the list while reading the newest listed chapter. Providers must keep list requests to
+cached or fast endpoints; Scythe's uncached pages take up to 85 s (see
+`investigation/2026-10-06-scythe-next-chapter.md`).
+
 `ImageDownloader` is the sole image network/cache owner. Background preparation
 and visible WebKit image requests use the same job and local file. Visible work
 promotes an existing queued request and cancels/requeues unrelated background
@@ -77,9 +90,11 @@ upcoming pages concurrently, without a pagination timer, and pauses scheduling
 while Home is hidden. Successful in-flight responses are retained for Back;
 requests canceled by native navigation restart on return. QiScans, EzScans and
 Asura expose known upcoming cursors from their API page counts. Providers with
-only a next-page link remain sequential. Lua's source
-requests its catalog in one response. Catalog metadata is live; this image
-ownership change does not introduce a separate cached catalog or copied Home UI.
+only a next-page link remain sequential. Lua shows its newest 100 series at once,
+then its whole catalog from one response (its offset pages repeat and skip series
+that share a sort key; an uncached 1000-series query takes ~5 s). Catalog metadata
+is live; this image ownership change does not introduce a separate cached catalog
+or copied Home UI.
 
 ## Native-only additions
 

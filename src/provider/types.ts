@@ -108,6 +108,9 @@ export interface Provider {
     loadChapter: ChapterLoader;
     resolveHomeDestination(request: HomeDestinationRequest): Promise<string>;
     fetchChaptersNewestFirst(slug: string): Promise<ChapterMeta[]>;
+    /** The last list the platform prepared and kept, if any. The reader continues
+     * from it at once while fetchChaptersNewestFirst answers. */
+    savedChaptersNewestFirst?(slug: string): Promise<ChapterMeta[] | null>;
     readerUrl(slug: string, chapterId: string, imageIndex?: string): string;
     seriesUrl(slug: string): string;
 }
