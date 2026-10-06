@@ -44,27 +44,42 @@ async function fetchLuaChapter(slug: string, chapterId: string): Promise<Chapter
 }
 const API_BASE = `https://api.${DOMAIN}`;
 
+// The chapter list query is slow whenever Lua's API cache has expired: about
+// 3.5 s per request for 30 chapters, about 12 s for 100 (October 6). Pages use the
+// website's own URL, so they are often already cached by its readers, and are
+// requested together: the first four at once, any further ones after the count.
+const LUA_LIST_PAGE_SIZE = 30;
+const LUA_LIST_FIRST_PAGES = 4;
+
+async function fetchLuaChapterPage(seriesId: number, page: number): Promise<{ lastPage: number; chapters: ChapterMeta[] }> {
+    const query = new URLSearchParams({
+        page: String(page),
+        perPage: String(LUA_LIST_PAGE_SIZE),
+        query: '',
+        order: 'desc',
+        series_id: String(seriesId),
+    });
+    const res = await fetch(`${API_BASE}/chapter/query?${query}`);
+    if (!res.ok) throw new Error(`Chapter list failed: ${res.status}`);
+    const data = await res.json() as {
+        meta: { last_page: number };
+        data: Array<{ chapter_slug: string }>;
+    };
+    return { lastPage: data.meta.last_page, chapters: data.data.map(item => ({ chapterId: item.chapter_slug })) };
+}
+
 async function fetchLuaChaptersNewestFirst(slug: string): Promise<ChapterMeta[]> {
     const seriesRes = await fetch(`${API_BASE}/series/${slug}`);
     if (!seriesRes.ok) throw new Error(`Series not found: ${seriesRes.status}`);
     const seriesData = await seriesRes.json() as { id: number };
-    const chapters: ChapterMeta[] = [];
-    let page = 1;
-    let hasMore = true;
-    while (hasMore) {
-        const res = await fetch(
-            `${API_BASE}/chapter/query?page=${page}&perPage=100&order=desc&series_id=${seriesData.id}`
-        );
-        if (!res.ok) throw new Error(`Chapter list failed: ${res.status}`);
-        const data = await res.json() as {
-            meta: { last_page: number };
-            data: Array<{ chapter_slug: string }>;
-        };
-        for (const item of data.data) chapters.push({ chapterId: item.chapter_slug });
-        hasMore = page < data.meta.last_page;
-        page++;
+    const pages = await Promise.all(Array.from({ length: LUA_LIST_FIRST_PAGES },
+        (_, i) => fetchLuaChapterPage(seriesData.id, i + 1)));
+    const lastPage = pages[0].lastPage;
+    if (lastPage > LUA_LIST_FIRST_PAGES) {
+        pages.push(...await Promise.all(Array.from({ length: lastPage - LUA_LIST_FIRST_PAGES },
+            (_, i) => fetchLuaChapterPage(seriesData.id, LUA_LIST_FIRST_PAGES + i + 1))));
     }
-    return chapters;
+    return pages.slice(0, lastPage).flatMap(page => page.chapters);
 }
 
 function luaReaderUrl(slug: string, chapterId: string, imageIndex?: string): string {
