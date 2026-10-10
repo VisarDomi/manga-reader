@@ -6,6 +6,7 @@ The apps change the UI of the supported providers so that it's easier to read. F
 1. load newer chapter while reading current chapter.
 2. on reload, restore to the appropriate page
 3. the home page eventually loads all entries
+4. prepared chapters keep downloading while the phone is locked or the app is in the background
 
 ## Why?
 ios26 top and bottom bar transparency behaves well when (document) body scrolls and behaves badly when there is a virtual window controlled by the site.
