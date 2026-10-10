@@ -86,6 +86,13 @@ actor ReaderStore {
         }
         return Data("{}".utf8)
     }
+    // What the downloader has not finished: each series' window in order (the current chapter
+    // first, page order within a chapter), then the covers.
+    func backgroundWork() async -> [(key: String, url: String)] {
+        guard (try? load()) != nil else { return [] }
+        let pages = windows.keys.sorted().flatMap { series in (windows[series] ?? []).flatMap { images[$0] ?? [] } }
+        return await downloader.uncached(pages, cover: false) + downloader.uncached(covers.sorted(), cover: true)
+    }
     func bootstrap() async throws -> Data {
         try load();try await downloader.setRetained(retainedURLs());await downloader.prepareCovers(covers)
         var values=try read("views").map(object) ?? [:]

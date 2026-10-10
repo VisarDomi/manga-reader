@@ -62,7 +62,8 @@ the list while reading the newest listed chapter. Providers must keep list reque
 cached or fast endpoints; Scythe's uncached pages take up to 85 s (see
 `investigation/2026-10-06-scythe-next-chapter.md`).
 
-`ImageDownloader` is the sole image network/cache owner. Background preparation
+`ImageDownloader` is the sole image network/cache owner while the app is on screen (while it
+is away, `BackgroundDownloads` finishes its unfinished files into the same cache; below). Background preparation
 and visible WebKit image requests use the same job and local file. Visible work
 promotes an existing queued request and cancels/requeues unrelated background
 transfers while foreground images are pending; it never starts a duplicate
@@ -77,7 +78,19 @@ The shared reader still uses its normal lazy image elements. This controls local
 loading/decoding/display, **not network preparation**: all images in the retained
 chapters are downloaded independently of scrolling. Do not introduce a second
 IntersectionObserver, image queue, DOM-window removal or app-specific retries.
-Downloads pause when iOS backgrounds the app and resume on foreground.
+Prepared chapters keep downloading while the app is away (locked, in the background,
+or closed by iOS; a force-quit from the app switcher stops them): when the app resigns
+active, `BackgroundDownloads` hands the downloader's unfinished files (each series'
+window in order, the current chapter first, then covers) to a background URLSession,
+which writes the same cache files. Back on screen the remaining transfers are cancelled
+and `ImageDownloader` carries on. Only already-prepared chapters can download this way;
+preparing further chapters needs the page. Hand-off happens while the app is still
+active because iOS defers transfers started from the background.
+
+Lifecycle: resigning active only saves the position; a real trip to the background pauses
+the page; only then does becoming active resume it. When iOS ends the web content process
+in the background, the page reloads in place and restores its saved position for that
+address (no cold start through Home).
 
 Every Home catalog page registers **all** its cover URLs with the downloader,
 including offscreen rows. `shared/covers.json` retains those preparation targets

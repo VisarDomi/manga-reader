@@ -4,13 +4,17 @@ import WebKit
 @MainActor
 final class WebController: UIViewController, WKNavigationDelegate, WKScriptMessageHandlerWithReply {
     private let store: ReaderStore
+    private let background: BackgroundDownloads
     private var webView: WKWebView!
     private var foreground = false
+    private var backgrounded = false
     private var home = true
     private var activeDocument = ""
     private var firstLaunch = true
     private var requests: [String: Task<Data, Error>] = [:]
-    init(store: ReaderStore) { self.store = store; super.init(nibName: nil, bundle: nil) }
+    init(store: ReaderStore, background: BackgroundDownloads) {
+        self.store = store; self.background = background; super.init(nibName: nil, bundle: nil)
+    }
     required init?(coder: NSCoder) { fatalError("Unused") }
     override var prefersStatusBarHidden: Bool { true }
     override var prefersHomeIndicatorAutoHidden: Bool { true }
@@ -29,14 +33,30 @@ final class WebController: UIViewController, WKNavigationDelegate, WKScriptMessa
         webView.load(URLRequest(url: URL(string: "asura://app/")!))
     }
     override func viewDidLayoutSubviews() { super.viewDidLayoutSubviews(); webView.frame = view.bounds }
-    func capturePosition() { webView?.evaluateJavaScript("window.mangaApp?.save()", completionHandler: nil) }
+    // Leaving the screen (or just Control Center): save the position and hand the unfinished
+    // downloads to iOS while the app is still active (BackgroundDownloads).
+    func capturePosition() {
+        webView?.evaluateJavaScript("window.mangaApp?.save()", completionHandler: nil)
+        let task = UIApplication.shared.beginBackgroundTask(withName: "Hand off downloads")
+        Task { [store, background] in
+            await background.handOff(await store.backgroundWork())
+            UIApplication.shared.endBackgroundTask(task)
+        }
+    }
+    // Back on screen the app's own downloader takes over again. Only a real trip to the
+    // background paused the page (Control Center or Face ID only saved).
     func resume() {
         foreground = true; UIApplication.shared.isIdleTimerDisabled = !home
+        Task { await background.reclaim() }
+        guard backgrounded else { return }
+        backgrounded = false
         webView?.evaluateJavaScript("window.mangaApp?.resume()", completionHandler: nil)
     }
     func pause() {
-        foreground = false; UIApplication.shared.isIdleTimerDisabled = false
-        webView?.evaluateJavaScript("window.mangaApp?.pause()", completionHandler: nil)
+        foreground = false; backgrounded = true; UIApplication.shared.isIdleTimerDisabled = false
+        // A moment for the page to write its position before iOS suspends it.
+        let task = UIApplication.shared.beginBackgroundTask(withName: "Save position")
+        webView?.evaluateJavaScript("window.mangaApp?.pause()") { _, _ in UIApplication.shared.endBackgroundTask(task) }
         Task { await store.downloader.setActive(false) }
     }
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage,
@@ -88,8 +108,10 @@ final class WebController: UIViewController, WKNavigationDelegate, WKScriptMessa
         let allowed = url?.scheme == "asura" && url?.host == "app"
         decisionHandler(allowed ? .allow : .cancel)
     }
+    // iOS ended the page while the app was away: reload it where it was (the page restores its
+    // saved position for that address) instead of a cold start through Home.
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-        firstLaunch = true; webView.load(URLRequest(url: URL(string: "asura://app/")!))
+        if webView.url?.scheme == "asura" { webView.reload() } else { firstLaunch = true; webView.load(URLRequest(url: URL(string: "asura://app/")!)) }
     }
 }
 

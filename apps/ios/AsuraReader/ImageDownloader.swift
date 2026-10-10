@@ -145,5 +145,13 @@ actor ImageDownloader {
         if !job.cover && !retained.contains(job.url) { remove(key) }
         pump()
     }
+    // Unfinished files among these, in order, for the background transfers while the app is away.
+    func uncached(_ urls: [String], cover: Bool) -> [(key: String, url: String)] {
+        var seen = Set<String>()
+        return urls.compactMap { url in
+            let key = key(url, cover)
+            return !cached(key) && seen.insert(key).inserted ? (key, url) : nil
+        }
+    }
     func diagnostics() -> [String: Int] { ["running": tasks.count, "queued": queue.count, "retained": retained.count, "covers": covers.count] }
 }

@@ -134,5 +134,21 @@ actor NetworkAttempts {
         try check(try await reopened.read("database") == history, "A fresh store preserves durable progress")
         try check(try await reopened.read("windows") == store.read("windows"), "A fresh store recovers the exact download window")
         print("PASS: chapter window pruning retains history")
+
+        // What goes to iOS's background transfers: each window's chapters in order, pages in
+        // order, then covers; finished files never.
+        let handoff = ReaderStore(root: root.appendingPathComponent("handoff"), origin: "https://reader.test/")
+        _ = try await handoff.command("downloads-active", data: Data("{\"active\":false}".utf8))
+        _ = try await handoff.command("window", data: jsonData(["series":"two","keys":["now","later"]]))
+        _ = try await handoff.command("prepare", data: jsonData(["key":"now","urls":["p1","p2"]]))
+        _ = try await handoff.command("prepare", data: jsonData(["key":"later","urls":["p3"]]))
+        _ = try await handoff.command("prepare-covers", data: jsonData(["urls":["c1"]]))
+        let finished = root.appendingPathComponent("handoff/shared/images/" + fileKey("p2"))
+        try writeAtomically(Data("p2".utf8), finished)
+        try writeAtomically(Data("image/png".utf8), finished.appendingPathExtension("mime"))
+        let work = await handoff.backgroundWork()
+        try check(work.map(\.url) == ["p1", "p3", "c1"], "Background work is the unfinished pages in window order, then covers: \(work.map(\.url))")
+        try check(work.first?.key == "images/" + fileKey("p1") && work.last?.key == "covers/" + fileKey("c1"), "Background work names the cache files")
+        print("PASS: background hand-off lists unfinished pages in reading order, then covers")
     }
 }
