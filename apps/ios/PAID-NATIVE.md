@@ -9,8 +9,8 @@
 | lua | Lua | com.visar.LuaReader.paid |
 | ezmanga | EzScans | com.visar.EzMangaReader.paid |
 
-All use the same codebase and Xcode target. Names come from `src/core/sites.json`
-→ `ios.displayName`, through `READER_DISPLAY_NAME` in the shared Info.plist.
+All use the same codebase and Xcode target. Names come from `providers.json`
+→ `displayName`, through `READER_DISPLAY_NAME` in the shared Info.plist.
 There are no custom icon declarations, icon artwork or asset catalogs; iOS
 supplies its standard fallback appearance. Internal product/data-directory names
 remain the registry's existing values. Provider and PC namespaces are unchanged.
@@ -39,13 +39,9 @@ drops back to that user, and supplies signing team, bundle suffix and device. It
 creates no LaunchAgent; keep SSH attached until it reports BUILD SUCCEEDED. The
 builder checks the built display name, provider, bundle identity, absence of icon
 declarations, complete signature, profile team and phone inclusion. Installation
-also checks every bundled web/native-resource hash. Signing locks prevent
+also checks every bundled `Native` resource hash (the PC's address, key and CA). Signing locks prevent
 overlapping builds. Omitting the suffix selects the registry's unsuffixed
 identities; keep it when updating these installed apps.
-
-All images and image links disable callouts, selection and dragging
-(`-webkit-touch-callout: none`, `user-select: none`, `-webkit-user-drag: none` in
-`src/style.css`); taps and scrolling are unchanged.
 
 The six apps renew monthly through this repository's scheduler,
 `com.visar.renewal.manga-reader`; see [renewal](../../../../ios-tools/renewal/PAID-REFRESH.md)

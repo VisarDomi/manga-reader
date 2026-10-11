@@ -1,15 +1,15 @@
 # Manga-reader
-iOS apps (Asura, Scythe, Yaksha, QiScans, Lua, EzScans) that rewrite the UI of the supported providers.
+Native iPhone apps (Asura, Scythe, Yaksha, QiScans, Lua, EzScans) that rework the supported providers into a fast reader.
 
 ## What?
 The apps change the UI of the supported providers so that it's easier to read. Features:
 1. load newer chapter while reading current chapter.
-2. on reload, restore to the appropriate page
-3. the home page eventually loads all entries
-4. prepared chapters keep downloading while the phone is locked or the app is in the background
+2. on relaunch (or after a kill), return to the exact point, with nothing jumping while pages load
+3. the home page shows every entry, at once from the phone's copy, refreshed in the background
+4. every started manga keeps its current and next chapter on the phone; a new chapter downloads as soon as it appears, also while the phone is locked or the app is away
 
 ## Why?
-ios26 top and bottom bar transparency behaves well when (document) body scrolls and behaves badly when there is a virtual window controlled by the site.
+Reading should be instant and offline where possible. The sites' own pages are slow and lose your place.
 
 ## How?
 We build our own structure from the provider's data. Infinite reader style on reader. full entries on home.

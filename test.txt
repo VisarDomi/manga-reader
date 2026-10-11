@@ -2,25 +2,23 @@ Definition:
 - "may" means do it if its there
 
 Reader:
-- On scrollend + 100 ms, each visible chapter may append its immediate newer chapter exactly once.
-- On scrollend + 100 ms, save the current loaded image in the page URL + local/server tracking
-- Tracking: update the local frontier. Server tracking happens once per chapter when supported
-- Opening or refreshing a reader URL, the app may restore to the corresponding image
+- When scrolling settles, the chapter being read may append its immediate newer chapter exactly once.
+- When scrolling settles, save the page at the screen's middle as the series' progress, and the exact point for a relaunch
+- Opening a chapter at a saved page puts that page's top at the top of the screen; a relaunch returns to the exact point
 
 Home:
-- show all entries (eventually)
+- show all entries (the phone's copy at once, the site's in the background)
 - the single local resume position for a provider and series always wins when present
-- server resume is used only when there is no local resume position
 - clicking on cover resumes
 - clicking on chapters resumes the chapter (unread - start_page, read - end_page, partial - saved_page).
 
 Special feature:
-- bfcache - going back (swipe back) from reader to home loads home from cache
-- image self register to retry in case they fail to load
-- if resume/initial is unavailable, location.href to series page for the user to verify its actually like that
-- if no provider height, use 1000px height which will then get replaced by actual heights when data comes in
+- swiping back from reader to home returns to the same home, instantly
+- images that fail to load are asked again
+- if resume/initial is unavailable, the reader says so (Chapter unavailable)
+- every page has its real height before its image loads (from the site, or from the image on the phone)
 
-Test URLs for testing reader:
+Test series for testing reader:
 
 https://asurascans.com/comics/chronicles-of-the-lazy-sovereign-f886a8af/chapter/50#3
 https://scythescans.com/magic-emperor-chapter-1/#5
@@ -29,7 +27,7 @@ https://ezmanga.org/series/apocalypse-villainess-surviving-with-corporate-slave-
 https://qimanga.com/series/genius-magic-swordsman-returns/chapter-1#5
 https://yakshacomics.com/manga/who-allowed-him-to-cultivate-immortality/chapter-16/#3
 
-Test URLs for testing home:
+Test sites for testing home:
 https://asurascans.com
 https://scythescans.com
 https://luacomic.org
