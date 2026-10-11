@@ -187,7 +187,8 @@ final class HomeScreen: UIViewController, LiveScreen, UITableViewDataSource, UIT
     }
 
     private func restoreIfReady() {
-        guard !restored, view.bounds.width > 0, !series.isEmpty else { return }
+        // Only once the table has its frame (a restore before layout lands too low).
+        guard !restored, table.bounds.height > 0, !series.isEmpty else { return }
         if let anchor = pendingAnchor, series.contains(where: { app.library.identity($0) == anchor.key }) {
             table.layoutIfNeeded()
             restore(anchor)

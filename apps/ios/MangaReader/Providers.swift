@@ -192,7 +192,7 @@ struct Asura: MangaProvider {
             struct Chapter: Decodable { var number: Double; var is_premium: Bool; var early_access_until: String?; var published_at: String? }
             var slug: String; var title: String; var cover: String; var public_url: String; var latest_chapters: [Chapter]?
         }
-        struct Meta: Decodable { var total: Int; var has_more: Bool }
+        struct Meta: Decodable { var total: Int; var has_more: Bool? }
         var data: [Series]
         var meta: Meta
     }
@@ -212,7 +212,7 @@ struct Asura: MangaProvider {
             return HomeSeries(slug: slug, historyId: historyId(series.slug), title: series.title, coverUrl: cover(series.cover), chapters: Array(chapters))
         }
         let pages = Int((Double(response.meta.total) / 50).rounded(.up))
-        return HomePage(series: series, nextCursor: response.meta.has_more ? String(page + 1) : nil,
+        return HomePage(series: series, nextCursor: response.meta.has_more == true ? String(page + 1) : nil,
                         prefetchCursors: Web.prefetch(page, pages: pages) { String($0) }, total: response.meta.total)
     }
 

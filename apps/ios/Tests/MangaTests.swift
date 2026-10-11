@@ -25,6 +25,7 @@ struct MangaTests {
         let first = asura.series[0]
         expect(first.slug == "pick-up-a-grimoire-become-a-mage-bd5bdaf8" && first.historyId == "pick-up-a-grimoire-become-a-mage", "Asura slug keeps its suffix, identity drops it")
         expect(first.coverUrl.hasSuffix(".1bf474-400.webp") && first.chapters.first?.chapterId == "6" && first.chapters.first?.label == "Chapter 6", "Asura cover and chapters")
+        expect(try Asura.parseHome(try fixture("asura-last.json"), page: 8, now: now).nextCursor == nil, "Asura's last page omits has_more")
         expect(Asura.historyId("solo-leveling-0a1b2c3d") == "solo-leveling" && Asura.historyId("solo-leveling") == "solo-leveling", "Asura identity")
         let asuraChapter = try Asura.parseChapter(try fixture("asura-chapter.json"), slug: "pick-up-a-grimoire-become-a-mage", chapterId: "1")
         expect(asuraChapter?.images.isEmpty == false && asuraChapter?.images[0].width != nil && asuraChapter?.seriesTitle.isEmpty == false, "Asura chapter pages with sizes")
