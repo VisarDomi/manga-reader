@@ -1,3 +1,4 @@
+import CoreGraphics
 import CryptoKit
 import Foundation
 import KitCore
@@ -296,6 +297,19 @@ actor ChapterFiles {
         remember(key, data)
         do { try DurableFile.writeJSON(data, to: file(key)) }
         catch { Log.store.error("Chapter not saved: \(error.localizedDescription, privacy: .public)") }
+    }
+
+    // Page sizes learnt from the images themselves (sites that give none), so the next
+    // opening lays the chapter out exactly.
+    func recordSizes(_ sizes: [Int: CGSize], series: String, chapterId: String) {
+        guard var data = chapter(series, chapterId) else { return }
+        var changed = false
+        for (index, size) in sizes where data.images.indices.contains(index) && data.images[index].width == nil && size.width > 0 && size.height > 0 {
+            data.images[index].width = Double(size.width)
+            data.images[index].height = Double(size.height)
+            changed = true
+        }
+        if changed { save(data, series: series) }
     }
 
     func remove(_ series: String, _ chapterId: String) {

@@ -190,6 +190,17 @@ actor ImageFiles {
 
     func isComplete(_ item: ImageItem) -> Bool { complete(item) }
 
+    // Which of these files are complete.
+    func completed(_ names: [String]) -> [String] {
+        names.filter { name in
+            if done.contains(name) { return true }
+            let file = root.appendingPathComponent(name)
+            guard FileManager.default.fileExists(atPath: file.appendingPathExtension("mime").path), (DurableFile.size(file) ?? 0) > 0 else { return false }
+            done.insert(name)
+            return true
+        }
+    }
+
     func onFinished(_ observer: @escaping @Sendable (ImageItem) -> Void) { observers.append(observer) }
 
     // An image someone is looking at.

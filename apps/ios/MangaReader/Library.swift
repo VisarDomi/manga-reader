@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 import KitCore
 import KitLifecycle
 import KitNet
@@ -32,6 +33,10 @@ final class Library {
     private var preparing = Set<String>()
     private var unavailable: [String: Date] = [:]
     private var lastRefresh: Date?
+    // Pages without a known size, by image file: where they belong.
+    private var unsized: [String: (series: String, chapter: String, index: Int)] = [:]
+    private var sizes: [String: (series: String, chapter: String, sizes: [Int: CGSize])] = [:]
+    private var sizesScheduled = false
 
     // What a reader screen shows: its series, the chapters it holds and where it is.
     struct Reading {
@@ -62,6 +67,7 @@ final class Library {
             Task { await images.committed(item.file) }
         })
         Task { await chapters.onListChange { _ in Task { @MainActor [weak self] in self?.planSoon() } } }
+        Task { await images.onFinished { item in Task { @MainActor [weak self] in self?.finished(item) } } }
         Task { await chapters.setRows(rows(catalog.series)) }
         NotificationCenter.default.addObserver(forName: .progressChanged, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.planSoon() }
@@ -96,6 +102,21 @@ final class Library {
         }
     }
 
+    // iOS's occasional background refresh: the newest catalog pages, then the chapters they
+    // reveal, handed to the background session (which carries on outside the app).
+    func backgroundRefresh() async {
+        if !refreshing {
+            refreshing = true
+            lastRefresh = Date()
+            do { try await walk(full: false) } catch { Log.network.info("Background catalog: \(error.localizedDescription, privacy: .public)") }
+            refreshing = false
+        }
+        await plan()
+        for _ in 0..<20 where !preparing.isEmpty && !Task.isCancelled { try? await Task.sleep(for: .seconds(1)) }
+        await plan()
+        await handOffNow()
+    }
+
     // Back on screen after a while, or when the catalog was never complete.
     func refreshIfStale() {
         if lastRefresh.map({ Date().timeIntervalSince($0) > 300 }) ?? true { refreshCatalog() }
@@ -111,6 +132,7 @@ final class Library {
         defer { pending.values.forEach { $0.cancel() } }
         var page = try await Task { try await provider.home(nil) }.value
         while true {
+            try Task.checkCancellation()
             fresh += page.series
             let unchanged = !page.series.isEmpty && page.series.allSatisfy { known[identity($0)] == $0 }
             apply(Catalog.merged(base, fresh: fresh) { self.identity($0) }, total: page.total, complete: false)
@@ -186,14 +208,16 @@ final class Library {
         var items: [ImageItem] = [], retained = Set<String>(), seen = Set<String>()
         var missing: [(series: String, slug: String, chapter: String)] = []
         var listless: [(series: String, slug: String)] = []
-        func add(_ data: ChapterData, from page: Int = 0) {
+        var unsized: [String: (series: String, chapter: String, index: Int)] = [:]
+        func add(_ data: ChapterData, series: String, from page: Int = 0) {
             let pages = data.images.map { ImageItem(url: $0.url, cover: false) }
+            for (index, image) in data.images.enumerated() where image.width == nil { unsized[pages[index].name] = (series, data.chapterId, index) }
             let start = min(max(0, page), pages.count)
             for item in pages[start...] + pages[..<start] where seen.insert(item.name).inserted { items.append(item) }
             retained.formUnion(pages.map(\.name))
         }
         func want(_ series: String, _ slug: String, _ chapter: String, from page: Int = 0) async {
-            if let data = await chapters.savedChapter(series: series, chapterId: chapter) { add(data, from: page) }
+            if let data = await chapters.savedChapter(series: series, chapterId: chapter) { add(data, series: series, from: page) }
             else { missing.append((series, slug, chapter)) }
         }
         // The chapter on screen from its page on, then the next one.
@@ -216,15 +240,20 @@ final class Library {
         // Chapters open in readers stay while they are open.
         for reading in readers.values {
             for chapter in reading.chapters {
-                if let data = await chapters.savedChapter(series: reading.series, chapterId: chapter) { retained.formUnion(data.images.map { ImageItem(url: $0.url, cover: false).name }) }
+                if let data = await chapters.savedChapter(series: reading.series, chapterId: chapter) {
+                    retained.formUnion(data.images.map { ImageItem(url: $0.url, cover: false).name })
+                    for (index, image) in data.images.enumerated() where image.width == nil { unsized[ImageItem(url: image.url, cover: false).name] = (reading.series, chapter, index) }
+                }
             }
         }
         for series in catalog.series where !series.coverUrl.isEmpty {
             let item = ImageItem(url: series.coverUrl, cover: true)
             if seen.insert(item.name).inserted { items.append(item) }
         }
+        self.unsized = unsized
         await images.setRetained(retained)
         await images.setPlan(items)
+        for name in await images.completed(Array(unsized.keys)) { finished(name) }
         prepare(missing: missing, lists: listless)
     }
 
@@ -253,18 +282,79 @@ final class Library {
         }
     }
 
+    // A chapter with every page size that can be known before its images show: the saved
+    // sizes, else those of pages already on the phone (read from their headers, and saved),
+    // so the strip is laid out once and nothing moves while it loads.
+    func sized(_ data: ChapterData, series: String) async -> ChapterData {
+        let missing = data.images.indices.filter { data.images[$0].width == nil }
+        guard !missing.isEmpty else { return data }
+        let names = missing.map { ImageItem(url: data.images[$0].url, cover: false).name }
+        let ready = Set(await images.completed(names))
+        let root = images.root
+        let found = await Task.detached(priority: .userInitiated) { () -> [Int: CGSize] in
+            var found: [Int: CGSize] = [:]
+            for (index, name) in zip(missing, names) where ready.contains(name) {
+                if let size = Library.pixelSize(root.appendingPathComponent(name)) { found[index] = size }
+            }
+            return found
+        }.value
+        guard !found.isEmpty else { return data }
+        var data = data
+        for (index, size) in found {
+            data.images[index].width = Double(size.width)
+            data.images[index].height = Double(size.height)
+        }
+        await chapters.files.recordSizes(found, series: series, chapterId: data.chapterId)
+        return data
+    }
+
+    nonisolated static func pixelSize(_ file: URL) -> CGSize? {
+        guard let source = CGImageSourceCreateWithURL(file as CFURL, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? Int, let height = properties[kCGImagePropertyPixelHeight] as? Int,
+              width > 0, height > 0 else { return nil }
+        return CGSize(width: width, height: height)
+    }
+
+    // An image arrived: a page of unknown size has its size recorded (in batches).
+    private func finished(_ item: ImageItem) { finished(item.name) }
+
+    private func finished(_ name: String) {
+        guard let place = unsized.removeValue(forKey: name) else { return }
+        let file = images.root.appendingPathComponent(name)
+        Task.detached(priority: .utility) {
+            guard let size = Library.pixelSize(file) else { return }
+            await MainActor.run { [weak self] in self?.record(size, at: place) }
+        }
+    }
+
+    private func record(_ size: CGSize, at place: (series: String, chapter: String, index: Int)) {
+        let key = FileKey.chapter(place.series, place.chapter)
+        sizes[key, default: (place.series, place.chapter, [:])].sizes[place.index] = size
+        guard !sizesScheduled else { return }
+        sizesScheduled = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+            guard let self else { return }
+            sizesScheduled = false
+            let batch = sizes
+            sizes = [:]
+            let files = chapters.files
+            Task { for entry in batch.values { await files.recordSizes(entry.sizes, series: entry.series, chapterId: entry.chapter) } }
+        }
+    }
+
     // MARK: away from the screen
 
     // Leaving the screen: unfinished planned files go to iOS's background session.
-    func handOff() {
+    func handOff() { Task { await handOffNow() } }
+
+    private func handOffNow() async {
         let referer = provider.origin.absoluteString + "/"
-        Task {
-            let items = await images.unfinished(limit: 400).compactMap { item -> BackgroundTransfers.Item? in
-                guard let url = URL(string: item.url) else { return nil }
-                return BackgroundTransfers.Item(url: url, headers: ["Referer": referer], file: item.name)
-            }
-            if !items.isEmpty { await transfers.handOff(items) }
+        let items = await images.unfinished(limit: 400).compactMap { item -> BackgroundTransfers.Item? in
+            guard let url = URL(string: item.url) else { return nil }
+            return BackgroundTransfers.Item(url: url, headers: ["Referer": referer], file: item.name)
         }
+        if !items.isEmpty { await transfers.handOff(items) }
     }
 
     func paused() { Task { await images.setActive(false) } }

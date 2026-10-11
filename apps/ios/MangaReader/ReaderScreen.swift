@@ -154,7 +154,8 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
         let data: ChapterData?
         do { data = try await source.chapter(series: series, slug: slug, chapterId: chapterId, urgent: true) }
         catch { show("Failed to load chapter", error: true); return }
-        guard let data else { show("Chapter unavailable", error: true); return }
+        guard var data else { show("Chapter unavailable", error: true); return }
+        data = await app.library.sized(data, series: series)
         show(nil)
         loads[chapterId] = .loaded
         parts = [Part(data: data, first: 0)]
@@ -229,11 +230,12 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
         strip.setFooter("Loading newer chapter...")
         Task {
             do {
-                guard let data = try await app.library.chapters.chapter(series: series, slug: slug, chapterId: chapterId, urgent: true) else {
+                guard var data = try await app.library.chapters.chapter(series: series, slug: slug, chapterId: chapterId, urgent: true) else {
                     loads[chapterId] = .unavailable(retryAt: Date().addingTimeInterval(15))
                     strip.setFooter("Chapter unavailable", color: UIColor(red: 1, green: 0.42, blue: 0.42, alpha: 1))
                     return
                 }
+                data = await app.library.sized(data, series: series)
                 loads[chapterId] = .loaded
                 guard !parts.contains(where: { $0.data.chapterId == chapterId }) else { return }
                 parts.append(Part(data: data, first: strip.pages.count))

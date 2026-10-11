@@ -54,7 +54,10 @@ final class AppController {
             library.handOff()
             DebugState.shared.write(to: root)
         }
-        AppLifecycle.shared.onBackground { [weak self] in self?.library.paused() }
+        AppLifecycle.shared.onBackground { [weak self] in
+            self?.library.paused()
+            AppDelegate.scheduleRefresh()
+        }
         AppLifecycle.shared.onActive { [weak self] _ in
             guard let self else { return }
             library.resumed()
