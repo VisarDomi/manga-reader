@@ -1,0 +1,289 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		B10000000000000000000001 /* Native in Resources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000001 /* Native */; };
+		B10000000000000000000010 /* KitCore in Frameworks */ = {isa = PBXBuildFile; productRef = B50000000000000000000010 /* KitCore */; };
+		B10000000000000000000011 /* KitNet in Frameworks */ = {isa = PBXBuildFile; productRef = B50000000000000000000011 /* KitNet */; };
+		B10000000000000000000012 /* KitImages in Frameworks */ = {isa = PBXBuildFile; productRef = B50000000000000000000012 /* KitImages */; };
+		B10000000000000000000013 /* KitNavigation in Frameworks */ = {isa = PBXBuildFile; productRef = B50000000000000000000013 /* KitNavigation */; };
+		B10000000000000000000014 /* KitLists in Frameworks */ = {isa = PBXBuildFile; productRef = B50000000000000000000014 /* KitLists */; };
+		B10000000000000000000015 /* KitReader in Frameworks */ = {isa = PBXBuildFile; productRef = B50000000000000000000015 /* KitReader */; };
+		B10000000000000000000016 /* KitLifecycle in Frameworks */ = {isa = PBXBuildFile; productRef = B50000000000000000000016 /* KitLifecycle */; };
+		B10000000000000000000017 /* KitTestHooks in Frameworks */ = {isa = PBXBuildFile; productRef = B50000000000000000000017 /* KitTestHooks */; };
+		B10000000000000000000018 /* KitHTML in Frameworks */ = {isa = PBXBuildFile; productRef = B50000000000000000000018 /* KitHTML */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		B20000000000000000000001 /* Native */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Native; path = Resources/Native; sourceTree = "<group>"; };
+		B20000000000000000000002 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Resources/Info.plist; sourceTree = "<group>"; };
+		B20000000000000000000009 /* MangaReader.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MangaReader.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		B30000000000000000000001 /* MangaReader */ = {isa = PBXFileSystemSynchronizedRootGroup; path = MangaReader; sourceTree = "<group>"; };
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		B40000000000000000000002 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B10000000000000000000010 /* KitCore in Frameworks */,
+				B10000000000000000000011 /* KitNet in Frameworks */,
+				B10000000000000000000012 /* KitImages in Frameworks */,
+				B10000000000000000000013 /* KitNavigation in Frameworks */,
+				B10000000000000000000014 /* KitLists in Frameworks */,
+				B10000000000000000000015 /* KitReader in Frameworks */,
+				B10000000000000000000016 /* KitLifecycle in Frameworks */,
+				B10000000000000000000017 /* KitTestHooks in Frameworks */,
+				B10000000000000000000018 /* KitHTML in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		B60000000000000000000001 = {
+			isa = PBXGroup;
+			children = (
+				B30000000000000000000001 /* MangaReader */,
+				B20000000000000000000001 /* Native */,
+				B20000000000000000000002 /* Info.plist */,
+				B60000000000000000000002 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		B60000000000000000000002 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				B20000000000000000000009 /* MangaReader.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		B70000000000000000000001 /* MangaReader */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B80000000000000000000002 /* Build configuration list for PBXNativeTarget "MangaReader" */;
+			buildPhases = (
+				B40000000000000000000001 /* Sources */,
+				B40000000000000000000002 /* Frameworks */,
+				B40000000000000000000003 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				B30000000000000000000001 /* MangaReader */,
+			);
+			name = MangaReader;
+			packageProductDependencies = (
+				B50000000000000000000010 /* KitCore */,
+				B50000000000000000000011 /* KitNet */,
+				B50000000000000000000012 /* KitImages */,
+				B50000000000000000000013 /* KitNavigation */,
+				B50000000000000000000014 /* KitLists */,
+				B50000000000000000000015 /* KitReader */,
+				B50000000000000000000016 /* KitLifecycle */,
+				B50000000000000000000017 /* KitTestHooks */,
+				B50000000000000000000018 /* KitHTML */,
+			);
+			productName = MangaReader;
+			productReference = B20000000000000000000009 /* MangaReader.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		B90000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2600;
+				LastUpgradeCheck = 2600;
+			};
+			buildConfigurationList = B80000000000000000000001 /* Build configuration list for PBXProject "MangaReader" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = B60000000000000000000001;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				B50000000000000000000001 /* XCLocalSwiftPackageReference "Kit" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = B60000000000000000000002 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				B70000000000000000000001 /* MangaReader */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		B40000000000000000000003 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B10000000000000000000001 /* Native in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		B40000000000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		BA0000000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_TESTABILITY = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		BA0000000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 6.0;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		BA0000000000000000000011 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 20;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Resources/Info.plist;
+				MARKETING_VERSION = 2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.visar.AsuraReader;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		BA0000000000000000000012 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 20;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Resources/Info.plist;
+				MARKETING_VERSION = 2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.visar.AsuraReader;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		B80000000000000000000001 /* Build configuration list for PBXProject "MangaReader" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BA0000000000000000000001 /* Debug */,
+				BA0000000000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B80000000000000000000002 /* Build configuration list for PBXNativeTarget "MangaReader" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BA0000000000000000000011 /* Debug */,
+				BA0000000000000000000012 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		B50000000000000000000001 /* XCLocalSwiftPackageReference "Kit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Kit;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		B50000000000000000000010 /* KitCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = KitCore;
+		};
+		B50000000000000000000011 /* KitNet */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = KitNet;
+		};
+		B50000000000000000000012 /* KitImages */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = KitImages;
+		};
+		B50000000000000000000013 /* KitNavigation */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = KitNavigation;
+		};
+		B50000000000000000000014 /* KitLists */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = KitLists;
+		};
+		B50000000000000000000015 /* KitReader */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = KitReader;
+		};
+		B50000000000000000000016 /* KitLifecycle */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = KitLifecycle;
+		};
+		B50000000000000000000017 /* KitTestHooks */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = KitTestHooks;
+		};
+		B50000000000000000000018 /* KitHTML */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = KitHTML;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = B90000000000000000000001 /* Project object */;
+}

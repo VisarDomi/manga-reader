@@ -1,0 +1,44 @@
+{
+  "asura": {
+    "productName": "AsuraReader",
+    "displayName": "Asura",
+    "bundleIdentifier": "com.visar.AsuraReader",
+    "key": "asurascans",
+    "origin": "https://asurascans.com/"
+  },
+  "ezmanga": {
+    "productName": "EzMangaReader",
+    "displayName": "EzScans",
+    "bundleIdentifier": "com.visar.EzMangaReader",
+    "key": "ezmanga",
+    "origin": "https://ezmanga.org/"
+  },
+  "lua": {
+    "productName": "LuaReader",
+    "displayName": "Lua",
+    "bundleIdentifier": "com.visar.LuaReader",
+    "key": "luacomic",
+    "origin": "https://luacomic.org/"
+  },
+  "qiscans": {
+    "productName": "QiMangaReader",
+    "displayName": "QiScans",
+    "bundleIdentifier": "com.visar.QiMangaReader",
+    "key": "qimanga",
+    "origin": "https://qimanga.com/"
+  },
+  "scythe": {
+    "productName": "ScytheReader",
+    "displayName": "Scythe",
+    "bundleIdentifier": "com.visar.ScytheReader",
+    "key": "scythescans",
+    "origin": "https://scythescans.com/"
+  },
+  "yaksha": {
+    "productName": "YakshaReader",
+    "displayName": "Yaksha",
+    "bundleIdentifier": "com.visar.YakshaReader",
+    "key": "yakshacomics",
+    "origin": "https://yakshacomics.com/"
+  }
+}

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Build one provider with the common iOS target; unsigned unless a team is supplied."""
-import argparse, contextlib, fcntl, json, os, pathlib, plistlib, re, subprocess, shutil
+"""Build one provider (providers.json) with the common target; unsigned unless a team is supplied
+(SIMULATOR=1: an unsigned simulator build)."""
+import argparse, contextlib, fcntl, json, os, pathlib, plistlib, re, subprocess
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -25,13 +26,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('provider')
     args = parser.parse_args()
-    registry_file = ROOT / 'build/providers.json'
-    if not registry_file.exists():
-        parser.error('Missing generated registry. Run npm run build:ios -- <provider> --prepare-only, then sync.')
-    registry = json.loads(registry_file.read_text())
+    registry = json.loads((ROOT / 'providers.json').read_text())
     if args.provider not in registry:
         parser.error('Unsupported iOS provider: ' + args.provider)
     provider = registry[args.provider]
+    simulator = bool(os.environ.get('SIMULATOR'))
     suffix = os.environ.get('READER_BUNDLE_SUFFIX', '')
     if suffix and not re.fullmatch(r'\.[A-Za-z0-9-]+', suffix):
         parser.error('READER_BUNDLE_SUFFIX must be one dotted bundle component, e.g. .paid')
@@ -47,28 +46,30 @@ def main():
     }
     config = output / 'Provider.xcconfig'
     config.write_text(''.join(f'{key} = {value}\n' for key, value in settings.items()))
-    cache = pathlib.Path.home() / 'Library/Caches/ios-app-refresh'
-    cache.mkdir(parents=True, exist_ok=True)
-    with signing_lock(cache / 'signing.lock'):
-        if subprocess.run(['pgrep', '-x', 'xcodebuild'], stdout=subprocess.DEVNULL).returncode == 0:
-            raise SystemExit('An Xcode build is running; retry after it finishes')
-        prepared = ROOT / 'build' / args.provider / 'Web'
-        if not (prepared / 'app.js').exists(): raise SystemExit('Prepare this provider before building')
-        shutil.rmtree(ROOT / 'Resources/Web', ignore_errors=True)
-        shutil.copytree(prepared, ROOT / 'Resources/Web')
-        team = os.environ.get('DEVELOPMENT_TEAM', '')
-        signing = ['-allowProvisioningUpdates', '-allowProvisioningDeviceRegistration', 'DEVELOPMENT_TEAM=' + team] if team else ['CODE_SIGNING_ALLOWED=NO']
-        subprocess.run(['xcodebuild', '-project', str(ROOT / 'AsuraReader.xcodeproj'), '-target', 'Reader',
-                        '-xcconfig', str(config), '-sdk', 'iphoneos', '-configuration', 'Release',
-                        'SYMROOT=' + str(output), *signing, 'build'], check=True, cwd=ROOT)
-    app = output / 'Release-iphoneos' / (provider['productName'] + '.app')
+    common = ['xcodebuild', '-project', str(ROOT / 'MangaReader.xcodeproj'), '-scheme', 'MangaReader', '-configuration', 'Release',
+              '-xcconfig', str(config), '-derivedDataPath', str(ROOT / 'build' / 'DerivedData' / args.provider), 'SYMROOT=' + str(output)]
+    if simulator:
+        # Unsigned, for the simulator (no signing lock): build/<provider>/Release-iphonesimulator.
+        subprocess.run(common + ['-sdk', 'iphonesimulator', '-destination', 'generic/platform=iOS Simulator', 'CODE_SIGNING_ALLOWED=NO', 'build'], check=True, cwd=ROOT)
+        app = output / 'Release-iphonesimulator' / (provider['productName'] + '.app')
+    else:
+        cache = pathlib.Path.home() / 'Library/Caches/ios-app-refresh'
+        cache.mkdir(parents=True, exist_ok=True)
+        with signing_lock(cache / 'signing.lock'):
+            if subprocess.run(['pgrep', '-x', 'xcodebuild'], stdout=subprocess.DEVNULL).returncode == 0:
+                raise SystemExit('An Xcode build is running; retry after it finishes')
+            team = os.environ.get('DEVELOPMENT_TEAM', '')
+            signing = ['-allowProvisioningUpdates', '-allowProvisioningDeviceRegistration', 'DEVELOPMENT_TEAM=' + team] if team else ['CODE_SIGNING_ALLOWED=NO']
+            subprocess.run(common + ['-sdk', 'iphoneos', '-destination', 'generic/platform=iOS', *signing, 'build'], check=True, cwd=ROOT)
+        app = output / 'Release-iphoneos' / (provider['productName'] + '.app')
     info = plistlib.loads((app / 'Info.plist').read_bytes())
     for key, value in [('CFBundleIdentifier', bundle_id), ('CFBundleName', provider['productName']),
                        ('CFBundleDisplayName', provider['displayName']), ('ReaderProvider', provider['key'])]:
         if info.get(key) != value: raise SystemExit('Built app identity mismatch: ' + key)
     if any(key.startswith('CFBundleIcon') for key in info):
         raise SystemExit('Provider apps must not declare custom icons')
-    if team:
+    if not simulator and os.environ.get('DEVELOPMENT_TEAM'):
+        team = os.environ['DEVELOPMENT_TEAM']
         subprocess.run(['codesign', '--verify', '--deep', '--strict', str(app)], check=True)
         profile = plistlib.loads(subprocess.check_output(['security', 'cms', '-D', '-i', str(app / 'embedded.mobileprovision')]))
         if profile.get('TeamIdentifier') != [team]: raise SystemExit('Wrong provisioning team')
