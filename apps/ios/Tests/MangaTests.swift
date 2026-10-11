@@ -13,9 +13,33 @@ func text(_ name: String) throws -> String { String(decoding: try fixture(name),
 
 @main
 struct MangaTests {
-    static func main() throws {
+    static func main() async throws {
         try providers()
         try store()
+        try await budget()
+    }
+
+    // Background work stops at its share of the minute; work for the screen goes on.
+    static func budget() async throws {
+        let limiter = RequestLimiter(.init(perMinute: 3, background: 1))
+        try await limiter.acquire(host: "a", urgency: nil)
+        let passed = Urgency(false)
+        let waiting = Task { try await limiter.acquire(host: "a", urgency: nil); passed.raise() }
+        let urgent = Urgency(true)
+        let started = Date()
+        try await limiter.acquire(host: "a", urgency: urgent)
+        try await limiter.acquire(host: "a", urgency: urgent)
+        expect(Date().timeIntervalSince(started) < 0.5, "Urgent requests pass while background waits")
+        try await Task.sleep(for: .milliseconds(700))
+        expect(!passed.value, "Background request still waiting")
+        try await limiter.acquire(host: "b", urgency: nil)
+        expect(true, "Another host has its own budget")
+        waiting.cancel()
+        await limiter.throttled(host: "c", retryAfter: 1)
+        let held = Date()
+        try await limiter.acquire(host: "c", urgency: urgent)
+        expect(Date().timeIntervalSince(held) >= 0.9, "A 429 holds the host's requests until its wait is over")
+        print("PASS: request budget")
     }
 
     static func providers() throws {
@@ -43,6 +67,10 @@ struct MangaTests {
         let ezList = try Angular.parseListPage(try fixture("ez-chapters.json"), page: 1)
         expect(ezList.chapters.first == "chapter-19" && !ezList.more, "EzScans list")
         expect(try Angular.parseHome(try fixture("qi-latest.json"), latest: true, page: 1, now: now).series[0].slug == "rebirth-monarch-of-the-dead", "QiScans latest page")
+        let broken = Data(#"{"data":[{"slug":"a","title":"A","cover":null},{"slug":"b"},{"slug":"c","title":"C","cover":"https://x/c.webp","chapters":[]}],"totalItems":3,"totalPages":1}"#.utf8)
+        let lenient = try Angular.parseHome(broken, latest: false, page: 1, now: now)
+        expect(lenient.series.map(\.slug) == ["a", "c"] && lenient.series[0].coverUrl.isEmpty && lenient.nextCursor == nil, "A series without a cover stays; an incomplete one is skipped")
+        expect((try? Angular.parseHome(Data(#"{"data":[{"slug":"b"}],"totalItems":1,"totalPages":1}"#.utf8), latest: false, page: 1, now: now)) == nil, "A page with nothing readable fails")
         print("PASS: EzScans, QiScans")
 
         let lua = try Lua.parseHome(try fixture("lua-home.json"), cursor: nil, page: 1)

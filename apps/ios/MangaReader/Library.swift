@@ -26,9 +26,10 @@ final class Library {
     private(set) var routes: [String: String]
     private let catalogWriter: BackgroundWriter
     private let routesWriter: BackgroundWriter
+    private let positionsWriter: BackgroundWriter
     private let transfers: BackgroundTransfers
-    private var readers: [ObjectIdentifier: Reading] = [:]
-    private var focus: ObjectIdentifier?
+    private var readers: [ObjectIdentifier: Registered] = [:]
+    private var positions: [String: Position]
     private var planScheduled = false
     private var preparing = Set<String>()
     private var unavailable: [String: Date] = [:]
@@ -47,6 +48,29 @@ final class Library {
         var page: Int
     }
 
+    // A reader screen while it exists (on screen, or kept for going forward): its chapters stay;
+    // the one on screen most recently comes first in the plan.
+    private final class Registered {
+        weak var screen: AnyObject?
+        var reading: Reading
+        var visible: Bool
+        var shown: Date
+        init(screen: AnyObject, reading: Reading, visible: Bool) {
+            self.screen = screen
+            self.reading = reading
+            self.visible = visible
+            shown = Date()
+        }
+    }
+
+    // Where a series was left to the point (the reading state keeps only the page): reopening
+    // it at its saved page returns exactly there, as going forward does (positions.json).
+    struct Position: Codable, Equatable {
+        var chapter: String
+        var index: Int
+        var fraction: Double
+    }
+
     init(provider: any MangaProvider, root: URL, bundleID: String) {
         self.provider = provider
         self.root = root
@@ -56,8 +80,10 @@ final class Library {
         images = ImageFiles(root: root, http: HTTPClient(.init(connectionsPerHost: 6, requestTimeout: 20, resourceTimeout: 90, waitsForConnectivity: true)), referer: referer)
         catalogWriter = BackgroundWriter(url: root.appendingPathComponent("catalog.json"), label: "manga-catalog")
         routesWriter = BackgroundWriter(url: root.appendingPathComponent("routes.json"), label: "manga-routes")
+        positionsWriter = BackgroundWriter(url: root.appendingPathComponent("positions.json"), label: "manga-positions")
         catalog = (try? DurableFile.readJSON(Catalog.self, from: catalogWriter.url)) ?? Catalog()
         routes = (try? DurableFile.readJSON([String: String].self, from: routesWriter.url)) ?? [:]
+        positions = (try? DurableFile.readJSON([String: Position].self, from: positionsWriter.url)) ?? [:]
         let images = images
         transfers = BackgroundTransfers(identifier: bundleID + ".images", root: root, connections: 4,
                                         accept: { $0.statusCode == 200 && $0.mimeType?.hasPrefix("image/") == true },
@@ -130,7 +156,10 @@ final class Library {
         var pending: [String: Task<HomePage, Error>] = [:]
         var seen = Set<String>()
         defer { pending.values.forEach { $0.cancel() } }
-        var page = try await Task { try await provider.home(nil) }.value
+        let chapters = chapters
+        // Catalog pages are background work: they wait while a chapter is being opened.
+        let fetch = { @Sendable (cursor: String?) in Task { try await chapters.background { try await provider.home(cursor) } } }
+        var page = try await fetch(nil).value
         while true {
             try Task.checkCancellation()
             fresh += page.series
@@ -138,10 +167,10 @@ final class Library {
             apply(Catalog.merged(base, fresh: fresh) { self.identity($0) }, total: page.total, complete: false)
             guard let next = page.nextCursor, full || !unchanged else { break }
             guard seen.insert(next).inserted else { throw ProviderError.invalid("The site repeated catalog page \(next)") }
-            if pending[next] == nil { pending[next] = Task { try await provider.home(next) } }
+            if pending[next] == nil { pending[next] = fetch(next) }
             // A full walk keeps up to three pages in flight.
             for cursor in page.prefetchCursors where full && pending.count < 3 && !seen.contains(cursor) && pending[cursor] == nil {
-                pending[cursor] = Task { try await provider.home(cursor) }
+                pending[cursor] = fetch(cursor)
             }
             page = try await pending.removeValue(forKey: next)!.value
         }
@@ -178,12 +207,35 @@ final class Library {
 
     // MARK: readers
 
-    func reading(_ screen: AnyObject, _ reading: Reading?) {
+    func reading(_ screen: AnyObject, _ reading: Reading, visible: Bool) {
         let id = ObjectIdentifier(screen)
-        readers[id] = reading
-        if reading != nil { focus = id } else if focus == id { focus = nil }
+        if let known = readers[id], known.screen === screen {
+            known.reading = reading
+            if visible && !known.visible { known.shown = Date() }
+            known.visible = visible
+        } else {
+            readers[id] = Registered(screen: screen, reading: reading, visible: visible)
+        }
         planSoon()
     }
+
+    // The reader on screen (the most recently shown, if several think so).
+    private var focused: Reading? {
+        readers.values.filter { $0.screen != nil && $0.visible }.max { $0.shown < $1.shown }?.reading
+    }
+
+    // MARK: positions
+
+    func position(_ series: String) -> Position? { positions[series] }
+
+    func savePosition(_ position: Position, series: String) {
+        guard positions[series] != position else { return }
+        positions[series] = position
+        let positions = positions
+        positionsWriter.save(json: positions)
+    }
+
+    func flushPositions() { positionsWriter.flush() }
 
     // MARK: the download plan
 
@@ -220,8 +272,9 @@ final class Library {
             if let data = await chapters.savedChapter(series: series, chapterId: chapter) { add(data, series: series, from: page) }
             else { missing.append((series, slug, chapter)) }
         }
+        readers = readers.filter { $0.value.screen != nil }
         // The chapter on screen from its page on, then the next one.
-        if let focus, let reading = readers[focus] {
+        if let reading = focused {
             await want(reading.series, reading.slug, reading.chapter, from: reading.page)
             if let list = await chapters.knownList(series: reading.series), let next = newer(than: reading.chapter, in: list) {
                 await want(reading.series, reading.slug, next)
@@ -238,7 +291,7 @@ final class Library {
             }
         }
         // Chapters open in readers stay while they are open.
-        for reading in readers.values {
+        for reading in readers.values.map(\.reading) {
             for chapter in reading.chapters {
                 if let data = await chapters.savedChapter(series: reading.series, chapterId: chapter) {
                     retained.formUnion(data.images.map { ImageItem(url: $0.url, cover: false).name })

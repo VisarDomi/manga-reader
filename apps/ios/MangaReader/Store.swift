@@ -333,6 +333,15 @@ actor ChapterFiles {
         do { try DurableFile.writeJSON(chapters.map(Item.init), to: file(FileKey.list(series))) }
         catch { Log.store.error("Chapter list not saved: \(error.localizedDescription, privacy: .public)") }
     }
+
+    // When the site last gave the list (written, or confirmed unchanged).
+    func listChecked(_ series: String) -> Date? {
+        (try? FileManager.default.attributesOfItem(atPath: file(FileKey.list(series)).path))?[.modificationDate] as? Date
+    }
+
+    func touchList(_ series: String) {
+        try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: file(FileKey.list(series)).path)
+    }
 }
 
 // Chapters that `newer` (newest first: a Home row, an earlier list) has ahead of `list`, put

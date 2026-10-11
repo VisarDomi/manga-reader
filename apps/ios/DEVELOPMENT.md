@@ -14,12 +14,27 @@ vendored in `Kit/`.
   parsed with libxml2 and the web version's patterns. Lua needs its real Referer.
   Scythe's uncached pages take up to 85 s, so its lists read only cached pages
   (`investigation/2026-10-06-scythe-next-chapter.md`). A missing Yaksha chapter
-  answers with the series page; it counts as unavailable.
+  answers with the series page; it counts as unavailable. Opening a series never
+  started asks only for its first chapter where the site can say (EzScans/QiScans
+  sort by number: one request); lists come after the chapter is on screen. Lua
+  answers queries it has answered before at once and others in 5 to 25 s, so for the
+  screen its page of 1000 and its pages of 30 race (October 11, 2026: a 237-chapter
+  series took 81 s to open, now 1 to 4 s for most). An entry the site sent incomplete
+  is skipped, not the whole page (a QiScans series without a cover had stopped every
+  catalog walk).
 - `Store.swift`: reading progress in `database.json`, the web version's format,
   validation and v1→v3 migrations (the PC keeps the same shape); saved chapters and
   chapter lists in `chapters/<sha256(JSON key)>.json` under the web's keys; the
   catalog as last seen (`catalog.json`).
-- `Downloads.swift`: site requests (2 at a time in the background, 6 when urgent);
+- `Site.swift`: every site request within the site's budget. QiScans and EzScans
+  allow 60 requests a minute, then answer 429 with a wait of up to a minute for every
+  request, the chapter being opened included; the launch's catalog walk and list
+  refreshes went past that. Background work spends at most 30 of 50 a minute there
+  (60 of 120 elsewhere); work for the screen has the rest, and a 429 holds the site's
+  requests until its wait is over.
+- `Downloads.swift`: site work for the screen first (up to 6 at once; background work,
+  2 at a time, waits while any runs, so a chapter being opened never shares the site
+  with the plan's lists or the catalog);
   chapters and lists (the phone's copy first; a list is extended by Home's rows
   when they continue it exactly, so a new chapter is known before its list request
   returns); image files (`images/` and `covers/`, `<sha256(url)>` plus a `.mime`
@@ -30,10 +45,14 @@ vendored in `Kit/`.
   download plan (see `notes.md`), pruning, page sizes recorded from images,
   the hand-off to iOS's background session and background app refresh.
 - `HomeScreen.swift`, `ReaderScreen.swift`, `PCSave.swift`, `AppController.swift`.
+  A series reopened at the page it was left on returns to the exact point
+  (`positions.json`, the page and how far down it; the reading state keeps only the
+  page), as going forward to a reader does.
 
 All data stays in the web version's folder, `Application Support/<product>/shared`:
 progress, routes (Asura's rotating slugs), saved chapters and the image caches
-carry over. The first launch rebuilds the screen stack from `views.json`.
+carry over. A chapter list's file date is when the site last gave it, so a relaunch
+does not ask for every started series' list again. The first launch rebuilds the screen stack from `views.json`.
 
 ## Build and check
 

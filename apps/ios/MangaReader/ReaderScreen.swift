@@ -48,6 +48,7 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
     private var listDue = Date.distantPast
     private var loads: [String: Load] = [:]
     private var settled: (chapter: String, index: Int)?
+    private var visible = false
     private var observers: [NSObjectProtocol] = []
 
     init(app: AppController, series: String, slug: String, chapter: String?, start: ReaderStart, state: Data?) {
@@ -114,6 +115,7 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         UIApplication.shared.isIdleTimerDisabled = true
+        visible = true
         if let settled { report(chapter: settled.chapter, page: settled.index) }
     }
 
@@ -122,9 +124,12 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
         UIApplication.shared.isIdleTimerDisabled = false
     }
 
+    // Gone back from: its chapters stay while it is kept for going forward, but it is no
+    // longer what the downloads follow.
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
-        if isMovingFromParent { app.library.reading(self, nil) }
+        visible = false
+        if let settled { report(chapter: settled.chapter, page: settled.index) }
     }
 
     private func show(_ text: String?, error: Bool = false) {
@@ -140,16 +145,18 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
         list = await source.knownList(series: series)
         var chapterId = chapter
         if chapterId == nil {
-            // The first chapter rarely changes: a kept list answers at once.
+            // The first chapter rarely changes: a kept list answers at once, else the site's
+            // first chapter (without waiting for the whole list where it can say).
             show("Loading chapters...")
-            if list == nil { list = try? await source.fetchList(series: series, slug: slug, urgent: true) }
-            guard let oldest = list?.last else { show(list == nil ? "Failed to load chapter list" : "No chapters available", error: true); return }
+            let oldest: String?
+            do { oldest = try await source.oldest(series: series, slug: slug) }
+            catch { show("Failed to load chapter list", error: true); return }
+            guard let oldest else { show("No chapters available", error: true); return }
             chapterId = oldest
             chapter = oldest
             stateChanged()
         }
         guard let chapterId else { return }
-        fetchList()
         if await source.savedChapter(series: series, chapterId: chapterId) == nil { show("Loading...") }
         let data: ChapterData?
         do { data = try await source.chapter(series: series, slug: slug, chapterId: chapterId, urgent: true) }
@@ -170,7 +177,9 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
             }
         }
         restoring = nil
-        report(chapter: chapterId, page: 0)
+        report(chapter: chapterId, page: strip.currentPosition?.index ?? 0)
+        // The whole list (for the chapters that follow) once the chapter is on screen.
+        fetchList()
         // Settle once laid out (a reader that is never scrolled still counts and continues).
         DispatchQueue.main.async { [weak self] in
             guard let self, let position = strip.currentPosition else { return }
@@ -250,7 +259,7 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
     }
 
     private func report(chapter: String, page: Int) {
-        app.library.reading(self, Library.Reading(series: series, slug: slug, chapters: parts.map(\.data.chapterId), chapter: chapter, page: page))
+        app.library.reading(self, Library.Reading(series: series, slug: slug, chapters: parts.map(\.data.chapterId), chapter: chapter, page: page), visible: visible)
     }
 
     // MARK: strip
@@ -269,6 +278,7 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
             app.library.state.save(series: series, chapterId: chapterId, imageIndex: index, totalImages: part.data.images.count)
             report(chapter: chapterId, page: index)
         }
+        app.library.savePosition(Library.Position(chapter: chapterId, index: index, fraction: position.fraction), series: series)
         stateChanged()
         continueReading()
     }

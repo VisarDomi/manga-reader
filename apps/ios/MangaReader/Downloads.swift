@@ -2,31 +2,34 @@ import Foundation
 import KitCore
 import KitNet
 
-// MARK: - Site requests for chapters and lists: 2 at a time in the background, 6 when urgent
+// MARK: - Site work (chapters, lists, catalog pages): what the screen waits for first
 
+// Up to six pieces of work for the screen at once. Background work (two at a time) waits while
+// any of those runs, so a chapter being opened never shares the site with the plan's lists or
+// the catalog. Work the screen asks for while it waits or runs becomes urgent (Urgency, read
+// by each of its requests through SiteClient).
 actor MetadataQueue {
-    private struct Waiter { let id: UUID; let key: String?; var urgent: Bool; let continuation: CheckedContinuation<Bool, Never> }
-    private var running = 0
+    private struct Waiter { let id: UUID; let key: String?; let urgency: Urgency; let continuation: CheckedContinuation<Bool, Never> }
+    private var running: [UUID: (key: String?, urgency: Urgency)] = [:]
     private var waiting: [Waiter] = []
 
     func run<T: Sendable>(urgent: Bool, key: String?, _ work: @Sendable () async throws -> T) async throws -> T {
-        guard await acquire(urgent: urgent, key: key) else { throw CancellationError() }
-        defer { release() }
-        return try await work()
+        let id = UUID(), urgency = Urgency(urgent)
+        guard await acquire(id: id, key: key, urgency: urgency) else { throw CancellationError() }
+        defer { release(id) }
+        return try await SiteClient.$urgency.withValue(urgency) { try await work() }
     }
 
-    // A waiting request becomes urgent (someone is looking at it).
     func prioritize(_ key: String) {
-        guard let index = waiting.firstIndex(where: { $0.key == key }) else { return }
-        waiting[index].urgent = true
+        for item in running.values where item.key == key { item.urgency.raise() }
+        for waiter in waiting where waiter.key == key { waiter.urgency.raise() }
         pump()
     }
 
-    private func acquire(urgent: Bool, key: String?) async -> Bool {
-        let id = UUID()
-        return await withTaskCancellationHandler {
+    private func acquire(id: UUID, key: String?, urgency: Urgency) async -> Bool {
+        await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
-                waiting.append(Waiter(id: id, key: key, urgent: urgent, continuation: continuation))
+                waiting.append(Waiter(id: id, key: key, urgency: urgency, continuation: continuation))
                 pump()
             }
         } onCancel: {
@@ -39,18 +42,29 @@ actor MetadataQueue {
         waiting.remove(at: index).continuation.resume(returning: false)
     }
 
-    private func release() {
-        running -= 1
+    private func release(_ id: UUID) {
+        running[id] = nil
         pump()
     }
 
     private func pump() {
         while !waiting.isEmpty {
-            let urgent = waiting.firstIndex { $0.urgent }
-            guard running < (urgent == nil ? 2 : 6) else { return }
-            running += 1
-            waiting.remove(at: urgent ?? 0).continuation.resume(returning: true)
+            let index: Int
+            if let urgent = waiting.firstIndex(where: { $0.urgency.value }) {
+                guard running.count < 6 else { return }
+                index = urgent
+            } else {
+                guard running.count < 2, !running.values.contains(where: { $0.urgency.value }) else { return }
+                index = 0
+            }
+            let waiter = waiting.remove(at: index)
+            running[waiter.id] = (waiter.key, waiter.urgency)
+            waiter.continuation.resume(returning: true)
         }
+    }
+
+    var state: [String: Int] {
+        ["running": running.count, "urgent": running.values.filter { $0.urgency.value }.count, "waiting": waiting.count]
     }
 }
 
@@ -62,6 +76,7 @@ actor ChapterSource {
     private let queue = MetadataQueue()
     private var chapterTasks: [String: Task<ChapterData?, Error>] = [:]
     private var listTasks: [String: Task<[String], Error>] = [:]
+    private var oldestTasks: [String: Task<String?, Error>] = [:]
     // Each series' Home row (newest first): it can be ahead of a kept list.
     private var rows: [String: [String]] = [:]
     private var lists: [String: [String]] = [:]
@@ -94,6 +109,25 @@ actor ChapterSource {
 
     func savedChapter(series: String, chapterId: String) async -> ChapterData? { await files.chapter(series, chapterId) }
 
+    // A series' first chapter for opening it: the kept list's, else the site's (urgent; most
+    // sites answer without the whole list).
+    func oldest(series: String, slug: String) async throws -> String? {
+        if let list = await knownList(series: series) { return list.last }
+        let key = "oldest:" + series
+        if let task = oldestTasks[series] { return try await task.value }
+        let task = Task { [provider, queue] in try await queue.run(urgent: true, key: key) { try await provider.oldestChapter(slug) } }
+        oldestTasks[series] = task
+        defer { oldestTasks[series] = nil }
+        return try await task.value
+    }
+
+    // Other site work in the background (the catalog's pages).
+    func background<T: Sendable>(_ work: @Sendable () async throws -> T) async throws -> T {
+        try await queue.run(urgent: false, key: nil, work)
+    }
+
+    var queueState: [String: Int] { get async { await queue.state } }
+
     // The list as known now (kept, then extended by the Home row); nil before the first fetch.
     func knownList(series: String) async -> [String]? {
         var list = lists[series]
@@ -124,11 +158,18 @@ actor ChapterSource {
             lists[series] = list
             await files.saveList(list, series: series)
             if previous != nil { notify(series) }
+        } else {
+            await files.touchList(series)
         }
         return list
     }
 
-    func listAge(_ series: String) -> TimeInterval { listChecked[series].map { Date().timeIntervalSince($0) } ?? .infinity }
+    // Since the site was last asked (kept across launches as the list file's date, so a
+    // relaunch does not ask for every started series' list again).
+    func listAge(_ series: String) async -> TimeInterval {
+        if listChecked[series] == nil { listChecked[series] = await files.listChecked(series) }
+        return listChecked[series].map { Date().timeIntervalSince($0) } ?? .infinity
+    }
 
     // The catalog's rows; a row showing a newer chapter moves that series' next chapter.
     func setRows(_ updated: [String: [String]]) async {

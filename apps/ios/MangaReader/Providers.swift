@@ -61,16 +61,22 @@ protocol MangaProvider: Sendable {
     // nil: the chapter is unavailable (missing, locked or paid).
     func chapter(_ slug: String, _ chapterId: String) async throws -> ChapterData?
     func chaptersNewestFirst(_ slug: String) async throws -> [String]
+    // The series' first chapter (opening a series never started), without the whole list
+    // where the site can say; nil when it has none.
+    func oldestChapter(_ slug: String) async throws -> String?
 }
 
 extension MangaProvider {
     func identity(_ slug: String) -> String { slug }
+    func oldestChapter(_ slug: String) async throws -> String? { try await chaptersNewestFirst(slug).last }
 }
 
 enum Providers {
     // By site key (Info.plist's ReaderProvider; providers.json).
-    static func make(_ key: String, http: HTTPClient) -> any MangaProvider {
-        switch key {
+    static func make(_ key: String, http client: HTTPClient) -> any MangaProvider {
+        let strict = key == "qimanga" || key == "ezmanga"
+        let http = SiteClient(http: client, limiter: RequestLimiter(strict ? .strict : .standard))
+        return switch key {
         case "asurascans": Asura(http: http)
         case "scythescans": Scythe(http: http)
         case "yakshacomics": Yaksha(http: http)
@@ -86,7 +92,7 @@ enum Providers {
 enum Web {
     // A chapter page: nil when it is missing (404) or the site sent another page instead
     // (a redirect); other failures throw.
-    static func chapterPage(_ http: HTTPClient, _ url: URL) async throws -> HTTPResponse? {
+    static func chapterPage(_ http: SiteClient, _ url: URL) async throws -> HTTPResponse? {
         let response = try await http.send(HTTPRequest(url, accept: [404]))
         if response.status == 404 { return nil }
         let trimmed = { (url: URL) in url.path.hasSuffix("/") ? String(url.path.dropLast()) : url.path }
@@ -94,8 +100,28 @@ enum Web {
         return response
     }
 
-    static func json(_ http: HTTPClient, _ url: URL) async throws -> Data {
+    static func json(_ http: SiteClient, _ url: URL) async throws -> Data {
         try await http.send(HTTPRequest(url)).data
+    }
+
+    // Pages of a list, in order: four at a time for the screen, one at a time in the
+    // background (sites slow down for everyone under many requests at once).
+    static func pages<T: Sendable>(_ numbers: ClosedRange<Int>, _ fetch: @escaping @Sendable (Int) async throws -> T) async throws -> [T] {
+        let width = SiteClient.urgency?.value == true ? 4 : 1
+        return try await withThrowingTaskGroup(of: (Int, T).self) { group in
+            var results: [Int: T] = [:], next = numbers.lowerBound
+            func start() {
+                let number = next
+                group.addTask { (number, try await fetch(number)) }
+                next += 1
+            }
+            while next <= numbers.upperBound && next - numbers.lowerBound < width { start() }
+            while let (number, value) = try await group.next() {
+                results[number] = value
+                if next <= numbers.upperBound { start() }
+            }
+            return numbers.compactMap { results[$0] }
+        }
     }
 
     // URLSearchParams' encoding.
@@ -137,6 +163,21 @@ enum Web {
     }
 }
 
+// A page's entries without those the site sent incomplete (one QiScans series without a cover
+// once failed the whole catalog); a page with entries but none readable is still an error.
+struct Lenient<T: Decodable>: Decodable {
+    let value: T?
+    init(from decoder: Decoder) throws { value = try? T(from: decoder) }
+}
+
+extension Array {
+    func readable<T>() throws -> [T] where Element == Lenient<T> {
+        let values = compactMap(\.value)
+        if values.isEmpty && !isEmpty { throw ProviderError.invalid("The site's page had no readable entries") }
+        return values
+    }
+}
+
 // Dates as the sites write them (ISO with any fraction, "October 5, 2026"); nil otherwise.
 enum SiteDate {
     static func parse(_ text: String?) -> Date? {
@@ -171,7 +212,7 @@ struct Asura: MangaProvider {
     let key = "asurascans"
     let origin = URL(string: "https://asurascans.com")!
     static let api = "https://api.asurascans.com/api"
-    let http: HTTPClient
+    let http: SiteClient
 
     // The site rotates a hex suffix on its URL slugs; the API slug (the identity) lacks it.
     static func historyId(_ slug: String) -> String {
@@ -193,16 +234,16 @@ struct Asura: MangaProvider {
             var slug: String; var title: String; var cover: String; var public_url: String; var latest_chapters: [Chapter]?
         }
         struct Meta: Decodable { var total: Int; var has_more: Bool? }
-        var data: [Series]
+        var data: [Lenient<Series>]
         var meta: Meta
     }
 
     static func parseHome(_ data: Data, page: Int, now: Date) throws -> HomePage {
         let response = try JSONDecoder().decode(HomeResponse.self, from: data)
         let origin = URL(string: "https://asurascans.com")!
-        let series = try response.data.map { series -> HomeSeries in
+        let series = try response.data.readable().compactMap { series -> HomeSeries? in
             guard let path = Web.resolve(series.public_url, origin)?.path,
-                  let slug = Web.first("^/comics/([^/]+)$", in: path)?[1] else { throw ProviderError.invalid("Invalid Asura series URL: \(series.public_url)") }
+                  let slug = Web.first("^/comics/([^/]+)$", in: path)?[1] else { return nil }
             let chapters = (series.latest_chapters ?? []).prefix(5).map { chapter -> HomeChapter in
                 let unlock = SiteDate.parse(chapter.early_access_until)
                 let locked = chapter.is_premium && (chapter.early_access_until == nil || unlock.map { $0 > now } ?? true)
@@ -264,9 +305,9 @@ struct Angular: MangaProvider {
     let key: String
     let origin: URL
     let api: String
-    let http: HTTPClient
+    let http: SiteClient
 
-    init(key: String, domain: String, api: String, http: HTTPClient) {
+    init(key: String, domain: String, api: String, http: SiteClient) {
         self.key = key
         origin = URL(string: "https://\(domain)")!
         self.api = api
@@ -275,11 +316,11 @@ struct Angular: MangaProvider {
 
     struct SeriesItem: Decodable {
         struct Chapter: Decodable { var slug: String; var number: Double; var price: Double; var becameFreeAt: String?; var createdAt: String }
-        var slug: String; var title: String; var cover: String; var chapters: [Chapter]?
+        var slug: String; var title: String; var cover: String?; var chapters: [Chapter]?
     }
 
     struct Listing: Decodable {
-        var data: [SeriesItem]
+        var data: [Lenient<SeriesItem>]
         var totalItems: Int
         var totalPages: Int
         var next: Int?
@@ -303,7 +344,7 @@ struct Angular: MangaProvider {
         let listing = try JSONDecoder().decode(Listing.self, from: data)
         let more = listing.next != nil || page < listing.totalPages
         let name = latest ? "latest" : "catalog"
-        return HomePage(series: listing.data.map { series(from: $0, now: now) },
+        return HomePage(series: try listing.data.readable().map { series(from: $0, now: now) },
                         nextCursor: more ? "\(name):\(page + 1)" : latest ? "catalog:1" : nil,
                         prefetchCursors: Web.prefetch(page, pages: listing.totalPages) { "\(name):\($0)" }, total: listing.totalItems)
     }
@@ -316,7 +357,7 @@ struct Angular: MangaProvider {
                                uploadedAt: locked ? chapter.createdAt : chapter.becameFreeAt ?? chapter.createdAt,
                                locked: locked, unlockAt: locked && free != nil ? chapter.becameFreeAt : nil)
         }
-        return HomeSeries(slug: item.slug, title: item.title.trimmingCharacters(in: .whitespacesAndNewlines), coverUrl: item.cover, chapters: Array(chapters))
+        return HomeSeries(slug: item.slug, title: item.title.trimmingCharacters(in: .whitespacesAndNewlines), coverUrl: item.cover ?? "", chapters: Array(chapters))
     }
 
     func chapter(_ slug: String, _ chapterId: String) async throws -> ChapterData? {
@@ -335,21 +376,40 @@ struct Angular: MangaProvider {
         return ChapterData(chapterId: chapterId, seriesSlug: slug, seriesTitle: body.series.title, images: images)
     }
 
+    // The first page says how many there are; the rest come together.
     func chaptersNewestFirst(_ slug: String) async throws -> [String] {
-        var chapters: [String] = [], page = 1, more = true
-        while more {
-            let (items, next) = try Self.parseListPage(try await Web.json(http, URL(string: "\(api)/series/\(slug)/chapters?perPage=100&page=\(page)")!), page: page)
-            chapters += items
-            more = next
-            page += 1
+        let api = api, http = http
+        let page = { @Sendable (number: Int) async throws -> (chapters: [String], pages: Int, more: Bool) in
+            try Self.parseListPage(try await Web.json(http, URL(string: "\(api)/series/\(slug)/chapters?perPage=100&page=\(number)")!), page: number)
+        }
+        let first = try await page(1)
+        var chapters = first.chapters, last = first
+        var number = 1
+        if first.pages > 1 {
+            let rest = try await Web.pages(2...first.pages, page)
+            chapters += rest.flatMap(\.chapters)
+            last = rest.last ?? first
+            number = first.pages
+        }
+        // A list that grew while it was read: the pages after the count, one by one.
+        while last.more {
+            number += 1
+            last = try await page(number)
+            chapters += last.chapters
         }
         return chapters
     }
 
-    static func parseListPage(_ data: Data, page: Int) throws -> (chapters: [String], more: Bool) {
+    static func parseListPage(_ data: Data, page: Int) throws -> (chapters: [String], pages: Int, more: Bool) {
         struct List: Decodable { struct Item: Decodable { var slug: String }; var data: [Item]; var totalPages: Int; var next: Int? }
         let list = try JSONDecoder().decode(List.self, from: data)
-        return (list.data.map(\.slug), list.next != nil || page < list.totalPages)
+        return (list.data.map(\.slug), list.totalPages, list.next != nil || page < list.totalPages)
+    }
+
+    // The API sorts by chapter number on request (one request however long the series).
+    func oldestChapter(_ slug: String) async throws -> String? {
+        struct List: Decodable { struct Item: Decodable { var slug: String }; var data: [Item] }
+        return try JSONDecoder().decode(List.self, from: try await Web.json(http, URL(string: "\(api)/series/\(slug)/chapters?perPage=1&page=1&sort=asc")!)).data.first?.slug
     }
 }
 
@@ -359,7 +419,7 @@ struct Lua: MangaProvider {
     let key = "luacomic"
     let origin = URL(string: "https://luacomic.org")!
     static let api = "https://api.luacomic.org"
-    let http: HTTPClient
+    let http: SiteClient
 
     // The newest 100 at once, then the whole catalog in one answer ("all:N"): offset pages
     // repeat and skip series (many share a sort key) and Lua answers large queries slowly.
@@ -383,14 +443,14 @@ struct Lua: MangaProvider {
                 struct Chapter: Decodable { var chapter_name: String; var chapter_slug: String; var created_at: String?; var index: String? }
                 var title: String; var series_slug: String; var thumbnail: String; var paid_chapters: [Chapter]?; var free_chapters: [Chapter]?
             }
-            var meta: Meta; var data: [Series]
+            var meta: Meta; var data: [Lenient<Series>]
         }
         let response = try JSONDecoder().decode(Response.self, from: data)
         func number(_ chapter: Response.Series.Chapter) -> Double {
             let text = chapter.index ?? Web.first(#"[\d.]+"#, in: chapter.chapter_name)?[0] ?? ""
             return Double(text) ?? -.infinity
         }
-        let series = response.data.map { series -> HomeSeries in
+        let series = try response.data.readable().map { series -> HomeSeries in
             let all = (series.paid_chapters ?? []).map { ($0, true) } + (series.free_chapters ?? []).map { ($0, false) }
             let sorted = all.enumerated().sorted { left, right in
                 let a = number(left.element.0), b = number(right.element.0)
@@ -400,7 +460,7 @@ struct Lua: MangaProvider {
                 HomeChapter(chapterId: chapter.chapter_slug, label: Web.collapse(chapter.chapter_name), uploadedAt: chapter.created_at, locked: locked, unlockAt: nil)
             })
         }
-        let next = cursor == nil ? (response.meta.total > response.data.count ? "all:1" : nil) : (page < response.meta.last_page ? "all:\(page + 1)" : nil)
+        let next = cursor == nil ? (response.meta.total > series.count ? "all:1" : nil) : (page < response.meta.last_page ? "all:\(page + 1)" : nil)
         return HomePage(series: series, nextCursor: next, total: response.meta.total)
     }
 
@@ -421,26 +481,46 @@ struct Lua: MangaProvider {
         return ChapterData(chapterId: chapterId, seriesSlug: slug, seriesTitle: title, images: sources.map { ChapterImage(url: $0) })
     }
 
-    // Pages of 30 from the website's own query (often already cached by its readers): the
-    // first four together, any further ones once the count is known.
+    // Lua answers a query it has answered before (for anyone) at once and any other slowly (5 to
+    // 25 s): its website's pages of 30 from the newest are nearly always ready, the whole list
+    // in one page of 1000 often, the pages beyond the end never. For the screen both are asked
+    // and the first complete answer wins: one page of 30 is the whole of a short series, else
+    // the further pages of 30 race the page of 1000. The background asks only the page of 1000
+    // (one slow query rather than several).
     func chaptersNewestFirst(_ slug: String) async throws -> [String] {
         struct Series: Decodable { var id: Int }
         let id = try JSONDecoder().decode(Series.self, from: try await Web.json(http, URL(string: "\(Self.api)/series/\(slug)")!)).id
-        func page(_ number: Int) async throws -> (last: Int, chapters: [String]) {
-            let query = Web.query([("page", String(number)), ("perPage", "30"), ("query", ""), ("order", "desc"), ("series_id", String(id))])
+        let http = http
+        let page = { @Sendable (number: Int, size: Int) async throws -> (last: Int, chapters: [String]) in
+            let query = Web.query([("page", String(number)), ("perPage", String(size)), ("query", ""), ("order", "desc"), ("series_id", String(id))])
             return try Self.parseListPage(try await Web.json(http, URL(string: "\(Self.api)/chapter/query?\(query)")!))
         }
-        var pages = try await withThrowingTaskGroup(of: (Int, (last: Int, chapters: [String])).self) { group in
-            for number in 1...4 { group.addTask { (number, try await page(number)) } }
-            var pages: [Int: (last: Int, chapters: [String])] = [:]
-            for try await (number, result) in group { pages[number] = result }
-            return pages
+        let whole = { @Sendable () async throws -> [String] in
+            let first = try await page(1, 1000)
+            guard first.last > 1 else { return first.chapters }
+            return first.chapters + (try await Web.pages(2...first.last) { try await page($0, 1000).chapters }).flatMap { $0 }
         }
-        let last = pages[1]?.last ?? 1
-        if last > 4 {
-            for number in 5...last { pages[number] = try await page(number) }
+        guard SiteClient.urgency?.value == true else { return try await whole() }
+        return try await withThrowingTaskGroup(of: [String]?.self) { group in
+            group.addTask { try await whole() }
+            group.addTask {
+                let first = try await page(1, 30)
+                guard first.last > 1 else { return first.chapters }
+                let rest = try await Web.pages(2...first.last) { try await page($0, 30).chapters }
+                return first.chapters + rest.flatMap { $0 }
+            }
+            var failure: Error?
+            while let result = await group.nextResult() {
+                switch result {
+                case .success(let chapters?):
+                    group.cancelAll()
+                    return chapters
+                case .success(nil): break
+                case .failure(let error): failure = failure ?? error
+                }
+            }
+            throw failure ?? CancellationError()
         }
-        return (1...max(1, last)).flatMap { pages[$0]?.chapters ?? [] }
     }
 
     static func parseListPage(_ data: Data) throws -> (last: Int, chapters: [String]) {
@@ -455,7 +535,7 @@ struct Lua: MangaProvider {
 struct Scythe: MangaProvider {
     let key = "scythescans"
     let origin = URL(string: "https://scythescans.com")!
-    let http: HTTPClient
+    let http: SiteClient
 
     // /<series>-chapter-<n>[.m][-k]/ (WordPress may add a collision suffix: -chapter-194-2 is 194).
     static func route(_ path: String) -> (slug: String, chapterId: String, number: String)? {
@@ -640,7 +720,7 @@ struct Scythe: MangaProvider {
 struct Yaksha: MangaProvider {
     let key = "yakshacomics"
     let origin = URL(string: "https://yakshacomics.com")!
-    let http: HTTPClient
+    let http: SiteClient
 
     func home(_ cursor: String?) async throws -> HomePage {
         let page = cursor.map { Int($0) ?? 0 } ?? 1

@@ -5,6 +5,7 @@ import KitLifecycle
 import KitLists
 import KitNavigation
 import KitNet
+import KitReader
 import KitTestHooks
 
 // Where a screen is.
@@ -51,6 +52,7 @@ final class AppController {
             guard let self else { return }
             navigation.flush()
             library.state.flush()
+            library.flushPositions()
             library.handOff()
             DebugState.shared.write(to: root)
         }
@@ -102,8 +104,14 @@ final class AppController {
         }
     }
 
+    // Reopened at the page it was left on, a series returns to the exact point (as going
+    // forward does); otherwise `start`.
     func openReader(series: String, slug: String, chapter: String?, start: ReaderStart) {
-        navigation.open(ReaderScreen(app: self, series: series, slug: slug, chapter: chapter, start: start, state: nil))
+        var state: Data?
+        if case .image(let index) = start, let chapter, let saved = library.position(series), saved.chapter == chapter, saved.index == index {
+            state = try? JSONEncoder().encode(ReaderScreen.State(chapter: chapter, position: StripPosition(index: index, fraction: saved.fraction)))
+        }
+        navigation.open(ReaderScreen(app: self, series: series, slug: slug, chapter: chapter, start: start, state: state))
     }
 
     // The first native launch rebuilds what the web version left (views.json): Home at its

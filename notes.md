@@ -36,5 +36,6 @@ a screen of space.
 
 Every change (a settled page, the catalog, the screen stack, a finished image) is
 written atomically when it happens. A relaunch rebuilds the screens and returns to
-the exact point: page sizes are known before a chapter is laid out (from the site,
+the exact point, and so does reopening a series from Home at the page it was left on
+(going back, then tapping its cover): page sizes are known before a chapter is laid out (from the site,
 or recorded from the images themselves), so nothing moves while images load.
