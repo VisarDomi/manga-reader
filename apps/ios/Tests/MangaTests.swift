@@ -102,7 +102,15 @@ struct MangaTests {
         let yakshaChapter = try Yaksha.parseChapter(try text("yaksha-chapter.html"), slug: "the-mech-mechanic", chapterId: "chapter-7")
         expect(yakshaChapter?.images.count == 13 && yakshaChapter?.seriesTitle == "The Mech Mechanic" && yakshaChapter?.images[0].url.hasPrefix("https://") == true, "Yaksha chapter")
         expect(try Yaksha.parseChapter(try text("yaksha-missing.html"), slug: "the-mech-mechanic", chapterId: "chapter-9999") == nil, "Yaksha missing chapter is unavailable")
-        expect(Yaksha.parseList(try text("yaksha-series.html")).first == "chapter-7", "Yaksha list")
+        expect(try Yaksha.parseList(try fixture("yaksha-series.html")).first == "chapter-7", "Yaksha list")
+        let titled = Data(#"""
+            <ul><li class="wp-manga-chapter"><a href="https://yakshacomics.com/manga/x/chapter-4/"> Chapter 4 </a></li>
+            <li class="wp-manga-chapter"><a href="https://yakshacomics.com/manga/x/chapter-3/"> Chapter 3 - Ashen City </a></li>
+            <li class="wp-manga-chapter"><a href="https://yakshacomics.com/manga/x/chapter-1/"> Chapter 1 </a></li>
+            <li class="wp-manga-chapter"><a href="https://yakshacomics.com/manga/x/chapter-0/"> Chapter 0 - Introduction </a></li></ul>
+            <div class="sidebar"><a href="https://yakshacomics.com/manga/y/chapter-133/">Chapter 133</a></div>
+            """#.utf8)
+        expect(try Yaksha.parseList(titled) == ["chapter-4", "chapter-3", "chapter-1", "chapter-0"], "Yaksha titled chapters keep their place")
         print("PASS: Yaksha")
 
         expect(SiteDate.parse("2026-10-10T16:08:04.666458Z") != nil && SiteDate.parse("2026-10-11T14:40:56.627Z") != nil && SiteDate.parse("October 5, 2026") != nil

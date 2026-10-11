@@ -14,7 +14,9 @@ vendored in `Kit/`.
   parsed with libxml2 and the web version's patterns. Lua needs its real Referer.
   Scythe's uncached pages take up to 85 s, so its lists read only cached pages
   (`investigation/2026-10-06-scythe-next-chapter.md`). A missing Yaksha chapter
-  answers with the series page; it counts as unavailable. Opening a series never
+  answers with the series page; it counts as unavailable. Yaksha's list is each chapter
+  row's own link (the web version's pattern lost titled chapters such as "Chapter 3 - Ashen
+  City" and decimal ones such as `chapter-1-1` in 18 of its 62 series). Opening a series never
   started asks only for its first chapter where the site can say (EzScans/QiScans
   sort by number: one request); lists come after the chapter is on screen. Lua
   answers queries it has answered before at once and others in 5 to 25 s, so for the

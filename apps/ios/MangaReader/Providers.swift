@@ -776,10 +776,20 @@ struct Yaksha: MangaProvider {
     }
 
     func chaptersNewestFirst(_ slug: String) async throws -> [String] {
-        Self.parseList(try await http.send(HTTPRequest(URL(string: "https://yakshacomics.com/manga/\(slug)/")!)).text)
+        try Self.parseList(try await http.send(HTTPRequest(URL(string: "https://yakshacomics.com/manga/\(slug)/")!)).data)
     }
 
-    static func parseList(_ html: String) -> [String] {
-        Web.matches(#"<li class="wp-manga-chapter[^"]*">[\s\S]*?<a href="([^"]+)">[\s\S]*?Chapter\s+([\d.]+)\s*</a>"#, in: html).compactMap { $0[2].map { "chapter-" + $0 } }
+    // Each chapter row's own link names the chapter (its last path part, as the reader's address
+    // uses it). The web version's pattern read the number after "Chapter" instead and, for a
+    // titled chapter ("Chapter 3 - Ashen City"), ran on into the next rows: chapters went
+    // missing and the oldest became a number from elsewhere on the page.
+    static func parseList(_ data: Data) throws -> [String] {
+        let origin = URL(string: "https://yakshacomics.com")!
+        var chapters: [String] = [], seen = Set<String>()
+        for link in try HTMLDocument(data: data).select("li.wp-manga-chapter > a[href]") {
+            guard let href = link["href"], let id = Web.resolve(href, origin)?.path.split(separator: "/").last.map(String.init), !id.isEmpty else { continue }
+            if seen.insert(id).inserted { chapters.append(id) }
+        }
+        return chapters
     }
 }
