@@ -2,11 +2,10 @@
 
 The six provider apps are the only products: native UIKit apps in `apps/ios`
 (read `apps/ios/DEVELOPMENT.md`, then `apps/ios/PAID-NATIVE.md` to deploy). The
-web version (`src/`, `tests/`) is kept only as the reference for parity until the
-native apps pass their phone checks; it is no longer built or shipped.
+web version they replaced is in Git history (before October 12, 2026).
 
 ## Sites supported
-[providers.json](apps/ios/providers.json) (from [sites.json](src/core/sites.json))
+[providers.json](apps/ios/providers.json)
 
 ## Manual PC Load / Save
 

@@ -4,16 +4,8 @@
   "description": "The native manga reader apps (Asura, Scythe, Yaksha, QiScans, Lua, EzScans), with their PC Load/Save server",
   "type": "module",
   "scripts": {
-    "test:unit": "vitest run tests/unit",
-    "build:ios": "node scripts/build-ios.mjs",
-    "test:ios:builder": "node --test apps/ios/Tests/builder.test.mjs && python3 -B apps/ios/Tests/test_signing_lock.py",
     "test:server": "node --test server/backups.test.mjs",
-    "backups:status": "node server/backups.mjs status"
-  },
-  "devDependencies": {
-    "esbuild": "0.27.7",
-    "jsdom": "^29.1.1",
-    "typescript": "^5.9.3",
-    "vitest": "^4.1.9"
+    "backups:status": "node server/backups.mjs status",
+    "test:ios:signing": "python3 -B apps/ios/Tests/test_signing_lock.py"
   }
 }
