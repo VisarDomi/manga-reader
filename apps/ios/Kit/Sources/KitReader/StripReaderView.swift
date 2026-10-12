@@ -128,9 +128,9 @@ public final class StripReaderView: UIView, UIScrollViewDelegate {
     // New pages after the last (the next chapter); nothing on screen moves.
     public func append(_ more: [StripPage]) {
         guard !more.isEmpty else { return }
-        let anchor = currentPosition
+        let screen = screenAnchor
         pages += more
-        relayout(keeping: anchor)
+        relayout(keeping: nil, screen: screen)
     }
 
     // A line under the last page (the next part loading, or why it cannot); nil hides it.
@@ -148,13 +148,24 @@ public final class StripReaderView: UIView, UIScrollViewDelegate {
         footer.frame = CGRect(x: 20, y: bottom + 20, width: width, height: footer.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height)
     }
 
-    // A page's real size became known; the page at the centre keeps its place.
+    // A page's real size became known; the page at the centre keeps its place on screen to the
+    // point (its top stays exactly where it is, not re-derived from a fraction, which would
+    // drift by part of a pixel every time a page elsewhere loads).
     public func setAspect(_ aspect: CGFloat, at index: Int) {
         guard pages.indices.contains(index), aspect.isFinite, aspect > 0 else { return }
-        if let known = pages[index].aspect, abs(known - aspect) < 0.0001 { return }
-        let anchor = currentPosition
+        // A size within a pixel or two of the known one (a site's metadata against the file it
+        // serves) is the same page: kept, the layout stays what it was in every session.
+        if let known = pages[index].aspect, abs(known - aspect) / known < 0.003 { return }
+        let screen = screenAnchor
         pages[index].aspect = aspect
-        relayout(keeping: anchor)
+        relayout(keeping: nil, screen: screen)
+    }
+
+    // The page at the screen's centre and where its top is on screen.
+    private var screenAnchor: (index: Int, top: CGFloat)? {
+        guard laidOutWidth > 0, !pages.isEmpty, tops.count == pages.count else { return nil }
+        let index = pageIndex(atContentY: centreContentY)
+        return (index, tops[index] * scrollView.zoomScale - scrollView.contentOffset.y)
     }
 
     // MARK: position
@@ -192,10 +203,12 @@ public final class StripReaderView: UIView, UIScrollViewDelegate {
     }
 
     private func setCentre(contentY y: CGFloat) {
-        let zoom = scrollView.zoomScale
+        setOffset(y * scrollView.zoomScale - scrollView.bounds.height / 2)
+    }
+
+    private func setOffset(_ y: CGFloat) {
         let maxOffset = max(0, scrollView.contentSize.height - scrollView.bounds.height)
-        let offsetY = min(max(0, y * zoom - scrollView.bounds.height / 2), maxOffset)
-        scrollView.contentOffset = CGPoint(x: scrollView.contentOffset.x, y: offsetY)
+        scrollView.contentOffset = CGPoint(x: scrollView.contentOffset.x, y: min(max(0, y), maxOffset))
     }
 
     // The page containing content y (clamped to the first and last page).
@@ -222,7 +235,7 @@ public final class StripReaderView: UIView, UIScrollViewDelegate {
 
     private var padding: CGFloat { bounds.height / 2 }
 
-    private func relayout(keeping anchor: StripPosition?) {
+    private func relayout(keeping anchor: StripPosition?, screen: (index: Int, top: CGFloat)? = nil) {
         let width = bounds.width
         guard width > 0 else { return }
         laidOutWidth = width
@@ -242,7 +255,13 @@ public final class StripReaderView: UIView, UIScrollViewDelegate {
         scrollView.contentSize = CGSize(width: width * zoom, height: total * zoom)
         for (index, cell) in cells { cell.frame = frame(of: index) }
         layoutFooter()
+        // A place asked for before the first layout (a restored reader) comes first: a page that
+        // reports its size during that layout (an image decoded at once) must not anchor to the
+        // unrestored top and drop it.
         if let pinnedTop, pages.indices.contains(pinnedTop) { setCentre(contentY: tops[pinnedTop] + bounds.height / 2 / scrollView.zoomScale) }
+        else if let pendingTop, pages.indices.contains(pendingTop) { scroll(toTopOf: pendingTop) }
+        else if let pendingPosition, pages.indices.contains(pendingPosition.index) { scroll(to: pendingPosition) }
+        else if let screen, pages.indices.contains(screen.index) { setOffset(tops[screen.index] * zoom - screen.top) }
         else if let anchor, pages.indices.contains(anchor.index) { scroll(to: anchor) }
         updateVisible()
     }
