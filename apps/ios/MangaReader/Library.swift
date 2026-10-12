@@ -6,6 +6,7 @@ import KitNet
 
 extension Notification.Name {
     static let catalogChanged = Notification.Name("MangaCatalogChanged")
+    static let coverChanged = Notification.Name("MangaCoverChanged")
 }
 
 // The app's model: the catalog (kept on the phone, refreshed in the background), reading
@@ -89,11 +90,13 @@ final class Library {
                                         accept: { $0.statusCode == 200 && $0.mimeType?.hasPrefix("image/") == true },
                                         committed: { item, response in
             let file = root.appendingPathComponent(item.file)
+            if item.file.hasPrefix("covers/") { ImageFiles.saveCheck(for: file, response: response) }
             try? DurableFile.write(Data((response.mimeType ?? "image/jpeg").utf8), to: file.appendingPathExtension("mime"))
             Task { await images.committed(item.file) }
         })
         Task { await chapters.onListChange { _ in Task { @MainActor [weak self] in self?.planSoon() } } }
         Task { await images.onFinished { item in Task { @MainActor [weak self] in self?.finished(item) } } }
+        Task { await images.onCoverChanged { item in Task { @MainActor [weak self] in self?.coverChanged(item.url) } } }
         Task { await chapters.setRows(rows(catalog.series)) }
         NotificationCenter.default.addObserver(forName: .progressChanged, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.planSoon() }
@@ -222,6 +225,27 @@ final class Library {
     // The reader on screen (the most recently shown, if several think so).
     private var focused: Reading? {
         readers.values.filter { $0.screen != nil && $0.visible }.max { $0.shown < $1.shown }?.reading
+    }
+
+    // MARK: covers
+
+    // A cover the site replaced (same address, new bytes): a new version for the screens'
+    // image cache, so cards on screen show the new one.
+    private var coverVersions: [String: Int] = [:]
+    private var coverAsked: [String: Date] = [:]
+
+    func coverVersion(_ url: String) -> Int { coverVersions[url] ?? 0 }
+
+    func coverShown(_ url: String) {
+        guard !url.isEmpty, coverAsked[url].map({ Date().timeIntervalSince($0) > ImageFiles.recheckAfter }) ?? true else { return }
+        coverAsked[url] = Date()
+        let images = images, item = ImageItem(url: url, cover: true)
+        Task { await images.recheck(item) }
+    }
+
+    private func coverChanged(_ url: String) {
+        coverVersions[url, default: 0] += 1
+        NotificationCenter.default.post(name: .coverChanged, object: nil, userInfo: ["url": url])
     }
 
     // MARK: positions
@@ -358,6 +382,23 @@ final class Library {
             data.images[index].height = Double(size.height)
         }
         await chapters.files.recordSizes(found, series: series, chapterId: data.chapterId)
+        return data
+    }
+
+    // The same at once, from the pages already on the phone (their headers only), for a chapter
+    // laid out before the first frame; the sizes found are saved afterwards.
+    func sizedNow(_ data: ChapterData, series: String) -> ChapterData {
+        var data = data, found: [Int: CGSize] = [:]
+        for index in data.images.indices where data.images[index].width == nil {
+            guard let file = images.localFile(ImageItem(url: data.images[index].url, cover: false)), let size = Library.pixelSize(file) else { continue }
+            data.images[index].width = Double(size.width)
+            data.images[index].height = Double(size.height)
+            found[index] = size
+        }
+        if !found.isEmpty {
+            let files = chapters.files, chapterId = data.chapterId
+            Task { await files.recordSizes(found, series: series, chapterId: chapterId) }
+        }
         return data
     }
 

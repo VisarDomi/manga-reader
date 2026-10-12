@@ -282,7 +282,13 @@ actor ChapterFiles {
 
     init(directory: URL) { self.directory = directory.appendingPathComponent("chapters") }
 
-    private func file(_ key: String) -> URL { directory.appendingPathComponent(FileKey.sha256(key) + ".json") }
+    private nonisolated func file(_ key: String) -> URL { directory.appendingPathComponent(FileKey.sha256(key) + ".json") }
+
+    // A saved chapter read on the calling thread (a relaunch lays it out before the first frame).
+    nonisolated func chapterNow(_ series: String, _ chapterId: String) -> ChapterData? {
+        guard let data = try? DurableFile.readJSON(ChapterData.self, from: file(FileKey.chapter(series, chapterId))), !data.images.isEmpty else { return nil }
+        return data
+    }
 
     func chapter(_ series: String, _ chapterId: String) -> ChapterData? {
         let key = FileKey.chapter(series, chapterId)

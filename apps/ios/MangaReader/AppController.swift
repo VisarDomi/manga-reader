@@ -44,6 +44,8 @@ final class AppController {
     }
 
     func makeNavigation() -> LiveNavigationController {
+        // The screens come back as they were left, their images on the phone in the first frame.
+        pipeline.beginRestore()
         let file = root.appendingPathComponent("navigation.json")
         migrateViews(to: file)
         navigation = LiveNavigationController(file: file, factory: { [unowned self] route, state in screen(route, state: state) },

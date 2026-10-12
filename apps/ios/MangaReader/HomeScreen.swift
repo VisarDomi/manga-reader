@@ -67,6 +67,9 @@ final class HomeScreen: UIViewController, LiveScreen, UITableViewDataSource, UIT
         observers.append(NotificationCenter.default.addObserver(forName: .progressChanged, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.reloadVisible() }
         })
+        observers.append(NotificationCenter.default.addObserver(forName: .coverChanged, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.reloadVisible() }
+        })
         DebugState.shared.register("home") { [weak self] in
             guard let self else { return [:] }
             return ["cards": series.count, "offset": table.contentOffset.y, "anchor": currentAnchor.map { ["key": $0.key, "fraction": $0.fraction] } ?? [:]]
@@ -189,10 +192,9 @@ final class HomeScreen: UIViewController, LiveScreen, UITableViewDataSource, UIT
     private func restoreIfReady() {
         // Only once the table has its frame (a restore before layout lands too low).
         guard !restored, table.bounds.height > 0, !series.isEmpty else { return }
-        if let anchor = pendingAnchor, series.contains(where: { app.library.identity($0) == anchor.key }) {
-            table.layoutIfNeeded()
-            restore(anchor)
-        }
+        // Straight to the anchor, before the table lays out any rows (no covers decoded for rows
+        // at the top that are never shown).
+        if let anchor = pendingAnchor, series.contains(where: { app.library.identity($0) == anchor.key }) { restore(anchor) }
         pendingAnchor = nil
         restored = true
     }
@@ -262,6 +264,7 @@ final class HomeCell: UITableViewCell {
     private let empty = UILabel()
     private var ticket: ImageTicket?
     private var coverKey: String?
+    private var coverURL: String?
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -326,13 +329,18 @@ final class HomeCell: UITableViewCell {
             row.show(label: chapter.label, time: time, color: color, locked: chapter.locked)
         }
         empty.isHidden = !series.chapters.isEmpty
-        let key = "cover:" + series.coverUrl
+        // A cover the site replaced has a new version: its new bytes take the old image's place
+        // once decoded; another series' cover clears the card first.
+        let version = app.library.coverVersion(series.coverUrl)
+        let key = "cover:" + series.coverUrl + (version > 0 ? "#\(version)" : "")
         if coverKey != key || cover.imageView.image == nil {
+            if coverURL != series.coverUrl { cover.imageView.image = nil }
             coverKey = key
+            coverURL = series.coverUrl
             ticket?.cancel()
-            cover.imageView.image = nil
             loadCover(series.coverUrl, key: key, app: app)
         }
+        app.library.coverShown(series.coverUrl)
         setNeedsLayout()
     }
 
@@ -341,7 +349,7 @@ final class HomeCell: UITableViewCell {
         let fit = ImageFit.cover(width: Int(150 * 3), height: Int(200 * 3))
         if let image = app.pipeline.cached(key, fit: fit) { cover.imageView.image = image; return }
         let images = app.library.images, item = ImageItem(url: url, cover: true)
-        let request = ImagePipeline.Request(key: key, source: .load { try await images.file(item) }, fit: fit) { [weak self] in
+        let request = ImagePipeline.Request(key: key, source: .load { try await images.file(item) }, fit: fit, localFile: images.localFile(item)) { [weak self] in
             guard let self, let window = self.window else { return .infinity }
             let frame = self.convert(self.bounds, to: window)
             return Double(frame.maxY < 0 ? -frame.maxY : frame.minY > window.bounds.height ? frame.minY - window.bounds.height : 0)

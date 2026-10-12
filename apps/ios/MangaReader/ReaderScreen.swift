@@ -102,7 +102,7 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
             // A reader can stay open for days: a list due again is checked on return.
             MainActor.assumeIsolated { self?.continueReading() }
         })
-        Task { await open() }
+        if !openSaved() { Task { await open() } }
     }
 
     override func viewDidLayoutSubviews() {
@@ -140,6 +140,19 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
 
     // MARK: opening
 
+    // A chapter already on the phone is laid out at once, before the first frame (a relaunch
+    // shows the reader as it was left, not an empty screen while the chapter is read back).
+    private func openSaved() -> Bool {
+        guard let chapterId = chapter, let saved = app.library.chapters.files.chapterNow(series, chapterId) else { return false }
+        show(saved: app.library.sizedNow(saved, series: series))
+        Task { [weak self] in
+            guard let self else { return }
+            if let known = await app.library.chapters.knownList(series: series) { list = list.map { withNewerChapters(known, $0) } ?? known }
+            continueReading()
+        }
+        return true
+    }
+
     private func open() async {
         let source = app.library.chapters
         list = await source.knownList(series: series)
@@ -163,6 +176,12 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
         catch { show("Failed to load chapter", error: true); return }
         guard var data else { show("Chapter unavailable", error: true); return }
         data = await app.library.sized(data, series: series)
+        show(saved: data)
+    }
+
+    // The chapter on screen at its place (the saved point, the start asked for), then the list.
+    private func show(saved data: ChapterData) {
+        let chapterId = data.chapterId
         show(nil)
         loads[chapterId] = .loaded
         parts = [Part(data: data, first: 0)]
@@ -268,6 +287,11 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
         guard let (part, page) = locate(index) else { return .load { throw CancellationError() } }
         let item = ImageItem(url: part.data.images[page].url, cover: false), images = app.library.images
         return .load { try await images.file(item) }
+    }
+
+    func strip(_ strip: StripReaderView, localFileFor index: Int) -> URL? {
+        guard let (part, page) = locate(index) else { return nil }
+        return app.library.images.localFile(ImageItem(url: part.data.images[page].url, cover: false))
     }
 
     func strip(_ strip: StripReaderView, settledAt position: StripPosition) {

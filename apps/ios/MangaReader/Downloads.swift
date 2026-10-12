@@ -212,6 +212,10 @@ actor ImageFiles {
     private var active = true
     private var wakeScheduled = false
     private var observers: [@Sendable (ImageItem) -> Void] = []
+    private var coverObservers: [@Sendable (ImageItem) -> Void] = []
+    private var rechecks: [ImageItem] = []
+    private var recheckRunning = false
+    private var lastAsked: [String: Date] = [:]
 
     init(root: URL, http: HTTPClient, referer: String) {
         self.root = root
@@ -220,6 +224,14 @@ actor ImageFiles {
     }
 
     nonisolated func url(_ item: ImageItem) -> URL { root.appendingPathComponent(item.name) }
+
+    // The file when it is already complete on the phone (read without waiting for the actor:
+    // a relaunch decodes it for the first frame).
+    nonisolated func localFile(_ item: ImageItem) -> URL? {
+        let file = url(item)
+        guard FileManager.default.fileExists(atPath: file.appendingPathExtension("mime").path), (DurableFile.size(file) ?? 0) > 0 else { return nil }
+        return file
+    }
 
     private func complete(_ item: ImageItem) -> Bool {
         if done.contains(item.name) { return true }
@@ -288,8 +300,93 @@ actor ImageFiles {
         let response = try await http.download(HTTPRequest(source, referer: referer, priority: priority), to: file) { response in
             guard response.statusCode == 200, response.mimeType?.hasPrefix("image/") == true else { throw URLError(.badServerResponse) }
         }
+        if item.cover { saveCheck(for: file, response: response) }
         try DurableFile.write(Data((response.mimeType ?? "image/jpeg").utf8), to: file.appendingPathExtension("mime"))
         return file
+    }
+
+    // MARK: covers kept up to date
+
+    // A cover's validators from the site (ETag, Last-Modified) and when it was last asked
+    // whether it changed (<cover>.check beside the file).
+    struct Check: Codable {
+        var etag: String?
+        var lastModified: String?
+        var checkedAt: Date
+    }
+
+    static let recheckAfter: TimeInterval = 6 * 3600
+
+    nonisolated static func saveCheck(for file: URL, response: HTTPURLResponse, known: Check? = nil) {
+        let check = Check(etag: response.value(forHTTPHeaderField: "ETag") ?? known?.etag,
+                          lastModified: response.value(forHTTPHeaderField: "Last-Modified") ?? known?.lastModified, checkedAt: Date())
+        try? DurableFile.writeJSON(check, to: file.appendingPathExtension("check"))
+    }
+
+    func onCoverChanged(_ observer: @escaping @Sendable (ImageItem) -> Void) { coverObservers.append(observer) }
+
+    // A cover on screen: every cover stays on the phone, and one not asked about for six hours
+    // is asked about again, lazily, one at a time and behind everything else. The request is
+    // conditional (all six sites answer 304 with no bytes when nothing changed); only new bytes
+    // replace the file, and the screen is told.
+    func recheck(_ item: ImageItem) {
+        guard item.cover, lastAsked[item.name].map({ Date().timeIntervalSince($0) > Self.recheckAfter }) ?? true, complete(item) else { return }
+        lastAsked[item.name] = Date()
+        if let check = try? DurableFile.readJSON(Check.self, from: url(item).appendingPathExtension("check")),
+           Date().timeIntervalSince(check.checkedAt) < Self.recheckAfter { return }
+        rechecks.append(item)
+        pumpRechecks()
+    }
+
+    private func pumpRechecks() {
+        guard active, !recheckRunning, !rechecks.isEmpty else { return }
+        recheckRunning = true
+        let item = rechecks.removeFirst()
+        Task { [http, referer, root] in
+            let changed = await Self.recheckNow(item, http: http, referer: referer, root: root)
+            self.recheckFinished(item, changed: changed)
+        }
+    }
+
+    private func recheckFinished(_ item: ImageItem, changed: Bool) {
+        recheckRunning = false
+        if changed { for observer in coverObservers { observer(item) } }
+        pumpRechecks()
+    }
+
+    private static func recheckNow(_ item: ImageItem, http: HTTPClient, referer: String, root: URL) async -> Bool {
+        guard let source = URL(string: item.url), source.scheme == "https" else { return false }
+        let file = root.appendingPathComponent(item.name)
+        let known = try? DurableFile.readJSON(Check.self, from: file.appendingPathExtension("check"))
+        var headers: [String: String] = [:]
+        if let etag = known?.etag { headers["If-None-Match"] = etag }
+        // A cover saved before validators were kept: changed since this phone downloaded it?
+        let written = (try? FileManager.default.attributesOfItem(atPath: file.path))?[.modificationDate] as? Date
+        if let since = known?.lastModified ?? written.map(httpDate) { headers["If-Modified-Since"] = since }
+        guard let response = try? await http.send(HTTPRequest(source, headers: headers, referer: referer, retry: .never,
+                                                               priority: URLSessionTask.lowPriority, accept: [304])) else { return false }
+        if response.status == 304 {
+            saveCheck(for: file, response: response.response, known: known)
+            return false
+        }
+        guard response.status == 200, response.response.mimeType?.hasPrefix("image/") == true, !response.data.isEmpty else { return false }
+        let changed = (try? Data(contentsOf: file)) != response.data
+        if changed {
+            do {
+                try DurableFile.write(response.data, to: file)
+                try DurableFile.write(Data((response.response.mimeType ?? "image/jpeg").utf8), to: file.appendingPathExtension("mime"))
+            } catch { return false }
+        }
+        saveCheck(for: file, response: response.response)
+        return changed
+    }
+
+    nonisolated static func httpDate(_ date: Date) -> String {
+        let format = DateFormatter()
+        format.locale = Locale(identifier: "en_US_POSIX")
+        format.timeZone = TimeZone(identifier: "GMT")
+        format.dateFormat = "EEE, dd MMM yyyy HH:mm:ss 'GMT'"
+        return format.string(from: date)
     }
 
     private func finished(_ item: ImageItem) {
@@ -335,6 +432,7 @@ actor ImageFiles {
         active = value
         if !value { for task in background.values { task.cancel() } }
         pump()
+        pumpRechecks()
     }
 
     // The unfinished planned work, in order.

@@ -32,10 +32,22 @@ no reader holds them; reading progress and saved chapter page lists stay. There 
 no server history, tracking or provider authentication. Both reader ends have half
 a screen of space.
 
+## Covers
+
+Every catalog cover stays on the phone. A cover on screen that has not been asked about for
+six hours is asked about again, lazily and one at a time: a conditional request with its
+validators (ETag, Last-Modified, kept in `covers/<file>.check`; a cover from before these
+were kept uses its file's date), which all six sites answer with 304 and no bytes when the
+cover did not change. Only new bytes replace the file, and the card shows them in place.
+
 ## Kill robustness
 
 Every change (a settled page, the catalog, the screen stack, a finished image) is
 written atomically when it happens. A relaunch rebuilds the screens and returns to
 the exact point, and so does reopening a series from Home at the page it was left on
-(going back, then tapping its cover): page sizes are known before a chapter is laid out (from the site,
+(going back, then tapping its cover). The first frame after a relaunch is already the
+screen as it was left: covers and pages on the phone are decoded before it (NativeKit's
+restore mode), the reader lays out its saved chapter at once, and the screens below are
+built while the top one shows, so going back finds them complete. NativeKit's
+`scripts/restore-check` (fast, coded) and `restore-video.sh` (slow, visual) show it: page sizes are known before a chapter is laid out (from the site,
 or recorded from the images themselves), so nothing moves while images load.

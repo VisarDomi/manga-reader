@@ -34,9 +34,13 @@ public protocol StripReaderDelegate: AnyObject {
     func stripNearEnd(_ strip: StripReaderView)
     // Text drawn over a page that failed to load, nil for none.
     func strip(_ strip: StripReaderView, failureTextFor index: Int, error: Error) -> String?
+    // The page's file when it is already on the phone (a relaunch shows it in its first frame:
+    // ImagePipeline.beginRestore).
+    func strip(_ strip: StripReaderView, localFileFor index: Int) -> URL?
 }
 
 public extension StripReaderDelegate {
+    func strip(_ strip: StripReaderView, localFileFor index: Int) -> URL? { nil }
     func stripNearEnd(_ strip: StripReaderView) {}
     func strip(_ strip: StripReaderView, failureTextFor index: Int, error: Error) -> String? { nil }
 }
@@ -259,7 +263,8 @@ public final class StripReaderView: UIView, UIScrollViewDelegate {
             cells[index] = nil
         }
         let widthPixels = Int((laidOutWidth * zoomBucket * (window?.screen.scale ?? 3)).rounded(.up))
-        for index in first...last {
+        // The pages on screen first, then outwards.
+        for index in (first...last).sorted(by: { distanceFromScreen($0) < distanceFromScreen($1) }) {
             let cell = cells[index] ?? dequeue(index)
             if cell.fit != .width(widthPixels) || (cell.imageView.image == nil && cell.ticket == nil && retryDue(index)) { request(index, cell: cell, width: widthPixels) }
         }
@@ -299,7 +304,8 @@ public final class StripReaderView: UIView, UIScrollViewDelegate {
         cell.ticket?.cancel()
         cell.fit = .width(width)
         let key = pages[index].key
-        let request = ImagePipeline.Request(key: key, source: delegate.strip(self, sourceFor: index), fit: .width(width)) { [weak self] in
+        let request = ImagePipeline.Request(key: key, source: delegate.strip(self, sourceFor: index), fit: .width(width),
+                                            localFile: delegate.strip(self, localFileFor: index)) { [weak self] in
             guard let self, self.pages.indices.contains(index) else { return .infinity }
             return self.distanceFromScreen(index)
         }
