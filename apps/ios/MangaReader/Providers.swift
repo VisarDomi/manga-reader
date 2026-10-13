@@ -179,30 +179,49 @@ extension Array {
 }
 
 // Dates as the sites write them (ISO with any fraction, "October 5, 2026"); nil otherwise.
+// Home shows these for every chapter of every card as it scrolls: each text is read once
+// (formatters are costly to make), and the answers are kept.
 enum SiteDate {
     static func parse(_ text: String?) -> Date? {
         guard let text = text?.trimmingCharacters(in: .whitespaces), !text.isEmpty else { return nil }
-        if let date = iso(text) { return date }
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        for format in ["MMMM d, yyyy", "MMM d, yyyy", "yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd"] {
-            formatter.dateFormat = format
-            if let date = formatter.date(from: text) { return date }
+        return cache.withLock { cache in
+            if let known = cache.dates[text] { return known }
+            let date = read(text, cache)
+            if cache.dates.count > 20_000 { cache.dates.removeAll() }
+            cache.dates[text] = .some(date)
+            return date
         }
-        return nil
     }
 
-    private static func iso(_ text: String) -> Date? {
-        // ISO8601DateFormatter reads at most milliseconds.
-        var text = text
-        if let match = text.range(of: #"\.(\d{3})\d+"#, options: .regularExpression) {
-            text.replaceSubrange(match, with: String(text[match].prefix(4)))
+    private final class Cache: @unchecked Sendable {
+        var dates: [String: Date?] = [:]
+        let iso = ISO8601DateFormatter()
+        let isoFraction: ISO8601DateFormatter = {
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            return formatter
+        }()
+        let others: [DateFormatter] = ["MMMM d, yyyy", "MMM d, yyyy", "yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd"].map { format in
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.dateFormat = format
+            return formatter
         }
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = formatter.date(from: text) { return date }
-        formatter.formatOptions = [.withInternetDateTime]
-        return formatter.date(from: text)
+        private let lock = NSLock()
+        func withLock<T>(_ work: (Cache) -> T) -> T { lock.withLock { work(self) } }
+    }
+
+    private static let cache = Cache()
+
+    private static func read(_ text: String, _ cache: Cache) -> Date? {
+        // ISO8601DateFormatter reads at most milliseconds.
+        var iso = text
+        if let match = iso.range(of: #"\.(\d{3})\d+"#, options: .regularExpression) {
+            iso.replaceSubrange(match, with: String(iso[match].prefix(4)))
+        }
+        if let date = cache.isoFraction.date(from: iso) ?? cache.iso.date(from: iso) { return date }
+        for formatter in cache.others { if let date = formatter.date(from: text) { return date } }
+        return nil
     }
 }
 

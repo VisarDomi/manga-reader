@@ -247,7 +247,31 @@ final class ReadingState {
 // MARK: - Saved chapters and chapter lists (chapters/<sha256(key)>.json, the web's keys)
 
 enum FileKey {
-    static func sha256(_ text: String) -> String { SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined() }
+    // File names are hashes of their keys, asked for thousands of times (every cover and page
+    // in each download plan): each is computed once.
+    static func sha256(_ text: String) -> String {
+        if let known = names.value(text) { return known }
+        let digits = Array("0123456789abcdef".utf8)
+        var hex = [UInt8](); hex.reserveCapacity(64)
+        for byte in SHA256.hash(data: Data(text.utf8)) { hex.append(digits[Int(byte >> 4)]); hex.append(digits[Int(byte & 15)]) }
+        let name = String(decoding: hex, as: UTF8.self)
+        names.set(text, name)
+        return name
+    }
+
+    private static let names = Memo()
+
+    private final class Memo: @unchecked Sendable {
+        private let lock = NSLock()
+        private var values: [String: String] = [:]
+        func value(_ key: String) -> String? { lock.withLock { values[key] } }
+        func set(_ key: String, _ value: String) {
+            lock.withLock {
+                if values.count > 50_000 { values.removeAll(keepingCapacity: true) }
+                values[key] = value
+            }
+        }
+    }
 
     // JavaScript's JSON.stringify of an array of strings.
     static func stringify(_ values: [String]) -> String {
@@ -373,11 +397,13 @@ struct Catalog: Codable, Sendable, Equatable {
 
     // A fresh run of pages (newest first) in front, the rest as they were.
     static func merged(_ cached: [HomeSeries], fresh: [HomeSeries], identity: (HomeSeries) -> String) -> [HomeSeries] {
-        var seen = Set<String>(), result: [HomeSeries] = []
+        var seen = Set<String>(), result: [HomeSeries] = [], position: [String: Int] = [:]
         for series in fresh {
             let id = identity(series)
-            if seen.insert(id).inserted { result.append(series) }
-            else if let index = result.firstIndex(where: { identity($0) == id }) {
+            if seen.insert(id).inserted {
+                position[id] = result.count
+                result.append(series)
+            } else if let index = position[id] {
                 // A series seen twice (latest updates, then the catalog): new chapters join.
                 var known = result[index]
                 let ids = Set(known.chapters.map(\.chapterId))

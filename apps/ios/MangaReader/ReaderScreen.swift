@@ -295,6 +295,10 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
     }
 
     func strip(_ strip: StripReaderView, settledAt position: StripPosition) {
+        FrameMonitor.shared.measure("reader.settle") { settle(at: position) }
+    }
+
+    private func settle(at position: StripPosition) {
         guard let (part, index) = locate(position.index) else { return }
         let chapterId = part.data.chapterId
         if settled?.chapter != chapterId || settled?.index != index {

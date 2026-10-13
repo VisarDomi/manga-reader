@@ -64,11 +64,13 @@ final class HomeScreen: UIViewController, LiveScreen, UITableViewDataSource, UIT
         observers.append(NotificationCenter.default.addObserver(forName: .catalogChanged, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.catalogChanged() }
         })
+        // Under a reader, Home waits: it refreshes its cards when it shows again (viewWillAppear),
+        // not on every page the reader settles on.
         observers.append(NotificationCenter.default.addObserver(forName: .progressChanged, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.reloadVisible() }
+            MainActor.assumeIsolated { if self?.viewIfLoaded?.window != nil { self?.reloadVisible() } }
         })
         observers.append(NotificationCenter.default.addObserver(forName: .coverChanged, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.reloadVisible() }
+            MainActor.assumeIsolated { if self?.viewIfLoaded?.window != nil { self?.reloadVisible() } }
         })
         DebugState.shared.register("home") { [weak self] in
             guard let self else { return [:] }
@@ -121,12 +123,24 @@ final class HomeScreen: UIViewController, LiveScreen, UITableViewDataSource, UIT
 
     // MARK: contents
 
+    private var shownVersion = -1
+    private var catalogWaiting = false
+    private var rowsMoving: Bool { table.isTracking || table.isDragging || table.isDecelerating }
+
+    // A newer catalog keeps the cards on screen in place, which sets the offset and would stop a
+    // fling dead: one that arrives while a finger or momentum moves the cards waits until they stop.
     private func catalogChanged() {
         let library = app.library
-        let fresh = library.catalog.series
-        if fresh != series {
+        if restored && rowsMoving && library.catalogVersion != shownVersion {
+            if !catalogWaiting { catalogWaiting = true; applyWhenStill() }
+            footer.status = statusText(loaded: series.count, total: library.catalog.total, loading: library.refreshing, error: library.catalogError)
+            return
+        }
+        catalogWaiting = false
+        if library.catalogVersion != shownVersion || series.isEmpty != library.catalog.series.isEmpty {
+            shownVersion = library.catalogVersion
             let anchor = restored ? currentAnchor : nil
-            series = fresh
+            series = library.catalog.series
             table.reloadData()
             table.layoutIfNeeded()
             if let anchor { restore(anchor) }
@@ -166,9 +180,11 @@ final class HomeScreen: UIViewController, LiveScreen, UITableViewDataSource, UIT
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { series.count }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let cell = tableView.dequeueReusableCell(withIdentifier: "card", for: indexPath) as! HomeCell
-        configure(cell, row: indexPath.row)
-        return cell
+        FrameMonitor.shared.measure("home.cell") {
+            let cell = tableView.dequeueReusableCell(withIdentifier: "card", for: indexPath) as! HomeCell
+            configure(cell, row: indexPath.row)
+            return cell
+        }
     }
 
     func tableView(_ tableView: UITableView, prefetchRowsAt indexPaths: [IndexPath]) {}
@@ -205,8 +221,26 @@ final class HomeScreen: UIViewController, LiveScreen, UITableViewDataSource, UIT
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) { app.pipeline.prioritiesChanged() }
-    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) { if !decelerate { saveNow() } }
-    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { saveNow() }
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { monitor(true) }
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        if !decelerate { monitor(false); saveNow(); if catalogWaiting { catalogChanged() } }
+    }
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { monitor(false); saveNow(); if catalogWaiting { catalogChanged() } }
+
+    // Also when the cards stop without a scroll's end (a tap stops a fling).
+    private func applyWhenStill() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self, catalogWaiting else { return }
+            if rowsMoving { applyWhenStill() } else { catalogChanged() }
+        }
+    }
+
+    private var monitoring = false
+    private func monitor(_ moving: Bool) {
+        guard moving != monitoring else { return }
+        monitoring = moving
+        FrameMonitor.shared.scrolling(moving)
+    }
 
     // MARK: taps
 

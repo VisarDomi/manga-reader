@@ -51,6 +51,18 @@ vendored in `Kit/`.
   (`positions.json`, the page and how far down it; the reading state keeps only the
   page), as going forward to a reader does.
 
+## The main thread only shows
+
+Scrolling must never wait for the app's own work, so the main thread only takes results:
+catalog pages are merged, compared and turned into chapter rows off it (`Library.step`), the
+download plan is worked out off it from a snapshot (`Library.plan`), file names (SHA-256 of
+URLs) and site dates are computed once each, Home under a reader does not redraw its cards, and
+a newer catalog waits while Home's cards move (setting the offset would stop a fling). Images
+decode off the main thread; tall pages are drawn in slices (NativeKit's reader). NativeKit's
+FrameMonitor measures it on the phone: the app writes `debug-state.json` ("frames": dropped
+frames with what ran in them) when it leaves the screen; copy it with `devicectl device copy
+from`. October 13, 2026, Asura: 1263 scrolling frames, none over 25 ms.
+
 All data stays in the web version's folder, `Application Support/<product>/shared`:
 progress, routes (Asura's rotating slugs), saved chapters and the image caches
 carry over. A chapter list's file date is when the site last gave it, so a relaunch

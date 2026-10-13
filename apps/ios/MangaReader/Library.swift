@@ -97,13 +97,21 @@ final class Library {
         Task { await chapters.onListChange { _ in Task { @MainActor [weak self] in self?.planSoon() } } }
         Task { await images.onFinished { item in Task { @MainActor [weak self] in self?.finished(item) } } }
         Task { await images.onCoverChanged { item in Task { @MainActor [weak self] in self?.coverChanged(item.url) } } }
-        Task { await chapters.setRows(rows(catalog.series)) }
+        let series = catalog.series, source = self.chapters, site = self.provider
+        Task.detached(priority: .utility) {
+            let rows = Dictionary(series.map { (Self.identity($0, site), $0.chapters.map(\.chapterId)) }, uniquingKeysWith: { first, _ in first })
+            await source.setRows(rows)
+        }
         NotificationCenter.default.addObserver(forName: .progressChanged, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.planSoon() }
         }
     }
 
-    func identity(_ series: HomeSeries) -> String { series.historyId ?? provider.identity(series.slug) }
+    func identity(_ series: HomeSeries) -> String { Self.identity(series, provider) }
+    nonisolated static func identity(_ series: HomeSeries, _ provider: any MangaProvider) -> String { series.historyId ?? provider.identity(series.slug) }
+
+    // Bumped whenever the catalog's series change (screens compare this, not the series).
+    private(set) var catalogVersion = 0
 
     // The series' current URL slug (Asura's rotates).
     func slug(_ series: String) -> String { routes[series] ?? series }
@@ -151,10 +159,37 @@ final class Library {
         if lastRefresh.map({ Date().timeIntervalSince($0) > 300 }) ?? true { refreshCatalog() }
     }
 
+    // One page after another; each is merged into the catalog off the main thread (the main
+    // thread only takes the result: Home scrolls while the walk runs).
+    private struct Step: Sendable {
+        var series: [HomeSeries]
+        var changed: Bool
+        var unchanged: Bool
+        var rows: [String: [String]]
+        var routes: [String: String]?
+    }
+
+    private nonisolated static func step(base: [HomeSeries], fresh: [HomeSeries], page: [HomeSeries], current: [HomeSeries], routes: [String: String],
+                                         known: [String: HomeSeries], provider: any MangaProvider) -> Step {
+        let identity = { (series: HomeSeries) in Self.identity(series, provider) }
+        let merged = Catalog.merged(base, fresh: fresh, identity: identity)
+        var newRoutes = routes, routesChanged = false
+        for entry in merged where newRoutes[identity(entry)] != entry.slug {
+            newRoutes[identity(entry)] = entry.slug
+            routesChanged = true
+        }
+        let changed = merged != current
+        return Step(series: merged, changed: changed, unchanged: !page.isEmpty && page.allSatisfy { known[identity($0)] == $0 },
+                    rows: changed ? Dictionary(merged.map { (identity($0), $0.chapters.map(\.chapterId)) }, uniquingKeysWith: { first, _ in first }) : [:],
+                    routes: routesChanged ? newRoutes : nil)
+    }
+
     private func walk(full: Bool) async throws {
         let base = catalog.series
-        let known = Dictionary(base.map { (identity($0), $0) }, uniquingKeysWith: { first, _ in first })
         let provider = provider
+        let known = await Task.detached(priority: .utility) {
+            Dictionary(base.map { (Self.identity($0, provider), $0) }, uniquingKeysWith: { first, _ in first })
+        }.value
         var fresh: [HomeSeries] = []
         var pending: [String: Task<HomePage, Error>] = [:]
         var seen = Set<String>()
@@ -166,9 +201,12 @@ final class Library {
         while true {
             try Task.checkCancellation()
             fresh += page.series
-            let unchanged = !page.series.isEmpty && page.series.allSatisfy { known[identity($0)] == $0 }
-            apply(Catalog.merged(base, fresh: fresh) { self.identity($0) }, total: page.total, complete: false)
-            guard let next = page.nextCursor, full || !unchanged else { break }
+            let (snapshot, current, routes, pageSeries) = (fresh, catalog.series, routes, page.series)
+            let step = await Task.detached(priority: .utility) {
+                Self.step(base: base, fresh: snapshot, page: pageSeries, current: current, routes: routes, known: known, provider: provider)
+            }.value
+            apply(step, total: page.total, complete: false)
+            guard let next = page.nextCursor, full || !step.unchanged else { break }
             guard seen.insert(next).inserted else { throw ProviderError.invalid("The site repeated catalog page \(next)") }
             if pending[next] == nil { pending[next] = fetch(next) }
             // A full walk keeps up to three pages in flight.
@@ -178,25 +216,29 @@ final class Library {
             page = try await pending.removeValue(forKey: next)!.value
         }
         // A complete walk: series the site no longer lists go.
-        if full && page.nextCursor == nil { apply(Catalog.merged([], fresh: fresh) { self.identity($0) }, total: page.total, complete: true) }
+        if full && page.nextCursor == nil {
+            let (snapshot, current, routes, pageSeries) = (fresh, catalog.series, routes, page.series)
+            let step = await Task.detached(priority: .utility) {
+                Self.step(base: [], fresh: snapshot, page: pageSeries, current: current, routes: routes, known: known, provider: provider)
+            }.value
+            apply(step, total: page.total, complete: true)
+        }
         catalog.fetchedAt = Date()
         save()
     }
 
-    private func apply(_ series: [HomeSeries], total: Int?, complete: Bool) {
-        let changed = series != catalog.series
-        catalog.series = series
+    private func apply(_ step: Step, total: Int?, complete: Bool) {
+        catalog.series = step.series
         if let total { catalog.total = total }
         catalog.complete = catalog.complete || complete
-        var routesChanged = false
-        for entry in series where routes[identity(entry)] != entry.slug {
-            routes[identity(entry)] = entry.slug
-            routesChanged = true
+        if let newRoutes = step.routes {
+            routes = newRoutes
+            routesWriter.save(json: newRoutes)
         }
-        if routesChanged { let routes = routes; routesWriter.save(json: routes) }
-        guard changed else { return }
+        guard step.changed else { return }
+        catalogVersion += 1
         save()
-        let rows = rows(series)
+        let rows = step.rows
         Task { await chapters.setRows(rows) }
         NotificationCenter.default.post(name: .catalogChanged, object: nil)
         planSoon()
@@ -204,9 +246,6 @@ final class Library {
 
     private func save() { let catalog = catalog; catalogWriter.save(json: catalog) }
 
-    private func rows(_ series: [HomeSeries]) -> [String: [String]] {
-        Dictionary(series.map { (identity($0), $0.chapters.map(\.chapterId)) }, uniquingKeysWith: { first, _ in first })
-    }
 
     // MARK: readers
 
@@ -273,65 +312,88 @@ final class Library {
         }
     }
 
-    private func newer(than chapter: String, in list: [String]) -> String? {
+    private nonisolated static func newer(than chapter: String, in list: [String]) -> String? {
         guard let index = list.firstIndex(of: chapter), index > 0 else { return nil }
         return list[index - 1]
     }
 
     // Phase one reads only the phone (so nothing kept is deleted for want of the network);
-    // missing chapters and lists are then asked for, each answer planning again.
-    private func plan() async {
-        var items: [ImageItem] = [], retained = Set<String>(), seen = Set<String>()
+    // missing chapters and lists are then asked for, each answer planning again. The main thread
+    // only takes a snapshot of what to plan for and applies the outcome; the plan itself (every
+    // page and cover of every started series) is worked out off it.
+    private struct PlanInput: Sendable {
+        var focused: Reading?
+        var started: [(series: String, slug: String, chapter: String, page: Int, complete: Bool)]
+        var open: [Reading]
+        var covers: [String]
+    }
+
+    private struct PlanOutput: Sendable {
+        var unsized: [String: (series: String, chapter: String, index: Int)] = [:]
+        var completedUnsized: [String] = []
         var missing: [(series: String, slug: String, chapter: String)] = []
         var listless: [(series: String, slug: String)] = []
-        var unsized: [String: (series: String, chapter: String, index: Int)] = [:]
+    }
+
+    private func plan() async {
+        readers = readers.filter { $0.value.screen != nil }
+        let input = PlanInput(focused: focused, started: state.started.map { ($0.seriesSlug, slug($0.seriesSlug), $0.chapterId, $0.imageIndex, $0.complete) },
+                              open: readers.values.map(\.reading), covers: catalog.series.map(\.coverUrl))
+        let output = await Self.plan(input, chapters: chapters, images: images)
+        unsized = output.unsized
+        for name in output.completedUnsized { finished(name) }
+        prepare(missing: output.missing, lists: output.listless)
+    }
+
+    private nonisolated static func plan(_ input: PlanInput, chapters: ChapterSource, images: ImageFiles) async -> PlanOutput {
+        var output = PlanOutput()
+        var items: [ImageItem] = [], retained = Set<String>(), seen = Set<String>()
         func add(_ data: ChapterData, series: String, from page: Int = 0) {
             let pages = data.images.map { ImageItem(url: $0.url, cover: false) }
-            for (index, image) in data.images.enumerated() where image.width == nil { unsized[pages[index].name] = (series, data.chapterId, index) }
+            for (index, image) in data.images.enumerated() where image.width == nil { output.unsized[pages[index].name] = (series, data.chapterId, index) }
             let start = min(max(0, page), pages.count)
             for item in pages[start...] + pages[..<start] where seen.insert(item.name).inserted { items.append(item) }
             retained.formUnion(pages.map(\.name))
         }
         func want(_ series: String, _ slug: String, _ chapter: String, from page: Int = 0) async {
             if let data = await chapters.savedChapter(series: series, chapterId: chapter) { add(data, series: series, from: page) }
-            else { missing.append((series, slug, chapter)) }
+            else { output.missing.append((series, slug, chapter)) }
         }
-        readers = readers.filter { $0.value.screen != nil }
         // The chapter on screen from its page on, then the next one.
-        if let reading = focused {
+        if let reading = input.focused {
             await want(reading.series, reading.slug, reading.chapter, from: reading.page)
             if let list = await chapters.knownList(series: reading.series), let next = newer(than: reading.chapter, in: list) {
                 await want(reading.series, reading.slug, next)
             }
         }
-        for progress in state.started {
-            let series = progress.seriesSlug, slug = slug(series)
-            let list = await chapters.knownList(series: series)
-            let age = await chapters.listAge(series)
-            if list == nil || age > 900 { listless.append((series, slug)) }
-            let next = list.flatMap { newer(than: progress.chapterId, in: $0) }
-            for chapter in progress.complete ? [next, progress.chapterId] : [progress.chapterId, next] {
-                if let chapter { await want(series, slug, chapter, from: chapter == progress.chapterId ? progress.imageIndex : 0) }
+        for progress in input.started {
+            let list = await chapters.knownList(series: progress.series)
+            let age = await chapters.listAge(progress.series)
+            if list == nil || age > 900 { output.listless.append((progress.series, progress.slug)) }
+            let next = list.flatMap { newer(than: progress.chapter, in: $0) }
+            for chapter in progress.complete ? [next, progress.chapter] : [progress.chapter, next] {
+                if let chapter { await want(progress.series, progress.slug, chapter, from: chapter == progress.chapter ? progress.page : 0) }
             }
         }
         // Chapters open in readers stay while they are open.
-        for reading in readers.values.map(\.reading) {
+        for reading in input.open {
             for chapter in reading.chapters {
                 if let data = await chapters.savedChapter(series: reading.series, chapterId: chapter) {
                     retained.formUnion(data.images.map { ImageItem(url: $0.url, cover: false).name })
-                    for (index, image) in data.images.enumerated() where image.width == nil { unsized[ImageItem(url: image.url, cover: false).name] = (reading.series, chapter, index) }
+                    for (index, image) in data.images.enumerated() where image.width == nil {
+                        output.unsized[ImageItem(url: image.url, cover: false).name] = (reading.series, chapter, index)
+                    }
                 }
             }
         }
-        for series in catalog.series where !series.coverUrl.isEmpty {
-            let item = ImageItem(url: series.coverUrl, cover: true)
+        for url in input.covers where !url.isEmpty {
+            let item = ImageItem(url: url, cover: true)
             if seen.insert(item.name).inserted { items.append(item) }
         }
-        self.unsized = unsized
         await images.setRetained(retained)
         await images.setPlan(items)
-        for name in await images.completed(Array(unsized.keys)) { finished(name) }
-        prepare(missing: missing, lists: listless)
+        output.completedUnsized = await images.completed(Array(output.unsized.keys))
+        return output
     }
 
     private func prepare(missing: [(series: String, slug: String, chapter: String)], lists: [(series: String, slug: String)]) {
