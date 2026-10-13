@@ -42,5 +42,7 @@ else:
             digest=hashlib.sha256(file.read_bytes()).hexdigest()
             checks.append('test "$(shasum -a 256 '+q(app+'/Native/'+file.name)+' | cut -d " " -f 1)" = '+q(digest))
     checks.append('test "$(/usr/libexec/PlistBuddy -c "Print CFBundleIdentifier" '+q(app+'/Info.plist')+')" = '+q(bundle_id))
-    if args.command == 'install': checks += ['xcrun devicectl device install app --device '+q(config['device'])+' '+q(app), deliver.format('installed')]
+    # phone-install (ios-tools): devicectl when the Mac reaches the phone, else an over-the-air link
+    # on the tailnet (exit 10: installed once the owner taps Install on the phone).
+    if args.command == 'install': checks += ['/Users/visar/Developer/ios-tools/native/scripts/phone-install --device '+q(config['device'])+' '+q(app)+' || test $? -eq 10', deliver.format('installed')]
     run('\n'.join(checks))
