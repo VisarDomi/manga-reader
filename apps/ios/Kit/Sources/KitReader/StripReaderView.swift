@@ -430,6 +430,11 @@ final class PageCell: UIView {
     let imageView = UIImageView()
     private let message = UILabel()
     private var slices: [CGImage] = []
+    // Each slice made ready for display off the main thread (preparingForDisplay), so attaching
+    // it costs the commit nothing; one not ready yet is attached as it is.
+    private var prepared: [Int: UIImage] = [:]
+    private var preparing: Task<Void, Never>?
+    private var generation = 0
     private var sliceScale: CGFloat = 1
     private var sliceViews: [Int: UIImageView] = [:]
     private var pixelHeight = 0
@@ -487,6 +492,20 @@ final class PageCell: UIView {
         slices = stride(from: 0, to: cgImage.height, by: Self.slice).compactMap { y in
             cgImage.cropping(to: CGRect(x: 0, y: y, width: cgImage.width, height: min(Self.slice, cgImage.height - y)))
         }
+        generation += 1
+        let generation = generation, slices = slices, scale = sliceScale
+        preparing = Task.detached(priority: .utility) { [weak self] in
+            for (index, slice) in slices.enumerated() {
+                if Task.isCancelled { return }
+                guard let ready = UIImage(cgImage: slice, scale: scale, orientation: .up).preparingForDisplay() else { continue }
+                await MainActor.run { [weak self] in
+                    guard let self, self.generation == generation else { return }
+                    self.prepared[index] = ready
+                    // Already attached as it was: swap in the ready one (same pixels).
+                    self.sliceViews[index]?.image = ready
+                }
+            }
+        }
     }
 
     // The part of the page near the screen, in the cell's coordinates: its slices are attached.
@@ -496,7 +515,7 @@ final class PageCell: UIView {
             let frame = frame(ofSlice: slice)
             if frame.intersects(near) {
                 guard sliceViews[slice] == nil else { continue }
-                let view = UIImageView(image: UIImage(cgImage: slices[slice], scale: sliceScale, orientation: .up))
+                let view = UIImageView(image: prepared[slice] ?? UIImage(cgImage: slices[slice], scale: sliceScale, orientation: .up))
                 view.contentMode = .scaleToFill
                 view.frame = frame
                 insertSubview(view, belowSubview: message)
@@ -508,6 +527,10 @@ final class PageCell: UIView {
     }
 
     private func clearSlices() {
+        preparing?.cancel()
+        preparing = nil
+        generation += 1
+        prepared = [:]
         for view in sliceViews.values { view.removeFromSuperview() }
         sliceViews = [:]
         slices = []

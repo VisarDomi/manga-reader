@@ -75,6 +75,9 @@ public final class ImagePipeline {
     private var restoreFrames = 0
     private var restoreEnds: CFTimeInterval = 0
     public private(set) var restoredNow = 0
+    // Within a relaunch's first frames (screens may read what they show from disk at once then;
+    // afterwards they ask in the background).
+    public var isRestoring: Bool { restoreBudget > 0 }
 
     public init(memoryLimit: Int = 192 << 20, concurrency: Int = 4) {
         cache.totalCostLimit = memoryLimit

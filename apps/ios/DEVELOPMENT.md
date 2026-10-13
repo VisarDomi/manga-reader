@@ -58,10 +58,15 @@ catalog pages are merged, compared and turned into chapter rows off it (`Library
 download plan is worked out off it from a snapshot (`Library.plan`), file names (SHA-256 of
 URLs) and site dates are computed once each, Home under a reader does not redraw its cards, and
 a newer catalog waits while Home's cards move (setting the offset would stop a fling). Images
-decode off the main thread; tall pages are drawn in slices (NativeKit's reader). NativeKit's
+decode off the main thread, those on screen first and at high priority, those ahead at low
+priority two at a time (a 57 MB page decoding ahead must not take the cores the screen needs);
+tall pages are drawn in slices made display-ready off the main thread (NativeKit's reader). NativeKit's
 FrameMonitor measures it on the phone: the app writes `debug-state.json` ("frames": dropped
 frames with what ran in them) when it leaves the screen; copy it with `devicectl device copy
-from`. October 13, 2026, Asura: 1263 scrolling frames, none over 25 ms.
+from`. October 13, 2026 (all six apps, Home right after launch and the reader): Asura 1263
+scrolling frames, EzScans 483, QiScans 319, Scythe 901 with none over 25 ms; Lua one and Yaksha
+three (the first appearance of 17000-pixel pages, since fixed by preparing slices off the main
+thread).
 
 All data stays in the web version's folder, `Application Support/<product>/shared`:
 progress, routes (Asura's rotating slugs), saved chapters and the image caches
