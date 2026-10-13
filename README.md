@@ -14,5 +14,10 @@ Reading should be instant and offline where possible. The sites' own pages are s
 ## How?
 We build our own structure from the provider's data. Infinite reader style on reader. full entries on home.
 
-## setup
-[notes.md](./notes.md)
+## Docs
+- [AGENTS.md](AGENTS.md): who owns the repository and where to start.
+- [apps/ios/README.md](apps/ios/README.md): the six apps: behaviour, code map, sites and their quirks, downloads, restore and performance rules, build, test, deploy, inspect, renewal.
+- [server/README.md](server/README.md): the PC Load/Save server.
+- [test.txt](test.txt): the owner's checklist of behaviour, with test series and sites.
+- [apps/ios/providers.json](apps/ios/providers.json): the supported sites.
+- The docs and investigations from before the native apps are in Git history, last at `ab11b36`; the web version's code at `74c6e21^`.
