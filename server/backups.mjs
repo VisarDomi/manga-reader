@@ -12,7 +12,7 @@ import { pathToFileURL } from 'node:url';
 
 export const PORT = 7711;
 export const ROOT = path.join(os.homedir(), '.local/share/manga-reader/backups');
-const PROVIDERS = ['asurascans', 'ezmanga', 'qimanga', 'yakshacomics', 'scythescans', 'luacomic'];
+const PROVIDERS = ['asurascans', 'ezmanga', 'qimanga', 'yakshacomics', 'scythescans', 'luacomic', 'violetscans'];
 const LIMIT = 5 * 1024 * 1024;
 
 function privateDirectory(directory) {

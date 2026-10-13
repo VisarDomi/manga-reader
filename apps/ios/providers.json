@@ -40,5 +40,12 @@
     "bundleIdentifier": "com.visar.YakshaReader",
     "key": "yakshacomics",
     "origin": "https://yakshacomics.com/"
+  },
+  "violet": {
+    "productName": "VioletReader",
+    "displayName": "Violet",
+    "bundleIdentifier": "com.visar.VioletReader",
+    "key": "violetscans",
+    "origin": "https://violetmanga.com/"
   }
 }

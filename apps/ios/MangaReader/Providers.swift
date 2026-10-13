@@ -81,6 +81,7 @@ enum Providers {
         case "scythescans": Scythe(http: http)
         case "yakshacomics": Yaksha(http: http)
         case "luacomic": Lua(http: http)
+        case "violetscans": Violet(http: http)
         case "qimanga": Angular(key: "qimanga", domain: "qimanga.com", api: "https://api.qimanga.com/api/v1", http: http)
         default: Angular(key: "ezmanga", domain: "ezmanga.org", api: "https://vapi.ezmanga.org/api/v1", http: http)
         }
@@ -731,6 +732,140 @@ struct Scythe: MangaProvider {
             return first
         }
         return joined.map { newer + $0 + listed } ?? listed
+    }
+}
+
+// MARK: - Violet (WordPress, MangaReader theme; violetscans.org moved to violetmanga.com)
+
+// Every page is sent `no-store` (which is what kept the Safari version from working); the app
+// reads pages itself, so that changes nothing here. A chapter is known by its address's own
+// path part (`<series>-chapter-<n>`), which then opens it whatever slug it starts with.
+struct Violet: MangaProvider {
+    let key = "violetscans"
+    let origin = URL(string: "https://violetmanga.com")!
+    let http: SiteClient
+    static let base = URL(string: "https://violetmanga.com")!
+
+    // /<series>-chapter-<n>/
+    static func route(_ path: String) -> (chapterId: String, number: String)? {
+        let segments = path.split(separator: "/").map(String.init)
+        guard segments.count == 1, let chapterId = segments.first,
+              let match = Web.first(#"^(.+)-chapter-([^/]+)$"#, in: chapterId), let number = match[2] else { return nil }
+        return (chapterId, number)
+    }
+
+    static func seriesSlug(_ href: String) -> String? {
+        Web.resolve(href, base).flatMap { Web.first(#"^/comics/([^/]+)/?$"#, in: $0.path)?[1] }
+    }
+
+    // The home page's Latest Comics (pinned series, then the 25 newest), then the same list's
+    // "load more" pages from 2 on (12 series each, comics only; page 1 repeats page 2). Past the last page the site answers
+    // {"success":false,"data":"No more posts"}: that, or a short page, ends the catalog. A
+    // failure throws (ending the walk on one would drop every series not yet read).
+    func home(_ cursor: String?) async throws -> HomePage {
+        guard let cursor else {
+            return try Self.parseHome(try await http.send(HTTPRequest(origin)).data)
+        }
+        guard let match = Web.first(#"^ajax:(\d+)$"#, in: cursor), let page = Int(match[1] ?? ""), page >= 2 else {
+            throw ProviderError.invalid("Invalid Violet home cursor: \(cursor)")
+        }
+        let request = HTTPRequest(URL(string: "https://violetmanga.com/wp-admin/admin-ajax.php")!, method: "POST",
+                                  headers: ["Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"],
+                                  body: Data(Web.query([("action", "load_more_manga_posts"), ("page", String(page))]).utf8),
+                                  retry: .reads)
+        return try Self.parseMore(try await http.send(request).data, page: page)
+    }
+
+    static let pageSize = 12
+
+    static func parseHome(_ data: Data) throws -> HomePage {
+        let cards = try HTMLDocument(data: data).select(".violet-latest-comics .latest-updates .bs")
+        let series = try readable(cards)
+        guard !series.isEmpty else { throw ProviderError.invalid("Violet Latest Comics is empty") }
+        return HomePage(series: series, nextCursor: "ajax:2")
+    }
+
+    static func parseMore(_ data: Data, page: Int) throws -> HomePage {
+        if let end = try? JSONSerialization.jsonObject(with: data) as? [String: Any], end["success"] as? Bool == false {
+            return HomePage(series: [], nextCursor: nil)
+        }
+        let cards = try HTMLDocument(data: data).select(".bs")
+        let series = try readable(cards)
+        return HomePage(series: series, nextCursor: cards.count < pageSize ? nil : "ajax:\(page + 1)")
+    }
+
+    // A page's cards without those the site sent incomplete; a page of cards none of which
+    // can be read is an error.
+    private static func readable(_ cards: [HTMLNode]) throws -> [HomeSeries] {
+        let series = cards.compactMap { try? card($0) }
+        if series.isEmpty && !cards.isEmpty { throw ProviderError.invalid("Violet's page had no readable series") }
+        return series
+    }
+
+    static func card(_ card: HTMLNode) throws -> HomeSeries {
+        guard let href = try card.first(".bsx > a[href*=\"/comics/\"]")?["href"], let slug = seriesSlug(href),
+              let cover = try card.first("img"), let title = try card.first(".tt")?.normalizedText, !title.isEmpty else {
+            throw ProviderError.invalid("Violet catalog card is incomplete")
+        }
+        var chapters: [HomeChapter] = [], seen = Set<String>()
+        for link in try card.select(".chapter-list > a[href]") {
+            // The card's last link is "All chapters" (the series page).
+            guard let chapterHref = link["href"], seriesSlug(chapterHref) == nil else { continue }
+            guard let path = Web.resolve(chapterHref, base)?.path, let route = route(path) else {
+                throw ProviderError.invalid("Invalid Violet home chapter URL: \(chapterHref)")
+            }
+            guard seen.insert(route.chapterId).inserted else { continue }
+            let label = try link.first(".epxs")?.normalizedText ?? ""
+            let time = try link.first(".epxdate")?.normalizedText ?? ""
+            let relative = time.range(of: #"^\d+\s+(?:minute|hour|day|week|month|year|second)s?$"#, options: [.regularExpression, .caseInsensitive]) != nil
+            chapters.append(HomeChapter(chapterId: route.chapterId, label: label.isEmpty ? "Chapter \(route.number)" : label,
+                                        uploadedAt: time.isEmpty ? nil : relative ? time + " ago" : time,
+                                        locked: try link.first(".fa-coins") != nil, unlockAt: nil))
+        }
+        let src = cover["src"] ?? cover["data-src"] ?? ""
+        return HomeSeries(slug: slug, title: title, coverUrl: Web.resolve(src, base)?.absoluteString ?? "", chapters: Array(chapters.prefix(5)))
+    }
+
+    func chapter(_ slug: String, _ chapterId: String) async throws -> ChapterData? {
+        guard let response = try await Web.chapterPage(http, URL(string: "https://violetmanga.com/\(chapterId)/")!) else { return nil }
+        return try Self.parseChapter(response.text, slug: slug, chapterId: chapterId)
+    }
+
+    // A coin-locked chapter answers with its page and `lock-status` instead of the reader: nil.
+    static func parseChapter(_ html: String, slug: String, chapterId: String) throws -> ChapterData? {
+        if html.contains("class=\"lock-status\"") { return nil }
+        guard let json = Web.first(#"ts_reader\.run\((\{[\s\S]*?\})\);?\s*</script>"#, in: html)?[1],
+              let data = try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any] else {
+            throw ProviderError.invalid("Chapter response did not contain reader data")
+        }
+        let sources = try Scythe.images(data)
+        let history = Web.first(#"HISTORY\.push\(\d+,\s*(\{[\s\S]*?\})\);?"#, in: html)?[1]
+            .flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
+        let listed = Web.first(#"<div class="allc">All chapters are in <a[^>]*>([^<]+)</a></div>"#, in: html)?[1]
+        guard let title = ((history?["manga_title"] as? String) ?? listed)?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty else {
+            throw ProviderError.invalid("Chapter response did not contain the series title")
+        }
+        return ChapterData(chapterId: chapterId, seriesSlug: slug, seriesTitle: title, images: sources.map { ChapterImage(url: $0) })
+    }
+
+    func chaptersNewestFirst(_ slug: String) async throws -> [String] {
+        try Self.parseList(try await http.send(HTTPRequest(URL(string: "https://violetmanga.com/comics/\(slug)/")!)).data)
+    }
+
+    // The series page's list, newest first. Coin-locked chapters have no address (they open a
+    // purchase dialog) and are left out, as the reader cannot open them.
+    static func parseList(_ data: Data) throws -> [String] {
+        let document = try HTMLDocument(data: data)
+        guard try document.first("#chapterlist") != nil else { throw ProviderError.invalid("Violet series page did not contain a chapter list") }
+        var chapters: [String] = [], seen = Set<String>()
+        for item in try document.select("#chapterlist li[data-num]") {
+            guard let href = try item.first("a[href]")?["href"] else { continue }
+            guard let path = Web.resolve(href, base)?.path, let route = route(path) else {
+                throw ProviderError.invalid("Invalid Violet chapter-list URL: \(href)")
+            }
+            if seen.insert(route.chapterId).inserted { chapters.append(route.chapterId) }
+        }
+        return chapters
     }
 }
 

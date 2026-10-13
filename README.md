@@ -1,5 +1,5 @@
 # Manga-reader
-Native iPhone apps (Asura, Scythe, Yaksha, QiScans, Lua, EzScans) that rework the supported providers into a fast reader.
+Native iPhone apps (Asura, Scythe, Yaksha, QiScans, Lua, EzScans, Violet) that rework the supported providers into a fast reader.
 
 ## What?
 The apps change the UI of the supported providers so that it's easier to read. Features:
@@ -16,7 +16,7 @@ We build our own structure from the provider's data. Infinite reader style on re
 
 ## Docs
 - [AGENTS.md](AGENTS.md): who owns the repository and where to start.
-- [apps/ios/README.md](apps/ios/README.md): the six apps: behaviour, code map, sites and their quirks, downloads, restore and performance rules, build, test, deploy, inspect, renewal.
+- [apps/ios/README.md](apps/ios/README.md): the seven apps: behaviour, code map, sites and their quirks, downloads, restore and performance rules, build, test, deploy, inspect, renewal.
 - [server/README.md](server/README.md): the PC Load/Save server.
 - [test.txt](test.txt): the owner's checklist of behaviour, with test series and sites.
 - [apps/ios/providers.json](apps/ios/providers.json): the supported sites.

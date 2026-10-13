@@ -96,6 +96,34 @@ struct MangaTests {
         expect(Scythe.route("/manga/x/") == nil && Scythe.route("/chapter-1/") == nil, "Scythe non-chapter paths")
         print("PASS: Scythe")
 
+        let violetHome = try Violet.parseHome(try fixture("violet-home.html"))
+        expect(violetHome.nextCursor == "ajax:2" && violetHome.series.count == 39, "Violet Latest Comics (14 pinned, 25 newest)")
+        let heiress = violetHome.series[0]
+        expect(heiress.slug == "im-the-heiress-of-a-villainous-household" && heiress.title == "I’m the Heiress of a Villainous Household"
+               && heiress.chapters[0].chapterId == "im-the-heiress-of-a-villainous-household-chapter-41" && heiress.chapters[0].label == "Chapter 41"
+               && heiress.chapters[0].uploadedAt == "NEW" && !heiress.chapters[0].locked && heiress.coverUrl.hasPrefix("https://violetmanga.com/"), "Violet card")
+        let empress = violetHome.series.first { $0.slug == "ill-quit-as-the-empress" }
+        expect(empress?.chapters.first { $0.chapterId == "ill-quit-as-the-empress-chapter-21" }.map { $0.locked && $0.uploadedAt == "1 day ago" } == true,
+               "Violet coin-locked chapter on Home")
+        expect(violetHome.series.allSatisfy { !$0.chapters.contains { $0.chapterId.hasPrefix("comics") } }, "Violet All chapters link is not a chapter")
+        let violetMore = try Violet.parseMore(try fixture("violet-more.html"), page: 2)
+        expect(violetMore.series.count == 12 && violetMore.nextCursor == "ajax:3"
+               && violetMore.series[0].slug == "the-reason-why-that-villainess-picked-up-a-sword", "Violet load more")
+        let violetEnd = try Violet.parseMore(Data(#"{"success":false,"data":"No more posts"}"#.utf8), page: 55)
+        expect(violetEnd.series.isEmpty && violetEnd.nextCursor == nil, "Violet catalog end")
+        let violetChapter = try Violet.parseChapter(try text("violet-chapter.html"), slug: "bj-villainess", chapterId: "bj-villainess-chapter-46")
+        expect(violetChapter?.images.count == 17 && violetChapter?.seriesTitle == "BJ Villainess"
+               && violetChapter?.images[0].url == "https://violetmanga.com/wp-content/uploads/manga/14e1df4c/01.webp", "Violet chapter from reader data")
+        expect(try Violet.parseChapter(try text("violet-locked.html"), slug: "ill-quit-as-the-empress", chapterId: "ill-quit-as-the-empress-chapter-21") == nil,
+               "Violet coin-locked chapter is unavailable")
+        let violetList = try Violet.parseList(try fixture("violet-series.html"))
+        expect(violetList.count == 46 && violetList[0] == "bj-villainess-chapter-46" && violetList.last == "bj-villainess-chapter-1", "Violet chapter list")
+        let violetLocked = try Violet.parseList(try fixture("violet-series-locked.html"))
+        expect(violetLocked.count == 20 && violetLocked[0] == "ill-quit-as-the-empress-chapter-20", "Violet list leaves out coin-locked chapters")
+        expect(Violet.route("/bj-villainess-chapter-46/")! == ("bj-villainess-chapter-46", "46") && Violet.route("/comics/bj-villainess/") == nil
+               && Violet.route("/chapter-1/") == nil, "Violet routes")
+        print("PASS: Violet")
+
         let yaksha = try Yaksha.parseHome(try fixture("yaksha-home.html"), page: 1)
         expect(yaksha.nextCursor == "2" && !yaksha.series.isEmpty && yaksha.series.allSatisfy { !$0.coverUrl.isEmpty }, "Yaksha home")
         expect(yaksha.series.contains { $0.chapters.contains { $0.uploadedAt?.isEmpty == false } }, "Yaksha dates")

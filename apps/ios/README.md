@@ -1,8 +1,8 @@
 # Manga Reader apps
 
-Six native iPhone apps, one per site: Asura, Scythe, Yaksha, QiScans, Lua and
-EzScans. UIKit and Swift 6, iOS 26, no WebKit. One Xcode target and one codebase
-build all six; the site is chosen at build time (`ReaderProvider` and
+Seven native iPhone apps, one per site: Asura, Scythe, Yaksha, QiScans, Lua,
+EzScans and Violet. UIKit and Swift 6, iOS 26, no WebKit. One Xcode target and one
+codebase build all seven; the site is chosen at build time (`ReaderProvider` and
 `ReaderOrigin` in Info.plist, from `providers.json` through
 `scripts/build-guest.py`). Never copy app logic per site. Shared parts (live screen
 stack, image pipeline, strip reader, HTTP client and cookie jar, durable files,
@@ -64,7 +64,7 @@ artwork (iOS supplies its standard fallback icon).
 | --- | --- |
 | `MangaReader/AppDelegate.swift` | Launch, the background app refresh task (`<bundle id>.refresh`, earliest 20 minutes after leaving), background URLSession events, the dark window. |
 | `MangaReader/AppController.swift` | The app object: data folder, site HTTP client (the site's origin as Referer, cookies), provider, image pipeline (192 MB, 6 decodes), screen stack (`navigation.json`), lifecycle hooks, simulator test-hook actions, the one-time `views.json` migration. |
-| `MangaReader/Providers.swift` | The six sites: catalog pages, chapters, chapter lists, first chapter. |
+| `MangaReader/Providers.swift` | The seven sites: catalog pages, chapters, chapter lists, first chapter. |
 | `MangaReader/Site.swift` | Every site request within the site's per-minute budget. |
 | `MangaReader/Downloads.swift` | `MetadataQueue` (screen work before background work), `ChapterSource` (saved chapters and lists first, the site when needed), `ImageFiles` (the only owner of image bytes; cover rechecks). |
 | `MangaReader/Library.swift` | The catalog walk, the download plan, pruning, page sizes recorded from images, positions, the hand-off to iOS's background session and background refresh. |
@@ -75,7 +75,7 @@ artwork (iOS supplies its standard fallback icon).
 | `Kit/` | Vendored NativeKit. Do not edit here (see Rules). |
 | `Resources/Info.plist` | The shared Info.plist; the builder sets `READER_PROVIDER`, `READER_DISPLAY_NAME` and `READER_ORIGIN` from `providers.json`. Background fetch, the refresh task ID, local network access for the PC. |
 | `Resources/Native/` | Private, ignored `BackupConfig.json` and `LocalCA.cer`, bundled as `Native/`. |
-| `providers.json` | The six apps: builder argument, product name, display name, bundle ID, site key, origin. |
+| `providers.json` | The seven apps: builder argument, product name, display name, bundle ID, site key, origin. |
 | `scripts/` | `build-guest.py` (builder), `build.sh`, `deploy.py`, `renewal.py`, `test.sh`. |
 | `Tests/` | `MangaTests.swift` with saved site responses in `Fixtures/`; `test_signing_lock.py`. |
 
@@ -89,6 +89,7 @@ artwork (iOS supplies its standard fallback icon).
 | qiscans | QiScans | qimanga | com.visar.QiMangaReader.paid |
 | lua | Lua | luacomic | com.visar.LuaReader.paid |
 | ezmanga | EzScans | ezmanga | com.visar.EzMangaReader.paid |
+| violet | Violet | violetscans | com.visar.VioletReader.paid |
 
 The site key names the site in reading progress and in the PC's files. The product
 name (`AsuraReader`, ...) names the data folder. Changing either orphans the
@@ -100,8 +101,8 @@ All site requests send the site's origin as Referer and time out after 20 s with
 data. Reads retry on lost connectivity and on 408, 429 and 5xx (honouring
 Retry-After), backing off from 1 s to 30 s. An entry the site sent incomplete is
 skipped, not the whole page (one QiScans series without a cover once stopped every
-catalog walk). Asura, EzScans and QiScans give page sizes; Lua, Scythe and Yaksha
-do not.
+catalog walk). Asura, EzScans and QiScans give page sizes; Lua, Scythe, Yaksha and
+Violet do not.
 
 - **Asura** (JSON API, `api.asurascans.com`). URL slugs carry a rotating hex
   suffix (`-[0-9a-f]{8}`); the series identity drops it, and `routes.json` keeps
@@ -140,6 +141,20 @@ do not.
   series page: it counts as unavailable. The list is each chapter row's own link
   (reading the number after "Chapter" lost titled chapters such as "Chapter 3 -
   Ashen City" and decimal ones such as `chapter-1-1` in 18 of 62 series).
+- **Violet** (WordPress, MangaReader theme; `violetmanga.com`, formerly
+  `violetscans.org`, whose site key the app keeps). Every page is sent
+  `Cache-Control: no-store`, which is why the Safari version could not keep it; the
+  app reads pages itself, so it does not matter. Catalog: the home page's Latest
+  Comics (pinned series, then the 25 newest), then the same list's "load more"
+  (`POST /wp-admin/admin-ajax.php`, `action=load_more_manga_posts&page=N`, 12 comics
+  a page from page 2; page 1 repeats page 2; novels load through another action).
+  Past the last page the site answers `{"success":false,"data":"No more posts"}`;
+  that or a short page ends the catalog, and a failed request throws (ending the
+  walk on one would drop every series not yet read). A chapter is its address's own
+  path part (`<series>-chapter-<n>`). Pages come from the inline `ts_reader.run`
+  data's default source; the title from `HISTORY.push`. A coin-locked chapter's
+  page shows `lock-status` (unavailable); in the series list it has no link (a
+  purchase dialog) and is left out; on Home its row carries `fa-coins`.
 
 ### Request budget and queue
 
@@ -210,7 +225,7 @@ atomically when it happens.
 - Covers: a cover on screen not asked about for six hours is asked again, lazily,
   one at a time, behind everything else, with a conditional request (ETag,
   Last-Modified; a cover from before validators were kept uses its file's date).
-  All six sites answer 304 with no bytes when it did not change. Only new bytes
+  All seven sites answer 304 with no bytes when it did not change. Only new bytes
   replace the file, and the card shows them in place.
 
 ## Restore and the main thread
@@ -262,7 +277,7 @@ Mac and phone access: [mac-access.md](../../../../../environment/mac-access.md)
 (`ssh mac`). If Ethernet `192.168.1.198` does not answer, ssh and `deploy.py` reach
 the Mac through its Wi-Fi automatically;
 `/home/visar/Documents/environment/mac-access/mac-connect --check` shows why. The
-Mac mirror is `/Users/visar/Developer/manga-reader/apps/ios` for all six apps.
+Mac mirror is `/Users/visar/Developer/manga-reader/apps/ios` for all seven apps.
 
 Deploy from the manga-reader root on this PC, one app at a time:
 
@@ -296,7 +311,7 @@ npm run test:ios:signing   # the builder's signing lock (this PC)
 npm run test:server        # the PC server (this PC)
 ```
 
-`scripts/test.sh` checks all six providers against saved responses
+`scripts/test.sh` checks all seven providers against saved responses
 (`Tests/Fixtures`, fetched through URLSession on the Mac), the reading state's
 format, migrations and rules, and the request budget. NativeKit's own tests run
 from ios-tools (`native/scripts/kit-test.sh`).
@@ -331,7 +346,7 @@ on the Mac.
 
 ## Renewal
 
-The six apps renew monthly through this repository's Mac scheduler,
+The seven apps renew monthly through this repository's Mac scheduler,
 `com.visar.renewal.manga-reader`; see the
 [renewal guide](../../../../ios-tools/renewal/README.md) and its paid-signing
 lessons. `scripts/renewal.py` lists the apps and fingerprints their inputs:
@@ -340,8 +355,8 @@ lessons. `scripts/renewal.py` lists the apps and fingerprints their inputs:
 (code, a re-vendored Kit, even a comment) blocks unattended renewal of every app
 that uses it until that app is deployed again with `deploy.py build` and `install`,
 which approve the new baseline. Approval is skipped when the inputs changed between
-build and install (another sync) or when the build was unsuffixed. The six apps
-share their inputs, so a change means deploying all six: the app the change is
+build and install (another sync) or when the build was unsuffixed. The seven apps
+share their inputs, so a change means deploying all seven: the app the change is
 about first (the owner tests each app as it appears on the phone).
 
 ## Rules

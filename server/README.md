@@ -12,7 +12,7 @@ server answers (`backups.mjs`, HTTPS on port 7711). The app side is described in
   unchanged.
 
 `<provider>` is the site key: `asurascans`, `scythescans`, `yakshacomics`,
-`qimanga`, `luacomic`, `ezmanga`. There is no automatic publishing, merging or
+`qimanga`, `luacomic`, `ezmanga`, `violetscans`. There is no automatic publishing, merging or
 polling. Each provider's `manual-manga-<provider>.json` holds the current and the
 previous complete snapshot. Load replaces only that provider's progress on the
 phone; the legacy `tokens` rows stay local.
@@ -26,7 +26,7 @@ get the PC's address and that key from the ignored
 `apps/ios/Resources/Native/BackupConfig.json`, and trust the PC's mkcert CA from
 `apps/ios/Resources/Native/LocalCA.cer`. Built app bundles contain the key: never
 publish them. Keep that folder, key included, when moving the service to another PC;
-a new key or address means updating `BackupConfig.json` and redeploying all six
+a new key or address means updating `BackupConfig.json` and redeploying all seven
 apps.
 
 ```sh
