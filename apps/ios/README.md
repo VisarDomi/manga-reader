@@ -50,6 +50,9 @@ Reader
 - Half a screen of space above the first page and below the last. Pinch or double
   tap zooms; the back swipe is off while zoomed. The screen does not lock while
   reading.
+  The same strip and image slices stay attached throughout a pinch. Sharper decodes,
+  page-size corrections and newly appended pages apply afterward, preserving the anchor;
+  a sharper version of an image never changes its page's layout again.
 
 Navigation: no bars. The left edge goes back (to the same Home, at once), the right
 edge goes forward to the screen last left. The whole stack, both directions, comes

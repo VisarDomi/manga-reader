@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build one provider (providers.json) with the common target; unsigned unless a team is supplied
 (SIMULATOR=1: an unsigned simulator build)."""
-import argparse, contextlib, fcntl, json, os, pathlib, plistlib, re, subprocess
+import argparse, contextlib, fcntl, json, os, pathlib, plistlib, re, subprocess, sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -23,6 +23,9 @@ def signing_lock(path):
             yield
 
 def main():
+    if not os.environ.get('IOS_WORKLOAD_ACTIVE'):
+        guard = pathlib.Path.home() / 'Developer/ios-tools/native/scripts/mac-workload'
+        os.execv(sys.executable, [sys.executable, str(guard), 'build', '--timeout', '900', '--', sys.executable, str(pathlib.Path(__file__).resolve()), *sys.argv[1:]])
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('provider')
     args = parser.parse_args()
@@ -46,7 +49,7 @@ def main():
     }
     config = output / 'Provider.xcconfig'
     config.write_text(''.join(f'{key} = {value}\n' for key, value in settings.items()))
-    common = ['xcodebuild', '-project', str(ROOT / 'MangaReader.xcodeproj'), '-scheme', 'MangaReader', '-configuration', 'Release',
+    common = ['xcodebuild', '-jobs', '2', '-project', str(ROOT / 'MangaReader.xcodeproj'), '-scheme', 'MangaReader', '-configuration', 'Release',
               '-xcconfig', str(config), '-derivedDataPath', str(ROOT / 'build' / 'DerivedData' / args.provider), 'SYMROOT=' + str(output)]
     if simulator:
         # Unsigned, for the simulator (no signing lock): build/<provider>/Release-iphonesimulator.
