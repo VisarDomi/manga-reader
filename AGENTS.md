@@ -8,3 +8,12 @@ Start here:
 - [Renewal](../../ios-tools/renewal/README.md): the monthly renewal of the paid-signed apps.
 
 Docs describe the apps as they are now; history stays in Git. Update them with the change that makes them stale.
+
+The viewer follows the user directly: free continuous scrolling, content loading in place,
+and pinch zoom of the same content. Never add snapping, automatic centering, page landing,
+runways or repositioning when scrolling stops. Loading, refreshes and player reuse preserve
+the visible position. Cached next chapters must append during continuous scrolling; do not
+require a scroll-end or settled-page check. Explicit navigation and restoration are separate.
+
+The manga page cache intentionally retains current and next chapters, plus chapters held
+by open readers. Preserve that policy; the owner explicitly declined keeping every download.

@@ -379,3 +379,11 @@ about first (the owner tests each app as it appears on the phone).
   identities).
 - When copying files into an app's container with `devicectl device copy to`,
   never pass `--remove-existing-content`.
+
+Continuous chapter loading uses the actual document end, independently of the last saved
+page. It reads cached chapter manifests before any provider request and appends during a
+continuous drag or deceleration. A newly cached next manifest wakes the reader directly.
+Stopping a scroll only saves progress; it never decides whether a cached chapter may appear.
+
+The current-and-next-chapter cache policy is intentional. Open reader chapters remain
+protected while those readers are held for going forward.

@@ -82,6 +82,7 @@ actor ChapterSource {
     private var lists: [String: [String]] = [:]
     private var listChecked: [String: Date] = [:]
     private var listeners: [@Sendable (String) -> Void] = []
+    private var chapterListeners: [@Sendable (String, String) -> Void] = []
 
     init(provider: any MangaProvider, files: ChapterFiles) {
         self.provider = provider
@@ -89,6 +90,7 @@ actor ChapterSource {
     }
 
     func onListChange(_ listener: @escaping @Sendable (String) -> Void) { listeners.append(listener) }
+    func onChapterChange(_ listener: @escaping @Sendable (String, String) -> Void) { chapterListeners.append(listener) }
 
     // A chapter's pages (nil: unavailable). The saved file answers at once; otherwise one
     // request per chapter, ahead of background work when `urgent`.
@@ -104,7 +106,9 @@ actor ChapterSource {
         }
         chapterTasks[key] = task
         defer { chapterTasks[key] = nil }
-        return try await task.value
+        let result = try await task.value
+        if result != nil { for listener in chapterListeners { listener(series, chapterId) } }
+        return result
     }
 
     func savedChapter(series: String, chapterId: String) async -> ChapterData? { await files.chapter(series, chapterId) }

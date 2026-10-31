@@ -43,6 +43,14 @@ final class AppController {
         pc = PCSave(state: library.state)
     }
 
+    #if targetEnvironment(simulator)
+    init(checkRoot: URL, provider: any MangaProvider) {
+        root = checkRoot
+        library = Library(provider: provider, root: root, bundleID: "com.visar.MangaReader.fixture")
+        pc = nil
+    }
+    #endif
+
     func makeNavigation() -> LiveNavigationController {
         // The screens come back as they were left, their images on the phone in the first frame.
         pipeline.beginRestore()

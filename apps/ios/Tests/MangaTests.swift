@@ -1,4 +1,5 @@
 import Foundation
+import KitNet
 
 func expect(_ condition: @autoclosure () throws -> Bool, _ message: String) {
     do { if try !condition() { print("FAIL: " + message); exit(1) } }
@@ -17,6 +18,28 @@ struct MangaTests {
         try providers()
         try store()
         try await budget()
+        try await retainedCache()
+    }
+
+    static func retainedCache() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let files = ImageFiles(root: root, http: HTTPClient(.init()), referer: "https://fixture.invalid/")
+        await files.setActive(false)
+        let pages = (1...3).map { ImageItem(url: "https://fixture.invalid/chapter-\($0).jpg", cover: false) }
+        for item in pages {
+            let file = files.url(item)
+            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data([1, 2, 3]).write(to: file)
+            try Data("image/jpeg".utf8).write(to: file.appendingPathExtension("mime"))
+        }
+        await files.setRetained(Set(pages.prefix(2).map(\.name)))
+        let current = await files.isComplete(pages[0]), next = await files.isComplete(pages[1]), outside = await files.isComplete(pages[2])
+        expect(current && next && !outside, "Only the current/next chapter or held-reader pages remain cached")
+        await files.setRetained([pages[1].name])
+        let previous = await files.isComplete(pages[0]), kept = await files.isComplete(pages[1])
+        expect(!previous && kept, "Advancing the active cache window keeps the next chapter and prunes unheld previous pages")
+        print("PASS: current-and-next-chapter cache policy")
     }
 
     // Background work stops at its share of the minute; work for the screen goes on.

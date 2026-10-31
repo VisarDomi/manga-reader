@@ -53,6 +53,14 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         let window = UIWindow(windowScene: scene)
         window.overrideUserInterfaceStyle = .dark
         window.backgroundColor = .black
+        #if targetEnvironment(simulator)
+        if ProcessInfo.processInfo.arguments.contains("-reader-check") {
+            window.rootViewController = ReaderChecks()
+            window.makeKeyAndVisible()
+            self.window = window
+            return
+        }
+        #endif
         window.rootViewController = AppController.shared.makeNavigation()
         window.makeKeyAndVisible()
         self.window = window

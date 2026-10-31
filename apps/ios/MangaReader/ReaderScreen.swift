@@ -102,6 +102,19 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
             // A reader can stay open for days: a list due again is checked on return.
             MainActor.assumeIsolated { self?.continueReading() }
         })
+        let source = app.library.chapters
+        Task { [weak self] in
+            await source.onChapterChange { [weak self] series, chapter in
+                Task { @MainActor [weak self] in
+                    guard let self, self.series == series, let last = parts.last,
+                          let list, let index = list.firstIndex(of: last.data.chapterId), index > 0,
+                          list[index - 1] == chapter else { return }
+                    if case .loading? = loads[chapter] { return }
+                    loads[chapter] = nil
+                    continueReading()
+                }
+            }
+        }
         if !openSaved() { Task { await open() } }
     }
 
@@ -198,6 +211,7 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
         restoring = nil
         report(chapter: chapterId, page: strip.currentPosition?.index ?? 0)
         // The whole list (for the chapters that follow) once the chapter is on screen.
+        continueReading()
         fetchList()
         // Settle once laid out (a reader that is never scrolled still counts and continues).
         DispatchQueue.main.async { [weak self] in
@@ -238,10 +252,11 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
         }
     }
 
-    // Reading the last chapter held: append the next one, or ask for the list again once due.
+    // Append from the actual end of the document, independently of the last settled page.
+    // A continuous drag can cross several cached chapters without ever reporting a settle.
     private func continueReading() {
-        guard let settled, let last = parts.last, settled.chapter == last.data.chapterId else { return }
-        if let list, let index = list.firstIndex(of: settled.chapter), index > 0 {
+        guard let last = parts.last else { return }
+        if let list, let index = list.firstIndex(of: last.data.chapterId), index > 0 {
             loadNewer(list[index - 1])
         } else if Date() >= listDue {
             fetchList()
@@ -269,7 +284,9 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
                 parts.append(Part(data: data, first: strip.pages.count))
                 strip.setFooter(nil)
                 strip.append(pages(data))
-                report(chapter: settled?.chapter ?? chapterId, page: settled?.index ?? 0)
+                if let position = strip.currentPosition, let (part, page) = locate(position.index) {
+                    report(chapter: part.data.chapterId, page: page)
+                }
             } catch {
                 loads[chapterId] = .failed(retryAt: Date().addingTimeInterval(15))
                 strip.setFooter("Failed to load chapter", color: UIColor(red: 1, green: 0.42, blue: 0.42, alpha: 1))
@@ -308,8 +325,21 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
         }
         app.library.savePosition(Library.Position(chapter: chapterId, index: index, fraction: position.fraction), series: series)
         stateChanged()
-        continueReading()
     }
 
     func stripNearEnd(_ strip: StripReaderView) { continueReading() }
+
+    #if targetEnvironment(simulator)
+    var checkState: [String: Any] {
+        ["chapters": parts.map(\.data.chapterId), "settledChapter": settled?.chapter ?? "", "strip": strip.state,
+         "height": strip.scrollView.contentSize.height, "offset": strip.scrollView.contentOffset.y]
+    }
+    func checkScrollToEnd(end: Bool) -> [String: Any] {
+        strip.scrollViewWillBeginDragging(strip.scrollView)
+        strip.scrollView.contentOffset.y = max(0, strip.scrollView.contentSize.height - strip.bounds.height)
+        strip.scrollViewDidScroll(strip.scrollView)
+        if end { strip.scrollViewDidEndDragging(strip.scrollView, willDecelerate: false) }
+        return checkState
+    }
+    #endif
 }
