@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 import KitCore
 import KitNet
 
@@ -9,16 +10,19 @@ import KitNet
 // the catalog. Work the screen asks for while it waits or runs becomes urgent (Urgency, read
 // by each of its requests through SiteClient).
 actor MetadataQueue {
-    private struct Waiter { let id: UUID; let key: String?; let urgency: Urgency; let continuation: CheckedContinuation<Bool, Never> }
+    private struct Waiter { let id: UUID; let key: String?; let urgency: Urgency; let preparation: Bool; let continuation: CheckedContinuation<Bool, Never> }
     private var running: [UUID: (key: String?, urgency: Urgency)] = [:]
     private var waiting: [Waiter] = []
+    private var readerBusy = false
 
-    func run<T: Sendable>(urgent: Bool, key: String?, _ work: @Sendable () async throws -> T) async throws -> T {
+    func run<T: Sendable>(urgent: Bool, key: String?, preparation: Bool = false, _ work: @Sendable () async throws -> T) async throws -> T {
         let id = UUID(), urgency = Urgency(urgent)
-        guard await acquire(id: id, key: key, urgency: urgency) else { throw CancellationError() }
+        guard await acquire(id: id, key: key, urgency: urgency, preparation: preparation) else { throw CancellationError() }
         defer { release(id) }
         return try await SiteClient.$urgency.withValue(urgency) { try await work() }
     }
+
+    func setReaderBusy(_ value: Bool) { readerBusy = value; pump() }
 
     func prioritize(_ key: String) {
         for item in running.values where item.key == key { item.urgency.raise() }
@@ -26,10 +30,10 @@ actor MetadataQueue {
         pump()
     }
 
-    private func acquire(id: UUID, key: String?, urgency: Urgency) async -> Bool {
+    private func acquire(id: UUID, key: String?, urgency: Urgency, preparation: Bool) async -> Bool {
         await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
-                waiting.append(Waiter(id: id, key: key, urgency: urgency, continuation: continuation))
+                waiting.append(Waiter(id: id, key: key, urgency: urgency, preparation: preparation, continuation: continuation))
                 pump()
             }
         } onCancel: {
@@ -54,8 +58,8 @@ actor MetadataQueue {
                 guard running.count < 6 else { return }
                 index = urgent
             } else {
-                guard running.count < 2, !running.values.contains(where: { $0.urgency.value }) else { return }
-                index = 0
+                guard !readerBusy, running.count < 2, !running.values.contains(where: { $0.urgency.value }) else { return }
+                index = waiting.firstIndex(where: { $0.preparation }) ?? 0
             }
             let waiter = waiting.remove(at: index)
             running[waiter.id] = (waiter.key, waiter.urgency)
@@ -91,6 +95,8 @@ actor ChapterSource {
 
     func onListChange(_ listener: @escaping @Sendable (String) -> Void) { listeners.append(listener) }
     func onChapterChange(_ listener: @escaping @Sendable (String, String) -> Void) { chapterListeners.append(listener) }
+    func setReaderBusy(_ value: Bool) async { await queue.setReaderBusy(value) }
+    func prioritize(_ keys: [String]) async { for key in keys { await queue.prioritize(key) } }
 
     // A chapter's pages (nil: unavailable). The saved file answers at once; otherwise one
     // request per chapter, ahead of background work when `urgent`.
@@ -100,7 +106,7 @@ actor ChapterSource {
         if urgent { await queue.prioritize(key) }
         if let task = chapterTasks[key] { return try await task.value }
         let task = Task { [provider, queue, files] () throws -> ChapterData? in
-            let data = try await queue.run(urgent: urgent, key: key) { try await provider.chapter(slug, chapterId) }
+            let data = try await queue.run(urgent: urgent, key: key, preparation: true) { try await provider.chapter(slug, chapterId) }
             if let data { await files.save(data, series: series) }
             return data
         }
@@ -150,7 +156,7 @@ actor ChapterSource {
         let key = "list:" + series
         if urgent { await queue.prioritize(key) }
         if let task = listTasks[series] { return try await task.value }
-        let task = Task { [provider, queue] in try await queue.run(urgent: urgent, key: key) { try await provider.chaptersNewestFirst(slug) } }
+        let task = Task { [provider, queue] in try await queue.run(urgent: urgent, key: key, preparation: true) { try await provider.chaptersNewestFirst(slug) } }
         listTasks[series] = task
         defer { listTasks[series] = nil }
         let fresh = try await task.value
@@ -197,8 +203,36 @@ struct ImageItem: Hashable, Sendable {
     var name: String { (cover ? "covers/" : "images/") + FileKey.sha256(url) }
 }
 
+// The decoder's canvas, not website attributes or a downsampled display bitmap.
+enum ImageDimensions {
+    static func read(_ file: URL) -> CGSize? {
+        if let values = try? DurableFile.readJSON([Double].self, from: file.appendingPathExtension("dimensions")),
+           values.count == 2, values.allSatisfy({ $0.isFinite && $0 > 0 }) {
+            return CGSize(width: values[0], height: values[1])
+        }
+        return measure(file)
+    }
+
+    static func measure(_ file: URL) -> CGSize? {
+        autoreleasepool {
+            let options = [kCGImageSourceShouldCache: false] as CFDictionary
+            guard let source = CGImageSourceCreateWithURL(file as CFURL, options),
+                  let image = CGImageSourceCreateImageAtIndex(source, 0, options),
+                  CGImageSourceGetStatusAtIndex(source, 0) == .statusComplete,
+                  image.width > 0, image.height > 0 else { return nil }
+            let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+            let orientation = (properties?[kCGImagePropertyOrientation] as? NSNumber)?.intValue ?? 1
+            let size = (5...8).contains(orientation)
+                ? CGSize(width: image.height, height: image.width)
+                : CGSize(width: image.width, height: image.height)
+            try? DurableFile.writeJSON([Double(size.width), Double(size.height)], to: file.appendingPathExtension("dimensions"))
+            return size
+        }
+    }
+}
+
 // The only owner of image bytes. Pages on screen load first (shared per image, dropped when
-// nobody waits); then the planned work in order: the chapters being read, every started
+// nobody waits); then the planned work in order: the chapters being read, every catalog
 // series' current and next chapter, then the catalog's covers. Images outside what is kept
 // are deleted; covers are kept.
 actor ImageFiles {
@@ -219,6 +253,8 @@ actor ImageFiles {
     private var coverObservers: [@Sendable (ImageItem) -> Void] = []
     private var rechecks: [ImageItem] = []
     private var recheckRunning = false
+    private var readerNames: Set<String>?
+    private var readerMetadataPending = false
     private var lastAsked: [String: Date] = [:]
 
     init(root: URL, http: HTTPClient, referer: String) {
@@ -264,8 +300,12 @@ actor ImageFiles {
     func file(_ item: ImageItem) async throws -> URL {
         if complete(item) { return url(item) }
         try Task.checkCancellation()
-        // On screen now: a slow background transfer of it gives way to an urgent one.
-        background.removeValue(forKey: item.name)?.cancel()
+        // Promote the existing work by awaiting it; never throw away bytes already arriving.
+        if let task = background[item.name] {
+            await task.value
+            try Task.checkCancellation()
+            if complete(item) { return url(item) }
+        }
         if foreground[item.name] == nil {
             foreground[item.name] = Transfer(task: Task { [http, referer, root] in
                 try await Self.download(item, http: http, referer: referer, root: root, priority: URLSessionTask.highPriority)
@@ -303,6 +343,10 @@ actor ImageFiles {
         let file = root.appendingPathComponent(item.name)
         let response = try await http.download(HTTPRequest(source, referer: referer, priority: priority), to: file) { response in
             guard response.statusCode == 200, response.mimeType?.hasPrefix("image/") == true else { throw URLError(.badServerResponse) }
+        }
+        guard ImageDimensions.measure(file) != nil else {
+            try? FileManager.default.removeItem(at: file)
+            throw URLError(.cannotDecodeContentData)
         }
         if item.cover { saveCheck(for: file, response: response) }
         try DurableFile.write(Data((response.mimeType ?? "image/jpeg").utf8), to: file.appendingPathExtension("mime"))
@@ -400,9 +444,17 @@ actor ImageFiles {
     }
 
     // What to download, in order (replacing the previous plan).
-    func setPlan(_ items: [ImageItem]) {
+    func prioritizeReader(_ items: [ImageItem], awaitingMetadata: Bool) {
+        let names = Set(items.map(\.name))
+        setPlan(items + plan.filter { !names.contains($0.name) }, readerNames: names, awaitingReaderMetadata: awaitingMetadata)
+    }
+
+    func setPlan(_ items: [ImageItem], readerNames: Set<String>? = nil, awaitingReaderMetadata: Bool = false) {
         plan = items
-        let wanted = Set(items.map(\.name))
+        self.readerNames = readerNames
+        readerMetadataPending = awaitingReaderMetadata
+        let restricted = readerNames != nil && (awaitingReaderMetadata || items.contains { readerNames!.contains($0.name) && !complete($0) })
+        let wanted = restricted ? readerNames! : Set(items.map(\.name))
         for (name, task) in background where !wanted.contains(name) { task.cancel() }
         pump()
     }
@@ -417,7 +469,7 @@ actor ImageFiles {
         scanned = true
         let folder = root.appendingPathComponent("images")
         let entries = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
-        for entry in entries where !entry.hasSuffix(".mime") && !entry.hasPrefix(".") {
+        for entry in entries where !entry.hasSuffix(".mime") && !entry.hasSuffix(".dimensions") && !entry.hasPrefix(".") {
             let name = "images/" + entry
             if retained?.contains(name) == false, foreground[name] == nil, background[name] == nil { remove(name) }
             await Task.yield()
@@ -428,6 +480,7 @@ actor ImageFiles {
         let file = root.appendingPathComponent(name)
         try? FileManager.default.removeItem(at: file)
         try? FileManager.default.removeItem(at: file.appendingPathExtension("mime"))
+        try? FileManager.default.removeItem(at: file.appendingPathExtension("dimensions"))
         done.remove(name)
     }
 
@@ -449,21 +502,37 @@ actor ImageFiles {
         return result
     }
 
-    func committed(_ name: String) { done.insert(name) }
+    func committed(_ name: String) {
+        guard let item = plan.first(where: { $0.name == name }) else { done.insert(name); return }
+        guard ImageDimensions.read(url(item)) != nil else { remove(name); pump(); return }
+        finished(item)
+        pump()
+    }
+
+    func invalidate(_ item: ImageItem) { invalidate(item.name) }
+    func invalidate(_ name: String) { remove(name); pump() }
+
+    func readerWorkPending() -> Bool {
+        guard let names = readerNames else { return false }
+        return readerMetadataPending || plan.contains { names.contains($0.name) && !complete($0) }
+    }
 
     private func pump() {
         guard active else { return }
         let limit = foreground.isEmpty ? 3 : 1
         guard background.count < limit else { return }
         let now = Date()
+        let restricted = readerWorkPending()
         for item in plan {
             guard background.count < limit else { return }
             if background[item.name] != nil || foreground[item.name] != nil || complete(item) { continue }
+            if restricted, readerNames?.contains(item.name) != true { continue }
             if let failure = failed[item.name], failure.retryAt > now { continue }
             background[item.name] = Task(priority: .utility) { [http, referer, root] in
                 let outcome: Error?
                 do {
-                    _ = try await Self.download(item, http: http, referer: referer, root: root, priority: URLSessionTask.lowPriority)
+                    _ = try await Self.download(item, http: http, referer: referer, root: root,
+                                                priority: item.cover ? URLSessionTask.lowPriority : URLSessionTask.defaultPriority)
                     outcome = nil
                 } catch { outcome = error }
                 self.backgroundFinished(item, error: outcome)

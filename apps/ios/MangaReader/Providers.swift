@@ -8,6 +8,12 @@ struct ChapterImage: Codable, Sendable, Equatable {
     var url: String
     var width: Double?
     var height: Double?
+    var dimensionsMeasured: Bool? = nil
+
+    var hasMeasuredDimensions: Bool {
+        dimensionsMeasured == true && width.map { $0.isFinite && $0 > 0 } == true
+            && height.map { $0.isFinite && $0 > 0 } == true
+    }
 }
 
 struct ChapterData: Codable, Sendable, Equatable {

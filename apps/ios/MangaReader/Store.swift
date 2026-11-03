@@ -329,14 +329,16 @@ actor ChapterFiles {
         catch { Log.store.error("Chapter not saved: \(error.localizedDescription, privacy: .public)") }
     }
 
-    // Page sizes learnt from the images themselves (sites that give none), so the next
+    // Page sizes measured from the image decoder (overriding site hints), so the next
     // opening lays the chapter out exactly.
     func recordSizes(_ sizes: [Int: CGSize], series: String, chapterId: String) {
         guard var data = chapter(series, chapterId) else { return }
         var changed = false
-        for (index, size) in sizes where data.images.indices.contains(index) && data.images[index].width == nil && size.width > 0 && size.height > 0 {
+        for (index, size) in sizes where data.images.indices.contains(index) && size.width.isFinite && size.height.isFinite && size.width > 0 && size.height > 0 {
+            if data.images[index].hasMeasuredDimensions && data.images[index].width == Double(size.width) && data.images[index].height == Double(size.height) { continue }
             data.images[index].width = Double(size.width)
             data.images[index].height = Double(size.height)
+            data.images[index].dimensionsMeasured = true
             changed = true
         }
         if changed { save(data, series: series) }

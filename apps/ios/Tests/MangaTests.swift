@@ -1,4 +1,7 @@
 import Foundation
+import CoreGraphics
+import ImageIO
+import KitCore
 import KitNet
 
 func expect(_ condition: @autoclosure () throws -> Bool, _ message: String) {
@@ -19,6 +22,86 @@ struct MangaTests {
         try store()
         try await budget()
         try await retainedCache()
+        try await measuredDimensions()
+        try await metadataPriority()
+    }
+
+    static func measuredDimensions() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let pixels = Data(repeating: 255, count: 12 * 20 * 4)
+        let provider = CGDataProvider(data: pixels as CFData)!
+        let bitmap = CGImage(width: 12, height: 20, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: 48,
+                             space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue),
+                             provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)!
+        for orientation in 1...8 {
+            let file = root.appendingPathComponent("orientation-\(orientation)")
+            let destination = CGImageDestinationCreateWithURL(file as CFURL, "public.jpeg" as CFString, 1, nil)!
+            CGImageDestinationAddImage(destination, bitmap, [kCGImagePropertyOrientation: orientation] as CFDictionary)
+            expect(CGImageDestinationFinalize(destination), "Image fixture writes")
+            let expected = orientation < 5 ? CGSize(width: 12, height: 20) : CGSize(width: 20, height: 12)
+            expect(ImageDimensions.measure(file) == expected, "Decoder canvas applies orientation \(orientation)")
+            expect(ImageDimensions.read(file) == expected, "Persisted dimensions survive a reopen")
+        }
+        let invalid = root.appendingPathComponent("invalid")
+        try Data("not an image".utf8).write(to: invalid)
+        expect(ImageDimensions.measure(invalid) == nil, "Unreadable bytes cannot publish page geometry")
+        let files = ChapterFiles(directory: root)
+        let chapter = ChapterData(chapterId: "1", seriesSlug: "s", seriesTitle: "Fixture",
+                                  images: [ChapterImage(url: "https://fixture.invalid/page.jpg", width: 999, height: 1)])
+        expect(!chapter.images[0].hasMeasuredDimensions, "Site attributes are not decoder measurements")
+        await files.save(chapter, series: "s")
+        await files.recordSizes([0: CGSize(width: 12, height: 20)], series: "s", chapterId: "1")
+        let reopened = await ChapterFiles(directory: root).chapter("s", "1")!
+        expect(reopened.images[0].hasMeasuredDimensions && reopened.images[0].width == 12 && reopened.images[0].height == 20,
+               "Measured dimensions replace incorrect site metadata and persist")
+
+        let images = ImageFiles(root: root, http: HTTPClient(.init()), referer: "https://fixture.invalid/")
+        await images.setActive(false)
+        let current = ImageItem(url: "https://fixture.invalid/current.jpg", cover: false)
+        let other = ImageItem(url: "https://fixture.invalid/other.jpg", cover: false)
+        await images.setPlan([current, other], readerNames: [current.name], awaitingReaderMetadata: true)
+        let awaitingMetadata = await images.readerWorkPending()
+        expect(awaitingMetadata, "Reader metadata blocks unrelated preparation")
+        await images.setPlan([current, other], readerNames: [current.name])
+        let awaitingBytes = await images.readerWorkPending()
+        expect(awaitingBytes, "Reader image bytes block unrelated preparation")
+        try DurableFile.write(try Data(contentsOf: root.appendingPathComponent("orientation-1")), to: images.url(current))
+        try DurableFile.write(Data("image/jpeg".utf8), to: images.url(current).appendingPathExtension("mime"))
+        await images.committed(current.name)
+        let ready = await images.readerWorkPending()
+        expect(!ready, "Unrelated entry work resumes as soon as the reader is ready")
+        await images.invalidate(current)
+        let invalidated = await images.isComplete(current)
+        expect(!invalidated, "A failed cached decode can download fresh bytes on automatic retry")
+        print("PASS: decoder dimensions, persisted correction and reader preparation barrier")
+    }
+
+    static func metadataPriority() async throws {
+        let queue = MetadataQueue(), occupied = TestGate(), preparation = TestGate(), urgent = TestGate()
+        let first = Task { try await queue.run(urgent: false, key: "first") { await occupied.wait() } }
+        await occupied.started()
+        await queue.setReaderBusy(true)
+        let catalog = Task { try await queue.run(urgent: false, key: "catalog") { 1 } }
+        let pages = Task { try await queue.run(urgent: false, key: "pages", preparation: true) { await preparation.wait() } }
+        let screen = Task { try await queue.run(urgent: true, key: "screen") { await urgent.wait() } }
+        await urgent.started()
+        for _ in 0..<250 {
+            if await queue.state["waiting"] == 2 { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let held = await queue.state
+        expect(held["running"] == 2 && held["waiting"] == 2, "Reader holds queued background metadata while urgent work proceeds")
+        await queue.setReaderBusy(false)
+        await urgent.release()
+        _ = try await screen.value
+        await preparation.started()
+        let prioritized = await queue.state
+        expect(prioritized["running"] == 2 && prioritized["waiting"] == 1, "Chapter preparation gets the released slot before catalog work")
+        await occupied.release(); await preparation.release()
+        _ = try await first.value; _ = try await pages.value; _ = try await catalog.value
+        print("PASS: reader metadata priority and preparation before catalog")
     }
 
     static func retainedCache() async throws {
@@ -201,4 +284,19 @@ struct MangaTests {
         expect(Catalog.merged([a, b, c], fresh: [newB], identity: id) == [newB, a, c], "An updated series moves to the top, the rest keep their order")
         print("PASS: chapter lists and catalog merge")
     }
+}
+
+private actor TestGate {
+    private var didStart = false
+    private var starters: [CheckedContinuation<Void, Never>] = []
+    private var completion: CheckedContinuation<Void, Never>?
+    func wait() async {
+        didStart = true
+        starters.forEach { $0.resume() }; starters.removeAll()
+        await withCheckedContinuation { completion = $0 }
+    }
+    func started() async {
+        if !didStart { await withCheckedContinuation { starters.append($0) } }
+    }
+    func release() { completion?.resume(); completion = nil }
 }

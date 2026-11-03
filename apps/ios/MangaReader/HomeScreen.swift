@@ -124,26 +124,21 @@ final class HomeScreen: UIViewController, LiveScreen, UITableViewDataSource, UIT
     // MARK: contents
 
     private var shownVersion = -1
-    private var catalogWaiting = false
-    private var rowsMoving: Bool { table.isTracking || table.isDragging || table.isDecelerating }
 
-    // A newer catalog keeps the cards on screen in place, which sets the offset and would stop a
-    // fling dead: one that arrives while a finger or momentum moves the cards waits until they stop.
+    // Publish updates as they arrive. Moving a finger never holds the catalog back.
     private func catalogChanged() {
         let library = app.library
-        if restored && rowsMoving && library.catalogVersion != shownVersion {
-            if !catalogWaiting { catalogWaiting = true; applyWhenStill() }
-            footer.status = statusText(loaded: series.count, total: library.catalog.total, loading: library.refreshing, error: library.catalogError)
-            return
-        }
-        catalogWaiting = false
         if library.catalogVersion != shownVersion || series.isEmpty != library.catalog.series.isEmpty {
             shownVersion = library.catalogVersion
             let anchor = restored ? currentAnchor : nil
+            let sameRows = series.map(library.identity) == library.catalog.series.map(library.identity)
             series = library.catalog.series
-            table.reloadData()
-            table.layoutIfNeeded()
-            if let anchor { restore(anchor) }
+            if sameRows { reloadVisible() }
+            else {
+                table.reloadData()
+                table.layoutIfNeeded()
+                if let anchor { restore(anchor) }
+            }
         }
         if !library.refreshing { refresh.endRefreshing() }
         if series.isEmpty {
@@ -223,17 +218,9 @@ final class HomeScreen: UIViewController, LiveScreen, UITableViewDataSource, UIT
     func scrollViewDidScroll(_ scrollView: UIScrollView) { app.pipeline.prioritiesChanged() }
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { monitor(true) }
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
-        if !decelerate { monitor(false); saveNow(); if catalogWaiting { catalogChanged() } }
+        if !decelerate { monitor(false); saveNow() }
     }
-    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { monitor(false); saveNow(); if catalogWaiting { catalogChanged() } }
-
-    // Also when the cards stop without a scroll's end (a tap stops a fling).
-    private func applyWhenStill() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            guard let self, catalogWaiting else { return }
-            if rowsMoving { applyWhenStill() } else { catalogChanged() }
-        }
-    }
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { monitor(false); saveNow() }
 
     private var monitoring = false
     private func monitor(_ moving: Bool) {

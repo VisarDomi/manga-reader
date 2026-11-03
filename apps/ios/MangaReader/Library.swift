@@ -7,10 +7,11 @@ import KitNet
 extension Notification.Name {
     static let catalogChanged = Notification.Name("MangaCatalogChanged")
     static let coverChanged = Notification.Name("MangaCoverChanged")
+    static let pageDimensionsKnown = Notification.Name("MangaPageDimensionsKnown")
 }
 
 // The app's model: the catalog (kept on the phone, refreshed in the background), reading
-// progress, saved chapters, and what downloads. Every started series keeps its current and
+// progress, saved chapters, and what downloads. Every catalog entry keeps its current and
 // next chapter on the phone; a new chapter downloads as soon as the catalog or a chapter list
 // shows it. The chapter being read comes first, then the most recently read series, then
 // the catalog's covers.
@@ -32,16 +33,21 @@ final class Library {
     private var readers: [ObjectIdentifier: Registered] = [:]
     private var positions: [String: Position]
     private var planScheduled = false
+    private var planRunning = false
+    private var planTask: Task<Void, Never>?
+    private var measuring = Set<String>()
+    private var planAgain = false
+    private var backgroundPreparing = Set<String>()
     private var preparing = Set<String>()
     private var unavailable: [String: Date] = [:]
+    private var preparationWake: Task<Void, Never>?
+    private var preparationWakeAt: Date?
     private var lastRefresh: Date?
     // Pages without a known size, by image file: where they belong.
     private var unsized: [String: (series: String, chapter: String, index: Int)] = [:]
-    private var sizes: [String: (series: String, chapter: String, sizes: [Int: CGSize])] = [:]
-    private var sizesScheduled = false
 
     // What a reader screen shows: its series, the chapters it holds and where it is.
-    struct Reading {
+    struct Reading: Equatable, Sendable {
         var series: String
         var slug: String
         var chapters: [String]
@@ -252,6 +258,7 @@ final class Library {
     func reading(_ screen: AnyObject, _ reading: Reading, visible: Bool) {
         let id = ObjectIdentifier(screen)
         if let known = readers[id], known.screen === screen {
+            if known.reading == reading && known.visible == visible { return }
             known.reading = reading
             if visible && !known.visible { known.shown = Date() }
             known.visible = visible
@@ -303,12 +310,13 @@ final class Library {
     // MARK: the download plan
 
     func planSoon() {
+        if planRunning { planAgain = true; planTask?.cancel(); return }
         guard !planScheduled else { return }
         planScheduled = true
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             planScheduled = false
-            Task { await self.plan() }
+            planTask = Task { await self.plan() }
         }
     }
 
@@ -320,29 +328,69 @@ final class Library {
     // Phase one reads only the phone (so nothing kept is deleted for want of the network);
     // missing chapters and lists are then asked for, each answer planning again. The main thread
     // only takes a snapshot of what to plan for and applies the outcome; the plan itself (every
-    // page and cover of every started series) is worked out off it.
+    // page and cover of every catalog entry) is worked out off it.
     private struct PlanInput: Sendable {
         var focused: Reading?
         var started: [(series: String, slug: String, chapter: String, page: Int, complete: Bool)]
         var open: [Reading]
+        var unstarted: [(series: String, slug: String)]
         var covers: [String]
     }
 
     private struct PlanOutput: Sendable {
         var unsized: [String: (series: String, chapter: String, index: Int)] = [:]
         var completedUnsized: [String] = []
-        var missing: [(series: String, slug: String, chapter: String)] = []
-        var listless: [(series: String, slug: String)] = []
+        var missing: [(series: String, slug: String, chapter: String, urgent: Bool)] = []
+        var listless: [(series: String, slug: String, urgent: Bool)] = []
+        var items: [ImageItem] = []
+        var retained = Set<String>()
+        var readerNames: Set<String>?
+        var readerMetadataPending = false
     }
 
     private func plan() async {
-        readers = readers.filter { $0.value.screen != nil }
-        let input = PlanInput(focused: focused, started: state.started.map { ($0.seriesSlug, slug($0.seriesSlug), $0.chapterId, $0.imageIndex, $0.complete) },
-                              open: readers.values.map(\.reading), covers: catalog.series.map(\.coverUrl))
-        let output = await Self.plan(input, chapters: chapters, images: images)
-        unsized = output.unsized
-        for name in output.completedUnsized { finished(name) }
-        prepare(missing: output.missing, lists: output.listless)
+        if planRunning { planAgain = true; planTask?.cancel(); return }
+        planRunning = true
+        defer {
+            planRunning = false; planTask = nil
+            if planAgain { planAgain = false; planSoon() }
+        }
+        repeat {
+            planAgain = false
+            readers = readers.filter { $0.value.screen != nil }
+            let started = state.started
+            let startedIDs = Set(started.map(\.seriesSlug))
+            let unstarted = catalog.series.compactMap { entry -> (series: String, slug: String)? in
+                let id = identity(entry)
+                return startedIDs.contains(id) ? nil : (id, entry.slug)
+            }
+            let input = PlanInput(focused: focused, started: started.map { ($0.seriesSlug, slug($0.seriesSlug), $0.chapterId, $0.imageIndex, $0.complete) },
+                                  open: readers.values.map(\.reading), unstarted: unstarted, covers: catalog.series.map(\.coverUrl))
+            // Admit the reader before scanning a large Home catalog. The old background
+            // plan stays retained until the complete replacement has been computed.
+            if let focused = input.focused {
+                let reader = await Self.plan(PlanInput(focused: focused, started: [], open: [], unstarted: [], covers: []), chapters: chapters, images: images)
+                if Task.isCancelled { break }
+                unsized.merge(reader.unsized, uniquingKeysWith: { _, new in new })
+                await images.prioritizeReader(reader.items, awaitingMetadata: reader.readerMetadataPending)
+                await chapters.prioritize(reader.missing.map { FileKey.chapter($0.series, $0.chapter) }
+                                          + reader.listless.map { "list:" + $0.series })
+                await chapters.setReaderBusy(await images.readerWorkPending())
+                for name in reader.completedUnsized { finished(name) }
+                prepare(missing: reader.missing, lists: reader.listless)
+            }
+            let output = await Self.plan(input, chapters: chapters, images: images)
+            if Task.isCancelled { break }
+            if planAgain { continue }
+            unsized = output.unsized
+            await images.setPlan(output.items, readerNames: output.readerNames, awaitingReaderMetadata: output.readerMetadataPending)
+            await images.setRetained(output.retained)
+            await chapters.prioritize(output.missing.filter(\.urgent).map { FileKey.chapter($0.series, $0.chapter) }
+                                      + output.listless.filter(\.urgent).map { "list:" + $0.series })
+            await chapters.setReaderBusy(await images.readerWorkPending())
+            for name in output.completedUnsized { finished(name) }
+            prepare(missing: output.missing, lists: output.listless)
+        } while planAgain
     }
 
     private nonisolated static func plan(_ input: PlanInput, chapters: ChapterSource, images: ImageFiles) async -> PlanOutput {
@@ -350,82 +398,127 @@ final class Library {
         var items: [ImageItem] = [], retained = Set<String>(), seen = Set<String>()
         func add(_ data: ChapterData, series: String, from page: Int = 0) {
             let pages = data.images.map { ImageItem(url: $0.url, cover: false) }
-            for (index, image) in data.images.enumerated() where image.width == nil { output.unsized[pages[index].name] = (series, data.chapterId, index) }
-            let start = min(max(0, page), pages.count)
-            for item in pages[start...] + pages[..<start] where seen.insert(item.name).inserted { items.append(item) }
+            for (index, image) in data.images.enumerated() where !image.hasMeasuredDimensions { output.unsized[pages[index].name] = (series, data.chapterId, index) }
+            // The requested image first; then earlier boxes can become known without
+            // waiting for every later page in this chapter to finish downloading.
+            if pages.indices.contains(page), seen.insert(pages[page].name).inserted { items.append(pages[page]) }
+            for item in pages where seen.insert(item.name).inserted { items.append(item) }
             retained.formUnion(pages.map(\.name))
         }
-        func want(_ series: String, _ slug: String, _ chapter: String, from page: Int = 0) async {
+        func want(_ series: String, _ slug: String, _ chapter: String, from page: Int = 0, urgent: Bool = false) async {
             if let data = await chapters.savedChapter(series: series, chapterId: chapter) { add(data, series: series, from: page) }
-            else { output.missing.append((series, slug, chapter)) }
+            else { output.missing.append((series, slug, chapter, urgent))
+                if urgent { output.readerMetadataPending = true } }
         }
         // The chapter on screen from its page on, then the next one.
         if let reading = input.focused {
-            await want(reading.series, reading.slug, reading.chapter, from: reading.page)
-            if let list = await chapters.knownList(series: reading.series), let next = newer(than: reading.chapter, in: list) {
-                await want(reading.series, reading.slug, next)
+            if !reading.chapter.isEmpty { await want(reading.series, reading.slug, reading.chapter, from: reading.page, urgent: true) }
+            else { output.readerMetadataPending = true }
+            if let list = await chapters.knownList(series: reading.series) {
+                if let next = newer(than: reading.chapter, in: list) { await want(reading.series, reading.slug, next, urgent: true) }
+            } else {
+                output.listless.append((reading.series, reading.slug, true))
+                output.readerMetadataPending = true
             }
+            output.readerNames = Set(items.map(\.name))
         }
         for progress in input.started {
+            if Task.isCancelled { return output }
             let list = await chapters.knownList(series: progress.series)
             let age = await chapters.listAge(progress.series)
-            if list == nil || age > 900 { output.listless.append((progress.series, progress.slug)) }
+            if list == nil || age > 900 { output.listless.append((progress.series, progress.slug, false)) }
             let next = list.flatMap { newer(than: progress.chapter, in: $0) }
             for chapter in progress.complete ? [next, progress.chapter] : [progress.chapter, next] {
                 if let chapter { await want(progress.series, progress.slug, chapter, from: chapter == progress.chapter ? progress.page : 0) }
             }
         }
+        // Home prepares every entry, including the first/next pair of unread series.
+        for entry in input.unstarted {
+            if Task.isCancelled { return output }
+            if let list = await chapters.knownList(series: entry.series), let first = list.last {
+                await want(entry.series, entry.slug, first)
+                if let next = newer(than: first, in: list) { await want(entry.series, entry.slug, next) }
+            } else { output.listless.append((entry.series, entry.slug, false)) }
+        }
         // Chapters open in readers stay while they are open.
         for reading in input.open {
+            if Task.isCancelled { return output }
             for chapter in reading.chapters {
                 if let data = await chapters.savedChapter(series: reading.series, chapterId: chapter) {
                     retained.formUnion(data.images.map { ImageItem(url: $0.url, cover: false).name })
-                    for (index, image) in data.images.enumerated() where image.width == nil {
+                    for (index, image) in data.images.enumerated() where !image.hasMeasuredDimensions {
                         output.unsized[ImageItem(url: image.url, cover: false).name] = (reading.series, chapter, index)
                     }
                 }
             }
         }
         for url in input.covers where !url.isEmpty {
+            if Task.isCancelled { return output }
             let item = ImageItem(url: url, cover: true)
             if seen.insert(item.name).inserted { items.append(item) }
         }
-        await images.setRetained(retained)
-        await images.setPlan(items)
+        output.items = items
+        output.retained = retained
         output.completedUnsized = await images.completed(Array(output.unsized.keys))
         return output
     }
 
-    private func prepare(missing: [(series: String, slug: String, chapter: String)], lists: [(series: String, slug: String)]) {
+    private func prepare(missing: [(series: String, slug: String, chapter: String, urgent: Bool)], lists: [(series: String, slug: String, urgent: Bool)]) {
         let now = Date()
-        for (series, slug, chapter) in missing {
+        for (series, slug, chapter, urgent) in missing {
             let key = FileKey.chapter(series, chapter)
-            if preparing.contains(key) || unavailable[key].map({ now.timeIntervalSince($0) < 900 }) == true { continue }
+            if preparing.contains(key) || unavailable[key].map({ $0 > now }) == true { continue }
+            if !urgent && backgroundPreparing.count >= 2 { continue }
             preparing.insert(key)
+            if !urgent { backgroundPreparing.insert(key) }
             Task {
                 do {
-                    if try await chapters.chapter(series: series, slug: slug, chapterId: chapter, urgent: false) == nil { unavailable[key] = Date() }
-                    else { planSoon() }
-                } catch { unavailable[key] = Date().addingTimeInterval(-840) }
-                preparing.remove(key)
+                    if try await chapters.chapter(series: series, slug: slug, chapterId: chapter, urgent: urgent) == nil {
+                        unavailable[key] = Date().addingTimeInterval(urgent ? 15 : 900)
+                    } else { unavailable[key] = nil }
+                } catch { unavailable[key] = Date().addingTimeInterval(urgent ? 15 : 60) }
+                preparing.remove(key); backgroundPreparing.remove(key)
+                planSoon()
+                if let retryAt = unavailable[key] { retryPreparation(at: retryAt) }
             }
         }
-        for (series, slug) in lists {
+        for (series, slug, urgent) in lists {
             let key = "list:" + series
-            if preparing.contains(key) { continue }
+            if preparing.contains(key) || unavailable[key].map({ $0 > now }) == true { continue }
+            if !urgent && backgroundPreparing.count >= 2 { continue }
             preparing.insert(key)
+            if !urgent { backgroundPreparing.insert(key) }
             Task {
-                if (try? await chapters.fetchList(series: series, slug: slug, urgent: false)) != nil { planSoon() }
-                preparing.remove(key)
+                if (try? await chapters.fetchList(series: series, slug: slug, urgent: urgent)) == nil {
+                    let retryAt = Date().addingTimeInterval(urgent ? 15 : 60)
+                    unavailable[key] = retryAt
+                    retryPreparation(at: retryAt)
+                } else { unavailable[key] = nil }
+                preparing.remove(key); backgroundPreparing.remove(key)
+                planSoon()
             }
+        }
+        if let next = unavailable.values.filter({ $0 > now }).min() { retryPreparation(at: next) }
+    }
+
+    private func retryPreparation(at date: Date) {
+        guard preparationWakeAt.map({ $0 > date }) ?? true else { return }
+        preparationWake?.cancel()
+        preparationWakeAt = date
+        preparationWake = Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(max(0, date.timeIntervalSinceNow))) }
+            catch { return }
+            self?.preparationWakeAt = nil
+            self?.preparationWake = nil
+            self?.planSoon()
         }
     }
 
     // A chapter with every page size that can be known before its images show: the saved
-    // sizes, else those of pages already on the phone (read from their headers, and saved),
+    // sizes, else those of pages already on the phone (measured by the decoder, and saved),
     // so the strip is laid out once and nothing moves while it loads.
     func sized(_ data: ChapterData, series: String) async -> ChapterData {
-        let missing = data.images.indices.filter { data.images[$0].width == nil }
+        let missing = data.images.indices.filter { !data.images[$0].hasMeasuredDimensions }
         guard !missing.isEmpty else { return data }
         let names = missing.map { ImageItem(url: data.images[$0].url, cover: false).name }
         let ready = Set(await images.completed(names))
@@ -442,19 +535,21 @@ final class Library {
         for (index, size) in found {
             data.images[index].width = Double(size.width)
             data.images[index].height = Double(size.height)
+            data.images[index].dimensionsMeasured = true
         }
         await chapters.files.recordSizes(found, series: series, chapterId: data.chapterId)
         return data
     }
 
-    // The same at once, from the pages already on the phone (their headers only), for a chapter
+    // The same at once, from the pages already on the phone (without decoding display bitmaps), for a chapter
     // laid out before the first frame; the sizes found are saved afterwards.
     func sizedNow(_ data: ChapterData, series: String) -> ChapterData {
         var data = data, found: [Int: CGSize] = [:]
-        for index in data.images.indices where data.images[index].width == nil {
+        for index in data.images.indices where !data.images[index].hasMeasuredDimensions {
             guard let file = images.localFile(ImageItem(url: data.images[index].url, cover: false)), let size = Library.pixelSize(file) else { continue }
             data.images[index].width = Double(size.width)
             data.images[index].height = Double(size.height)
+            data.images[index].dimensionsMeasured = true
             found[index] = size
         }
         if !found.isEmpty {
@@ -464,38 +559,30 @@ final class Library {
         return data
     }
 
-    nonisolated static func pixelSize(_ file: URL) -> CGSize? {
-        guard let source = CGImageSourceCreateWithURL(file as CFURL, nil),
-              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
-              let width = properties[kCGImagePropertyPixelWidth] as? Int, let height = properties[kCGImagePropertyPixelHeight] as? Int,
-              width > 0, height > 0 else { return nil }
-        return CGSize(width: width, height: height)
-    }
+    nonisolated static func pixelSize(_ file: URL) -> CGSize? { ImageDimensions.read(file) }
 
-    // An image arrived: a page of unknown size has its size recorded (in batches).
-    private func finished(_ item: ImageItem) { finished(item.name) }
+    // Persist measured geometry before telling the reader that its page box is ready.
+    private func finished(_ item: ImageItem) { if !item.cover { finished(item.name) } }
 
     private func finished(_ name: String) {
-        guard let place = unsized.removeValue(forKey: name) else { return }
-        let file = images.root.appendingPathComponent(name)
-        Task.detached(priority: .utility) {
-            guard let size = Library.pixelSize(file) else { return }
-            await MainActor.run { [weak self] in self?.record(size, at: place) }
-        }
-    }
-
-    private func record(_ size: CGSize, at place: (series: String, chapter: String, index: Int)) {
-        let key = FileKey.chapter(place.series, place.chapter)
-        sizes[key, default: (place.series, place.chapter, [:])].sizes[place.index] = size
-        guard !sizesScheduled else { return }
-        sizesScheduled = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
-            guard let self else { return }
-            sizesScheduled = false
-            let batch = sizes
-            sizes = [:]
-            let files = chapters.files
-            Task { for entry in batch.values { await files.recordSizes(entry.sizes, series: entry.series, chapterId: entry.chapter) } }
+        guard let place = unsized[name] else { planSoon(); return }
+        guard measuring.insert(name).inserted else { return }
+        let file = images.root.appendingPathComponent(name), files = chapters.files, images = images
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let size = Library.pixelSize(file)
+            if let size { await files.recordSizes([place.index: size], series: place.series, chapterId: place.chapter) }
+            else { await images.invalidate(name) }
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                self.measuring.remove(name)
+                if let size {
+                    self.unsized[name] = nil
+                    NotificationCenter.default.post(name: .pageDimensionsKnown, object: nil,
+                        userInfo: ["series": place.series, "chapter": place.chapter, "index": place.index,
+                                   "width": Double(size.width), "height": Double(size.height)])
+                }
+                self.planSoon()
+            }
         }
     }
 

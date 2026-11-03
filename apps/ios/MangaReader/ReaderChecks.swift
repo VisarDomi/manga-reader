@@ -9,6 +9,7 @@ final class ReaderChecks: UIViewController {
     private var app: AppController?
     private var reader: ReaderScreen?
     private var error: String?
+    private var homePrepared = false
     private let requests = ReaderCheckRequests()
 
     override func viewDidLoad() {
@@ -29,7 +30,7 @@ final class ReaderChecks: UIViewController {
 
     private var state: [String: Any] {
         ["reader": reader?.checkState ?? [:], "chapterRequests": requests.count,
-         "error": error ?? "", "ready": reader != nil,
+         "error": error ?? "", "ready": reader != nil, "homePrepared": homePrepared,
          "cachedPages": app.map { (try? FileManager.default.contentsOfDirectory(atPath: $0.root.appendingPathComponent("images").path))?.filter { $0.hasSuffix(".mime") }.count ?? 0 } ?? 0]
     }
 
@@ -45,10 +46,34 @@ final class ReaderChecks: UIViewController {
                     UIColor.white.setFill(); context.fill(CGRect(x: 0, y: y, width: 320, height: 2))
                 }
             }.jpegData(compressionQuality: 0.8)!
+            let entries = ["unread-a", "unread-b"].map { HomeSeries(slug: $0, title: $0, coverUrl: "", chapters: []) }
+            try DurableFile.writeJSON(Catalog(series: entries, complete: true), to: root.appendingPathComponent("catalog.json"))
             let app = AppController(checkRoot: root, provider: OfflineReaderCheckProvider(requests: requests))
             self.app = app
+            await app.library.images.setActive(false)
+            var homePages: [ImageItem] = [], outside: [ImageItem] = []
+            for entry in entries {
+                for number in 1...3 {
+                    let image = ChapterImage(url: "https://reader-fixture.invalid/\(entry.slug)/\(number).jpg", width: 999, height: 1)
+                    let data = ChapterData(chapterId: String(number), seriesSlug: entry.slug, seriesTitle: entry.title, images: [image])
+                    await app.library.chapters.files.save(data, series: entry.slug)
+                    let item = ImageItem(url: image.url, cover: false)
+                    try DurableFile.write(jpeg, to: app.library.images.url(item))
+                    try DurableFile.write(Data("image/jpeg".utf8), to: app.library.images.url(item).appendingPathExtension("mime"))
+                    if number < 3 { homePages.append(item) } else { outside.append(item) }
+                }
+                await app.library.chapters.files.saveList(["3", "2", "1"], series: entry.slug)
+            }
+            app.library.planSoon()
+            for _ in 0..<250 {
+                if await app.library.images.state["planned"] == 4 { break }
+                try await Task.sleep(for: .milliseconds(20))
+            }
+            let retained = await app.library.images.completed(homePages.map(\.name))
+            let removed = await app.library.images.completed(outside.map(\.name))
+            homePrepared = retained.count == 4 && removed.isEmpty && app.library.state.started.isEmpty
             for number in 1...8 {
-                let images = (0..<4).map { page in ChapterImage(url: "https://reader-fixture.invalid/\(number)/\(page).jpg", width: 320, height: 480) }
+                let images = (0..<4).map { page in ChapterImage(url: "https://reader-fixture.invalid/\(number)/\(page).jpg", width: 999, height: 1) }
                 let data = ChapterData(chapterId: String(number), seriesSlug: "fixture", seriesTitle: "Continuous reader", images: images)
                 await app.library.chapters.files.save(data, series: "fixture")
                 for image in images {

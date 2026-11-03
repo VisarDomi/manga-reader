@@ -32,8 +32,9 @@ Home
 
 Reader
 - The series as one vertical strip: the chapter opened, then each newer chapter
-  appended when reading reaches the last one held (exactly once; never older
-  ones). Next follows the site's list order, not chapter numbers.
+  appended immediately when cached (exactly once; never older ones). Uncached
+  preparation covers the visible current/next pair. Next follows the site's list
+  order, not chapter numbers.
 - When scrolling settles, the page at the screen's centre is the series' progress;
   the exact point (that page and how far down it) goes to `positions.json`.
   Opening a chapter at a saved page puts that page's top at the top of the screen;
@@ -51,8 +52,8 @@ Reader
   tap zooms; the back swipe is off while zoomed. The screen does not lock while
   reading.
   The same strip and image slices stay attached throughout a pinch. Sharper decodes,
-  page-size corrections and newly appended pages apply afterward, preserving the anchor;
-  a sharper version of an image never changes its page's layout again.
+  newly appended pages apply afterward, preserving the anchor. Decoder-measured boxes
+  stay fixed through image arrival and sharper decodes.
 
 Navigation: no bars. The left edge goes back (to the same Home, at once), the right
 edge goes forward to the screen last left. The whole stack, both directions, comes
@@ -105,7 +106,8 @@ data. Reads retry on lost connectivity and on 408, 429 and 5xx (honouring
 Retry-After), backing off from 1 s to 30 s. An entry the site sent incomplete is
 skipped, not the whole page (one QiScans series without a cover once stopped every
 catalog walk). Asura, EzScans and QiScans give page sizes; Lua, Scythe, Yaksha and
-Violet do not.
+Violet do not. Site sizes are hints only: ImageIO measures the actual canvas and
+applies EXIF orientation before a page box is published.
 
 - **Asura** (JSON API, `api.asurascans.com`). URL slugs carry a rotating hex
   suffix (`-[0-9a-f]{8}`); the series identity drops it, and `routes.json` keeps
@@ -167,9 +169,10 @@ EzScans 50 a minute, of which background work may use 30; the others 120, of whi
 wait is over. Every request to a site's pages or API goes through it.
 
 `MetadataQueue` runs up to six pieces of work for the screen at once. Background
-work (catalog pages, the plan's chapters and lists) runs two at a time and waits
-while any screen work runs, so a chapter being opened never shares the site with
-it. Background work the screen then asks for becomes urgent. List pages are asked
+work runs two at a time, with chapter/list preparation before catalog pages.
+Queued background metadata waits until the visible reader's current and next
+chapter metadata and images are ready. Background work the screen then asks for
+becomes urgent. List pages are asked
 four at a time for the screen, one at a time in the background.
 
 Opening a series never started asks only for its first chapter (from a kept list,
@@ -197,21 +200,33 @@ atomically when it happens.
   `["chapters","<series>"]`). A list file's date is when the site last gave it, so a
   relaunch does not ask for every list again.
 - `images/` and `covers/`: `<sha256(url)>`, complete only once its `.mime` marker
-  exists; a cover's validators are in `<file>.check`.
+  exists; decoder dimensions are in `<file>.dimensions`, and a cover's validators
+  are in `<file>.check`.
 - `debug-state.json`: written whenever the app leaves the screen (see Inspect).
 
 ## Catalog, downloads, covers and pruning
+
+The preparation order is the owner's explicit contract. Home prepares metadata
+and image bytes for every entry's current and immediate next chapter; an unread
+entry starts at its first chapter without changing reading progress. In a reader,
+the current image comes first, then the remaining current-chapter images, then
+the next chapter. Other entries resume background preparation after that reader's
+work is ready. Cached work is reused and promoted when needed. Page dimensions
+are obtained before its box is published; decoded pixels fill the reserved box
+without stretching or loading-time geometry changes.
 
 - The catalog walk: a full walk (up to three pages in flight; at its end, series
   the site no longer lists go) when the phone's catalog is empty, incomplete or a
   day old; otherwise pages from the newest until one changes nothing. A series seen
   twice in one walk (latest updates, then the catalog) merges its new chapters into
   the first row, up to five.
-- Every started series keeps its current and next chapter on the phone (not the
-  previous one); once the current one is finished, the next comes first.
+- Every catalog entry keeps its current and next chapter on the phone (not the
+  previous one); unread entries prepare their first pair without changing progress.
+  Once the current chapter is finished, the next comes first.
 - Order: pages on screen first (shared per image, dropped when nobody waits); then
   the plan: the chapter being read from the page on screen, then its next; then
-  every started series, the most recently read first; then every catalog cover.
+  every started series, the most recently read first; then unread entries; then
+  every catalog cover. Unrelated entries wait while the reader's pair is incomplete.
   Planned files download three at a time, one while pages on screen load; a failed
   one waits 15 s, doubling up to 10 minutes.
 - A new chapter is noticed as soon as Home's catalog or a chapter list shows it.
@@ -242,8 +257,10 @@ how to measure them.
   out its saved chapter at once, and the screens below are built while the top one
   shows, so going back finds them complete.
 - Nothing moves while images load: page sizes are known before a chapter is laid
-  out, from the site or recorded from the images on the phone into the chapter
-  file. A page of unknown size waits at 1000 points until its image says.
+  out, measured from the image decoder and persisted in the chapter file.
+  Pages with unknown geometry wait offscreen; exact boxes append in order.
+  No estimated-height placeholder is published. Failed downloads or unreadable
+  cached bytes retry automatically; existing boxes do not change.
 - The main thread only shows. Catalog pages are merged, compared and turned into
   chapter rows off it (`Library.step`); the download plan is worked out off it from
   a snapshot (`Library.plan`); file names (SHA-256 of URLs) and site dates are
@@ -362,6 +379,15 @@ build and install (another sync) or when the build was unsuffixed. The seven app
 share their inputs, so a change means deploying all seven: the app the change is
 about first (the owner tests each app as it appears on the phone).
 
+The offline reader check is `scripts/check-reader.py --device UUID --app APP --output DIR`,
+run on the Mac inside the shared `mac-workload simulator` guard after building with
+all guests shut down. It reuses the shared iPhone, installs only the unsuffixed
+simulator fixture and removes that app afterward. It checks unread Home cache pairs,
+deliberately wrong site dimensions, stable boxes through decoding/zoom and eight
+cached chapters appended during an uninterrupted drag. Native model tests also cover
+all EXIF orientations, persistent geometry correction, automatic cache invalidation,
+reader priority and the current/next retention policy.
+
 ## Rules
 
 - Never uninstall an app to update it: that deletes its reading progress and
@@ -384,6 +410,8 @@ Continuous chapter loading uses the actual document end, independently of the la
 page. It reads cached chapter manifests before any provider request and appends during a
 continuous drag or deceleration. A newly cached next manifest wakes the reader directly.
 Stopping a scroll only saves progress; it never decides whether a cached chapter may appear.
+Home catalog updates also apply as they arrive, with no scroll-idle timer. Fixed page
+geometry lets pending appends commit after a pinch even if dragging continues.
 
 The current-and-next-chapter cache policy is intentional. Open reader chapters remain
 protected while those readers are held for going forward.

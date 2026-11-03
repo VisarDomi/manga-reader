@@ -24,7 +24,7 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
     }
 
     private struct Part {
-        let data: ChapterData
+        var data: ChapterData
         let first: Int
     }
 
@@ -50,6 +50,7 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
     private var settled: (chapter: String, index: Int)?
     private var visible = false
     private var observers: [NSObjectProtocol] = []
+    private var initialGeometryApplied = false
 
     init(app: AppController, series: String, slug: String, chapter: String?, start: ReaderStart, state: Data?) {
         self.app = app
@@ -75,7 +76,7 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
     }
 
     func savedState() -> Data? {
-        guard let position = strip.currentPosition, let (part, index) = locate(position.index) else {
+        guard initialGeometryApplied, let position = strip.currentPosition, let (part, index) = locate(position.index) else {
             return restoring.flatMap { try? JSONEncoder().encode($0) }
         }
         return try? JSONEncoder().encode(State(chapter: part.data.chapterId, position: StripPosition(index: index, fraction: position.fraction)))
@@ -85,8 +86,9 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
         super.viewDidLoad()
         view.backgroundColor = .black
         strip.delegate = self
-        // Pages of unknown size wait at 1000 points (as on the website) until their image says.
-        strip.placeholderHeight = { _ in 1000 }
+        // No guessed page boxes: each published page already has measured geometry.
+        strip.placeholderHeight = { _ in 0 }
+        strip.locksPageDimensions = true
         view.addSubview(strip)
         message.textColor = UIColor(white: 0.53, alpha: 1)
         message.font = .systemFont(ofSize: 14)
@@ -101,6 +103,22 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
         observers.append(NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
             // A reader can stay open for days: a list due again is checked on return.
             MainActor.assumeIsolated { self?.continueReading() }
+        })
+        observers.append(NotificationCenter.default.addObserver(forName: .pageDimensionsKnown, object: nil, queue: .main) { [weak self] note in
+            guard let series = note.userInfo?["series"] as? String,
+                  let chapter = note.userInfo?["chapter"] as? String,
+                  let index = note.userInfo?["index"] as? Int,
+                  let width = note.userInfo?["width"] as? Double,
+                  let height = note.userInfo?["height"] as? Double else { return }
+            MainActor.assumeIsolated {
+                guard let self, series == self.series,
+                      let part = self.parts.firstIndex(where: { $0.data.chapterId == chapter }),
+                      self.parts[part].data.images.indices.contains(index) else { return }
+                self.parts[part].data.images[index].width = width
+                self.parts[part].data.images[index].height = height
+                self.parts[part].data.images[index].dimensionsMeasured = true
+                self.publishGeometry()
+            }
         })
         let source = app.library.chapters
         Task { [weak self] in
@@ -125,11 +143,17 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
     }
 
     // The screen never locks while reading.
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        visible = true
+        report(chapter: settled?.chapter ?? chapter ?? "", page: settled?.index ?? requestedIndex)
+    }
+
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         UIApplication.shared.isIdleTimerDisabled = true
         visible = true
-        if let settled { report(chapter: settled.chapter, page: settled.index) }
+        report(chapter: settled?.chapter ?? chapter ?? "", page: settled?.index ?? requestedIndex)
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -142,7 +166,7 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
         visible = false
-        if let settled { report(chapter: settled.chapter, page: settled.index) }
+        report(chapter: settled?.chapter ?? chapter ?? "", page: settled?.index ?? requestedIndex)
     }
 
     private func show(_ text: String?, error: Bool = false) {
@@ -176,20 +200,31 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
             show("Loading chapters...")
             let oldest: String?
             do { oldest = try await source.oldest(series: series, slug: slug) }
-            catch { show("Failed to load chapter list", error: true); return }
-            guard let oldest else { show("No chapters available", error: true); return }
+            catch { show("Failed to load chapter list — retrying…", error: true); retryOpening(); return }
+            guard let oldest else { show("No chapters available — retrying…", error: true); retryOpening(); return }
             chapterId = oldest
             chapter = oldest
             stateChanged()
         }
         guard let chapterId else { return }
         if await source.savedChapter(series: series, chapterId: chapterId) == nil { show("Loading...") }
-        let data: ChapterData?
+        var data: ChapterData?
         do { data = try await source.chapter(series: series, slug: slug, chapterId: chapterId, urgent: true) }
-        catch { show("Failed to load chapter", error: true); return }
-        guard var data else { show("Chapter unavailable", error: true); return }
+        catch { show("Failed to load chapter — retrying…", error: true); retryOpening(); return }
+        guard var data else { show("Chapter unavailable — retrying…", error: true); retryOpening(); return }
         data = await app.library.sized(data, series: series)
         show(saved: data)
+    }
+
+    private func retryOpening() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 15) { [weak self] in
+            guard let self, self.parts.isEmpty else { return }
+            Task { await self.open() }
+        }
+    }
+
+    private func retryContinuation() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 15) { [weak self] in self?.continueReading() }
     }
 
     // The chapter on screen at its place (the saved point, the start asked for), then the list.
@@ -198,32 +233,60 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
         show(nil)
         loads[chapterId] = .loaded
         parts = [Part(data: data, first: 0)]
-        strip.setPages(pages(data))
-        if let restoring, restoring.chapter == chapterId {
-            strip.scroll(to: StripPosition(index: min(restoring.position.index, data.images.count - 1), fraction: restoring.position.fraction))
-        } else {
-            switch start {
-            case .top, .first: strip.scroll(to: StripPosition(index: 0, fraction: 0))
-            case .last: strip.scroll(toTopOf: data.images.count - 1)
-            case .image(let index): strip.scroll(toTopOf: min(max(0, index), data.images.count - 1))
-            }
-        }
-        restoring = nil
-        report(chapter: chapterId, page: strip.currentPosition?.index ?? 0)
+        strip.isHidden = true
+        strip.setPages([])
+        initialGeometryApplied = false
+        report(chapter: chapterId, page: requestedIndex)
+        publishGeometry()
+
         // The whole list (for the chapters that follow) once the chapter is on screen.
         continueReading()
         fetchList()
         // Settle once laid out (a reader that is never scrolled still counts and continues).
         DispatchQueue.main.async { [weak self] in
-            guard let self, let position = strip.currentPosition else { return }
+            guard let self, initialGeometryApplied, let position = strip.currentPosition else { return }
             strip(strip, settledAt: position)
         }
     }
 
-    private func pages(_ data: ChapterData) -> [StripPage] {
-        data.images.map { image in
-            let aspect = image.width.flatMap { width in image.height.map { height in width > 0 && height > 0 ? CGFloat(width / height) : nil } } ?? nil
-            return StripPage(key: "page:" + image.url, aspect: aspect)
+    private var requestedIndex: Int {
+        if let restoring { return restoring.position.index }
+        switch start {
+        case .last: return max(0, (parts.first?.data.images.count ?? 1) - 1)
+        case .image(let index): return max(0, index)
+        default: return 0
+        }
+    }
+
+    // Publish a contiguous prefix of exact boxes. Missing metadata never becomes
+    // an estimated page; later bytes only extend the tail or fill existing boxes.
+    private func publishGeometry() {
+        var pages: [StripPage] = []
+        outer: for part in parts {
+            for image in part.data.images {
+                guard image.hasMeasuredDimensions, let width = image.width, let height = image.height else { break outer }
+                pages.append(StripPage(key: "page:" + image.url, aspect: CGFloat(width / height)))
+            }
+        }
+        if pages.count > strip.pages.count { strip.append(Array(pages.dropFirst(strip.pages.count))) }
+        guard !initialGeometryApplied, let first = parts.first else { return }
+        let index = min(requestedIndex, max(0, first.data.images.count - 1))
+        guard pages.indices.contains(index) else { show("Preparing page dimensions…"); return }
+        if let restoring, restoring.chapter == first.data.chapterId {
+            strip.scroll(to: StripPosition(index: index, fraction: restoring.position.fraction))
+        } else {
+            switch start {
+            case .image, .last: strip.scroll(toTopOf: index)
+            default: strip.scroll(to: StripPosition(index: index, fraction: 0))
+            }
+        }
+        initialGeometryApplied = true
+        restoring = nil
+        strip.isHidden = false
+        show(nil)
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let position = self.strip.currentPosition else { return }
+            self.settle(at: position)
         }
     }
 
@@ -245,6 +308,7 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
                 listDue = Date().addingTimeInterval(300)
             } catch {
                 listDue = Date().addingTimeInterval(15)
+                retryContinuation()
                 if list == nil, !parts.isEmpty { strip.setFooter("Failed to load chapter list", color: UIColor(red: 1, green: 0.42, blue: 0.42, alpha: 1)) }
             }
             listLoading = false
@@ -255,40 +319,55 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
     // Append from the actual end of the document, independently of the last settled page.
     // A continuous drag can cross several cached chapters without ever reporting a settle.
     private func continueReading() {
-        guard let last = parts.last else { return }
+        guard let first = parts.first, let last = parts.last else { return }
+        let current = initialGeometryApplied ? strip.currentPosition.flatMap { locate($0.index)?.0 } ?? first : first
         if let list, let index = list.firstIndex(of: last.data.chapterId), index > 0 {
-            loadNewer(list[index - 1])
-        } else if Date() >= listDue {
-            fetchList()
-        }
+            let next = list[index - 1]
+            // Consume any cached tail immediately. Only fetching uncached future chapters
+            // is limited to the current/next pair; cached content never waits for a scroll.
+            loadNewer(next, allowFetch: current.data.chapterId == last.data.chapterId)
+        } else if Date() >= listDue { fetchList() }
     }
 
-    private func loadNewer(_ chapterId: String) {
+    private func loadNewer(_ chapterId: String, allowFetch: Bool) {
         switch loads[chapterId] {
         case .loading?, .loaded?: return
         case .unavailable(let retryAt)?, .failed(let retryAt)?: if Date() < retryAt { return }
         case nil: break
         }
         loads[chapterId] = .loading
-        strip.setFooter("Loading newer chapter...")
         Task {
             do {
-                guard var data = try await app.library.chapters.chapter(series: series, slug: slug, chapterId: chapterId, urgent: true) else {
+                var data = await app.library.chapters.savedChapter(series: series, chapterId: chapterId)
+                if data == nil {
+                    guard allowFetch else { loads[chapterId] = nil; return }
+                    strip.setFooter("Loading newer chapter...")
+                    data = try await app.library.chapters.chapter(series: series, slug: slug, chapterId: chapterId, urgent: true)
+                }
+                if !allowFetch, let cached = data {
+                    let names = cached.images.map { ImageItem(url: $0.url, cover: false).name }
+                    guard await app.library.images.completed(names).count == names.count else { loads[chapterId] = nil; return }
+                }
+                guard var data else {
                     loads[chapterId] = .unavailable(retryAt: Date().addingTimeInterval(15))
+                    retryContinuation()
                     strip.setFooter("Chapter unavailable", color: UIColor(red: 1, green: 0.42, blue: 0.42, alpha: 1))
                     return
                 }
                 data = await app.library.sized(data, series: series)
                 loads[chapterId] = .loaded
                 guard !parts.contains(where: { $0.data.chapterId == chapterId }) else { return }
-                parts.append(Part(data: data, first: strip.pages.count))
+                let first = parts.reduce(0) { $0 + $1.data.images.count }
+                parts.append(Part(data: data, first: first))
                 strip.setFooter(nil)
-                strip.append(pages(data))
+                publishGeometry()
                 if let position = strip.currentPosition, let (part, page) = locate(position.index) {
                     report(chapter: part.data.chapterId, page: page)
                 }
+                continueReading()
             } catch {
                 loads[chapterId] = .failed(retryAt: Date().addingTimeInterval(15))
+                retryContinuation()
                 strip.setFooter("Failed to load chapter", color: UIColor(red: 1, green: 0.42, blue: 0.42, alpha: 1))
             }
         }
@@ -311,11 +390,19 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
         return app.library.images.localFile(ImageItem(url: part.data.images[page].url, cover: false))
     }
 
+    func strip(_ strip: StripReaderView, failureTextFor index: Int, error: Error) -> String? {
+        guard !(error is CancellationError), let (part, page) = locate(index) else { return nil }
+        let item = ImageItem(url: part.data.images[page].url, cover: false), images = app.library.images
+        Task { await images.invalidate(item) }
+        return "Retrying image…"
+    }
+
     func strip(_ strip: StripReaderView, settledAt position: StripPosition) {
         FrameMonitor.shared.measure("reader.settle") { settle(at: position) }
     }
 
     private func settle(at position: StripPosition) {
+        guard initialGeometryApplied else { return }
         guard let (part, index) = locate(position.index) else { return }
         let chapterId = part.data.chapterId
         if settled?.chapter != chapterId || settled?.index != index {
@@ -327,12 +414,25 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
         stateChanged()
     }
 
-    func stripNearEnd(_ strip: StripReaderView) { continueReading() }
+    func strip(_ strip: StripReaderView, visibleAt position: StripPosition) {
+        guard initialGeometryApplied, let (part, index) = locate(position.index) else { return }
+        report(chapter: part.data.chapterId, page: index)
+        continueReading()
+    }
+
+    func stripNearEnd(_ strip: StripReaderView) {
+        if initialGeometryApplied, let position = strip.currentPosition, let (part, index) = locate(position.index) {
+            report(chapter: part.data.chapterId, page: index)
+        }
+        continueReading()
+    }
 
     #if targetEnvironment(simulator)
     var checkState: [String: Any] {
         ["chapters": parts.map(\.data.chapterId), "settledChapter": settled?.chapter ?? "", "strip": strip.state,
-         "height": strip.scrollView.contentSize.height, "offset": strip.scrollView.contentOffset.y]
+         "height": strip.scrollView.contentSize.height, "offset": strip.scrollView.contentOffset.y,
+         "viewport": ["width": strip.bounds.width, "height": strip.bounds.height],
+         "aspects": strip.pages.compactMap(\.aspect)]
     }
     func checkScrollToEnd(end: Bool) -> [String: Any] {
         strip.scrollViewWillBeginDragging(strip.scrollView)

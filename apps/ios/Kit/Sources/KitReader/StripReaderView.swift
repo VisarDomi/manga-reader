@@ -30,6 +30,8 @@ public protocol StripReaderDelegate: AnyObject {
     func strip(_ strip: StripReaderView, sourceFor index: Int) -> ImageSource
     // Finger up and momentum (or a zoom) over: save the position.
     func strip(_ strip: StripReaderView, settledAt position: StripPosition)
+    // Reading priority may follow the visible page without saving/settling a scroll.
+    func strip(_ strip: StripReaderView, visibleAt position: StripPosition)
     // The visible range reached the last pages (time to append the next chapter).
     func stripNearEnd(_ strip: StripReaderView)
     // Text drawn over a page that failed to load, nil for none.
@@ -40,6 +42,7 @@ public protocol StripReaderDelegate: AnyObject {
 }
 
 public extension StripReaderDelegate {
+    func strip(_ strip: StripReaderView, visibleAt position: StripPosition) {}
     func strip(_ strip: StripReaderView, localFileFor index: Int) -> URL? { nil }
     func stripNearEnd(_ strip: StripReaderView) {}
     func strip(_ strip: StripReaderView, failureTextFor index: Int, error: Error) -> String? { nil }
@@ -59,6 +62,9 @@ public final class StripReaderView: UIView, UIScrollViewDelegate {
     public var placeholderHeight: (CGFloat) -> CGFloat = { $0 * 1.5 }
     // How many screens beyond the visible one hold decoded pages.
     public var preloadScreens: CGFloat = 1.5
+    // Consumers that publish decoder-measured page boxes keep that geometry
+    // through downsampling and quality upgrades. Other readers retain their policy.
+    public var locksPageDimensions = false
     public let scrollView = UIScrollView()
 
     public private(set) var pages: [StripPage] = []
@@ -76,6 +82,7 @@ public final class StripReaderView: UIView, UIScrollViewDelegate {
     private var pinnedTop: Int?
     private var touching = false
     private var lastNearEnd = -1
+    private var lastVisiblePage = -1
     private let footer = UILabel()
     // Keep the rendered pages and their base geometry stable for the whole pinch. Sharper
     // decodes, newly learned sizes and appended chapters commit after UIKit finishes zooming.
@@ -133,6 +140,7 @@ public final class StripReaderView: UIView, UIScrollViewDelegate {
         cells.removeAll()
         failures.removeAll()
         lastNearEnd = -1
+        lastVisiblePage = -1
         self.pages = pages
         relayout(keeping: nil)
         if let position { scroll(to: position) }
@@ -318,6 +326,10 @@ public final class StripReaderView: UIView, UIScrollViewDelegate {
             cell.reveal(shown.offsetBy(dx: 0, dy: -tops[index]), retaining: zoomInProgress)
         }
         pipeline.prioritiesChanged()
+        if let position = currentPosition, lastVisiblePage != position.index {
+            lastVisiblePage = position.index
+            delegate?.strip(self, visibleAt: position)
+        }
         if last >= pages.count - 3, lastNearEnd != pages.count {
             lastNearEnd = pages.count
             delegate?.stripNearEnd(self)
@@ -388,7 +400,7 @@ public final class StripReaderView: UIView, UIScrollViewDelegate {
         }
         // ImageIO rounds downsampled dimensions. A quality upgrade is the same page,
         // not new layout metadata; it must never resize the strip again.
-        if image.size.height > 0, measuredImages.insert(pages[index].key).inserted {
+        if !locksPageDimensions, image.size.height > 0, measuredImages.insert(pages[index].key).inserted {
             setAspect(image.size.width / image.size.height, at: index)
         }
     }
@@ -456,7 +468,10 @@ public final class StripReaderView: UIView, UIScrollViewDelegate {
     }
 
     private var geometryInMotion: Bool {
-        touching || scrollInProgress || zoomInProgress || scrollView.isTracking || scrollView.isDragging || scrollView.isDecelerating || scrollView.isZooming
+        // Fixed page boxes cannot reflow while scrolling. Only an active pinch
+        // needs its coordinate system held; dragging/deceleration never delays its tail.
+        zoomInProgress || scrollView.isZooming || (!locksPageDimensions &&
+            (touching || scrollInProgress || scrollView.isTracking || scrollView.isDragging || scrollView.isDecelerating))
     }
 
     private func applyPendingGeometry() {

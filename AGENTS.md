@@ -17,3 +17,22 @@ require a scroll-end or settled-page check. Explicit navigation and restoration 
 
 The manga page cache intentionally retains current and next chapters, plus chapters held
 by open readers. Preserve that policy; the owner explicitly declined keeping every download.
+
+The owner's preparation flow is explicit:
+
+- On Home, prepare both metadata and image bytes for every entry's current chapter
+  and its immediate next chapter. Current means saved reading progress, or the
+  first chapter for a series never started. Preparation does not mark it read.
+- On opening a reader, raise that reader's work ahead of other entries: the
+  current image is highest priority, then all remaining current-chapter images,
+  then the immediate next chapter (metadata and images).
+- Only after this reader's current/next work is ready should preparation of the
+  other entries use the background slots. Existing cached work is reused.
+- Read the exact image dimensions from available metadata/image headers before
+  publishing its page box. Reserve the exact geometry first, then fill that box
+  with decoded pixels. Image arrival must not stretch the page or resize already
+  published reading content. Unknown dimensions are not an estimated page size.
+
+No content work may wait for scrolling to stop, a finger to lift, or a settled-page
+callback. Home updates, image loading, preparation and chapter appends run while
+scrolling. Scroll-end callbacks only persist progress and record performance.
