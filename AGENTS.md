@@ -36,3 +36,9 @@ The owner's preparation flow is explicit:
 No content work may wait for scrolling to stop, a finger to lift, or a settled-page
 callback. Home updates, image loading, preparation and chapter appends run while
 scrolling. Scroll-end callbacks only persist progress and record performance.
+
+Delivery order: push the app updates first, then run virtual-iPhone UI checks.
+If those checks require a fix, push the correction before the next simulation.
+Native compilation/signing and model checks still apply; simulator trouble must
+not hold back a deliverable update for the owner to try. Use the existing durable
+queue and guards. Never substitute physical-phone UI automation.

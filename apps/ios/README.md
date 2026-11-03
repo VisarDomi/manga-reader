@@ -379,6 +379,11 @@ build and install (another sync) or when the build was unsuffixed. The seven app
 share their inputs, so a change means deploying all seven: the app the change is
 about first (the owner tests each app as it appears on the phone).
 
+The owner's delivery order is push first, then virtual-iPhone UI checks; if a check
+requires a correction, push that correction before simulating again. Keep model
+checks and native compilation/signing, but do not make simulator availability a
+prerequisite for delivering an update.
+
 The offline reader check is `scripts/check-reader.py --device UUID --app APP --output DIR`,
 run on the Mac inside the shared `mac-workload simulator` guard after building with
 all guests shut down. It reuses the shared iPhone, installs only the unsuffixed
