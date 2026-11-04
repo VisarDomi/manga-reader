@@ -49,7 +49,7 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
     private var loads: [String: Load] = [:]
     private var settled: (chapter: String, index: Int)?
     private var visible = false
-    private var observers: [NSObjectProtocol] = []
+    private var observers: [NotificationObservation] = []
     private var initialGeometryApplied = false
 
     init(app: AppController, series: String, slug: String, chapter: String?, start: ReaderStart, state: Data?) {
@@ -100,11 +100,11 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
             return ["series": series, "chapters": parts.map(\.data.chapterId), "settled": settled.map { ["chapter": $0.chapter, "index": $0.index] } ?? [:],
                     "list": list?.count ?? -1, "strip": strip.state]
         }
-        observers.append(NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+        observers.append(NotificationObservation(name: UIApplication.didBecomeActiveNotification) { [weak self] _ in
             // A reader can stay open for days: a list due again is checked on return.
             MainActor.assumeIsolated { self?.continueReading() }
         })
-        observers.append(NotificationCenter.default.addObserver(forName: .pageDimensionsKnown, object: nil, queue: .main) { [weak self] note in
+        observers.append(NotificationObservation(name: .pageDimensionsKnown) { [weak self] note in
             guard let series = note.userInfo?["series"] as? String,
                   let chapter = note.userInfo?["chapter"] as? String,
                   let index = note.userInfo?["index"] as? Int,

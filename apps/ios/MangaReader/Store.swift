@@ -263,14 +263,11 @@ enum FileKey {
     private static let names = Memo()
 
     private final class Memo: @unchecked Sendable {
-        private let lock = NSLock()
-        private var values: [String: String] = [:]
-        func value(_ key: String) -> String? { lock.withLock { values[key] } }
+        private let values = NSCache<NSString, NSString>()
+        init() { values.totalCostLimit = 32 << 20 }
+        func value(_ key: String) -> String? { values.object(forKey: key as NSString).map { $0 as String } }
         func set(_ key: String, _ value: String) {
-            lock.withLock {
-                if values.count > 50_000 { values.removeAll(keepingCapacity: true) }
-                values[key] = value
-            }
+            values.setObject(value as NSString, forKey: key as NSString, cost: key.utf8.count + value.utf8.count + 128)
         }
     }
 
@@ -308,6 +305,7 @@ actor ChapterFiles {
         init(_ data: ChapterData) { self.data = data }
     }
     private let memory = NSCache<NSString, CachedChapter>()
+    private var absent = Set<String>()
     private(set) var diskReads = 0
 
     init(directory: URL) {
@@ -326,14 +324,16 @@ actor ChapterFiles {
     func chapter(_ series: String, _ chapterId: String) -> ChapterData? {
         let key = FileKey.chapter(series, chapterId)
         if let kept = memory.object(forKey: key as NSString) { return kept.data }
+        if absent.contains(key) { return nil }
         diskReads += 1
-        guard let data = try? DurableFile.readJSON(ChapterData.self, from: file(key)), !data.images.isEmpty else { return nil }
+        guard let data = try? DurableFile.readJSON(ChapterData.self, from: file(key)), !data.images.isEmpty else { absent.insert(key); return nil }
         remember(key, data)
         return data
     }
 
     func save(_ data: ChapterData, series: String) {
         let key = FileKey.chapter(series, data.chapterId)
+        absent.remove(key)
         remember(key, data)
         do { try DurableFile.writeJSON(data, to: file(key)) }
         catch { Log.store.error("Chapter not saved: \(error.localizedDescription, privacy: .public)") }
@@ -357,6 +357,7 @@ actor ChapterFiles {
     func remove(_ series: String, _ chapterId: String) {
         let key = FileKey.chapter(series, chapterId)
         memory.removeObject(forKey: key as NSString)
+        absent.insert(key)
         try? FileManager.default.removeItem(at: file(key))
     }
 
@@ -368,10 +369,15 @@ actor ChapterFiles {
     private struct Item: Codable { var chapterId: String }
 
     func list(_ series: String) -> [String]? {
-        (try? DurableFile.readJSON([Item].self, from: file(FileKey.list(series))))?.map(\.chapterId)
+        let key = FileKey.list(series)
+        guard !absent.contains(key) else { return nil }
+        diskReads += 1
+        guard let items = try? DurableFile.readJSON([Item].self, from: file(key)) else { absent.insert(key); return nil }
+        return items.map(\.chapterId)
     }
 
     func saveList(_ chapters: [String], series: String) {
+        absent.remove(FileKey.list(series))
         do { try DurableFile.writeJSON(chapters.map(Item.init), to: file(FileKey.list(series))) }
         catch { Log.store.error("Chapter list not saved: \(error.localizedDescription, privacy: .public)") }
     }

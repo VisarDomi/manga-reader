@@ -20,7 +20,7 @@ final class HomeScreen: UIViewController, LiveScreen, UITableViewDataSource, UIT
     private var series: [HomeSeries] = []
     private var pendingAnchor: ScrollAnchor?
     private var restored = false
-    private var observers: [NSObjectProtocol] = []
+    private var observers: [NotificationObservation] = []
     private var countdown: Timer?
 
     init(app: AppController, state: Data?) {
@@ -61,15 +61,15 @@ final class HomeScreen: UIViewController, LiveScreen, UITableViewDataSource, UIT
         view.addSubview(message)
         footer.pc = app.pc
         footer.onLoaded = { [weak self] in self?.reloadVisible() }
-        observers.append(NotificationCenter.default.addObserver(forName: .catalogChanged, object: nil, queue: .main) { [weak self] _ in
+        observers.append(NotificationObservation(name: .catalogChanged) { [weak self] _ in
             MainActor.assumeIsolated { self?.catalogChanged() }
         })
         // Under a reader, Home waits: it refreshes its cards when it shows again (viewWillAppear),
         // not on every page the reader settles on.
-        observers.append(NotificationCenter.default.addObserver(forName: .progressChanged, object: nil, queue: .main) { [weak self] _ in
+        observers.append(NotificationObservation(name: .progressChanged) { [weak self] _ in
             MainActor.assumeIsolated { if self?.viewIfLoaded?.window != nil { self?.reloadVisible() } }
         })
-        observers.append(NotificationCenter.default.addObserver(forName: .coverChanged, object: nil, queue: .main) { [weak self] _ in
+        observers.append(NotificationObservation(name: .coverChanged) { [weak self] _ in
             MainActor.assumeIsolated { if self?.viewIfLoaded?.window != nil { self?.reloadVisible() } }
         })
         DebugState.shared.register("home") { [weak self] in

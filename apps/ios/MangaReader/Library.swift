@@ -45,6 +45,7 @@ final class Library {
     private var unavailable: [String: Date] = [:]
     private var preparationWake: Task<Void, Never>?
     private var preparationWakeAt: Date?
+    private var observations: [NotificationObservation] = []
     private var lastRefresh: Date?
     // Pages without a known size, by image file: where they belong.
     private struct PagePlace: Hashable, Sendable {
@@ -120,10 +121,10 @@ final class Library {
             let rows = Dictionary(series.map { (Self.identity($0, site), $0.chapters.map(\.chapterId)) }, uniquingKeysWith: { first, _ in first })
             await source.setRows(rows)
         }
-        NotificationCenter.default.addObserver(forName: .progressChanged, object: nil, queue: .main) { [weak self] note in
+        observations.append(NotificationObservation(name: .progressChanged) { [weak self] note in
             let changed = note.userInfo?["preparationChanged"] as? Bool ?? true
             MainActor.assumeIsolated { if changed { self?.planSoon() } }
-        }
+        })
     }
 
     func identity(_ series: HomeSeries) -> String { Self.identity(series, provider) }

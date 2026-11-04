@@ -258,6 +258,11 @@ Image completion/missing-file knowledge is indexed for the process lifetime and
 updated by commits/invalidation. Background downloads advance through a cursor;
 reader priority is separate from the catalog array. Chapter manifests use a
 32 MiB cost-limited memory cache rather than clearing all entries after 64.
+Missing chapter/list metadata is indexed until saved, and filename hashes use
+a cost-limited cache without a full-clear threshold. Notification registrations
+are owned by their screen/model and unregister on release. The audit also checked
+provider parsing, request budgets, image decode scheduling, durable state writers
+and navigation/restoration paths.
 Geometry publication examines only the unpublished tail. Retries, durable saves,
 current/next retention and the download/preparation order stay in force.
 
@@ -410,7 +415,7 @@ all guests shut down. It reuses the shared iPhone, installs only the unsuffixed
 simulator fixture and removes that app afterward. It checks unread Home cache pairs,
 deliberately wrong site dimensions, stable boxes through decoding/zoom and eight
 cached chapters appended during an uninterrupted drag. Native model tests also cover
-all EXIF orientations, persistent geometry correction, automatic cache invalidation,
+missing metadata lookups, observation cleanup, all EXIF orientations, persistent geometry correction, automatic cache invalidation,
 reader priority and the current/next retention policy.
 
 ## Rules
@@ -440,3 +445,8 @@ geometry lets pending appends commit after a pinch even if dragging continues.
 
 The current-and-next-chapter cache policy is intentional. Open reader chapters remain
 protected while those readers are held for going forward.
+
+The simulator CPU fixture is kept under `Tests/` and overlaid onto an exact Git
+revision by `scripts/prepare-reader-qa.py`. It never enters a phone build. Build
+the overlay using `scripts/build-reader-qa.py` inside the Mac build guard, then
+run its CPU/reader checks on the shared guest after the product update is installed.
