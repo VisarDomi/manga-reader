@@ -22,7 +22,10 @@ def sim(*args, check=True):
         try:
             stdout,stderr=proc.communicate(timeout=20)
         except subprocess.TimeoutExpired:
-            ps=subprocess.run(['ps','-axo','pid,ppid,stat,pcpu,command'],capture_output=True,text=True,timeout=10).stdout
+            try:
+                ps=subprocess.run(['ps','-axo','pid,ppid,stat,pcpu,command'],capture_output=True,text=True,timeout=10).stdout
+            except subprocess.TimeoutExpired:
+                ps='Optional process diagnostic timed out; preserving the installer wait\n'
             (out/'install-blocked-processes.txt').write_text(ps)
             candidates=[proc.pid]
             for line in ps.splitlines()[1:]:
