@@ -81,6 +81,7 @@ final class HomeScreen: UIViewController, LiveScreen, UITableViewDataSource, UIT
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        app.covers.setActive(true)
         reloadVisible()
         countdown = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.reloadVisible() }
@@ -90,6 +91,7 @@ final class HomeScreen: UIViewController, LiveScreen, UITableViewDataSource, UIT
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+        app.covers.setActive(false)
         countdown?.invalidate()
         countdown = nil
         saveNow()
@@ -110,6 +112,7 @@ final class HomeScreen: UIViewController, LiveScreen, UITableViewDataSource, UIT
         layoutFooter()
         if widthChanged, let anchor { restore(anchor) }
         restoreIfReady()
+        updateVisibleCovers()
     }
 
     private func layoutFooter() {
@@ -133,6 +136,7 @@ final class HomeScreen: UIViewController, LiveScreen, UITableViewDataSource, UIT
             let anchor = restored ? currentAnchor : nil
             let sameRows = series.map(library.identity) == library.catalog.series.map(library.identity)
             series = library.catalog.series
+            app.covers.setCatalog(series.map(\.coverUrl))
             if sameRows { reloadVisible() }
             else {
                 table.reloadData()
@@ -215,7 +219,12 @@ final class HomeScreen: UIViewController, LiveScreen, UITableViewDataSource, UIT
         stateChanged()
     }
 
-    func scrollViewDidScroll(_ scrollView: UIScrollView) { app.pipeline.prioritiesChanged() }
+    private func updateVisibleCovers() {
+        let urls = (table.indexPathsForVisibleRows ?? []).compactMap { series.indices.contains($0.row) ? series[$0.row].coverUrl : nil }
+        app.covers.setVisible(urls)
+    }
+
+    func scrollViewDidScroll(_ scrollView: UIScrollView) { app.pipeline.prioritiesChanged(); updateVisibleCovers() }
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { monitor(true) }
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
         if !decelerate { monitor(false); saveNow() }
@@ -367,15 +376,8 @@ final class HomeCell: UITableViewCell {
 
     private func loadCover(_ url: String, key: String, app: AppController) {
         guard !url.isEmpty else { return }
-        let fit = ImageFit.cover(width: Int(150 * 3), height: Int(200 * 3))
-        if let image = app.pipeline.cached(key, fit: fit) { cover.imageView.image = image; return }
-        let images = app.library.images, item = ImageItem(url: url, cover: true)
-        let request = ImagePipeline.Request(key: key, source: .load { try await images.file(item) }, fit: fit, localFile: images.localFile(item)) { [weak self] in
-            guard let self, let window = self.window else { return .infinity }
-            let frame = self.convert(self.bounds, to: window)
-            return Double(frame.maxY < 0 ? -frame.maxY : frame.minY > window.bounds.height ? frame.minY - window.bounds.height : 0)
-        }
-        ticket = app.pipeline.load(request) { [weak self] result in
+        if let image = app.covers.cached(url) { cover.imageView.image = image; return }
+        ticket = app.covers.loadVisible(url) { [weak self] result in
             guard let self, self.coverKey == key else { return }
             self.ticket = nil
             if case .success(let image) = result { self.cover.imageView.image = image }

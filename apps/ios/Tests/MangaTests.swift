@@ -29,6 +29,44 @@ struct MangaTests {
         try await manifestCache()
         try await missingMetadataIndex()
         observationLifetime()
+        try await coverPreparationOrder()
+    }
+
+    @MainActor
+    static func coverPreparationOrder() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let cover = ImageItem(url: "https://fixture.invalid/cover.jpg", cover: true)
+        let entry = HomeSeries(slug: "fixture", title: "Fixture", coverUrl: cover.url, chapters: [])
+        try DurableFile.writeJSON(Catalog(series: [entry], complete: true), to: root.appendingPathComponent("catalog.json"))
+        let files = ChapterFiles(directory: root)
+        for chapter in ["1", "2"] {
+            await files.save(ChapterData(chapterId: chapter, seriesSlug: "fixture", seriesTitle: "Fixture",
+                                        images: [ChapterImage(url: "https://fixture.invalid/\(chapter).jpg", width: 1, height: 1, dimensionsMeasured: true)]), series: "fixture")
+        }
+        await files.saveList(["2", "1"], series: "fixture")
+        let library = Library(provider: CoverOrderProvider(), root: root, bundleID: "com.visar.CoverOrder."+UUID().uuidString)
+        await library.images.setActive(false)
+        library.planSoon()
+        for _ in 0..<500 {
+            if await library.images.state["planned"] == 3 { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let home = await library.images.unfinished(limit: 3)
+        expect(home.count == 3 && home.first?.cover == true, "Home covers download before the catalog's background chapter bytes")
+        let owner = NSObject()
+        library.reading(owner, Library.Reading(series: "fixture", slug: "fixture", chapters: ["1"], chapter: "1", page: 0), visible: true)
+        try await Task.sleep(for: .milliseconds(100))
+        let reader = await library.images.unfinished(limit: 3)
+        expect(reader.map(\.cover) == [false, false, true], "Reader current/next pages retain priority over covers")
+        let file = library.images.url(cover)
+        try DurableFile.write(Data([1, 2, 3]), to: file)
+        try DurableFile.write(Data("image/jpeg".utf8), to: file.appendingPathExtension("mime"))
+        await library.images.setRetained([])
+        let reopened = ImageFiles(root: root, http: HTTPClient(.init()), referer: "https://fixture.invalid/")
+        let retained = await reopened.isComplete(cover)
+        expect(retained, "Cover bytes survive chapter pruning and a new cache instance")
+        print("PASS: cover-first Home downloads, reader priority and permanent cover retention")
     }
 
     @MainActor
@@ -391,4 +429,12 @@ private final class EventCount: @unchecked Sendable {
     private var count = 0
     var value: Int { lock.withLock { count } }
     func increment() { lock.withLock { count += 1 } }
+}
+
+private struct CoverOrderProvider: MangaProvider {
+    let key = "fixture"
+    let origin = URL(string: "https://fixture.invalid")!
+    func home(_ cursor: String?) async throws -> HomePage { throw URLError(.notConnectedToInternet) }
+    func chapter(_ slug: String, _ chapterId: String) async throws -> ChapterData? { throw URLError(.notConnectedToInternet) }
+    func chaptersNewestFirst(_ slug: String) async throws -> [String] { throw URLError(.notConnectedToInternet) }
 }

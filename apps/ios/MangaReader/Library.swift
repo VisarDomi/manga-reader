@@ -462,6 +462,13 @@ final class Library {
             }
             output.readerNames = Set(items.map(\.name))
         }
+        // Home's covers must not wait behind the entire catalog's chapter bytes.
+        // An open reader's current/next pair remains first.
+        for url in input.covers where !url.isEmpty {
+            if Task.isCancelled { return output }
+            let item = ImageItem(url: url, cover: true)
+            if seen.insert(item.name).inserted { items.append(item) }
+        }
         for progress in input.started {
             if Task.isCancelled { return output }
             let list = await chapters.knownList(series: progress.series)
@@ -491,11 +498,6 @@ final class Library {
                     }
                 }
             }
-        }
-        for url in input.covers where !url.isEmpty {
-            if Task.isCancelled { return output }
-            let item = ImageItem(url: url, cover: true)
-            if seen.insert(item.name).inserted { items.append(item) }
         }
         output.items = items
         output.retained = retained

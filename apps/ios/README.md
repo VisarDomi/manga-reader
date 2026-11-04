@@ -225,8 +225,8 @@ without stretching or loading-time geometry changes.
   Once the current chapter is finished, the next comes first.
 - Order: pages on screen first (shared per image, dropped when nobody waits); then
   the plan: the chapter being read from the page on screen, then its next; then
-  every started series, the most recently read first; then unread entries; then
-  every catalog cover. Unrelated entries wait while the reader's pair is incomplete.
+  every catalog cover; then every started series, the most recently read first;
+  then unread entries. Unrelated entries wait while the reader's pair is incomplete.
   Planned files download three at a time, one while pages on screen load; a failed
   one waits 15 s, doubling up to 10 minutes.
 - A new chapter is noticed as soon as Home's catalog or a chapter list shows it.
@@ -240,7 +240,14 @@ without stretching or loading-time geometry changes.
 - Pruning: page images outside the plan are deleted once no reader holds them
   (readers kept for going forward hold their chapters). Reading progress, saved
   chapter files and lists stay. Covers are never deleted.
-- Covers: a cover on screen not asked about for six hours is asked again, lazily,
+- Covers download ahead of Home's background chapter bytes in catalog order.
+  An active reader's current/next pair still goes first. Cover files are never
+  pruned, even when their chapter or catalog entry leaves the active plan.
+  `CoverImages` prepares visible covers first, then covers ahead in list order,
+  one at a time at utility priority. It retains up to 64 MiB of ready cover
+  pixels and pauses ahead decoding when full; moving the viewport frees the
+  passed part. Originals remain downloaded regardless of decoded-cache eviction.
+  A cover on screen not asked about for six hours is asked again, lazily,
   one at a time, behind everything else, with a conditional request (ETag,
   Last-Modified; a cover from before validators were kept uses its file's date).
   All seven sites answer 304 with no bytes when it did not change. Only new bytes

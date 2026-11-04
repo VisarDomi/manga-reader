@@ -24,6 +24,7 @@ final class AppController {
 
     let library: Library
     let pipeline = ImagePipeline(memoryLimit: 192 << 20, concurrency: 6)
+    lazy var covers = CoverImages(files: library.images, pipeline: pipeline) { [weak library = library] in library?.coverVersion($0) ?? 0 }
     let pc: PCSave?
     let root: URL
     private(set) var navigation: LiveNavigationController!
@@ -80,6 +81,7 @@ final class AppController {
         }
         DebugState.shared.register("library") { [weak self] in self?.library.debugState ?? [:] }
         DebugState.shared.register("pipeline") { [weak self] in self?.pipeline.state ?? [:] }
+        DebugState.shared.register("covers") { [weak self] in self?.covers.state ?? [:] }
         #if targetEnvironment(simulator)
         TestHooks.shared.back = { [weak self] in _ = self?.navigation.popViewController(animated: true) }
         TestHooks.shared.forward = { [weak self] in self?.navigation.goForward() }

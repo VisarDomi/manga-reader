@@ -49,3 +49,8 @@ within a chapter updates only that reader's priority. Cache known missing files,
 advance the download queue with a cursor, and retain useful manifest entries
 within a bounded memory budget instead of flushing the entire cache. Verify
 work counts and CPU time with a large-library fixture, alongside responsiveness.
+
+All manga cover bytes download proactively and remain on disk permanently,
+independent of current/next chapter pruning. Visible covers decode first, then
+covers ahead in catalog order as the bounded decoded cache permits. Do not
+decode and immediately evict unseen covers in an unbounded warming loop.
