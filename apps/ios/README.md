@@ -449,4 +449,7 @@ protected while those readers are held for going forward.
 The simulator CPU fixture is kept under `Tests/` and overlaid onto an exact Git
 revision by `scripts/prepare-reader-qa.py`. It never enters a phone build. Build
 the overlay using `scripts/build-reader-qa.py` inside the Mac build guard, then
-run its CPU/reader checks on the shared guest after the product update is installed.
+run `scripts/check-reader-cpu.py --device UUID --app APP --output DIR` inside
+the simulator guard after the product update is installed. The runner records
+50,000-page work counts and process CPU time, then checks actual reader geometry,
+zoom and continuous scrolling; it removes its diagnostic app on completion.
