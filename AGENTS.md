@@ -42,3 +42,10 @@ If those checks require a fix, push the correction before the next simulation.
 Native compilation/signing and model checks still apply; simulator trouble must
 not hold back a deliverable update for the owner to try. Use the existing durable
 queue and guards. Never substitute physical-phone UI automation.
+
+Efficiency is a product requirement. File completions update their dependants and
+advance existing queues; they never rebuild the whole catalog plan. Movement
+within a chapter updates only that reader's priority. Cache known missing files,
+advance the download queue with a cursor, and retain useful manifest entries
+within a bounded memory budget instead of flushing the entire cache. Verify
+work counts and CPU time with a large-library fixture, alongside responsiveness.

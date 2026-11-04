@@ -35,6 +35,9 @@ final class Library {
     private var planScheduled = false
     private var planRunning = false
     private var planTask: Task<Void, Never>?
+    private var priorityTask: Task<Void, Never>?
+    private var fullPlans = 0
+    private var priorityPlans = 0
     private var measuring = Set<String>()
     private var planAgain = false
     private var backgroundPreparing = Set<String>()
@@ -44,7 +47,12 @@ final class Library {
     private var preparationWakeAt: Date?
     private var lastRefresh: Date?
     // Pages without a known size, by image file: where they belong.
-    private var unsized: [String: (series: String, chapter: String, index: Int)] = [:]
+    private struct PagePlace: Hashable, Sendable {
+        let series: String
+        let chapter: String
+        let index: Int
+    }
+    private var unsized: [String: Set<PagePlace>] = [:]
 
     // What a reader screen shows: its series, the chapters it holds and where it is.
     struct Reading: Equatable, Sendable {
@@ -102,14 +110,19 @@ final class Library {
         })
         Task { await chapters.onListChange { _ in Task { @MainActor [weak self] in self?.planSoon() } } }
         Task { await images.onFinished { item in Task { @MainActor [weak self] in self?.finished(item) } } }
+        let chapterSource = chapters
+        Task { await images.onReaderWorkChanged { busy, revision in
+            Task { await chapterSource.setReaderBusy(busy, revision: revision) }
+        } }
         Task { await images.onCoverChanged { item in Task { @MainActor [weak self] in self?.coverChanged(item.url) } } }
         let series = catalog.series, source = self.chapters, site = self.provider
         Task.detached(priority: .utility) {
             let rows = Dictionary(series.map { (Self.identity($0, site), $0.chapters.map(\.chapterId)) }, uniquingKeysWith: { first, _ in first })
             await source.setRows(rows)
         }
-        NotificationCenter.default.addObserver(forName: .progressChanged, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.planSoon() }
+        NotificationCenter.default.addObserver(forName: .progressChanged, object: nil, queue: .main) { [weak self] note in
+            let changed = note.userInfo?["preparationChanged"] as? Bool ?? true
+            MainActor.assumeIsolated { if changed { self?.planSoon() } }
         }
     }
 
@@ -259,12 +272,20 @@ final class Library {
         let id = ObjectIdentifier(screen)
         if let known = readers[id], known.screen === screen {
             if known.reading == reading && known.visible == visible { return }
+            let pageOnly = known.visible == visible && known.reading.series == reading.series
+                && known.reading.slug == reading.slug && known.reading.chapter == reading.chapter
+                && known.reading.chapters == reading.chapters
             known.reading = reading
             if visible && !known.visible { known.shown = Date() }
             known.visible = visible
+            if pageOnly {
+                if visible { prioritizeFocused() }
+                return
+            }
         } else {
             readers[id] = Registered(screen: screen, reading: reading, visible: visible)
         }
+        priorityTask?.cancel()
         planSoon()
     }
 
@@ -310,14 +331,35 @@ final class Library {
     // MARK: the download plan
 
     func planSoon() {
-        if planRunning { planAgain = true; planTask?.cancel(); return }
+        if planRunning { planAgain = true; return }
         guard !planScheduled else { return }
         planScheduled = true
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             planScheduled = false
-            planTask = Task { await self.plan() }
+            planTask = Task(priority: .utility) { await self.plan() }
         }
+    }
+
+    private func prioritizeFocused() {
+        priorityTask?.cancel()
+        guard let reading = focused else { return }
+        priorityTask = Task(priority: .userInitiated) { [weak self] in
+            guard let self else { return }
+            let output = await Self.plan(PlanInput(focused: reading, started: [], open: [], unstarted: [], covers: []), chapters: chapters, images: images)
+            guard !Task.isCancelled else { return }
+            priorityPlans += 1
+            await applyReader(output)
+        }
+    }
+
+    private func applyReader(_ output: PlanOutput) async {
+        unsized.merge(output.unsized, uniquingKeysWith: { $0.union($1) })
+        await images.prioritizeReader(output.items, awaitingMetadata: output.readerMetadataPending)
+        await chapters.prioritize(output.missing.map { FileKey.chapter($0.series, $0.chapter) }
+                                  + output.listless.map { "list:" + $0.series })
+        for name in output.completedUnsized { finished(name) }
+        prepare(missing: output.missing, lists: output.listless)
     }
 
     private nonisolated static func newer(than chapter: String, in list: [String]) -> String? {
@@ -338,7 +380,7 @@ final class Library {
     }
 
     private struct PlanOutput: Sendable {
-        var unsized: [String: (series: String, chapter: String, index: Int)] = [:]
+        var unsized: [String: Set<PagePlace>] = [:]
         var completedUnsized: [String] = []
         var missing: [(series: String, slug: String, chapter: String, urgent: Bool)] = []
         var listless: [(series: String, slug: String, urgent: Bool)] = []
@@ -349,13 +391,14 @@ final class Library {
     }
 
     private func plan() async {
-        if planRunning { planAgain = true; planTask?.cancel(); return }
+        if planRunning { planAgain = true; return }
         planRunning = true
         defer {
             planRunning = false; planTask = nil
             if planAgain { planAgain = false; planSoon() }
         }
         repeat {
+            fullPlans += 1
             planAgain = false
             readers = readers.filter { $0.value.screen != nil }
             let started = state.started
@@ -371,23 +414,17 @@ final class Library {
             if let focused = input.focused {
                 let reader = await Self.plan(PlanInput(focused: focused, started: [], open: [], unstarted: [], covers: []), chapters: chapters, images: images)
                 if Task.isCancelled { break }
-                unsized.merge(reader.unsized, uniquingKeysWith: { _, new in new })
-                await images.prioritizeReader(reader.items, awaitingMetadata: reader.readerMetadataPending)
-                await chapters.prioritize(reader.missing.map { FileKey.chapter($0.series, $0.chapter) }
-                                          + reader.listless.map { "list:" + $0.series })
-                await chapters.setReaderBusy(await images.readerWorkPending())
-                for name in reader.completedUnsized { finished(name) }
-                prepare(missing: reader.missing, lists: reader.listless)
+                await applyReader(reader)
             }
             let output = await Self.plan(input, chapters: chapters, images: images)
             if Task.isCancelled { break }
             if planAgain { continue }
             unsized = output.unsized
-            await images.setPlan(output.items, readerNames: output.readerNames, awaitingReaderMetadata: output.readerMetadataPending)
+            await images.setPlan(output.items, readerNames: output.readerNames, awaitingReaderMetadata: output.readerMetadataPending,
+                                 preservingReader: input.focused != focused)
             await images.setRetained(output.retained)
             await chapters.prioritize(output.missing.filter(\.urgent).map { FileKey.chapter($0.series, $0.chapter) }
                                       + output.listless.filter(\.urgent).map { "list:" + $0.series })
-            await chapters.setReaderBusy(await images.readerWorkPending())
             for name in output.completedUnsized { finished(name) }
             prepare(missing: output.missing, lists: output.listless)
         } while planAgain
@@ -398,7 +435,9 @@ final class Library {
         var items: [ImageItem] = [], retained = Set<String>(), seen = Set<String>()
         func add(_ data: ChapterData, series: String, from page: Int = 0) {
             let pages = data.images.map { ImageItem(url: $0.url, cover: false) }
-            for (index, image) in data.images.enumerated() where !image.hasMeasuredDimensions { output.unsized[pages[index].name] = (series, data.chapterId, index) }
+            for (index, image) in data.images.enumerated() where !image.hasMeasuredDimensions {
+                output.unsized[pages[index].name, default: []].insert(PagePlace(series: series, chapter: data.chapterId, index: index))
+            }
             // The requested image first; then earlier boxes can become known without
             // waiting for every later page in this chapter to finish downloading.
             if pages.indices.contains(page), seen.insert(pages[page].name).inserted { items.append(pages[page]) }
@@ -447,7 +486,7 @@ final class Library {
                 if let data = await chapters.savedChapter(series: reading.series, chapterId: chapter) {
                     retained.formUnion(data.images.map { ImageItem(url: $0.url, cover: false).name })
                     for (index, image) in data.images.enumerated() where !image.hasMeasuredDimensions {
-                        output.unsized[ImageItem(url: image.url, cover: false).name] = (reading.series, chapter, index)
+                        output.unsized[ImageItem(url: image.url, cover: false).name, default: []].insert(PagePlace(series: reading.series, chapter: chapter, index: index))
                     }
                 }
             }
@@ -565,23 +604,29 @@ final class Library {
     private func finished(_ item: ImageItem) { if !item.cover { finished(item.name) } }
 
     private func finished(_ name: String) {
-        guard let place = unsized[name] else { planSoon(); return }
+        guard let places = unsized[name] else { return }
         guard measuring.insert(name).inserted else { return }
         let file = images.root.appendingPathComponent(name), files = chapters.files, images = images
-        Task.detached(priority: .userInitiated) { [weak self] in
+        let priority: TaskPriority = places.contains(where: { $0.series == focused?.series }) ? .userInitiated : .utility
+        Task.detached(priority: priority) { [weak self] in
             let size = Library.pixelSize(file)
-            if let size { await files.recordSizes([place.index: size], series: place.series, chapterId: place.chapter) }
+            if let size {
+                for place in places { await files.recordSizes([place.index: size], series: place.series, chapterId: place.chapter) }
+            }
             else { await images.invalidate(name) }
             await MainActor.run { [weak self] in
                 guard let self else { return }
                 self.measuring.remove(name)
                 if let size {
-                    self.unsized[name] = nil
-                    NotificationCenter.default.post(name: .pageDimensionsKnown, object: nil,
-                        userInfo: ["series": place.series, "chapter": place.chapter, "index": place.index,
-                                   "width": Double(size.width), "height": Double(size.height)])
+                    let remaining = (self.unsized[name] ?? []).subtracting(places)
+                    self.unsized[name] = remaining.isEmpty ? nil : remaining
+                    for place in places {
+                        NotificationCenter.default.post(name: .pageDimensionsKnown, object: nil,
+                            userInfo: ["series": place.series, "chapter": place.chapter, "index": place.index,
+                                       "width": Double(size.width), "height": Double(size.height)])
+                    }
+                    if !remaining.isEmpty { self.finished(name) }
                 }
-                self.planSoon()
             }
         }
     }
@@ -612,6 +657,6 @@ final class Library {
 
     var debugState: [String: Any] {
         ["catalog": catalog.series.count, "complete": catalog.complete, "refreshing": refreshing, "error": catalogError ?? "",
-         "started": state.started.count, "readers": readers.count]
+         "started": state.started.count, "readers": readers.count, "fullPlans": fullPlans, "priorityPlans": priorityPlans]
     }
 }

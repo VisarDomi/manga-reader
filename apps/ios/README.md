@@ -246,6 +246,26 @@ without stretching or loading-time geometry changes.
   All seven sites answer 304 with no bytes when it did not change. Only new bytes
   replace the file, and the card shows them in place.
 
+## Preparation work and CPU cost
+
+Image completion updates measured dimensions for every page sharing that file
+and advances the existing queue. It does not replan the catalog. A reader moving
+within its chapter changes only its small current/next priority list; saving an
+ordinary page position does not invalidate preparation. Catalog/progress chapter
+changes and new metadata still rebuild the structural plan.
+
+Image completion/missing-file knowledge is indexed for the process lifetime and
+updated by commits/invalidation. Background downloads advance through a cursor;
+reader priority is separate from the catalog array. Chapter manifests use a
+32 MiB cost-limited memory cache rather than clearing all entries after 64.
+Geometry publication examines only the unpublished tail. Retries, durable saves,
+current/next retention and the download/preparation order stay in force.
+
+`Library.debugState` records full-plan and reader-priority counts. Image state
+records filesystem probes and queue position. Native tests exercise a 5,000-page
+catalog with repeated completions/page changes and verify that those events do
+not rebuild the full plan or repeatedly probe missing files.
+
 ## Restore and the main thread
 
 These are the owner's requirements; NativeKit's guide has the shared mechanics and

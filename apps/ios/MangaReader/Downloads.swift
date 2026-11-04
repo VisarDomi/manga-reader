@@ -14,6 +14,7 @@ actor MetadataQueue {
     private var running: [UUID: (key: String?, urgency: Urgency)] = [:]
     private var waiting: [Waiter] = []
     private var readerBusy = false
+    private var readerRevision = -1
 
     func run<T: Sendable>(urgent: Bool, key: String?, preparation: Bool = false, _ work: @Sendable () async throws -> T) async throws -> T {
         let id = UUID(), urgency = Urgency(urgent)
@@ -22,7 +23,13 @@ actor MetadataQueue {
         return try await SiteClient.$urgency.withValue(urgency) { try await work() }
     }
 
-    func setReaderBusy(_ value: Bool) { readerBusy = value; pump() }
+    func setReaderBusy(_ value: Bool, revision: Int? = nil) {
+        if let revision {
+            guard revision >= readerRevision else { return }
+            readerRevision = revision
+        }
+        readerBusy = value; pump()
+    }
 
     func prioritize(_ key: String) {
         for item in running.values where item.key == key { item.urgency.raise() }
@@ -95,7 +102,7 @@ actor ChapterSource {
 
     func onListChange(_ listener: @escaping @Sendable (String) -> Void) { listeners.append(listener) }
     func onChapterChange(_ listener: @escaping @Sendable (String, String) -> Void) { chapterListeners.append(listener) }
-    func setReaderBusy(_ value: Bool) async { await queue.setReaderBusy(value) }
+    func setReaderBusy(_ value: Bool, revision: Int? = nil) async { await queue.setReaderBusy(value, revision: revision) }
     func prioritize(_ keys: [String]) async { for key in keys { await queue.prioritize(key) } }
 
     // A chapter's pages (nil: unavailable). The saved file answers at once; otherwise one
@@ -200,7 +207,11 @@ actor ChapterSource {
 struct ImageItem: Hashable, Sendable {
     let url: String
     let cover: Bool
-    var name: String { (cover ? "covers/" : "images/") + FileKey.sha256(url) }
+    let name: String
+    init(url: String, cover: Bool) {
+        self.url = url; self.cover = cover
+        name = (cover ? "covers/" : "images/") + FileKey.sha256(url)
+    }
 }
 
 // The decoder's canvas, not website attributes or a downsampled display bitmap.
@@ -243,7 +254,12 @@ actor ImageFiles {
     private var foreground: [String: Transfer] = [:]
     private var background: [String: Task<Void, Never>] = [:]
     private var plan: [ImageItem] = []
+    private var itemsByName: [String: ImageItem] = [:]
+    private var planCursor = 0
+    private var readerPlan: [ImageItem] = []
     private var done = Set<String>()
+    private var absent = Set<String>()
+    private var fileChecks = 0
     private var failed: [String: (attempts: Int, retryAt: Date)] = [:]
     private var retained: Set<String>?
     private var scanned = false
@@ -255,6 +271,9 @@ actor ImageFiles {
     private var recheckRunning = false
     private var readerNames: Set<String>?
     private var readerMetadataPending = false
+    private var reportedReaderBusy = false
+    private var readerRevision = 0
+    private var readerObservers: [@Sendable (Bool, Int) -> Void] = []
     private var lastAsked: [String: Date] = [:]
 
     init(root: URL, http: HTTPClient, referer: String) {
@@ -273,11 +292,17 @@ actor ImageFiles {
         return file
     }
 
-    private func complete(_ item: ImageItem) -> Bool {
-        if done.contains(item.name) { return true }
-        let file = url(item)
-        guard FileManager.default.fileExists(atPath: file.appendingPathExtension("mime").path), (DurableFile.size(file) ?? 0) > 0 else { return false }
-        done.insert(item.name)
+    private func complete(_ item: ImageItem) -> Bool { complete(item.name) }
+
+    private func complete(_ name: String) -> Bool {
+        if done.contains(name) { return true }
+        if absent.contains(name) { return false }
+        fileChecks += 1
+        let file = root.appendingPathComponent(name)
+        guard FileManager.default.fileExists(atPath: file.appendingPathExtension("mime").path), (DurableFile.size(file) ?? 0) > 0 else {
+            absent.insert(name); return false
+        }
+        done.insert(name)
         return true
     }
 
@@ -285,16 +310,14 @@ actor ImageFiles {
 
     // Which of these files are complete.
     func completed(_ names: [String]) -> [String] {
-        names.filter { name in
-            if done.contains(name) { return true }
-            let file = root.appendingPathComponent(name)
-            guard FileManager.default.fileExists(atPath: file.appendingPathExtension("mime").path), (DurableFile.size(file) ?? 0) > 0 else { return false }
-            done.insert(name)
-            return true
-        }
+        names.filter { complete($0) }
     }
 
     func onFinished(_ observer: @escaping @Sendable (ImageItem) -> Void) { observers.append(observer) }
+    func onReaderWorkChanged(_ observer: @escaping @Sendable (Bool, Int) -> Void) {
+        readerObservers.append(observer)
+        observer(readerWorkPending(), readerRevision)
+    }
 
     // An image someone is looking at.
     func file(_ item: ImageItem) async throws -> URL {
@@ -317,6 +340,7 @@ actor ImageFiles {
         defer {
             if foreground[item.name]?.id == transfer.id {
                 foreground[item.name] = nil
+                if !done.contains(item.name) { planCursor = 0 }
                 pump()
             }
         }
@@ -335,6 +359,7 @@ actor ImageFiles {
         guard foreground[name]!.callers.isEmpty else { return }
         foreground[name]!.task.cancel()
         foreground[name] = nil
+        planCursor = 0
         pump()
     }
 
@@ -438,23 +463,31 @@ actor ImageFiles {
     }
 
     private func finished(_ item: ImageItem) {
-        done.insert(item.name)
+        let newlyComplete = done.insert(item.name).inserted
+        absent.remove(item.name)
         failed[item.name] = nil
+        guard newlyComplete else { return }
         for observer in observers { observer(item) }
     }
 
     // What to download, in order (replacing the previous plan).
     func prioritizeReader(_ items: [ImageItem], awaitingMetadata: Bool) {
-        let names = Set(items.map(\.name))
-        setPlan(items + plan.filter { !names.contains($0.name) }, readerNames: names, awaitingReaderMetadata: awaitingMetadata)
+        readerPlan = items
+        readerNames = Set(items.map(\.name))
+        readerMetadataPending = awaitingMetadata
+        pump()
     }
 
-    func setPlan(_ items: [ImageItem], readerNames: Set<String>? = nil, awaitingReaderMetadata: Bool = false) {
+    func setPlan(_ items: [ImageItem], readerNames: Set<String>? = nil, awaitingReaderMetadata: Bool = false, preservingReader: Bool = false) {
         plan = items
-        self.readerNames = readerNames
-        readerMetadataPending = awaitingReaderMetadata
-        let restricted = readerNames != nil && (awaitingReaderMetadata || items.contains { readerNames!.contains($0.name) && !complete($0) })
-        let wanted = restricted ? readerNames! : Set(items.map(\.name))
+        planCursor = 0
+        itemsByName = Dictionary(items.map { ($0.name, $0) }, uniquingKeysWith: { first, _ in first })
+        if !preservingReader {
+            self.readerNames = readerNames
+            readerPlan = readerNames.map { names in items.filter { names.contains($0.name) } } ?? []
+            readerMetadataPending = awaitingReaderMetadata
+        }
+        let wanted = Set(itemsByName.keys).union(self.readerNames ?? [])
         for (name, task) in background where !wanted.contains(name) { task.cancel() }
         pump()
     }
@@ -482,11 +515,13 @@ actor ImageFiles {
         try? FileManager.default.removeItem(at: file.appendingPathExtension("mime"))
         try? FileManager.default.removeItem(at: file.appendingPathExtension("dimensions"))
         done.remove(name)
+        absent.insert(name)
     }
 
     // Paused while the app is away (the background session carries on).
     func setActive(_ value: Bool) {
         active = value
+        if value { planCursor = 0 }
         if !value { for task in background.values { task.cancel() } }
         pump()
         pumpRechecks()
@@ -495,7 +530,8 @@ actor ImageFiles {
     // The unfinished planned work, in order.
     func unfinished(limit: Int) -> [ImageItem] {
         var result: [ImageItem] = []
-        for item in plan where !complete(item) {
+        var seen = Set<String>()
+        for item in [readerPlan, plan].joined() where seen.insert(item.name).inserted && !complete(item) {
             result.append(item)
             if result.count == limit { break }
         }
@@ -503,31 +539,35 @@ actor ImageFiles {
     }
 
     func committed(_ name: String) {
-        guard let item = plan.first(where: { $0.name == name }) else { done.insert(name); return }
+        guard let item = itemsByName[name] ?? readerPlan.first(where: { $0.name == name }) else {
+            done.insert(name); absent.remove(name); pump(); return
+        }
         guard ImageDimensions.read(url(item)) != nil else { remove(name); pump(); return }
         finished(item)
         pump()
     }
 
     func invalidate(_ item: ImageItem) { invalidate(item.name) }
-    func invalidate(_ name: String) { remove(name); pump() }
+    func invalidate(_ name: String) { remove(name); planCursor = 0; pump() }
 
     func readerWorkPending() -> Bool {
         guard let names = readerNames else { return false }
-        return readerMetadataPending || plan.contains { names.contains($0.name) && !complete($0) }
+        return readerMetadataPending || names.contains { !complete($0) }
     }
 
     private func pump() {
+        let restricted = readerWorkPending()
+        if restricted != reportedReaderBusy {
+            reportedReaderBusy = restricted; readerRevision += 1
+            for observer in readerObservers { observer(restricted, readerRevision) }
+        }
         guard active else { return }
         let limit = foreground.isEmpty ? 3 : 1
         guard background.count < limit else { return }
         let now = Date()
-        let restricted = readerWorkPending()
-        for item in plan {
-            guard background.count < limit else { return }
-            if background[item.name] != nil || foreground[item.name] != nil || complete(item) { continue }
-            if restricted, readerNames?.contains(item.name) != true { continue }
-            if let failure = failed[item.name], failure.retryAt > now { continue }
+        func start(_ item: ImageItem) {
+            if background[item.name] != nil || foreground[item.name] != nil || complete(item) { return }
+            if let failure = failed[item.name], failure.retryAt > now { return }
             background[item.name] = Task(priority: .utility) { [http, referer, root] in
                 let outcome: Error?
                 do {
@@ -537,6 +577,15 @@ actor ImageFiles {
                 } catch { outcome = error }
                 self.backgroundFinished(item, error: outcome)
             }
+        }
+        for item in readerPlan {
+            guard background.count < limit else { return }
+            start(item)
+        }
+        while !restricted && planCursor < plan.count {
+            guard background.count < limit else { return }
+            let item = plan[planCursor]; planCursor += 1
+            start(item)
         }
         if !wakeScheduled, let next = failed.values.map(\.retryAt).filter({ $0 > now }).min(), background.count < limit {
             wakeScheduled = true
@@ -549,12 +598,14 @@ actor ImageFiles {
 
     private func wake() {
         wakeScheduled = false
+        planCursor = 0
         pump()
     }
 
     private func backgroundFinished(_ item: ImageItem, error: Error?) {
         background[item.name] = nil
         if let error {
+            planCursor = 0
             if !(error is CancellationError), (error as? URLError)?.code != .cancelled {
                 let attempts = (failed[item.name]?.attempts ?? 0) + 1
                 failed[item.name] = (attempts, Date().addingTimeInterval(min(600, 15 * pow(2, Double(attempts - 1)))))
@@ -567,6 +618,6 @@ actor ImageFiles {
     }
 
     var state: [String: Int] {
-        ["foreground": foreground.count, "background": background.count, "planned": plan.count, "done": done.count, "failed": failed.count, "active": active ? 1 : 0]
+        ["foreground": foreground.count, "background": background.count, "planned": plan.count, "done": done.count, "failed": failed.count, "active": active ? 1 : 0, "fileChecks": fileChecks, "planCursor": planCursor]
     }
 }

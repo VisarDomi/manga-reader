@@ -114,6 +114,8 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
                 guard let self, series == self.series,
                       let part = self.parts.firstIndex(where: { $0.data.chapterId == chapter }),
                       self.parts[part].data.images.indices.contains(index) else { return }
+                let old = self.parts[part].data.images[index]
+                if old.hasMeasuredDimensions && old.width == width && old.height == height { return }
                 self.parts[part].data.images[index].width = width
                 self.parts[part].data.images[index].height = height
                 self.parts[part].data.images[index].dimensionsMeasured = true
@@ -262,16 +264,17 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
     // an estimated page; later bytes only extend the tail or fill existing boxes.
     private func publishGeometry() {
         var pages: [StripPage] = []
-        outer: for part in parts {
-            for image in part.data.images {
+        let published = strip.pages.count
+        outer: for part in parts where part.first + part.data.images.count > published {
+            for image in part.data.images.dropFirst(max(0, published - part.first)) {
                 guard image.hasMeasuredDimensions, let width = image.width, let height = image.height else { break outer }
                 pages.append(StripPage(key: "page:" + image.url, aspect: CGFloat(width / height)))
             }
         }
-        if pages.count > strip.pages.count { strip.append(Array(pages.dropFirst(strip.pages.count))) }
+        if !pages.isEmpty { strip.append(pages) }
         guard !initialGeometryApplied, let first = parts.first else { return }
         let index = min(requestedIndex, max(0, first.data.images.count - 1))
-        guard pages.indices.contains(index) else { show("Preparing page dimensions…"); return }
+        guard strip.pages.indices.contains(index) else { show("Preparing page dimensions…"); return }
         if let restoring, restoring.chapter == first.data.chapterId {
             strip.scroll(to: StripPosition(index: index, fraction: restoring.position.fraction))
         } else {

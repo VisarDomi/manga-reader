@@ -211,16 +211,17 @@ final class ReadingState {
         if let current = bySeries[series], current.chapterId == chapterId, current.imageIndex == imageIndex, current.totalImages == totalImages { return }
         guard let entry = try? Progress(provider: provider, series: series, chapterId: chapterId, imageIndex: imageIndex,
                                         totalImages: totalImages, updatedAt: (Date().timeIntervalSince1970 * 1000).rounded()) else { return }
+        let preparationChanged = bySeries[series].map { $0.chapterId != entry.chapterId || $0.complete != entry.complete } ?? true
         database.indexedDB.progress.removeAll { $0.id == entry.id }
         database.indexedDB.progress.append(entry)
         bySeries[series] = entry
-        persist()
+        persist(preparationChanged: preparationChanged)
     }
 
-    private func persist() {
+    private func persist(preparationChanged: Bool = true) {
         let database = database
         writer.save { try Self.encode(database) }
-        NotificationCenter.default.post(name: .progressChanged, object: nil)
+        NotificationCenter.default.post(name: .progressChanged, object: nil, userInfo: ["preparationChanged": preparationChanged])
     }
 
     func flush() { writer.flush() }
@@ -302,9 +303,17 @@ enum FileKey {
 // the network, and prepared chapters read offline.
 actor ChapterFiles {
     private let directory: URL
-    private var memory: [String: ChapterData] = [:]
+    private final class CachedChapter {
+        let data: ChapterData
+        init(_ data: ChapterData) { self.data = data }
+    }
+    private let memory = NSCache<NSString, CachedChapter>()
+    private(set) var diskReads = 0
 
-    init(directory: URL) { self.directory = directory.appendingPathComponent("chapters") }
+    init(directory: URL) {
+        self.directory = directory.appendingPathComponent("chapters")
+        memory.totalCostLimit = 32 << 20
+    }
 
     private nonisolated func file(_ key: String) -> URL { directory.appendingPathComponent(FileKey.sha256(key) + ".json") }
 
@@ -316,7 +325,8 @@ actor ChapterFiles {
 
     func chapter(_ series: String, _ chapterId: String) -> ChapterData? {
         let key = FileKey.chapter(series, chapterId)
-        if let kept = memory[key] { return kept }
+        if let kept = memory.object(forKey: key as NSString) { return kept.data }
+        diskReads += 1
         guard let data = try? DurableFile.readJSON(ChapterData.self, from: file(key)), !data.images.isEmpty else { return nil }
         remember(key, data)
         return data
@@ -346,13 +356,13 @@ actor ChapterFiles {
 
     func remove(_ series: String, _ chapterId: String) {
         let key = FileKey.chapter(series, chapterId)
-        memory[key] = nil
+        memory.removeObject(forKey: key as NSString)
         try? FileManager.default.removeItem(at: file(key))
     }
 
     private func remember(_ key: String, _ data: ChapterData) {
-        if memory.count > 64 { memory.removeAll() }
-        memory[key] = data
+        let cost = data.images.reduce(256 + data.seriesTitle.utf8.count) { $0 + 96 + $1.url.utf8.count }
+        memory.setObject(CachedChapter(data), forKey: key as NSString, cost: cost)
     }
 
     private struct Item: Codable { var chapterId: String }

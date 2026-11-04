@@ -24,6 +24,108 @@ struct MangaTests {
         try await retainedCache()
         try await measuredDimensions()
         try await metadataPriority()
+        try await missingFileIndex()
+        try await boundedLibraryWork()
+        try await manifestCache()
+    }
+
+    static func manifestCache() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let files = ChapterFiles(directory: root)
+        for chapter in 0..<200 {
+            await files.save(ChapterData(chapterId: String(chapter), seriesSlug: "fixture", seriesTitle: "Fixture",
+                                        images: [ChapterImage(url: "https://fixture.invalid/\(chapter).jpg", width: 1, height: 1)]), series: "fixture")
+        }
+        for _ in 0..<3 {
+            for chapter in 0..<200 {
+                let data = await files.chapter("fixture", String(chapter))
+                expect(data != nil, "Warm manifest remains available")
+            }
+        }
+        let reads = await files.diskReads
+        expect(reads == 0, "Crossing 64 manifests never flushes the entire metadata cache")
+        print("PASS: 600 warm manifest lookups perform zero disk reads")
+    }
+
+    @MainActor
+    static func boundedLibraryWork() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let entries = (0..<100).map { HomeSeries(slug: "series-\($0)", title: "Fixture", coverUrl: "", chapters: []) }
+        try DurableFile.writeJSON(Catalog(series: entries, complete: true), to: root.appendingPathComponent("catalog.json"))
+        let chapterFiles = ChapterFiles(directory: root)
+        for entry in entries {
+            for chapter in ["1", "2"] {
+                let pages = (0..<25).map { ChapterImage(url: "https://fixture.invalid/\(entry.slug)/\(chapter)/\($0).jpg", width: 1, height: 1, dimensionsMeasured: true) }
+                await chapterFiles.save(ChapterData(chapterId: chapter, seriesSlug: entry.slug, seriesTitle: entry.title, images: pages), series: entry.slug)
+            }
+            await chapterFiles.saveList(["2", "1"], series: entry.slug)
+        }
+        let library = Library(provider: OfflineWorkProvider(), root: root, bundleID: "com.visar.MangaWork." + UUID().uuidString)
+        await library.images.setActive(false)
+        library.planSoon()
+        for _ in 0..<500 {
+            if await library.images.state["planned"] == 5000 { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        try await Task.sleep(for: .milliseconds(50))
+        let initial = library.debugState["fullPlans"] as! Int
+        let jpeg = NSMutableData()
+        let pixels = CGDataProvider(data: Data(repeating: 255, count: 4) as CFData)!
+        let image = CGImage(width: 1, height: 1, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: 4,
+                            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue),
+                            provider: pixels, decode: nil, shouldInterpolate: false, intent: .defaultIntent)!
+        let destination = CGImageDestinationCreateWithData(jpeg, "public.jpeg" as CFString, 1, nil)!
+        CGImageDestinationAddImage(destination, image, nil)
+        expect(CGImageDestinationFinalize(destination), "Work fixture JPEG writes")
+        let completionCPU = clock()
+        for chapter in ["1", "2"] {
+            for page in 0..<25 {
+                let item = ImageItem(url: "https://fixture.invalid/series-0/\(chapter)/\(page).jpg", cover: false)
+                let file = library.images.url(item)
+                try DurableFile.write(jpeg as Data, to: file)
+                try DurableFile.write(Data("image/jpeg".utf8), to: file.appendingPathExtension("mime"))
+                _ = ImageDimensions.measure(file)
+                await library.images.committed(item.name)
+                await Task.yield()
+            }
+        }
+        try await Task.sleep(for: .milliseconds(100))
+        expect(library.debugState["fullPlans"] as? Int == initial, "Fifty image completions do not rebuild the 5,000-page catalog plan")
+        let cpuAfterCompletions = Double(clock() - completionCPU) / Double(CLOCKS_PER_SEC)
+        let readerOwner = NSObject()
+        library.state.save(series: "series-1", chapterId: "1", imageIndex: 0, totalImages: 25)
+        library.reading(readerOwner, Library.Reading(series: "series-1", slug: "series-1", chapters: ["1", "2"], chapter: "1", page: 0), visible: true)
+        try await Task.sleep(for: .milliseconds(200))
+        let beforePages = library.debugState["fullPlans"] as! Int
+        for page in 1...80 {
+            library.reading(readerOwner, Library.Reading(series: "series-1", slug: "series-1", chapters: ["1", "2"], chapter: "1", page: page % 20), visible: true)
+            library.state.save(series: "series-1", chapterId: "1", imageIndex: page % 20, totalImages: 25)
+            await Task.yield()
+        }
+        try await Task.sleep(for: .milliseconds(100))
+        expect(library.debugState["fullPlans"] as? Int == beforePages, "Page movement and progress saves update only reader priority")
+        expect((library.debugState["priorityPlans"] as? Int ?? 0) > 0, "Reader priority still follows page movement")
+        print("PASS: 5,000-page workload: no full replans for 50 completions or 80 page moves; completion CPU \(cpuAfterCompletions)s")
+    }
+
+    static func missingFileIndex() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let files = ImageFiles(root: root, http: HTTPClient(.init()), referer: "https://fixture.invalid/")
+        await files.setActive(false)
+        let pages = (0..<5000).map { ImageItem(url: "https://fixture.invalid/\($0).jpg", cover: false) }
+        await files.setPlan(pages)
+        let names = pages.map(\.name)
+        _ = await files.completed(names)
+        let first = await files.state["fileChecks"]!
+        for _ in 0..<20 { _ = await files.completed(names) }
+        for page in 0..<100 { await files.prioritizeReader([pages[page]], awaitingMetadata: false) }
+        let after = await files.state
+        expect(first == 5000 && after["fileChecks"] == first, "Repeated completion checks and page priority changes do not stat missing files again")
+        expect(after["planned"] == 5000, "Reader priority does not replace the Home preparation plan")
+        print("PASS: 100,000 repeated cache checks cause zero additional filesystem probes")
     }
 
     static func measuredDimensions() async throws {
@@ -299,4 +401,12 @@ private actor TestGate {
         if !didStart { await withCheckedContinuation { starters.append($0) } }
     }
     func release() { completion?.resume(); completion = nil }
+}
+
+private struct OfflineWorkProvider: MangaProvider {
+    let key = "fixture"
+    let origin = URL(string: "https://fixture.invalid")!
+    func home(_ cursor: String?) async throws -> HomePage { throw URLError(.notConnectedToInternet) }
+    func chapter(_ slug: String, _ chapterId: String) async throws -> ChapterData? { throw URLError(.notConnectedToInternet) }
+    func chaptersNewestFirst(_ slug: String) async throws -> [String] { throw URLError(.notConnectedToInternet) }
 }
