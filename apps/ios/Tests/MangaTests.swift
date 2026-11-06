@@ -21,6 +21,7 @@ struct MangaTests {
         try providers()
         try store()
         try await budget()
+        try retentionPolicy()
         try await retainedCache()
         try await measuredDimensions()
         try await metadataPriority()
@@ -47,6 +48,14 @@ struct MangaTests {
         await files.saveList(["2", "1"], series: "fixture")
         let library = Library(provider: CoverOrderProvider(), root: root, bundleID: "com.visar.CoverOrder."+UUID().uuidString)
         await library.images.setActive(false)
+        library.planSoon()
+        for _ in 0..<500 {
+            if await library.images.state["planned"] == 1 { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let untouched = await library.images.unfinished(limit: 3)
+        expect(untouched.count == 1 && untouched[0].cover, "Untouched series prepare only their cover")
+        library.state.save(series: "fixture", chapterId: "1", imageIndex: 0, totalImages: 1)
         library.planSoon()
         for _ in 0..<500 {
             if await library.images.state["planned"] == 3 { break }
@@ -241,11 +250,38 @@ struct MangaTests {
         }
         await files.setRetained(Set(pages.prefix(2).map(\.name)))
         let current = await files.isComplete(pages[0]), next = await files.isComplete(pages[1]), outside = await files.isComplete(pages[2])
-        expect(current && next && !outside, "Only the current/next chapter or held-reader pages remain cached")
-        await files.setRetained([pages[1].name])
+        expect(current && next && !outside, "Initial cleanup keeps current/next and removes untouched excess")
+        let now = Date()
+        await files.setRetained([pages[1].name], now: now)
         let previous = await files.isComplete(pages[0]), kept = await files.isComplete(pages[1])
-        expect(!previous && kept, "Advancing the active cache window keeps the next chapter and prunes unheld previous pages")
-        print("PASS: current-and-next-chapter cache policy")
+        expect(previous && kept, "Advancing retains downloaded previous pages for 24 hours")
+        let reopened = ImageFiles(root: root, http: HTTPClient(.init()), referer: "https://fixture.invalid/")
+        await reopened.setActive(false)
+        await reopened.setRetained([pages[1].name], now: now.addingTimeInterval(PageRetention.grace + 1))
+        let expired = await reopened.isComplete(pages[0]), active = await reopened.isComplete(pages[1])
+        expect(!expired && active, "Restart preserves the original deadline and expires only retired pages")
+        try DurableFile.write(Data([1, 2, 3]), to: reopened.url(pages[2]))
+        try DurableFile.write(Data("image/jpeg".utf8), to: reopened.url(pages[2]).appendingPathExtension("mime"))
+        await reopened.committed(pages[2].name)
+        let late = await reopened.isComplete(pages[2])
+        expect(!late, "A late background completion cannot recreate an unwanted page")
+        print("PASS: touched current/next, durable 24-hour grace, expiry and late-completion cleanup")
+    }
+
+    static func retentionPolicy() throws {
+        let now = Date(), existing: Set<String> = ["images/current", "images/old", "images/unread", "covers/a"]
+        var policy = PageRetention()
+        let initial = policy.reconcile(required: ["images/current"], existing: existing, migrationGrace: ["images/old"], now: now)
+        expect(initial == ["images/unread"], "Migration cleans untouched pages immediately, preserving covers and touched history")
+        let deadline = policy.expires["images/old"]
+        _ = policy.reconcile(required: ["images/current"], existing: existing, migrationGrace: ["images/unread"], now: now.addingTimeInterval(60))
+        expect(policy.expires["images/old"] == deadline && policy.expires["images/unread"] == nil, "Repeated planning neither extends grace nor restarts migration")
+        _ = policy.reconcile(required: ["images/old"], existing: existing, migrationGrace: [], now: now.addingTimeInterval(120))
+        expect(policy.expires["images/old"] == nil && policy.expires["images/current"] != nil, "Reactivation cancels expiry and retires the previous current page")
+        var restored = try JSONDecoder().decode(PageRetention.self, from: JSONEncoder().encode(policy))
+        let expired = restored.reconcile(required: ["images/old"], existing: existing, migrationGrace: [], now: now.addingTimeInterval(PageRetention.grace + 121))
+        expect(expired == ["images/current", "images/unread"], "Persisted eviction expires retired bytes without deleting active pages or covers")
+        print("PASS: one-time migration, durable deadlines, reactivation and permanent covers")
     }
 
     static func budget() async throws { try await RequestLimitChecks.run() }

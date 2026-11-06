@@ -195,7 +195,15 @@ actor ChapterSource {
             rows[series] = row
             var list = lists[series]
             if list == nil { list = await files.list(series) }
-            if let list, withNewerChapters(list, row) != list { notify(series) }
+            if let list {
+                if withNewerChapters(list, row) != list { notify(series) }
+                else if let newest = row.first, !list.contains(newest) {
+                    // A short Home row may not prove adjacency. Refresh its list now
+                    // instead of waiting 15 minutes or guessing and skipping chapters.
+                    listChecked[series] = .distantPast
+                    notify(series)
+                }
+            }
         }
     }
 
@@ -243,9 +251,8 @@ enum ImageDimensions {
 }
 
 // The only owner of image bytes. Pages on screen load first (shared per image, dropped when
-// nobody waits); then the planned work in order: the chapters being read, every catalog
-// series' current and next chapter, then the catalog's covers. Images outside what is kept
-// are deleted; covers are kept.
+// nobody waits); then the reader's current/next pair, covers and touched series' pairs.
+// Retired downloaded pages expire after 24 hours; covers are kept permanently.
 actor ImageFiles {
     private struct Transfer { let id = UUID(); let task: Task<URL, Error>; var callers: Set<UUID> = [] }
     let root: URL
@@ -264,6 +271,12 @@ actor ImageFiles {
     private var failed: [String: (attempts: Int, retryAt: Date)] = [:]
     private var retained: Set<String>?
     private var scanned = false
+    private var retention: PageRetention
+    private var retentionWake: Task<Void, Never>?
+    private var retentionWakeAt: Date?
+    private var existingPages = Set<String>()
+    private(set) var removedPageFiles = 0
+    private(set) var removedPageBytes: Int64 = 0
     private var active = true
     private var wakeScheduled = false
     private var observers: [@Sendable (ImageItem) -> Void] = []
@@ -281,6 +294,7 @@ actor ImageFiles {
         self.root = root
         self.http = SiteClient(http: http, limiter: limiter ?? RequestLimiter(.media))
         self.referer = referer
+        retention = (try? DurableFile.readJSON(PageRetention.self, from: root.appendingPathComponent("page-retention.json"))) ?? PageRetention()
     }
 
     nonisolated func url(_ item: ImageItem) -> URL { root.appendingPathComponent(item.name) }
@@ -467,6 +481,10 @@ actor ImageFiles {
     }
 
     private func finished(_ item: ImageItem) {
+        if !item.cover {
+            existingPages.insert(item.name)
+            if retained != nil && !retention.keeps(item.name, now: Date()) { remove(item.name); return }
+        }
         let newlyComplete = done.insert(item.name).inserted
         absent.remove(item.name)
         failed[item.name] = nil
@@ -479,6 +497,14 @@ actor ImageFiles {
         readerPlan = items
         readerNames = Set(items.map(\.name))
         readerMetadataPending = awaitingMetadata
+        if retained != nil {
+            let required = retention.required.union(readerNames ?? [])
+            if required != retention.required {
+                retention.required = required; retained = required
+                for name in required { retention.expires[name] = nil }
+                try? DurableFile.writeJSON(retention, to: root.appendingPathComponent("page-retention.json"))
+            }
+        }
         for item in items { backgroundUrgency[item.name]?.raise() }
         pump()
     }
@@ -497,28 +523,73 @@ actor ImageFiles {
         pump()
     }
 
-    // Images to keep (covers are always kept); others are deleted.
-    func setRetained(_ names: Set<String>) async {
-        let previous = retained
+    // Current/next pages stay; retired downloaded pages get a durable 24-hour grace.
+    func setRetained(_ names: Set<String>, migrationGrace: Set<String> = [], now: Date = Date()) async {
+        if !scanned {
+            let folder = root.appendingPathComponent("images")
+            let entries = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
+            for entry in entries where !entry.hasPrefix(".") {
+                let stem = entry.hasSuffix(".mime") ? String(entry.dropLast(5)) : entry.hasSuffix(".dimensions") ? String(entry.dropLast(11)) : entry
+                existingPages.insert("images/" + stem)
+            }
+            scanned = true
+        }
         retained = names
-        let removed = previous.map { $0.subtracting(names) } ?? []
-        for name in removed where foreground[name] == nil && background[name] == nil { remove(name) }
-        guard !scanned else { return }
-        scanned = true
-        let folder = root.appendingPathComponent("images")
-        let entries = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
-        for entry in entries where !entry.hasSuffix(".mime") && !entry.hasSuffix(".dimensions") && !entry.hasPrefix(".") {
-            let name = "images/" + entry
-            if retained?.contains(name) == false, foreground[name] == nil, background[name] == nil { remove(name) }
+        let before = retention
+        let removed = retention.reconcile(required: names, existing: existingPages, migrationGrace: migrationGrace, now: now)
+        // Publish the allowed state before deleting, so an interrupted cleanup resumes.
+        if !before.migrationComplete || before.required != retention.required || before.expires != retention.expires || !removed.isEmpty {
+            do { try DurableFile.writeJSON(retention, to: root.appendingPathComponent("page-retention.json")) }
+            catch {
+                retention = before; retained = before.required
+                Log.store.error("Page retention: \(error.localizedDescription, privacy: .public)")
+                return
+            }
+        }
+        for name in removed {
+            background[name]?.cancel()
+            if foreground[name] == nil && !retention.keeps(name, now: now) { remove(name) }
             await Task.yield()
+        }
+        scheduleRetention(now: now)
+    }
+
+    func needsRetentionMigration() -> Bool { !retention.migrationComplete }
+
+    var storageReport: [String: Int64] {
+        ["removedFiles": Int64(removedPageFiles), "removedBytes": removedPageBytes,
+         "remainingPageFiles": Int64(existingPages.count), "currentNextFiles": Int64(retention.required.count),
+         "expiringFiles": Int64(retention.expires.count)]
+    }
+
+    private func scheduleRetention(now: Date) {
+        guard let next = retention.expires.values.min() else {
+            retentionWake?.cancel(); retentionWake = nil; retentionWakeAt = nil; return
+        }
+        guard retentionWakeAt != next else { return }
+        retentionWake?.cancel(); retentionWakeAt = next
+        retentionWake = Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(max(1, next.timeIntervalSince(now)))) } catch { return }
+            await self?.evictExpired()
         }
     }
 
+    private func evictExpired() async {
+        retentionWakeAt = nil
+        await setRetained(retention.required)
+    }
+
     private func remove(_ name: String) {
+        guard name.hasPrefix("images/") else { return }
         let file = root.appendingPathComponent(name)
-        try? FileManager.default.removeItem(at: file)
+        let size = DurableFile.size(file) ?? 0
+        // Completion marker first: a power cut cannot leave a valid-looking missing file.
         try? FileManager.default.removeItem(at: file.appendingPathExtension("mime"))
+        try? FileManager.default.removeItem(at: file)
         try? FileManager.default.removeItem(at: file.appendingPathExtension("dimensions"))
+        guard !FileManager.default.fileExists(atPath: file.path) else { return }
+        existingPages.remove(name)
+        if size > 0 { removedPageFiles += 1; removedPageBytes += size }
         done.remove(name)
         absent.insert(name)
     }
@@ -544,6 +615,10 @@ actor ImageFiles {
     }
 
     func committed(_ name: String) {
+        if name.hasPrefix("images/") {
+            existingPages.insert(name)
+            if retained != nil && !retention.keeps(name, now: Date()) { remove(name); pump(); return }
+        }
         guard let item = itemsByName[name] ?? readerPlan.first(where: { $0.name == name }) else {
             done.insert(name); absent.remove(name); pump(); return
         }
@@ -622,6 +697,10 @@ actor ImageFiles {
                 Log.images.info("Image failed (\(attempts)): \(error.localizedDescription, privacy: .public)")
             }
         } else {
+            if !item.cover {
+                existingPages.insert(item.name)
+                if retained != nil && !retention.keeps(item.name, now: Date()) { remove(item.name); pump(); return }
+            }
             finished(item)
         }
         pump()

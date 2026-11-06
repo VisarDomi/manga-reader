@@ -15,14 +15,20 @@ runways or repositioning when scrolling stops. Loading, refreshes and player reu
 the visible position. Cached next chapters must append during continuous scrolling; do not
 require a scroll-end or settled-page check. Explicit navigation and restoration are separate.
 
-The manga page cache intentionally retains current and next chapters, plus chapters held
-by open readers. Preserve that policy; the owner explicitly declined keeping every download.
+The manga page cache downloads only current and immediate next chapters for
+series the owner has touched. Untouched series get covers only. Previously
+downloaded pages outside current/next expire 24 hours after leaving that pair;
+the deadline survives relaunch/reboot and is never extended by replanning.
+Open readers do not pin all their previous chapters indefinitely. Covers,
+progress, positions and chapter metadata are preserved. On migration, remove
+erroneous untouched-series page downloads immediately; existing touched-series
+history gets the same one-time 24-hour grace. Do not download retired chapters.
 
 The owner's preparation flow is explicit:
 
-- On Home, prepare both metadata and image bytes for every entry's current chapter
-  and its immediate next chapter. Current means saved reading progress, or the
-  first chapter for a series never started. Preparation does not mark it read.
+- On Home, refresh chapter state for all touched series and prepare metadata and
+  image bytes for their saved current chapter and immediate next. A completed
+  current chapter remains the resume target at its last page, with next ready.
 - On opening a reader, raise that reader's work ahead of other entries: the
   current image is highest priority, then all remaining current-chapter images,
   then the immediate next chapter (metadata and images).

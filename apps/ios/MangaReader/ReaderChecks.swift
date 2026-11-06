@@ -64,14 +64,6 @@ final class ReaderChecks: UIViewController {
                 }
                 await app.library.chapters.files.saveList(["3", "2", "1"], series: entry.slug)
             }
-            app.library.planSoon()
-            for _ in 0..<250 {
-                if await app.library.images.state["planned"] == 4 { break }
-                try await Task.sleep(for: .milliseconds(20))
-            }
-            let retained = await app.library.images.completed(homePages.map(\.name))
-            let removed = await app.library.images.completed(outside.map(\.name))
-            homePrepared = retained.count == 4 && removed.isEmpty && app.library.state.started.isEmpty
             for number in 1...8 {
                 let images = (0..<4).map { page in ChapterImage(url: "https://reader-fixture.invalid/\(number)/\(page).jpg", width: 999, height: 1) }
                 let data = ChapterData(chapterId: String(number), seriesSlug: "fixture", seriesTitle: "Continuous reader", images: images)
@@ -83,9 +75,15 @@ final class ReaderChecks: UIViewController {
                 }
             }
             await app.library.chapters.files.saveList((1...8).reversed().map(String.init), series: "fixture")
-            // Previously opened chapters remain held for forward navigation under the
-            // normal current/next cache policy. This fixture tests those already-cached bytes.
-            app.library.reading(self, Library.Reading(series: "fixture", slug: "fixture", chapters: (1...8).map(String.init), chapter: "1", page: 0), visible: false)
+            app.library.state.save(series: "fixture", chapterId: "1", imageIndex: 0, totalImages: 4)
+            app.library.planSoon()
+            for _ in 0..<250 {
+                if await app.library.images.state["planned"] == 8 { break }
+                try await Task.sleep(for: .milliseconds(20))
+            }
+            let retained = await app.library.images.completed(homePages.map(\.name))
+            let removed = await app.library.images.completed(outside.map(\.name))
+            homePrepared = retained.isEmpty && removed.isEmpty && app.library.state.started.count == 1
             let reader = ReaderScreen(app: app, series: "fixture", slug: "fixture", chapter: "1", start: .top, state: nil)
             addChild(reader)
             reader.view.frame = view.bounds

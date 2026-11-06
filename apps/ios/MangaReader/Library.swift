@@ -11,10 +11,10 @@ extension Notification.Name {
 }
 
 // The app's model: the catalog (kept on the phone, refreshed in the background), reading
-// progress, saved chapters, and what downloads. Every catalog entry keeps its current and
+// progress, saved chapters, and what downloads. Every touched series keeps its current and
 // next chapter on the phone; a new chapter downloads as soon as the catalog or a chapter list
 // shows it. The chapter being read comes first, then the most recently read series, then
-// the catalog's covers.
+// the catalog's covers. Downloaded pages leaving current/next expire after 24 hours.
 @MainActor
 final class Library {
     let provider: any MangaProvider
@@ -47,6 +47,9 @@ final class Library {
     private var preparationWakeAt: Date?
     private var observations: [NotificationObservation] = []
     private var lastRefresh: Date?
+    private var legacyTransfersCleared = false
+    private var clearingTransfers: Task<Void, Never>?
+    private var repairingCache = false
     // Pages without a known size, by image file: where they belong.
     private struct PagePlace: Hashable, Sendable {
         let series: String
@@ -137,7 +140,28 @@ final class Library {
     // The series' current URL slug (Asura's rotates).
     func slug(_ series: String) -> String { routes[series] ?? series }
 
-    func handleEvents(_ completion: @escaping () -> Void) { transfers.handleEvents(completion) }
+    func handleEvents(_ completion: @escaping () -> Void) {
+        Task {
+            await images.setActive(false)
+            await clearLegacyTransfers()
+            await plan()
+            await handOffNow()
+            transfers.handleEvents(completion)
+        }
+    }
+
+    private func clearLegacyTransfers() async {
+        if legacyTransfersCleared { return }
+        if !(await images.needsRetentionMigration()) { legacyTransfersCleared = true; return }
+        let task = clearingTransfers ?? Task { [transfers] in
+            await transfers.reclaim()
+            await transfers.handOff([])
+            await transfers.reclaim()
+        }
+        clearingTransfers = task
+        await task.value
+        legacyTransfersCleared = true; clearingTransfers = nil
+    }
 
     // MARK: catalog
 
@@ -163,6 +187,8 @@ final class Library {
     // iOS's occasional background refresh: the newest catalog pages, then the chapters they
     // reveal, handed to the background session (which carries on outside the app).
     func backgroundRefresh() async {
+        await images.setActive(false)
+        await clearLegacyTransfers()
         if !refreshing {
             refreshing = true
             lastRefresh = Date()
@@ -348,7 +374,7 @@ final class Library {
         guard let reading = focused else { return }
         priorityTask = Task(priority: .userInitiated) { [weak self] in
             guard let self else { return }
-            let output = await Self.plan(PlanInput(focused: reading, started: [], open: [], unstarted: [], covers: []), chapters: chapters, images: images)
+            let output = await Self.plan(PlanInput(focused: reading, started: [], open: [], covers: []), chapters: chapters, images: images)
             guard !Task.isCancelled else { return }
             priorityPlans += 1
             await applyReader(output)
@@ -377,7 +403,6 @@ final class Library {
         var focused: Reading?
         var started: [(series: String, slug: String, chapter: String, page: Int, complete: Bool)]
         var open: [Reading]
-        var unstarted: [(series: String, slug: String)]
         var covers: [String]
     }
 
@@ -399,22 +424,18 @@ final class Library {
             planRunning = false; planTask = nil
             if planAgain { planAgain = false; planSoon() }
         }
+        await clearLegacyTransfers()
         repeat {
             fullPlans += 1
             planAgain = false
             readers = readers.filter { $0.value.screen != nil }
             let started = state.started
-            let startedIDs = Set(started.map(\.seriesSlug))
-            let unstarted = catalog.series.compactMap { entry -> (series: String, slug: String)? in
-                let id = identity(entry)
-                return startedIDs.contains(id) ? nil : (id, entry.slug)
-            }
             let input = PlanInput(focused: focused, started: started.map { ($0.seriesSlug, slug($0.seriesSlug), $0.chapterId, $0.imageIndex, $0.complete) },
-                                  open: readers.values.map(\.reading), unstarted: unstarted, covers: catalog.series.map(\.coverUrl))
+                                  open: readers.values.map(\.reading), covers: catalog.series.map(\.coverUrl))
             // Admit the reader before scanning a large Home catalog. The old background
             // plan stays retained until the complete replacement has been computed.
             if let focused = input.focused {
-                let reader = await Self.plan(PlanInput(focused: focused, started: [], open: [], unstarted: [], covers: []), chapters: chapters, images: images)
+                let reader = await Self.plan(PlanInput(focused: focused, started: [], open: [], covers: []), chapters: chapters, images: images)
                 if Task.isCancelled { break }
                 await applyReader(reader)
             }
@@ -422,9 +443,16 @@ final class Library {
             if Task.isCancelled { break }
             if planAgain { continue }
             unsized = output.unsized
+            var grace = Set<String>()
+            if await images.needsRetentionMigration() {
+                var touched = Set(started.map(\.seriesSlug))
+                if let focused { touched.insert(focused.series) }
+                let site = provider
+                grace = await chapters.files.existingPages(for: touched, identity: { site.identity($0) })
+            }
+            await images.setRetained(output.retained, migrationGrace: grace)
             await images.setPlan(output.items, readerNames: output.readerNames, awaitingReaderMetadata: output.readerMetadataPending,
                                  preservingReader: input.focused != focused)
-            await images.setRetained(output.retained)
             await chapters.prioritize(output.missing.filter(\.urgent).map { FileKey.chapter($0.series, $0.chapter) }
                                       + output.listless.filter(\.urgent).map { "list:" + $0.series })
             for name in output.completedUnsized { finished(name) }
@@ -457,6 +485,7 @@ final class Library {
             else { output.readerMetadataPending = true }
             if let list = await chapters.knownList(series: reading.series) {
                 if let next = newer(than: reading.chapter, in: list) { await want(reading.series, reading.slug, next, urgent: true) }
+                if await chapters.listAge(reading.series) > 900 { output.listless.append((reading.series, reading.slug, true)) }
             } else {
                 output.listless.append((reading.series, reading.slug, true))
                 output.readerMetadataPending = true
@@ -480,20 +509,12 @@ final class Library {
                 if let chapter { await want(progress.series, progress.slug, chapter, from: chapter == progress.chapter ? progress.page : 0) }
             }
         }
-        // Home prepares every entry, including the first/next pair of unread series.
-        for entry in input.unstarted {
-            if Task.isCancelled { return output }
-            if let list = await chapters.knownList(series: entry.series), let first = list.last {
-                await want(entry.series, entry.slug, first)
-                if let next = newer(than: first, in: list) { await want(entry.series, entry.slug, next) }
-            } else { output.listless.append((entry.series, entry.slug, false)) }
-        }
-        // Chapters open in readers stay while they are open.
+        // Open-reader manifests may supply dimensions, but do not pin old page
+        // files forever. Pages outside current/next use the durable 24-hour grace.
         for reading in input.open {
             if Task.isCancelled { return output }
             for chapter in reading.chapters {
                 if let data = await chapters.savedChapter(series: reading.series, chapterId: chapter) {
-                    retained.formUnion(data.images.map { ImageItem(url: $0.url, cover: false).name })
                     for (index, image) in data.images.enumerated() where !image.hasMeasuredDimensions {
                         output.unsized[ImageItem(url: image.url, cover: false).name, default: []].insert(PagePlace(series: reading.series, chapter: chapter, index: index))
                     }
@@ -507,6 +528,7 @@ final class Library {
     }
 
     private func prepare(missing: [(series: String, slug: String, chapter: String, urgent: Bool)], lists: [(series: String, slug: String, urgent: Bool)]) {
+        guard !repairingCache else { return }
         let now = Date()
         for (series, slug, chapter, urgent) in missing {
             let key = FileKey.chapter(series, chapter)
@@ -653,10 +675,24 @@ final class Library {
 
     func resumed() {
         Task {
+            await clearLegacyTransfers()
             await transfers.reclaim()
             await images.setActive(true)
         }
         planSoon()
+    }
+
+    // Product maintenance: uses the same policy as normal Home/reader startup,
+    // without starting downloads or altering reading/navigation state.
+    func repairPageCache() async -> [String: Int64] {
+        repairingCache = true
+        await images.setActive(false)
+        await clearLegacyTransfers()
+        await transfers.reclaim()
+        if let planTask { await planTask.value }
+        await plan()
+        repairingCache = false
+        return await images.storageReport
     }
 
     var debugState: [String: Any] {

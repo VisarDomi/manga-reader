@@ -252,8 +252,9 @@ atomically when it happens.
 ## Catalog, downloads, covers and pruning
 
 The preparation order is the owner's explicit contract. Home prepares metadata
-and image bytes for every entry's current and immediate next chapter; an unread
-entry starts at its first chapter without changing reading progress. In a reader,
+and image bytes only for touched series' current and immediate next chapters.
+Untouched series download covers only. Completed current chapters reopen at the
+last page, with the immediate next chapter already prepared. In a reader,
 the current image comes first, then the remaining current-chapter images, then
 the next chapter. Other entries resume background preparation after that reader's
 work is ready. Cached work is reused and promoted when needed. Page dimensions
@@ -265,13 +266,19 @@ without stretching or loading-time geometry changes.
   day old; otherwise pages from the newest until one changes nothing. A series seen
   twice in one walk (latest updates, then the catalog) merges its new chapters into
   the first row, up to five.
-- Every catalog entry keeps its current and next chapter on the phone (not the
-  previous one); unread entries prepare their first pair without changing progress.
-  Once the current chapter is finished, the next comes first.
+- Only touched series prepare their current and next chapters. Home refreshes
+  their chapter state so newly available next chapters prepare promptly. Retired
+  downloaded pages expire after 24 hours; expiry persists across relaunch/reboot.
+  Replanning never extends it, and open readers do not pin old chapters forever.
+  The initial migration removes untouched-series page downloads immediately and
+  gives existing touched-series history one 24-hour grace. Covers, positions,
+  progress and chapter metadata remain. Retired chapters are never downloaded.
+  Once the current chapter is finished, next downloads first.
 - Order: pages on screen first (shared per image, dropped when nobody waits); then
   the plan: the chapter being read from the page on screen, then its next; then
   every catalog cover; then every started series, the most recently read first;
-  then unread entries. Unrelated entries wait while the reader's pair is incomplete.
+  with no chapter downloads for untouched entries. Unrelated entries wait while
+  the reader's pair is incomplete.
   Planned files download three at a time, one while pages on screen load; a failed
   one waits 15 s, doubling up to 10 minutes.
 - A new chapter is noticed as soon as Home's catalog or a chapter list shows it.
@@ -474,7 +481,7 @@ prerequisite for delivering an update.
 The offline reader check is `scripts/check-reader.py --device UUID --app APP --output DIR`,
 run on the Mac inside the shared `mac-workload simulator` guard after building with
 all guests shut down. It reuses the shared iPhone, installs only the unsuffixed
-simulator fixture and removes that app afterward. It checks unread Home cache pairs,
+simulator fixture and removes that app afterward. It checks untouched-series page cleanup,
 deliberately wrong site dimensions, stable boxes through decoding/zoom and eight
 cached chapters appended during an uninterrupted drag. Native model tests also cover
 missing metadata lookups, observation cleanup, all EXIF orientations, persistent geometry correction, automatic cache invalidation,
@@ -515,3 +522,9 @@ run `scripts/check-reader-cpu.py --device UUID --app APP --output DIR` inside
 the simulator guard after the product update is installed. The runner records
 50,000-page work counts and process CPU time, then checks actual reader geometry,
 zoom and continuous scrolling; it removes its diagnostic app on completion.
+
+Storage maintenance uses the same retention policy on normal startup. A targeted
+`-repair-page-cache` launch additionally runs that cleanup without restoring or
+changing reader navigation, starting downloads or refreshing the network. Its
+`cache-repair.json` report records actual deleted bytes/files. This is in-place
+maintenance: never uninstall the product or erase its container.

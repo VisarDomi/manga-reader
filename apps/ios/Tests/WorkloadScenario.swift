@@ -23,13 +23,16 @@ enum MangaWorkload {
         let entries = (0..<seriesCount).map { HomeSeries(slug: "series-\($0)", title: "Fixture", coverUrl: "", chapters: []) }
         try DurableFile.writeJSON(Catalog(series: entries, complete: true), to: root.appendingPathComponent("catalog.json"))
         let chapterFiles = ChapterFiles(directory: root)
+        let readingState = ReadingState(directory: root, provider: "fixture")
         for entry in entries {
+            readingState.save(series: entry.slug, chapterId: "1", imageIndex: 0, totalImages: 25)
             for chapter in ["1", "2"] {
                 let pages = (0..<25).map { ChapterImage(url: "https://fixture.invalid/\(entry.slug)/\(chapter)/\($0).jpg", width: 1, height: 1, dimensionsMeasured: true) }
                 await chapterFiles.save(ChapterData(chapterId: chapter, seriesSlug: entry.slug, seriesTitle: entry.title, images: pages), series: entry.slug)
             }
             await chapterFiles.saveList(["2", "1"], series: entry.slug)
         }
+        readingState.flush()
         let library = Library(provider: OfflineWorkProvider(), root: root, bundleID: "com.visar.MangaWork." + UUID().uuidString)
         await library.images.setActive(false)
         let preparationCPU = clock()

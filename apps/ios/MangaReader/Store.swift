@@ -315,6 +315,22 @@ actor ChapterFiles {
 
     private nonisolated func file(_ key: String) -> URL { directory.appendingPathComponent(FileKey.sha256(key) + ".json") }
 
+    // One-time migration inventory, restricted to genuinely touched series.
+    // Lists and chapter manifests remain; only their page bytes are candidates.
+    func existingPages(for series: Set<String>, identity: @Sendable (String) -> String) async -> Set<String> {
+        guard !series.isEmpty else { return [] }
+        let entries = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
+        var names = Set<String>()
+        for (index, entry) in entries.enumerated() where entry.pathExtension == "json" {
+            if let data = try? DurableFile.readJSON(ChapterData.self, from: entry),
+               series.contains(data.historyId ?? identity(data.seriesSlug)) {
+                names.formUnion(data.images.map { ImageItem(url: $0.url, cover: false).name })
+            }
+            if index % 32 == 0 { await Task.yield() }
+        }
+        return names
+    }
+
     // A saved chapter read on the calling thread (a relaunch lays it out before the first frame).
     nonisolated func chapterNow(_ series: String, _ chapterId: String) -> ChapterData? {
         guard let data = try? DurableFile.readJSON(ChapterData.self, from: file(FileKey.chapter(series, chapterId))), !data.images.isEmpty else { return nil }

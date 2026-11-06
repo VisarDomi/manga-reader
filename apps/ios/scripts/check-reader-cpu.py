@@ -79,7 +79,7 @@ try:
     sim('launch', a.device, bundle, '-reader-check')
     initial=wait_for(lambda s: s.get('ready') and s.get('reader',{}).get('strip',{}).get('pages',0)==32)
     report['initial']=initial
-    expect(initial['homePrepared'], 'Home did not prepare the unread first/next pairs without marking them read')
+    expect(initial['homePrepared'], 'Home did not clean untouched-series pages while preserving touched-series cache')
     reader=initial['reader']
     expect(reader['chapters']==list(map(str,range(1,9))), reader)
     expect(all(abs(x-2/3)<1e-7 for x in reader['aspects']), 'Incorrect site dimensions escaped to the page strip')
@@ -108,7 +108,7 @@ try:
     expect(report['final']['reader']['settledChapter']=='8', report['final'])
     expect(report['final']['reader']['strip']['failures']==0, report['final'])
     report['pass']=True
-    print('PASS: unread-entry preparation, exact decoder geometry, zoom stability and all eight cached chapters before scrolling and continuous free scrolling')
+    print('PASS: touched-series preparation and untouched cleanup, exact decoder geometry, zoom stability and all eight cached chapters before scrolling and continuous free scrolling')
 finally:
     (out/'report.json').write_text(json.dumps(report,indent=2))
     for action in ('terminate','uninstall'):

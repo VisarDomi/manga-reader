@@ -40,7 +40,8 @@ final class SiteTransfers: NSObject, URLSessionDownloadDelegate, @unchecked Send
 
     func handleEvents(_ completion: @escaping () -> Void) {
         let session = session
-        Task { await queue.handleEvents(session, Completion(call: completion)) }
+        let callback = Completion(call: completion)
+        Task { await queue.handleEvents(session, callback) }
     }
     func handOff(_ items: [Item]) async { await queue.handOff(items, session: session) }
     func reclaim() async { await queue.reclaim(session) }
@@ -86,6 +87,8 @@ final class SiteTransfers: NSObject, URLSessionDownloadDelegate, @unchecked Send
         var admission: Task<Void, Never>?
         var current: Pending?
         var connected = false
+        var connecting: Task<[URLSessionTask], Never>?
+        var processingCompletion = false
         var completion: Completion?
         var generation = 0
 
@@ -97,8 +100,11 @@ final class SiteTransfers: NSObject, URLSessionDownloadDelegate, @unchecked Send
 
         func connect(_ session: URLSession) async {
             guard !connected else { return }
-            connected = true
-            let tasks = await session.allTasks
+            let load = connecting ?? Task { await session.allTasks }
+            connecting = load
+            let tasks = await load.value
+            guard !connected else { return }
+            connected = true; connecting = nil
             // Cancel the old version's unbudgeted batch before submitting anything new.
             for task in tasks {
                 if current == nil, let pending = SiteTransfers.decode(task.taskDescription), pending.ticket != nil {
@@ -107,7 +113,11 @@ final class SiteTransfers: NSObject, URLSessionDownloadDelegate, @unchecked Send
             }
         }
         func handOff(_ items: [Item], session: URLSession) async {
+            generation += 1
+            let revision = generation
+            admission?.cancel(); admission = nil
             await connect(session)
+            guard generation == revision else { return }
             self.items = items.filter { SiteTransfers.safe($0.file) }
             do { try save() } catch { return }
             enabled = true
@@ -115,15 +125,23 @@ final class SiteTransfers: NSObject, URLSessionDownloadDelegate, @unchecked Send
         }
         func reclaim(_ session: URLSession) async {
             enabled = false; generation += 1
+            let revision = generation
             admission?.cancel(); admission = nil
             await connect(session)
-            if let ticket = current?.ticket { await limiter.finish(ticket, cancelled: true) }
+            guard generation == revision else { return }
+            let tasks = await session.allTasks
+            guard generation == revision else { return }
+            let ticket = current?.ticket
             current = nil
-            for task in await session.allTasks { task.cancel() }
+            for task in tasks { task.cancel() }
+            if let ticket { await limiter.finish(ticket, cancelled: true) }
+            finishEventsIfReady()
         }
         func handleEvents(_ session: URLSession, _ completion: Completion) async {
             self.completion = completion
+            let revision = generation
             await connect(session)
+            guard generation == revision else { finishEventsIfReady(); return }
             enabled = true
             start(session)
         }
@@ -132,12 +150,12 @@ final class SiteTransfers: NSObject, URLSessionDownloadDelegate, @unchecked Send
             finishEventsIfReady()
         }
         func finishEventsIfReady() {
-            guard admission == nil, let completion else { return }
+            guard !processingCompletion, admission == nil, let completion else { return }
             self.completion = nil
             DispatchQueue.main.async { completion.call() }
         }
         func start(_ session: URLSession) {
-            guard enabled, current == nil, admission == nil, let item = items.first else { finishEventsIfReady(); return }
+            guard enabled, !processingCompletion, current == nil, admission == nil, let item = items.first else { finishEventsIfReady(); return }
             let revision = generation
             admission = Task { [limiter] in
                 do {
@@ -171,9 +189,11 @@ final class SiteTransfers: NSObject, URLSessionDownloadDelegate, @unchecked Send
             guard let pending, current?.item.file == pending.item.file,
                   current?.ticket?.id == pending.ticket?.id else { return }
             let revision = generation
+            processingCompletion = true
             current = nil
             if let ticket = pending.ticket { await limiter.finish(ticket, response: response, cancelled: cancelled) }
-            guard generation == revision else { return }
+            processingCompletion = false
+            guard generation == revision else { start(session); return }
             // Failed bytes stay in the durable plan. A throttle retries only after the
             // common cooldown; permanent errors wait for foreground/background refresh.
             if success { items.removeAll { $0.file == pending.item.file } }
