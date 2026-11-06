@@ -38,9 +38,14 @@ final class AppController {
         try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let origin = (info["ReaderOrigin"] as? String).flatMap(URL.init(string:)) ?? URL(string: "https://asurascans.com/")!
         let cookies = CookieJar(file: root.appendingPathComponent("cookies.json"))
-        let http = HTTPClient(.init(referer: origin.absoluteString, cookies: cookies, connectionsPerHost: 8, requestTimeout: 20, resourceTimeout: 90))
-        let provider = Providers.make(info["ReaderProvider"] as? String ?? "asurascans", http: http)
-        library = Library(provider: provider, root: root, bundleID: Bundle.main.bundleIdentifier ?? "MangaReader")
+        let key = info["ReaderProvider"] as? String ?? "asurascans"
+        // Cold Lua queries and uncached Scythe pages can legitimately take over 20s.
+        // Timing them out early makes retries duplicate work still running at the origin.
+        let timeout: TimeInterval = key == "luacomic" || key == "scythescans" ? 60 : 20
+        let http = HTTPClient(.init(referer: origin.absoluteString, cookies: cookies, connectionsPerHost: 3, requestTimeout: timeout, resourceTimeout: 120))
+        let limiter = RequestLimiter(.provider(key), provider: key, file: root.appendingPathComponent("request-limits.json"))
+        let provider = Providers.make(key, http: http, limiter: limiter)
+        library = Library(provider: provider, root: root, bundleID: Bundle.main.bundleIdentifier ?? "MangaReader", limiter: limiter)
         pc = PCSave(state: library.state)
     }
 

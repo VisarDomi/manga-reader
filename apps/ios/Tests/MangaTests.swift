@@ -248,28 +248,7 @@ struct MangaTests {
         print("PASS: current-and-next-chapter cache policy")
     }
 
-    // Background work stops at its share of the minute; work for the screen goes on.
-    static func budget() async throws {
-        let limiter = RequestLimiter(.init(perMinute: 3, background: 1))
-        try await limiter.acquire(host: "a", urgency: nil)
-        let passed = Urgency(false)
-        let waiting = Task { try await limiter.acquire(host: "a", urgency: nil); passed.raise() }
-        let urgent = Urgency(true)
-        let started = Date()
-        try await limiter.acquire(host: "a", urgency: urgent)
-        try await limiter.acquire(host: "a", urgency: urgent)
-        expect(Date().timeIntervalSince(started) < 0.5, "Urgent requests pass while background waits")
-        try await Task.sleep(for: .milliseconds(700))
-        expect(!passed.value, "Background request still waiting")
-        try await limiter.acquire(host: "b", urgency: nil)
-        expect(true, "Another host has its own budget")
-        waiting.cancel()
-        await limiter.throttled(host: "c", retryAfter: 1)
-        let held = Date()
-        try await limiter.acquire(host: "c", urgency: urgent)
-        expect(Date().timeIntervalSince(held) >= 0.9, "A 429 holds the host's requests until its wait is over")
-        print("PASS: request budget")
-    }
+    static func budget() async throws { try await RequestLimitChecks.run() }
 
     static func providers() throws {
         let now = Date()

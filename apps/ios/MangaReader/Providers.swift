@@ -79,9 +79,8 @@ extension MangaProvider {
 
 enum Providers {
     // By site key (Info.plist's ReaderProvider; providers.json).
-    static func make(_ key: String, http client: HTTPClient) -> any MangaProvider {
-        let strict = key == "qimanga" || key == "ezmanga"
-        let http = SiteClient(http: client, limiter: RequestLimiter(strict ? .strict : .standard))
+    static func make(_ key: String, http client: HTTPClient, limiter: RequestLimiter) -> any MangaProvider {
+        let http = SiteClient(http: client, limiter: limiter)
         return switch key {
         case "asurascans": Asura(http: http)
         case "scythescans": Scythe(http: http)
@@ -507,46 +506,19 @@ struct Lua: MangaProvider {
         return ChapterData(chapterId: chapterId, seriesSlug: slug, seriesTitle: title, images: sources.map { ChapterImage(url: $0) })
     }
 
-    // Lua answers a query it has answered before (for anyone) at once and any other slowly (5 to
-    // 25 s): its website's pages of 30 from the newest are nearly always ready, the whole list
-    // in one page of 1000 often, the pages beyond the end never. For the screen both are asked
-    // and the first complete answer wins: one page of 30 is the whole of a short series, else
-    // the further pages of 30 race the page of 1000. The background asks only the page of 1000
-    // (one slow query rather than several).
+    // One list representation, one request per page. Racing the warm 30-row API
+    // against the 1000-row API duplicated work whenever a reader opened.
     func chaptersNewestFirst(_ slug: String) async throws -> [String] {
         struct Series: Decodable { var id: Int }
         let id = try JSONDecoder().decode(Series.self, from: try await Web.json(http, URL(string: "\(Self.api)/series/\(slug)")!)).id
         let http = http
-        let page = { @Sendable (number: Int, size: Int) async throws -> (last: Int, chapters: [String]) in
-            let query = Web.query([("page", String(number)), ("perPage", String(size)), ("query", ""), ("order", "desc"), ("series_id", String(id))])
+        let page = { @Sendable (number: Int) async throws -> (last: Int, chapters: [String]) in
+            let query = Web.query([("page", String(number)), ("perPage", "1000"), ("query", ""), ("order", "desc"), ("series_id", String(id))])
             return try Self.parseListPage(try await Web.json(http, URL(string: "\(Self.api)/chapter/query?\(query)")!))
         }
-        let whole = { @Sendable () async throws -> [String] in
-            let first = try await page(1, 1000)
-            guard first.last > 1 else { return first.chapters }
-            return first.chapters + (try await Web.pages(2...first.last) { try await page($0, 1000).chapters }).flatMap { $0 }
-        }
-        guard SiteClient.urgency?.value == true else { return try await whole() }
-        return try await withThrowingTaskGroup(of: [String]?.self) { group in
-            group.addTask { try await whole() }
-            group.addTask {
-                let first = try await page(1, 30)
-                guard first.last > 1 else { return first.chapters }
-                let rest = try await Web.pages(2...first.last) { try await page($0, 30).chapters }
-                return first.chapters + rest.flatMap { $0 }
-            }
-            var failure: Error?
-            while let result = await group.nextResult() {
-                switch result {
-                case .success(let chapters?):
-                    group.cancelAll()
-                    return chapters
-                case .success(nil): break
-                case .failure(let error): failure = failure ?? error
-                }
-            }
-            throw failure ?? CancellationError()
-        }
+        let first = try await page(1)
+        guard first.last > 1 else { return first.chapters }
+        return first.chapters + (try await Web.pages(2...first.last) { try await page($0).chapters }).flatMap { $0 }
     }
 
     static func parseListPage(_ data: Data) throws -> (last: Int, chapters: [String]) {

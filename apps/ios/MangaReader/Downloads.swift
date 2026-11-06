@@ -249,10 +249,11 @@ enum ImageDimensions {
 actor ImageFiles {
     private struct Transfer { let id = UUID(); let task: Task<URL, Error>; var callers: Set<UUID> = [] }
     let root: URL
-    private let http: HTTPClient
+    private let http: SiteClient
     private let referer: String
     private var foreground: [String: Transfer] = [:]
     private var background: [String: Task<Void, Never>] = [:]
+    private var backgroundUrgency: [String: Urgency] = [:]
     private var plan: [ImageItem] = []
     private var itemsByName: [String: ImageItem] = [:]
     private var planCursor = 0
@@ -276,9 +277,9 @@ actor ImageFiles {
     private var readerObservers: [@Sendable (Bool, Int) -> Void] = []
     private var lastAsked: [String: Date] = [:]
 
-    init(root: URL, http: HTTPClient, referer: String) {
+    init(root: URL, http: HTTPClient, referer: String, limiter: RequestLimiter? = nil) {
         self.root = root
-        self.http = http
+        self.http = SiteClient(http: http, limiter: limiter ?? RequestLimiter(.media))
         self.referer = referer
     }
 
@@ -325,13 +326,16 @@ actor ImageFiles {
         try Task.checkCancellation()
         // Promote the existing work by awaiting it; never throw away bytes already arriving.
         if let task = background[item.name] {
+            backgroundUrgency[item.name]?.raise(to: 2)
             await task.value
             try Task.checkCancellation()
             if complete(item) { return url(item) }
         }
         if foreground[item.name] == nil {
             foreground[item.name] = Transfer(task: Task { [http, referer, root] in
-                try await Self.download(item, http: http, referer: referer, root: root, priority: URLSessionTask.highPriority)
+                try await SiteClient.$urgency.withValue(Urgency(true, priority: 2)) {
+                    try await Self.download(item, http: http, referer: referer, root: root, priority: URLSessionTask.highPriority)
+                }
             })
         }
         let caller = UUID()
@@ -363,7 +367,7 @@ actor ImageFiles {
         pump()
     }
 
-    private static func download(_ item: ImageItem, http: HTTPClient, referer: String, root: URL, priority: Float) async throws -> URL {
+    private static func download(_ item: ImageItem, http: SiteClient, referer: String, root: URL, priority: Float) async throws -> URL {
         guard let source = URL(string: item.url), source.scheme == "https" else { throw ProviderError.invalid("Invalid image URL") }
         let file = root.appendingPathComponent(item.name)
         let response = try await http.download(HTTPRequest(source, referer: referer, priority: priority), to: file) { response in
@@ -412,7 +416,7 @@ actor ImageFiles {
     }
 
     private func pumpRechecks() {
-        guard active, !recheckRunning, !rechecks.isEmpty else { return }
+        guard active, !readerWorkPending(), !recheckRunning, !rechecks.isEmpty else { return }
         recheckRunning = true
         let item = rechecks.removeFirst()
         Task { [http, referer, root] in
@@ -427,7 +431,7 @@ actor ImageFiles {
         pumpRechecks()
     }
 
-    private static func recheckNow(_ item: ImageItem, http: HTTPClient, referer: String, root: URL) async -> Bool {
+    private static func recheckNow(_ item: ImageItem, http: SiteClient, referer: String, root: URL) async -> Bool {
         guard let source = URL(string: item.url), source.scheme == "https" else { return false }
         let file = root.appendingPathComponent(item.name)
         let known = try? DurableFile.readJSON(Check.self, from: file.appendingPathExtension("check"))
@@ -475,6 +479,7 @@ actor ImageFiles {
         readerPlan = items
         readerNames = Set(items.map(\.name))
         readerMetadataPending = awaitingMetadata
+        for item in items { backgroundUrgency[item.name]?.raise() }
         pump()
     }
 
@@ -568,11 +573,15 @@ actor ImageFiles {
         func start(_ item: ImageItem) {
             if background[item.name] != nil || foreground[item.name] != nil || complete(item) { return }
             if let failure = failed[item.name], failure.retryAt > now { return }
+            let urgency = Urgency(readerNames?.contains(item.name) == true)
+            backgroundUrgency[item.name] = urgency
             background[item.name] = Task(priority: .utility) { [http, referer, root] in
                 let outcome: Error?
                 do {
-                    _ = try await Self.download(item, http: http, referer: referer, root: root,
+                    _ = try await SiteClient.$urgency.withValue(urgency) {
+                        try await Self.download(item, http: http, referer: referer, root: root,
                                                 priority: item.cover ? URLSessionTask.lowPriority : URLSessionTask.defaultPriority)
+                    }
                     outcome = nil
                 } catch { outcome = error }
                 self.backgroundFinished(item, error: outcome)
@@ -604,6 +613,7 @@ actor ImageFiles {
 
     private func backgroundFinished(_ item: ImageItem, error: Error?) {
         background[item.name] = nil
+        backgroundUrgency[item.name] = nil
         if let error {
             planCursor = 0
             if !(error is CancellationError), (error as? URLError)?.code != .cancelled {

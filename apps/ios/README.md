@@ -69,7 +69,8 @@ artwork (iOS supplies its standard fallback icon).
 | `MangaReader/AppDelegate.swift` | Launch, the background app refresh task (`<bundle id>.refresh`, earliest 20 minutes after leaving), background URLSession events, the dark window. |
 | `MangaReader/AppController.swift` | The app object: data folder, site HTTP client (the site's origin as Referer, cookies), provider, image pipeline (192 MB, 6 decodes), screen stack (`navigation.json`), lifecycle hooks, simulator test-hook actions, the one-time `views.json` migration. |
 | `MangaReader/Providers.swift` | The seven sites: catalog pages, chapters, chapter lists, first chapter. |
-| `MangaReader/Site.swift` | Every site request within the site's per-minute budget. |
+| `MangaReader/Site.swift` | Shared provider admission, pacing, concurrency, quota headers and durable cooldowns. |
+| `MangaReader/SiteTransfers.swift` | Durable, sequential background image handoff through the same provider gate. |
 | `MangaReader/Downloads.swift` | `MetadataQueue` (screen work before background work), `ChapterSource` (saved chapters and lists first, the site when needed), `ImageFiles` (the only owner of image bytes; cover rechecks). |
 | `MangaReader/Library.swift` | The catalog walk, the download plan, pruning, page sizes recorded from images, positions, the hand-off to iOS's background session and background refresh. |
 | `MangaReader/Store.swift` | Reading progress (`database.json`), saved chapters and lists (`chapters/`), `withNewerChapters`, the catalog as last seen. |
@@ -101,8 +102,9 @@ phone's data, so neither changes.
 
 ## Sites
 
-All site requests send the site's origin as Referer and time out after 20 s without
-data. Reads retry on lost connectivity and on 408, 429 and 5xx (honouring
+All site requests send the site's origin as Referer. Metadata waits up to 60 s
+without data for Lua and Scythe (cold origin work can exceed 20 s), 20 s elsewhere.
+Metadata has a 120 s resource deadline; image requests keep 20/90 s deadlines. Reads retry on lost connectivity and on 408, 429 and 5xx (honouring
 Retry-After), backing off from 1 s to 30 s. An entry the site sent incomplete is
 skipped, not the whole page (one QiScans series without a cover once stopped every
 catalog walk). Asura, EzScans and QiScans give page sizes; Lua, Scythe, Yaksha and
@@ -128,8 +130,8 @@ applies EXIF orientation before a page box is published.
   Needs its real Referer (403 otherwise). The API answers a query it has answered
   before (for anyone) at once and others in 5 to 25 s. Catalog: the newest 100,
   then the whole catalog in one answer (offset pages repeat and skip series that
-  share a sort key). Lists: for the screen, the page of 1000 races the website's
-  own pages of 30 (nearly always warm); the background asks only the page of 1000.
+  share a sort key). Lists use one representation of 1000 rows per page in both
+  foreground and background, avoiding speculative duplicate queries on opening.
   Chapter pages put some images in `data-src` instead of `src`; both are read.
 - **Scythe** (WordPress, MangaReader theme, parsed with libxml2). Never
   cache-bust: the origin renders an uncached page in 6 to 85 s (its feed and REST
@@ -163,10 +165,51 @@ applies EXIF orientation before a page box is published.
 
 ### Request budget and queue
 
-`SiteClient` (Site.swift) keeps each site within a per-minute budget: QiScans and
-EzScans 50 a minute, of which background work may use 30; the others 120, of which
-60. Work for the screen has the rest. A 429 holds that host's requests until its
-wait is over. Every request to a site's pages or API goes through it.
+`SiteClient` and one shared `RequestLimiter` gate **all** provider traffic: catalog,
+chapter/list metadata, visible and prepared images, cover validators and background
+URLSession downloads. API/website aliases share a budget. A separate CDN gets a
+separate host budget; images on the website itself (including Violet covers) spend
+the website's budget. PC Load/Save stays independent.
+
+Starting ceilings (requests in a rolling minute / background share / concurrent
+requests; the table also lists each concurrency cap):
+
+| Provider | Minute | Background | Concurrent |
+| --- | ---: | ---: | ---: |
+| Lua | 60 | 30 | 2 |
+| Violet | 60 | 35 | 2 |
+| EzScans, QiScans | 45 | 25 | 2 |
+| Scythe | 40 | 20 | 2 |
+| Yaksha | 60 | 30 | 2 |
+| Asura | 90 | 50 | 3 (2 background) |
+| Separate image CDN | 120 | 90 | 3 (2 background) |
+
+These are app ceilings, not claims about undocumented provider quotas. Admission
+spaces starts across the minute instead of spending the budget in one burst.
+Queued reader work goes first and can use the reserved allowance; promotions wake
+the existing waiter without restarting a transfer or polling. A response's numeric
+`X-RateLimit-*` / `RateLimit-*` headers can reduce the ceiling and stop the whole host
+when remaining quota reaches zero. A 429 reduces the ceiling further. Retry-After
+(seconds or HTTP date) is honoured in full, including waits longer than two minutes;
+429s without it back off from one to fifteen minutes. Service failures and Cloudflare
+403 responses also hold the shared gate. Every retry reacquires admission.
+
+The small `request-limits.json` journal records admissions, learned ceilings and
+cooldowns before issuing a request, so relaunch/reboot cannot reset the minute or
+forget a provider's wait. Background work keeps its plan in `background-images.json`
+and hands iOS **one** admitted download at a time with `earliestBeginDate`. Its
+completion records the provider response before the next admission. This prevents
+an old 400-item handoff from bursting after iOS defers the session. Reclaiming the
+session removes future reservations while preserving actual requests/cooldowns.
+Existing background session identity and current/next cache retention are unchanged.
+
+The November 6 browser pass confirmed EzScans and QiScans advertise a 60-request
+limit (`X-RateLimit-Limit: 60`). Lua provided no numeric headers and accepted 70
+sequential API reads; Violet provided none and accepted 65 sequential AJAX reads
+plus 24 reads in waves of eight. These establish tested bounds, not their exact
+thresholds. Missing Lua Referer produced Cloudflare 403, separately from a rate
+limit. Ordinary reads of Asura, Scythe and Yaksha exposed no numeric quota. See
+`Tests/RequestLimitChecks.swift` for offline admission/retry regressions.
 
 `MetadataQueue` runs up to six pieces of work for the screen at once. Background
 work runs two at a time, with chapter/list preparation before catalog pages.
@@ -193,6 +236,8 @@ atomically when it happens.
 - `positions.json`: the exact point per series (chapter, page, fraction).
 - `navigation.json`: the screen stack. `views.json`, the web version's, is read
   once when `navigation.json` does not exist yet.
+- `request-limits.json` (rolling request history, provider cooldowns and learned ceilings),
+  `background-images.json` (the bounded pending background image plan).
 - `catalog.json` (the catalog as last seen), `routes.json` (current slugs),
   `cookies.json`.
 - `chapters/<sha256(key)>.json`: a chapter's pages (with sizes once known) or a
@@ -331,7 +376,17 @@ the Mac through its Wi-Fi automatically;
 `/home/visar/Documents/environment/mac-access/mac-connect --check` shows why. The
 Mac mirror is `/Users/visar/Developer/manga-reader/apps/ios` for all seven apps.
 
-Deploy from the manga-reader root on this PC, one app at a time:
+Routine delivery from this PC uses the durable queue. Submit provider changes first,
+then sanity-check the virtual iPhone; installation never launches the product app:
+
+```sh
+ios-push manga-reader:lua
+ios-push manga-reader:violet
+ios-push status JOB
+```
+
+Shared changes go to all seven apps. The lower-level deployment commands remain for
+diagnosis, one app at a time:
 
 ```sh
 python3 apps/ios/scripts/deploy.py sync asura     # rsync apps/ios to the Mac mirror (--delete)

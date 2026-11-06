@@ -29,7 +29,7 @@ final class Library {
     private let catalogWriter: BackgroundWriter
     private let routesWriter: BackgroundWriter
     private let positionsWriter: BackgroundWriter
-    private let transfers: BackgroundTransfers
+    private let transfers: SiteTransfers
     private var readers: [ObjectIdentifier: Registered] = [:]
     private var positions: [String: Position]
     private var planScheduled = false
@@ -87,13 +87,14 @@ final class Library {
         var fraction: Double
     }
 
-    init(provider: any MangaProvider, root: URL, bundleID: String) {
+    init(provider: any MangaProvider, root: URL, bundleID: String, limiter: RequestLimiter? = nil) {
         self.provider = provider
         self.root = root
         state = ReadingState(directory: root, provider: provider.key)
         chapters = ChapterSource(provider: provider, files: ChapterFiles(directory: root))
         let referer = provider.origin.absoluteString + "/"
-        images = ImageFiles(root: root, http: HTTPClient(.init(connectionsPerHost: 6, requestTimeout: 20, resourceTimeout: 90, waitsForConnectivity: true)), referer: referer)
+        let limiter = limiter ?? RequestLimiter(.provider(provider.key), provider: provider.key, file: root.appendingPathComponent("request-limits.json"))
+        images = ImageFiles(root: root, http: HTTPClient(.init(connectionsPerHost: 6, requestTimeout: 20, resourceTimeout: 90, waitsForConnectivity: true)), referer: referer, limiter: limiter)
         catalogWriter = BackgroundWriter(url: root.appendingPathComponent("catalog.json"), label: "manga-catalog")
         routesWriter = BackgroundWriter(url: root.appendingPathComponent("routes.json"), label: "manga-routes")
         positionsWriter = BackgroundWriter(url: root.appendingPathComponent("positions.json"), label: "manga-positions")
@@ -101,7 +102,7 @@ final class Library {
         routes = (try? DurableFile.readJSON([String: String].self, from: routesWriter.url)) ?? [:]
         positions = (try? DurableFile.readJSON([String: Position].self, from: positionsWriter.url)) ?? [:]
         let images = images
-        transfers = BackgroundTransfers(identifier: bundleID + ".images", root: root, connections: 4,
+        transfers = SiteTransfers(identifier: bundleID + ".images", root: root, limiter: limiter,
                                         accept: { $0.statusCode == 200 && $0.mimeType?.hasPrefix("image/") == true },
                                         committed: { item, response in
             let file = root.appendingPathComponent(item.file)
@@ -641,9 +642,9 @@ final class Library {
 
     private func handOffNow() async {
         let referer = provider.origin.absoluteString + "/"
-        let items = await images.unfinished(limit: 400).compactMap { item -> BackgroundTransfers.Item? in
+        let items = await images.unfinished(limit: 400).compactMap { item -> SiteTransfers.Item? in
             guard let url = URL(string: item.url) else { return nil }
-            return BackgroundTransfers.Item(url: url, headers: ["Referer": referer], file: item.name)
+            return SiteTransfers.Item(url: url, headers: ["Referer": referer], file: item.name)
         }
         if !items.isEmpty { await transfers.handOff(items) }
     }
