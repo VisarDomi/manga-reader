@@ -31,6 +31,39 @@ struct MangaTests {
         try await missingMetadataIndex()
         observationLifetime()
         try await coverPreparationOrder()
+        try await readerPairOverridesSavedPosition()
+    }
+
+    @MainActor
+    static func readerPairOverridesSavedPosition() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let files = ChapterFiles(directory: root)
+        for chapter in 1...4 {
+            let image = ChapterImage(url: "https://fixture.invalid/reader-\(chapter).jpg", width: 1, height: 1, dimensionsMeasured: true)
+            await files.save(ChapterData(chapterId: String(chapter), seriesSlug: "fixture", seriesTitle: "Fixture", images: [image]), series: "fixture")
+            if chapter <= 2 {
+                let file = root.appendingPathComponent(ImageItem(url: image.url, cover: false).name)
+                try DurableFile.write(Data([1, 2, 3]), to: file)
+                try DurableFile.write(Data("image/jpeg".utf8), to: file.appendingPathExtension("mime"))
+            }
+        }
+        await files.saveList(["4", "3", "2", "1"], series: "fixture")
+        let state = ReadingState(directory: root, provider: "fixture")
+        state.save(series: "fixture", chapterId: "1", imageIndex: 0, totalImages: 1); state.flush()
+        let library = Library(provider: CoverOrderProvider(), root: root, bundleID: "com.visar.PairCheck." + UUID().uuidString)
+        await library.images.setActive(false)
+        let owner = NSObject()
+        library.reading(owner, Library.Reading(series: "fixture", slug: "fixture", chapters: ["3"], chapter: "3", page: 0), visible: true)
+        for _ in 0..<300 {
+            if await library.images.state["planned"] ?? 0 > 0 { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let plan = await library.images.unfinished(limit: 10), report = await library.images.storageReport
+        expect(Set(plan.map(\.url)) == Set([3, 4].map { "https://fixture.invalid/reader-\($0).jpg" }), "Reader prepares only its visible current/next pair before progress settles")
+        expect(report["currentNextFiles"] == 2 && report["expiringFiles"] == 2, "The former pair retires into grace instead of remaining active")
+        expect(library.state.progress("fixture")?.chapterId == "1", "Preparation does not rewrite the saved resume position")
+        print("PASS: visible reader overrides the saved pair without a scroll-end wait or resume mutation")
     }
 
     @MainActor

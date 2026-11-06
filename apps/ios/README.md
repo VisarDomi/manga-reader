@@ -268,8 +268,9 @@ and image bytes only for touched series' current and immediate next chapters.
 Untouched series download covers only. Completed current chapters reopen at the
 last page, with the immediate next chapter already prepared. In a reader,
 the current image comes first, then the remaining current-chapter images, then
-the next chapter. Other entries resume background preparation after that reader's
-work is ready. Cached work is reused and promoted when needed. Page dimensions
+the next chapter. The visible chapter overrides that same series' saved pair while scrolling;
+the old pair retires into grace without waiting for progress to settle. Other
+entries resume background preparation after that reader's work is ready. Cached work is reused and promoted when needed. Page dimensions
 are obtained before its box is published; decoded pixels fill the reserved box
 without stretching or loading-time geometry changes.
 

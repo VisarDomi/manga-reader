@@ -500,6 +500,9 @@ final class Library {
         }
         for progress in input.started {
             if Task.isCancelled { return output }
+            // The visible chapter wins while continuous scrolling has not yet
+            // saved a settled position. Do not prepare a second pair for it.
+            if progress.series == input.focused?.series { continue }
             let list = await chapters.knownList(series: progress.series)
             let age = await chapters.listAge(progress.series)
             if list == nil || age > 900 { output.listless.append((progress.series, progress.slug, false)) }
