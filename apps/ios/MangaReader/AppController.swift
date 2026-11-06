@@ -69,8 +69,10 @@ final class AppController {
             navigation.flush()
             library.state.flush()
             library.flushPositions()
-            library.handOff()
             DebugState.shared.write(to: root)
+        }
+        AppLifecycle.shared.onResignActiveAsync { [weak self] in
+            await self?.library.handOff()
         }
         AppLifecycle.shared.onBackground { [weak self] in
             self?.library.paused()

@@ -30,16 +30,15 @@ final class Library {
     private let routesWriter: BackgroundWriter
     private let positionsWriter: BackgroundWriter
     private let transfers: SiteTransfers
+    private var transferOwnership = TransferOwnership()
     private var readers: [ObjectIdentifier: Registered] = [:]
     private var positions: [String: Position]
-    private var planScheduled = false
-    private var planRunning = false
+    private var planning = CoalescedWork()
     private var planTask: Task<Void, Never>?
     private var priorityTask: Task<Void, Never>?
     private var fullPlans = 0
     private var priorityPlans = 0
     private var measuring = Set<String>()
-    private var planAgain = false
     private var backgroundPreparing = Set<String>()
     private var preparing = Set<String>()
     private var unavailable: [String: Date] = [:]
@@ -139,13 +138,19 @@ final class Library {
     // The series' current URL slug (Asura's rotates).
     func slug(_ series: String) -> String { routes[series] ?? series }
 
-    func handleEvents(_ completion: @escaping () -> Void) {
+    func handleEvents(_ completion: @escaping () -> Void, background: Bool) {
+        let ticket = background ? transferOwnership.handOff() : nil
         Task {
-            await images.setActive(false)
+            if background { await images.setActive(false) }
             await clearLegacyTransfers()
             await plan()
-            await handOffNow()
-            transfers.handleEvents(completion)
+            if let ticket, transferOwnership.ownsHandoff(ticket) { await handOffNow(ticket) }
+            // A later activation/handoff owns the session now. This event may
+            // reconnect its completion handler, but must not reclaim that work.
+            else if !background, transferOwnership.phase == .foreground { await transfers.reclaim() }
+            let continues: Bool
+            if case .background = transferOwnership.phase { continues = true } else { continues = false }
+            await transfers.handleEvents(SiteTransfers.Completion(call: completion), continueDownloads: continues)
         }
     }
 
@@ -186,7 +191,9 @@ final class Library {
     // iOS's occasional background refresh: the newest catalog pages, then the chapters they
     // reveal, handed to the background session (which carries on outside the app).
     func backgroundRefresh() async {
+        let ticket = transferOwnership.handOff()
         await images.setActive(false)
+        guard transferOwnership.ownsHandoff(ticket) else { return }
         await clearLegacyTransfers()
         if !refreshing {
             refreshing = true
@@ -197,7 +204,7 @@ final class Library {
         await plan()
         for _ in 0..<20 where !preparing.isEmpty && !Task.isCancelled { try? await Task.sleep(for: .seconds(1)) }
         await plan()
-        await handOffNow()
+        await handOffNow(ticket)
     }
 
     // Back on screen after a while, or when the catalog was never complete.
@@ -358,13 +365,13 @@ final class Library {
     // MARK: the download plan
 
     func planSoon() {
-        if planRunning { planAgain = true; return }
-        guard !planScheduled else { return }
-        planScheduled = true
+        if planning.request() { schedulePlan() }
+    }
+
+    private func schedulePlan() {
         DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            planScheduled = false
-            planTask = Task(priority: .utility) { await self.plan() }
+            guard let self, planning.phase == .scheduled else { return }
+            Task { await self.plan() }
         }
     }
 
@@ -417,16 +424,28 @@ final class Library {
     }
 
     private func plan() async {
-        if planRunning { planAgain = true; return }
-        planRunning = true
-        defer {
-            planRunning = false; planTask = nil
-            if planAgain { planAgain = false; planSoon() }
+        if planning.isRunning {
+            planning.request()
+            if let planTask { await planTask.value }
+            return
         }
+        guard planning.begin() else { return }
+        let task = Task { [self] in
+            defer {
+                planTask = nil
+                if planning.finish() { schedulePlan() }
+            }
+            await performPlan()
+        }
+        planTask = task
+        await task.value
+    }
+
+    private func performPlan() async {
         await clearLegacyTransfers()
         repeat {
             fullPlans += 1
-            planAgain = false
+            planning.consumePending()
             readers = readers.filter { $0.value.screen != nil }
             let started = state.started
             let input = PlanInput(focused: focused, started: started.map { ($0.seriesSlug, slug($0.seriesSlug), $0.chapterId, $0.imageIndex, $0.complete) },
@@ -440,7 +459,7 @@ final class Library {
             }
             let output = await Self.plan(input, chapters: chapters, images: images)
             if Task.isCancelled { break }
-            if planAgain { continue }
+            if planning.isPending { continue }
             unsized = output.unsized
             var grace = Set<String>()
             if await images.needsRetentionMigration() {
@@ -456,7 +475,7 @@ final class Library {
                                       + output.listless.filter(\.urgent).map { "list:" + $0.series })
             for name in output.completedUnsized { finished(name) }
             prepare(missing: output.missing, lists: output.listless)
-        } while planAgain
+        } while planning.isPending
     }
 
     private nonisolated static func plan(_ input: PlanInput, chapters: ChapterSource, images: ImageFiles) async -> PlanOutput {
@@ -661,23 +680,38 @@ final class Library {
     // MARK: away from the screen
 
     // Leaving the screen: unfinished planned files go to iOS's background session.
-    func handOff() { Task { await handOffNow() } }
+    func handOff() async { await handOffNow() }
 
-    private func handOffNow() async {
+    private func handOffNow(_ requested: UInt64? = nil) async {
+        let ticket = requested ?? transferOwnership.handOff()
+        guard transferOwnership.ownsHandoff(ticket), !Task.isCancelled else { return }
+        await images.setActive(false)
+        guard transferOwnership.ownsHandoff(ticket) else { return }
         let referer = provider.origin.absoluteString + "/"
         let items = await images.unfinished(limit: 400).compactMap { item -> SiteTransfers.Item? in
             guard let url = URL(string: item.url) else { return nil }
             return SiteTransfers.Item(url: url, headers: ["Referer": referer], file: item.name)
         }
-        if !items.isEmpty { await transfers.handOff(items) }
+        guard transferOwnership.ownsHandoff(ticket), !Task.isCancelled else { return }
+        await transfers.handOff(items)
+        transferOwnership.handedOff(ticket)
     }
 
-    func paused() { Task { await images.setActive(false) } }
+    func paused() {
+        let owner = transferOwnership.phase
+        Task {
+            guard transferOwnership.phase == owner, owner != .foreground else { return }
+            await images.setActive(false)
+        }
+    }
 
     func resumed() {
+        let ticket = transferOwnership.reclaim()
         Task {
             await clearLegacyTransfers()
+            guard transferOwnership.ownsReclaim(ticket) else { return }
             await transfers.reclaim()
+            guard transferOwnership.reclaimed(ticket) else { return }
             await images.setActive(true)
         }
         planSoon()

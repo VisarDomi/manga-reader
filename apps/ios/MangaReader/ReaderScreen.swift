@@ -44,8 +44,12 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
     private let message = UILabel()
     private var parts: [Part] = []
     private var list: [String]?
-    private var listLoading = false
-    private var listDue = Date.distantPast
+    private enum ListFetch { case waiting(until: Date), loading }
+    private var listFetch = ListFetch.waiting(until: .distantPast)
+    private var listLoading: Bool { if case .loading = listFetch { return true }; return false }
+    private var listDue: Date {
+        if case .waiting(let until) = listFetch { return until }; return .distantFuture
+    }
     private var loads: [String: Load] = [:]
     private var settled: (chapter: String, index: Int)?
     private var visible = false
@@ -302,19 +306,18 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
 
     private func fetchList() {
         guard !listLoading else { return }
-        listLoading = true
+        listFetch = .loading
         Task {
             do {
                 let fresh = try await app.library.chapters.fetchList(series: series, slug: slug, urgent: true)
                 // An answer from an older cache never drops a newer chapter already known.
                 list = list.map { withNewerChapters(fresh, $0) } ?? fresh
-                listDue = Date().addingTimeInterval(300)
+                listFetch = .waiting(until: Date().addingTimeInterval(300))
             } catch {
-                listDue = Date().addingTimeInterval(15)
+                listFetch = .waiting(until: Date().addingTimeInterval(15))
                 retryContinuation()
                 if list == nil, !parts.isEmpty { strip.setFooter("Failed to load chapter list", color: UIColor(red: 1, green: 0.42, blue: 0.42, alpha: 1)) }
             }
-            listLoading = false
             continueReading()
         }
     }

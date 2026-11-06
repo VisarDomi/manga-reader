@@ -20,7 +20,14 @@ struct PageRetention: Codable, Sendable {
         return remove
     }
 
-    func keeps(_ name: String, now: Date) -> Bool {
-        name.hasPrefix("covers/") || required.contains(name) || expires[name].map { $0 > now } == true
+    enum PageState: Equatable {
+        case permanentCover, required, retired(until: Date), evictable
     }
+    func state(of name: String, now: Date) -> PageState {
+        if name.hasPrefix("covers/") { return .permanentCover }
+        if required.contains(name) { return .required }
+        if let deadline = expires[name], deadline > now { return .retired(until: deadline) }
+        return .evictable
+    }
+    func keeps(_ name: String, now: Date) -> Bool { state(of: name, now: now) != .evictable }
 }

@@ -229,6 +229,25 @@ actor RequestLimiter {
         if let file { try DurableFile.writeJSON(hosts, to: file); journalWrites += 1 }
     }
 
+    private enum Admission {
+        case waitingForCapacity, waitingForReader
+        case waiting(until: Date)
+        case ready(at: Date)
+    }
+
+    private func admission(_ waiter: Waiter, state: Host, policy: Budget, ceiling: Int, now: Date) -> Admission {
+        let host = waiter.ticket.host, urgent = waiter.urgency?.value == true
+        let allowed = urgent ? ceiling : max(1, min(policy.background, ceiling * policy.background / max(1, policy.limit)))
+        let active = running.values.filter { $0 == host }.count
+        let background = running.filter { $0.value == host && backgroundRunning.contains($0.key) }.count
+        guard active < policy.concurrent, urgent || background < policy.backgroundConcurrent else { return .waitingForCapacity }
+        if !urgent && waiting.contains(where: { $0.ticket.host == host && $0.urgency?.value == true }) { return .waitingForReader }
+        var ready = max(state.blocked, state.nextStart)
+        if state.sent.count >= allowed { ready = max(ready, state.sent[state.sent.count - allowed].addingTimeInterval(policy.window)) }
+        if ready > now && !waiter.scheduled { return .waiting(until: ready) }
+        return .ready(at: waiter.scheduled ? max(now, ready) : now)
+    }
+
     private func pump() {
         wake?.cancel(); wake = nil
         let now = Date()
@@ -243,19 +262,12 @@ actor RequestLimiter {
             var state = hosts[host] ?? Host()
             state.sent.removeAll { now.timeIntervalSince($0) >= policy.window }
             let ceiling = max(1, min(policy.limit, state.ceiling ?? policy.limit))
-            let allowed = urgent ? ceiling : max(1, min(policy.background, ceiling * policy.background / max(1, policy.limit)))
-            let active = running.values.filter { $0 == host }.count
-            let background = running.filter { $0.value == host && backgroundRunning.contains($0.key) }.count
-            guard active < policy.concurrent, urgent || background < policy.backgroundConcurrent else { continue }
-            // Reserve the next available slot for a waiting screen request on this origin.
-            if !urgent && waiting.contains(where: { $0.ticket.host == host && $0.urgency?.value == true }) { continue }
-            var ready = max(state.blocked, state.nextStart)
-            if state.sent.count >= allowed { ready = max(ready, state.sent[state.sent.count - allowed].addingTimeInterval(policy.window)) }
-            if ready > now && !waiter.scheduled {
-                next = min(next ?? ready, ready)
-                continue
+            let admitted: Date
+            switch admission(waiter, state: state, policy: policy, ceiling: ceiling, now: now) {
+            case .waitingForCapacity, .waitingForReader: continue
+            case .waiting(let ready): next = min(next ?? ready, ready); continue
+            case .ready(let date): admitted = date
             }
-            let admitted = waiter.scheduled ? max(now, ready) : now
             state.sent.append(admitted)
             state.sent.sort()
             state.nextStart = admitted.addingTimeInterval(max(policy.spacing, policy.window / Double(ceiling)))

@@ -19,9 +19,11 @@ final class CoverImages {
     private var bytes = 0
     private var cursor = 0
     private var active = false
-    private var working = false
-    private var saturated = false
-    private var memoryLimited = false
+    private var warming = OperationState()
+    private enum Capacity { case available, saturated, memoryPressure }
+    private var capacity = Capacity.available
+    private var saturated: Bool { capacity != .available }
+    private var memoryLimited: Bool { capacity == .memoryPressure }
     private var ticket: ImageTicket?
     private var generation = 0
     private var memoryObservation: NotificationObservation?
@@ -34,7 +36,7 @@ final class CoverImages {
     init(files: ImageFiles, pipeline: ImagePipeline, version: @escaping (String) -> Int) {
         self.files = files; self.pipeline = pipeline; self.version = version
         memoryObservation = NotificationObservation(name: UIApplication.didReceiveMemoryWarningNotification) { [weak self] _ in
-            MainActor.assumeIsolated { self?.warm.removeAll(); self?.bytes = 0; self?.saturated = true; self?.memoryLimited = true }
+            MainActor.assumeIsolated { self?.warm.removeAll(); self?.bytes = 0; self?.cancelWarm(); self?.capacity = .memoryPressure }
         }
         coverObservation = NotificationObservation(name: .coverChanged) { [weak self] note in
             guard let url = note.userInfo?["url"] as? String else { return }
@@ -54,6 +56,8 @@ final class CoverImages {
         guard ordered != urls else { return }
         urls = ordered; positions = Dictionary(uniqueKeysWithValues: urls.enumerated().map { ($0.element, $0.offset) })
         ready.formIntersection(seen)
+        cancelWarm()
+        for url in Array(warm.keys) where !seen.contains(url) { discard(url) }
         generation += 1
         let revision = generation, items = urls.map { ImageItem(url: $0, cover: true) }
         cursor = visible.compactMap { positions[$0] }.min() ?? 0
@@ -67,7 +71,8 @@ final class CoverImages {
 
     func setActive(_ value: Bool) {
         active = value
-        if value && memoryLimited { memoryLimited = false; saturated = false }
+        if !value { cancelWarm() }
+        if value && memoryLimited { capacity = .available }
         pump()
     }
 
@@ -77,7 +82,7 @@ final class CoverImages {
         visible = next
         let first = values.compactMap { positions[$0] }.min() ?? 0
         for url in Array(warm.keys) where (positions[url] ?? -1) < first && !next.contains(url) { discard(url) }
-        cursor = first; saturated = false
+        cursor = first; if !memoryLimited { capacity = .available }
         pipeline.prioritiesChanged()
         pump()
     }
@@ -114,7 +119,7 @@ final class CoverImages {
     }
 
     private func changed(_ url: String) {
-        discard(url); saturated = false
+        discard(url); if !memoryLimited { capacity = .available }
         if let index = positions[url] { cursor = min(cursor, index) }
         pump()
     }
@@ -132,30 +137,34 @@ final class CoverImages {
         while bytes > budget, let farthest = warm.keys.filter({ !visible.contains($0) }).max(by: { (positions[$0] ?? -1) < (positions[$1] ?? -1) }) {
             discard(farthest)
         }
-        saturated = bytes + cost > budget
+        if !memoryLimited { capacity = bytes + cost > budget ? .saturated : .available }
+    }
+
+    private func cancelWarm() {
+        warming.cancel(); ticket?.cancel(); ticket = nil
     }
 
     private func pump() {
-        guard active, !working, !memoryLimited else { return }
+        guard active, !warming.isRunning, !memoryLimited else { return }
         while cursor < urls.count {
             let index = cursor, url = urls[index]
             if let stored = warm[url], stored.key == key(url) { cursor += 1; continue }
             if !ready.contains(url) { cursor += 1; continue }
             if saturated {
                 guard let farthest = warm.keys.filter({ !visible.contains($0) && (positions[$0] ?? -1) > index }).max(by: { positions[$0]! < positions[$1]! }) else { return }
-                discard(farthest); saturated = false
+                discard(farthest); capacity = .available
             }
             cursor += 1
             if let image = cached(url) { remember(url, key: key(url), image: image); continue }
             let item = ImageItem(url: url, cover: true)
-            working = true
+            let operation = warming.begin()
             let key = key(url)
             let request = ImagePipeline.Request(key: key, source: .file(files.url(item)), fit: Self.fit) { [weak self] in
                 self?.visible.contains(url) == true ? 0 : Double(index + 1)
             }
             ticket = pipeline.load(request) { [weak self] result in
-                guard let self else { return }
-                working = false; ticket = nil
+                guard let self, warming.finish(operation) else { return }
+                ticket = nil
                 if case .success(let image) = result { decoded += 1; remember(url, key: key, image: image) }
                 pump()
             }

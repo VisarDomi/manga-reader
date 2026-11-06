@@ -80,14 +80,15 @@ public final class StripReaderView: UIView, UIScrollViewDelegate {
     // A page opened at its top keeps its top at the screen's top while sizes settle (until a
     // finger touches), instead of the centre: a resumed page never slides away.
     private var pinnedTop: Int?
-    private var touching = false
+    private var interaction = DocumentMotionState()
+    private var touching: Bool { interaction.touching }
     private var lastNearEnd = -1
     private var lastVisiblePage = -1
     private let footer = UILabel()
     // Keep the rendered pages and their base geometry stable for the whole pinch. Sharper
     // decodes, newly learned sizes and appended chapters commit after UIKit finishes zooming.
-    private var zoomInProgress = false
-    private var scrollInProgress = false
+    private var zoomInProgress: Bool { interaction.pinching }
+    private var scrollInProgress: Bool { interaction.scrolling }
     private var pinchQuality: CGFloat = 1
     private var pendingAspects: [Int: CGFloat] = [:]
     private var pendingAppend = false
@@ -119,7 +120,7 @@ public final class StripReaderView: UIView, UIScrollViewDelegate {
         doubleTap.numberOfTapsRequired = 2
         scrollView.addGestureRecognizer(doubleTap)
         let touch = TouchTracker { [weak self] down in
-            self?.touching = down
+            self?.interaction.touch(down)
             if down { self?.pinnedTop = nil }
             if !down { DispatchQueue.main.async { [weak self] in self?.settleIfIdle() } }
         }
@@ -425,11 +426,11 @@ public final class StripReaderView: UIView, UIScrollViewDelegate {
         FrameMonitor.shared.scrolling(moving)
     }
 
-    public func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { scrollInProgress = true; monitor(true) }
+    public func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { interaction.drag(); monitor(true) }
 
     public func scrollViewWillBeginZooming(_ scrollView: UIScrollView, with view: UIView?) {
         pinchQuality = zoomBucket
-        zoomInProgress = true
+        interaction.beginPinch()
         pinnedTop = nil
         monitor(true)
     }
@@ -443,11 +444,12 @@ public final class StripReaderView: UIView, UIScrollViewDelegate {
 
     public func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
         pinnedTop = nil
-        if !decelerate { scrollInProgress = false; monitor(false); settleIfIdle() }
+        interaction.dragEnded(decelerating: decelerate)
+        if !decelerate { interaction.settleScroll(); monitor(false); settleIfIdle() }
     }
-    public func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { scrollInProgress = false; monitor(false); settleIfIdle() }
+    public func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { interaction.settleScroll(); monitor(false); settleIfIdle() }
     public func scrollViewDidEndZooming(_ scrollView: UIScrollView, with view: UIView?, atScale scale: CGFloat) {
-        zoomInProgress = false
+        interaction.endPinch()
         let ready = pendingImages
         pendingImages = [:]
         for (index, image) in ready {
@@ -462,7 +464,7 @@ public final class StripReaderView: UIView, UIScrollViewDelegate {
 
     private func settleIfIdle() {
         guard !touching, !zoomInProgress, !scrollView.isDragging, !scrollView.isDecelerating, !scrollView.isZooming, let position = currentPosition else { return }
-        scrollInProgress = false
+        interaction.settleScroll()
         applyPendingGeometry()
         delegate?.strip(self, settledAt: currentPosition ?? position)
     }

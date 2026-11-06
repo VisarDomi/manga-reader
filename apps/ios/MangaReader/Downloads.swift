@@ -254,7 +254,11 @@ enum ImageDimensions {
 // nobody waits); then the reader's current/next pair, covers and touched series' pairs.
 // Retired downloaded pages expire after 24 hours; covers are kept permanently.
 actor ImageFiles {
-    private struct Transfer { let id = UUID(); let task: Task<URL, Error>; var callers: Set<UUID> = [] }
+    private struct Transfer {
+        var ownership = SharedWorkState()
+        var id: UUID { ownership.id }
+        let task: Task<URL, Error>
+    }
     let root: URL
     private let http: SiteClient
     private let referer: String
@@ -264,7 +268,22 @@ actor ImageFiles {
     private var plan: [ImageItem] = []
     private var itemsByName: [String: ImageItem] = [:]
     private var planCursor = 0
-    private var readerPlan: [ImageItem] = []
+    private struct ReaderSelection {
+        let items: [ImageItem]
+        let names: Set<String>
+    }
+    private enum ReaderPreparation {
+        case inactive
+        case metadata(ReaderSelection)
+        case pages(ReaderSelection)
+        var selection: ReaderSelection? {
+            switch self { case .inactive: return nil; case .metadata(let value), .pages(let value): return value }
+        }
+    }
+    private var readerPreparation = ReaderPreparation.inactive
+    private var readerPlan: [ImageItem] { readerPreparation.selection?.items ?? [] }
+    private var readerNames: Set<String>? { readerPreparation.selection?.names }
+    private var readerMetadataPending: Bool { if case .metadata = readerPreparation { return true }; return false }
     private var done = Set<String>()
     private var absent = Set<String>()
     private var fileChecks = 0
@@ -278,13 +297,12 @@ actor ImageFiles {
     private(set) var removedPageFiles = 0
     private(set) var removedPageBytes: Int64 = 0
     private var active = true
-    private var wakeScheduled = false
+    private var retrySchedule = RetrySchedule()
+    private var retryTask: Task<Void, Never>?
     private var observers: [@Sendable (ImageItem) -> Void] = []
     private var coverObservers: [@Sendable (ImageItem) -> Void] = []
     private var rechecks: [ImageItem] = []
     private var recheckRunning = false
-    private var readerNames: Set<String>?
-    private var readerMetadataPending = false
     private var reportedReaderBusy = false
     private var readerRevision = 0
     private var readerObservers: [@Sendable (Bool, Int) -> Void] = []
@@ -352,8 +370,7 @@ actor ImageFiles {
                 }
             })
         }
-        let caller = UUID()
-        foreground[item.name]!.callers.insert(caller)
+        guard let caller = foreground[item.name]?.ownership.join() else { throw CancellationError() }
         let transfer = foreground[item.name]!
         defer {
             if foreground[item.name]?.id == transfer.id {
@@ -368,13 +385,13 @@ actor ImageFiles {
             Task { await self.abandon(item.name, transfer: transfer.id, caller: caller) }
         }
         finished(item)
+        try Task.checkCancellation()
         return file
     }
 
     private func abandon(_ name: String, transfer: UUID, caller: UUID) {
         guard foreground[name]?.id == transfer else { return }
-        foreground[name]!.callers.remove(caller)
-        guard foreground[name]!.callers.isEmpty else { return }
+        guard foreground[name]?.ownership.leave(caller) == true else { return }
         foreground[name]!.task.cancel()
         foreground[name] = nil
         planCursor = 0
@@ -494,9 +511,8 @@ actor ImageFiles {
 
     // What to download, in order (replacing the previous plan).
     func prioritizeReader(_ items: [ImageItem], awaitingMetadata: Bool) {
-        readerPlan = items
-        readerNames = Set(items.map(\.name))
-        readerMetadataPending = awaitingMetadata
+        let selection = ReaderSelection(items: items, names: Set(items.map(\.name)))
+        readerPreparation = awaitingMetadata ? .metadata(selection) : .pages(selection)
         if retained != nil {
             let required = retention.required.union(readerNames ?? [])
             if required != retention.required {
@@ -514,9 +530,10 @@ actor ImageFiles {
         planCursor = 0
         itemsByName = Dictionary(items.map { ($0.name, $0) }, uniquingKeysWith: { first, _ in first })
         if !preservingReader {
-            self.readerNames = readerNames
-            readerPlan = readerNames.map { names in items.filter { names.contains($0.name) } } ?? []
-            readerMetadataPending = awaitingReaderMetadata
+            if let readerNames {
+                let selection = ReaderSelection(items: items.filter { readerNames.contains($0.name) }, names: readerNames)
+                readerPreparation = awaitingReaderMetadata ? .metadata(selection) : .pages(selection)
+            } else { readerPreparation = .inactive }
         }
         let wanted = Set(itemsByName.keys).union(self.readerNames ?? [])
         for (name, task) in background where !wanted.contains(name) { task.cancel() }
@@ -598,7 +615,10 @@ actor ImageFiles {
     func setActive(_ value: Bool) {
         active = value
         if value { planCursor = 0 }
-        if !value { for task in background.values { task.cancel() } }
+        if !value {
+            for task in background.values { task.cancel() }
+            retryTask?.cancel(); retryTask = nil; retrySchedule.cancel()
+        }
         pump()
         pumpRechecks()
     }
@@ -671,17 +691,22 @@ actor ImageFiles {
             let item = plan[planCursor]; planCursor += 1
             start(item)
         }
-        if !wakeScheduled, let next = failed.values.map(\.retryAt).filter({ $0 > now }).min(), background.count < limit {
-            wakeScheduled = true
-            Task { [weak self] in
-                try? await Task.sleep(for: .seconds(max(1, next.timeIntervalSinceNow)))
-                await self?.wake()
+        if let next = failed.values.map(\.retryAt).filter({ $0 > now }).min(), background.count < limit {
+            if let id = retrySchedule.schedule(next) {
+                retryTask?.cancel()
+                retryTask = Task { [weak self] in
+                    do { try await Task.sleep(for: .seconds(max(0, next.timeIntervalSinceNow))) } catch { return }
+                    await self?.wake(id)
+                }
             }
+        } else if !failed.values.contains(where: { $0.retryAt > now }) {
+            retryTask?.cancel(); retryTask = nil; retrySchedule.cancel()
         }
     }
 
-    private func wake() {
-        wakeScheduled = false
+    private func wake(_ id: UUID) {
+        guard retrySchedule.fire(id) else { return }
+        retryTask = nil
         planCursor = 0
         pump()
     }

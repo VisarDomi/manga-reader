@@ -11,6 +11,11 @@ final class PCSave {
     private let key: String
     private let http: HTTPClient
     private let state: ReadingState
+    private enum Operation {
+        case idle
+        case running(Task<Void, Error>)
+    }
+    private var operation = Operation.idle
 
     // Native/BackupConfig.json ({url, key}) and the PC's CA (Native/LocalCA.cer) are private
     // build inputs; without them there are no PC controls.
@@ -37,14 +42,30 @@ final class PCSave {
         return (200..<300).contains(response.status)
     }
 
-    func load() async throws {
+    func load() async throws { try await serialize { try await self.loadNow() } }
+    func save() async throws { try await serialize { try await self.saveNow() } }
+
+    private func serialize(_ work: @escaping @MainActor () async throws -> Void) async throws {
+        if case .running(let task) = operation {
+            _ = try? await task.value
+            return try await serialize(work)
+        }
+        let task = Task { @MainActor in
+            defer { self.operation = .idle }
+            try await work()
+        }
+        operation = .running(task)
+        try await task.value
+    }
+
+    private func loadNow() async throws {
         let response = try await request(path)
         if response.status == 404 { throw StoreError.invalid("No saved reading state on PC") }
         guard (200..<300).contains(response.status) else { throw StoreError.invalid("PC request failed") }
         try state.restore(response.data)
     }
 
-    func save() async throws {
+    private func saveNow() async throws {
         let response = try await request(path, method: "PUT", body: try state.backup())
         guard (200..<300).contains(response.status) else { throw StoreError.invalid("PC request failed") }
     }

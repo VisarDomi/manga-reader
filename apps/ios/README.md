@@ -547,3 +547,13 @@ only the app target resolves them to Xcode's product settings. Global product-na
 overrides also renamed NativeKit's generated Swift file lists/outputs per provider,
 making compiler input/output names differ between providers. Package targets now
 keep their own product names. App names, bundle IDs and storage roots stay the same.
+
+## Explicit state transitions
+
+Runtime workflow states and ownership invariants are catalogued in
+[the shared state inventory](../../../../ios-tools/native/state-machines.json).
+Tasks may publish only for their current owner. A cancelled caller releases its
+own transfer lease, and callbacks from an older operation cannot finish a newer
+one. Playback intent, readiness, terminal media, foreground ownership and gesture
+visibility are separate machines. Recovery reuses the existing durable data and
+bundle identities; it does not clear sessions, progress or caches.

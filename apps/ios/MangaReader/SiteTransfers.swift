@@ -38,10 +38,9 @@ final class SiteTransfers: NSObject, URLSessionDownloadDelegate, @unchecked Send
         _ = session
     }
 
-    func handleEvents(_ completion: @escaping () -> Void) {
+    func handleEvents(_ callback: Completion, continueDownloads: Bool = true) async {
         let session = session
-        let callback = Completion(call: completion)
-        Task { await queue.handleEvents(session, callback) }
+        await queue.handleEvents(session, callback, continueDownloads: continueDownloads)
     }
     func handOff(_ items: [Item]) async { await queue.handOff(items, session: session) }
     func reclaim() async { await queue.reclaim(session) }
@@ -80,15 +79,24 @@ final class SiteTransfers: NSObject, URLSessionDownloadDelegate, @unchecked Send
     struct Completion: @unchecked Sendable { let call: () -> Void }
 
     private actor TransferQueue {
+        enum Mode { case foreground, background }
+        enum Connection {
+            case disconnected
+            case discovering(Task<[URLSessionTask], Never>)
+            case connected
+        }
+        enum Request {
+            case idle
+            case admitting(Task<Void, Never>)
+            case transferring(Pending)
+            case completing(Pending)
+        }
         let file: URL
         let limiter: RequestLimiter
         var items: [Item]
-        var enabled = false
-        var admission: Task<Void, Never>?
-        var current: Pending?
-        var connected = false
-        var connecting: Task<[URLSessionTask], Never>?
-        var processingCompletion = false
+        var mode = Mode.foreground
+        var connection = Connection.disconnected
+        var request = Request.idle
         var completion: Completion?
         var generation = 0
 
@@ -97,108 +105,110 @@ final class SiteTransfers: NSObject, URLSessionDownloadDelegate, @unchecked Send
             items = (try? DurableFile.readJSON([Item].self, from: file)) ?? []
         }
         func save() throws { try DurableFile.writeJSON(items, to: file) }
-
         func connect(_ session: URLSession) async {
-            guard !connected else { return }
-            let load = connecting ?? Task { await session.allTasks }
-            connecting = load
+            let load: Task<[URLSessionTask], Never>
+            switch connection {
+            case .connected: return
+            case .discovering(let running): load = running
+            case .disconnected:
+                load = Task { await session.allTasks }; connection = .discovering(load)
+            }
             let tasks = await load.value
-            guard !connected else { return }
-            connected = true; connecting = nil
-            // Cancel the old version's unbudgeted batch before submitting anything new.
+            if case .connected = connection { return }
+            connection = .connected
             for task in tasks {
-                if current == nil, let pending = SiteTransfers.decode(task.taskDescription), pending.ticket != nil {
-                    current = pending
+                if case .idle = request, let pending = SiteTransfers.decode(task.taskDescription), pending.ticket != nil {
+                    request = .transferring(pending)
                 } else { task.cancel() }
             }
         }
+        func cancelAdmission() {
+            if case .admitting(let task) = request { task.cancel(); request = .idle }
+        }
         func handOff(_ items: [Item], session: URLSession) async {
-            generation += 1
-            let revision = generation
-            admission?.cancel(); admission = nil
+            generation += 1; let revision = generation
+            cancelAdmission()
             await connect(session)
             guard generation == revision else { return }
             self.items = items.filter { SiteTransfers.safe($0.file) }
             do { try save() } catch { return }
-            enabled = true
+            mode = .background
             start(session)
         }
         func reclaim(_ session: URLSession) async {
-            enabled = false; generation += 1
-            let revision = generation
-            admission?.cancel(); admission = nil
+            mode = .foreground; generation += 1; let revision = generation
+            cancelAdmission()
             await connect(session)
             guard generation == revision else { return }
             let tasks = await session.allTasks
             guard generation == revision else { return }
-            let ticket = current?.ticket
-            current = nil
+            let ticket: RequestLimiter.Ticket?
+            if case .transferring(let pending) = request { ticket = pending.ticket; request = .idle }
+            else { ticket = nil }
             for task in tasks { task.cancel() }
             if let ticket { await limiter.finish(ticket, cancelled: true) }
             finishEventsIfReady()
         }
-        func handleEvents(_ session: URLSession, _ completion: Completion) async {
+        func handleEvents(_ session: URLSession, _ completion: Completion, continueDownloads: Bool) async {
             self.completion = completion
             let revision = generation
             await connect(session)
             guard generation == revision else { finishEventsIfReady(); return }
-            enabled = true
+            mode = continueDownloads ? .background : .foreground
             start(session)
         }
-        func eventsFinished(_ session: URLSession) {
-            start(session)
-            finishEventsIfReady()
-        }
+        func eventsFinished(_ session: URLSession) { start(session); finishEventsIfReady() }
         func finishEventsIfReady() {
-            guard !processingCompletion, admission == nil, let completion else { return }
+            switch request { case .admitting, .completing: return; default: break }
+            guard let completion else { return }
             self.completion = nil
             DispatchQueue.main.async { completion.call() }
         }
         func start(_ session: URLSession) {
-            guard enabled, !processingCompletion, current == nil, admission == nil, let item = items.first else { finishEventsIfReady(); return }
+            guard mode == .background, case .idle = request, let item = items.first else { finishEventsIfReady(); return }
             let revision = generation
-            admission = Task { [limiter] in
+            let task = Task { [limiter] in
                 do {
                     let ticket = try await limiter.acquire(host: item.url.host ?? "", urgency: nil, scheduled: true)
                     self.admitted(item, ticket: ticket, revision: revision, session: session)
                 } catch { self.admissionFailed(revision) }
             }
+            request = .admitting(task)
         }
         func admitted(_ item: Item, ticket: RequestLimiter.Ticket, revision: Int, session: URLSession) {
-            guard enabled, generation == revision else {
+            guard mode == .background, generation == revision else {
                 Task { await limiter.finish(ticket, cancelled: true) }; return
             }
-            admission = nil
             let pending = Pending(item: item, ticket: ticket)
-            guard let data = try? JSONEncoder().encode(pending) else { return }
-            var request = URLRequest(url: item.url)
-            for (name, value) in item.headers { request.setValue(value, forHTTPHeaderField: name) }
-            let task = session.downloadTask(with: request)
+            guard let data = try? JSONEncoder().encode(pending) else {
+                request = .idle; mode = .foreground
+                Task { await limiter.finish(ticket, cancelled: true) }
+                finishEventsIfReady(); return
+            }
+            var download = URLRequest(url: item.url)
+            for (name, value) in item.headers { download.setValue(value, forHTTPHeaderField: name) }
+            let task = session.downloadTask(with: download)
             task.taskDescription = String(decoding: data, as: UTF8.self)
             task.earliestBeginDate = ticket.scheduled
-            current = pending
-            task.resume()
-            finishEventsIfReady()
+            request = .transferring(pending)
+            task.resume(); finishEventsIfReady()
         }
         func admissionFailed(_ revision: Int) {
             guard generation == revision else { return }
-            admission = nil
-            finishEventsIfReady()
+            request = .idle; finishEventsIfReady()
         }
         func finished(_ pending: Pending?, response: HTTPURLResponse?, success: Bool, cancelled: Bool, session: URLSession) async {
-            guard let pending, current?.item.file == pending.item.file,
-                  current?.ticket?.id == pending.ticket?.id else { return }
+            guard let pending, case .transferring(let current) = request,
+                  current.item.file == pending.item.file, current.ticket?.id == pending.ticket?.id else { return }
             let revision = generation
-            processingCompletion = true
-            current = nil
+            request = .completing(pending)
             if let ticket = pending.ticket { await limiter.finish(ticket, response: response, cancelled: cancelled) }
-            processingCompletion = false
+            request = .idle
+            // A newer handoff can still contain this just-committed file. Remove
+            // it there too rather than downloading it a second time.
+            if success { items.removeAll { $0.file == pending.item.file }; try? save() }
             guard generation == revision else { start(session); return }
-            // Failed bytes stay in the durable plan. A throttle retries only after the
-            // common cooldown; permanent errors wait for foreground/background refresh.
-            if success { items.removeAll { $0.file == pending.item.file } }
-            try? save()
-            if !success, response?.statusCode != 429 && response?.statusCode != 503 { enabled = false }
+            if !success, response?.statusCode != 429 && response?.statusCode != 503 { mode = .foreground }
             start(session)
         }
     }

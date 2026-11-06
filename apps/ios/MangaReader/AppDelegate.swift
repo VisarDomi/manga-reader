@@ -41,7 +41,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
 
     // iOS relaunched the app (possibly without a screen) to deliver finished downloads.
     func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String, completionHandler: @escaping () -> Void) {
-        AppController.shared.library.handleEvents(completionHandler)
+        AppController.shared.library.handleEvents(completionHandler, background: application.applicationState != .active)
     }
 }
 

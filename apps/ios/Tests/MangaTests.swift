@@ -21,6 +21,7 @@ struct MangaTests {
         try providers()
         try store()
         try await budget()
+        retryScheduling()
         try retentionPolicy()
         try await retainedCache()
         try await measuredDimensions()
@@ -32,6 +33,30 @@ struct MangaTests {
         observationLifetime()
         try await coverPreparationOrder()
         try await readerPairOverridesSavedPosition()
+        try await foregroundRevokesBackgroundRefresh()
+    }
+
+    @MainActor
+    static func foregroundRevokesBackgroundRefresh() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let gate = TestGate()
+        let library = Library(provider: SuspendedRefreshProvider(gate: gate), root: root, bundleID: "com.visar.HandoffCheck." + UUID().uuidString)
+        let refresh = Task { await library.backgroundRefresh() }
+        await gate.started()
+        library.resumed()
+        for _ in 0..<300 {
+            if await library.images.state["active"] == 1 { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let reclaimed = await library.images.state
+        expect(reclaimed["active"] == 1, "Foreground reclaims image work while the old catalog refresh waits")
+        await gate.release()
+        await refresh.value
+        let completed = await library.images.state
+        expect(completed["active"] == 1, "A late background refresh cannot hand off or pause the new foreground owner")
+        await library.images.setActive(false)
+        print("PASS: foreground return revokes an in-flight background refresh/handoff")
     }
 
     @MainActor
@@ -301,6 +326,18 @@ struct MangaTests {
         print("PASS: touched current/next, durable 24-hour grace, expiry and late-completion cleanup")
     }
 
+    static func retryScheduling() {
+        var state = RetrySchedule()
+        let now = Date(), late = state.schedule(now.addingTimeInterval(600))!
+        let early = state.schedule(now.addingTimeInterval(15))!
+        expect(state.schedule(now.addingTimeInterval(30)) == nil, "A later retry never delays the earliest waiting image")
+        expect(!state.fire(late) && state.fire(early), "Old timer callbacks cannot clear a replacement retry")
+        let pending = state.schedule(now)!
+        state.cancel()
+        expect(!state.fire(pending), "Suspending downloads revokes their old retry wake")
+        print("PASS: earliest retry scheduling and stale/cancelled timer rejection")
+    }
+
     static func retentionPolicy() throws {
         let now = Date(), existing: Set<String> = ["images/current", "images/old", "images/unread", "covers/a"]
         var policy = PageRetention()
@@ -485,4 +522,13 @@ private struct CoverOrderProvider: MangaProvider {
     func home(_ cursor: String?) async throws -> HomePage { throw URLError(.notConnectedToInternet) }
     func chapter(_ slug: String, _ chapterId: String) async throws -> ChapterData? { throw URLError(.notConnectedToInternet) }
     func chaptersNewestFirst(_ slug: String) async throws -> [String] { throw URLError(.notConnectedToInternet) }
+}
+
+private struct SuspendedRefreshProvider: MangaProvider {
+    let key = "fixture"
+    let origin = URL(string: "https://fixture.invalid")!
+    let gate: TestGate
+    func home(_ cursor: String?) async throws -> HomePage { await gate.wait(); throw URLError(.notConnectedToInternet) }
+    func chapter(_ slug: String, _ chapterId: String) async throws -> ChapterData? { nil }
+    func chaptersNewestFirst(_ slug: String) async throws -> [String] { [] }
 }
