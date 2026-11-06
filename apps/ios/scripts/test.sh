@@ -5,6 +5,12 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 test_dir=$(mktemp -d "${TMPDIR:-/tmp}/manga-tests.XXXXXX")
 trap 'rm -rf "$test_dir"' EXIT
+# Compile a private snapshot: a concurrent source sync cannot change compiler
+# inputs halfway through a check. Product delivery separately freezes its source.
+mkdir -p "$test_dir/source/Kit"
+cp -R MangaReader Tests "$test_dir/source/"
+cp -R Kit/Sources "$test_dir/source/Kit/"
+cd "$test_dir/source"
 for module in KitCore KitNet KitHTML KitLifecycle; do
   deps=()
   [[ $module == KitNet ]] && deps=(-I "$test_dir" -L "$test_dir" -lKitCore)
