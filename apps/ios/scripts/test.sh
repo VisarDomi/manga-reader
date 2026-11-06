@@ -1,5 +1,5 @@
 #!/bin/bash
-# The native core's tests on the Mac: the six providers against saved responses
+# The native core's tests on the Mac: all seven providers against saved responses
 # (Tests/Fixtures), and the reading state's format, migrations and rules.
 set -euo pipefail
 cd "$(dirname "$0")/.."

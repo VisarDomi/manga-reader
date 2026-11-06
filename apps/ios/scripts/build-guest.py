@@ -41,8 +41,8 @@ def main():
     output = ROOT / 'build' / (args.provider + suffix)
     output.mkdir(parents=True, exist_ok=True)
     settings = {
-        'PRODUCT_NAME': provider['productName'],
-        'PRODUCT_BUNDLE_IDENTIFIER': bundle_id,
+        'READER_PRODUCT_NAME': provider['productName'],
+        'READER_BUNDLE_IDENTIFIER': bundle_id,
         'READER_PROVIDER': provider['key'],
         'READER_DISPLAY_NAME': provider['displayName'],
         'READER_ORIGIN': provider['origin'].replace('https://', 'https:/$()/'),

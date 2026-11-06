@@ -24,7 +24,7 @@ enum RequestLimitChecks {
     }
     static func run() async throws {
         let urgent = Urgency(true)
-        let budget = RequestLimiter.Budget(perMinute: 4, background: 1, concurrent: 2, backgroundConcurrent: 1, window: 0.4)
+        let budget = RequestLimiter.Budget(limit: 4, background: 1, concurrent: 2, backgroundConcurrent: 1, window: 0.4)
         let limiter = RequestLimiter(budget)
         let first = try await limiter.acquire(host: "a", urgency: nil)
         await limiter.finish(first)
@@ -56,7 +56,7 @@ enum RequestLimitChecks {
         promotion.raise()
         let promotedTicket = try await promoted.value
         await promotedLimiter.finish(promotedTicket)
-        let ranked = RequestLimiter(.init(perMinute: 100, background: 100, concurrent: 1, backgroundConcurrent: 1, window: 0.1))
+        let ranked = RequestLimiter(.init(limit: 100, background: 100, concurrent: 1, backgroundConcurrent: 1, window: 0.1))
         let occupied = try await ranked.acquire(host: "rank.test", urgency: urgent)
         let lower = Urgency(true)
         let prepared = Task { try await ranked.acquire(host: "rank.test", urgency: lower) }
@@ -111,11 +111,45 @@ enum RequestLimitChecks {
         LimitProtocol.lock.withLock { LimitProtocol.requests = [] }
         let http = HTTPClient(.init(configure: { $0.protocolClasses = [LimitProtocol.self] }))
         defer { http.invalidate() }
-        let client = SiteClient(http: http, limiter: RequestLimiter(.init(perMinute: 100, background: 100, window: 0.1)))
+        let client = SiteClient(http: http, limiter: RequestLimiter(.init(limit: 100, background: 100, window: 0.1)))
         _ = try await client.send(HTTPRequest(URL(string: "https://transport.test/retry")!, retry: RetryPolicy(maxAttempts: 2, firstDelay: 0.01)))
         let requests = LimitProtocol.lock.withLock { LimitProtocol.requests }
         expect(requests.count == 2 && requests[1].1.timeIntervalSince(requests[0].1) >= 0.9, "Every transport retry respects the provider-wide service cooldown")
         print("PASS: transport retry admission")
+
+        let journal = RequestLimiter(.init(limit: 100, background: 100, window: 0.1), file: root.appendingPathComponent("journal.json"))
+        let recorded = try await journal.acquire(host: "journal.test", urgency: urgent)
+        let beforeSuccess = await journal.state["journalWrites"]
+        await journal.finish(recorded, response: response(200, host: "journal.test"))
+        let afterSuccess = await journal.state["journalWrites"]
+        expect(beforeSuccess == 1 && afterSuccess == beforeSuccess, "A normal image response does not fsync an unchanged admission ledger twice")
+        let failure = try await journal.acquire(host: "journal.test", urgency: urgent)
+        await journal.finish(failure, response: response(429, ["Retry-After": "3600"], host: "journal.test"))
+        let afterThrottle = await journal.state["journalWrites"]
+        expect(afterThrottle == 3, "Throttle and cooldown changes still persist immediately")
+
+        let measured = RequestLimiter.Budget.provider("ezmanga")
+        expect(measured.window == 30 && measured.limit < 60 && Double(measured.limit) / measured.window > 1.8,
+               "Measured API quota is near 60 per 30 seconds, not misread as 60 per minute")
+        let recovering = RequestLimiter(.init(limit: 100, background: 100, window: 0.1), file: root.appendingPathComponent("recovery.json"))
+        let past = Date().addingTimeInterval(-600)
+        let throttled = try await recovering.acquire(host: "recover.test", urgency: urgent)
+        await recovering.finish(throttled, response: response(429, ["Retry-After": "1"], host: "recover.test"), now: past)
+        let reduced = await recovering.ceiling(host: "recover.test")
+        expect(reduced == 75, "Throttle reduces throughput immediately")
+        let clean = try await recovering.acquire(host: "recover.test", urgency: urgent)
+        await recovering.finish(clean, response: response(200, host: "recover.test"))
+        let recovered = await recovering.ceiling(host: "recover.test")
+        expect(recovered == 85, "Clean traffic after cooldown recovers gradually instead of staying slow forever")
+        let restored = RequestLimiter(.init(limit: 100, background: 100, window: 0.1), file: root.appendingPathComponent("recovery.json"))
+        let persisted = await restored.ceiling(host: "recover.test")
+        expect(persisted == recovered, "Recovery state survives relaunch")
+        let quota = try await restored.acquire(host: "recover.test", urgency: urgent)
+        await restored.finish(quota, response: response(200, ["X-RateLimit-Limit": "60"], host: "recover.test"))
+        let capped = await restored.ceiling(host: "recover.test")
+        expect(capped == 57, "Recovery never exceeds 95 percent of an advertised quota")
+        print("PASS: measured 30-second window, gradual recovery, persisted state and server headroom")
+
     }
     private static func awaitValue(_ values: [String: Int], _ key: String) -> Int { values[key] ?? -1 }
 }

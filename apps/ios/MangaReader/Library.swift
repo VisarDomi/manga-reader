@@ -49,7 +49,6 @@ final class Library {
     private var lastRefresh: Date?
     private var legacyTransfersCleared = false
     private var clearingTransfers: Task<Void, Never>?
-    private var repairingCache = false
     // Pages without a known size, by image file: where they belong.
     private struct PagePlace: Hashable, Sendable {
         let series: String
@@ -528,7 +527,6 @@ final class Library {
     }
 
     private func prepare(missing: [(series: String, slug: String, chapter: String, urgent: Bool)], lists: [(series: String, slug: String, urgent: Bool)]) {
-        guard !repairingCache else { return }
         let now = Date()
         for (series, slug, chapter, urgent) in missing {
             let key = FileKey.chapter(series, chapter)
@@ -680,19 +678,6 @@ final class Library {
             await images.setActive(true)
         }
         planSoon()
-    }
-
-    // Product maintenance: uses the same policy as normal Home/reader startup,
-    // without starting downloads or altering reading/navigation state.
-    func repairPageCache() async -> [String: Int64] {
-        repairingCache = true
-        await images.setActive(false)
-        await clearLegacyTransfers()
-        await transfers.reclaim()
-        if let planTask { await planTask.value }
-        await plan()
-        repairingCache = false
-        return await images.storageReport
     }
 
     var debugState: [String: Any] {

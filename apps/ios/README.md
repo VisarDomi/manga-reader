@@ -174,42 +174,54 @@ the website's budget. PC Load/Save stays independent.
 Starting ceilings (requests in a rolling minute / background share / concurrent
 requests; the table also lists each concurrency cap):
 
-| Provider | Minute | Background | Concurrent |
+| Provider | Requests per window | Background | Concurrent |
 | --- | ---: | ---: | ---: |
-| Lua | 60 | 30 | 2 |
-| Violet | 60 | 35 | 2 |
-| EzScans, QiScans | 45 | 25 | 2 |
-| Scythe | 40 | 20 | 2 |
-| Yaksha | 60 | 30 | 2 |
-| Asura | 90 | 50 | 3 (2 background) |
-| Separate image CDN | 120 | 90 | 3 (2 background) |
+| EzScans, QiScans | 57 per 30 s | 51 per 30 s | 2 (1 background) |
+| Lua, Violet | 150 per 60 s | 135 per 60 s | 2 (1 background) |
+| Asura | 150 per 60 s | 135 per 60 s | 3 (2 background) |
+| Scythe | 72 per 60 s | 64 per 60 s | 2 (1 background) |
+| Yaksha | 96 per 60 s | 86 per 60 s | 2 (1 background) |
+| Lua, Asura, Qi, WordPress image CDNs tested below | 210 per 60 s | 189 per 60 s | 3 (2 background) |
+| EzScans image CDN | 160 per 60 s | 144 per 60 s | 3 (2 background) |
+| Other image CDNs | 120 per 60 s | 90 per 60 s | 3 (2 background) |
 
-These are app ceilings, not claims about undocumented provider quotas. Admission
-spaces starts across the minute instead of spending the budget in one burst.
+The Ez/Qi window is measured: responses reset from 0 to 59 remaining after 30
+seconds; exhausting 60 requests returns 429 with Retry-After 30. The app uses
+95% of that quota. Other values are ceilings below bounded measured throughput,
+not claims about undocumented provider quotas. Admission
+spaces starts across the window instead of spending the budget in one burst.
 Queued reader work goes first and can use the reserved allowance; promotions wake
 the existing waiter without restarting a transfer or polling. A response's numeric
 `X-RateLimit-*` / `RateLimit-*` headers can reduce the ceiling and stop the whole host
-when remaining quota reaches zero. A 429 reduces the ceiling further. Retry-After
+when remaining quota reaches zero. A 429 reduces the ceiling further. After five minutes without a throttle,
+successful traffic restores at most 10% of the allowed ceiling per window; this
+recovery persists and never exceeds the advertised quota or configured limit. Retry-After
 (seconds or HTTP date) is honoured in full, including waits longer than two minutes;
 429s without it back off from one to fifteen minutes. Service failures and Cloudflare
 403 responses also hold the shared gate. Every retry reacquires admission.
 
 The small `request-limits.json` journal records admissions, learned ceilings and
-cooldowns before issuing a request, so relaunch/reboot cannot reset the minute or
-forget a provider's wait. Background work keeps its plan in `background-images.json`
+cooldowns before issuing a request, so relaunch/reboot cannot reset the request window or
+forget a provider's wait. Successful responses without state changes do not
+rewrite/fsync the same journal a second time. Quotas, throttles, recovery and
+background reservations still persist immediately. Background work keeps its plan in `background-images.json`
 and hands iOS **one** admitted download at a time with `earliestBeginDate`. Its
 completion records the provider response before the next admission. This prevents
 an old 400-item handoff from bursting after iOS defers the session. Reclaiming the
 session removes future reservations while preserving actual requests/cooldowns.
 Existing background session identity and current/next cache retention are unchanged.
 
-The November 6 browser pass confirmed EzScans and QiScans advertise a 60-request
-limit (`X-RateLimit-Limit: 60`). Lua provided no numeric headers and accepted 70
-sequential API reads; Violet provided none and accepted 65 sequential AJAX reads
-plus 24 reads in waves of eight. These establish tested bounds, not their exact
-thresholds. Missing Lua Referer produced Cloudflare 403, separately from a rate
-limit. Ordinary reads of Asura, Scythe and Yaksha exposed no numeric quota. See
-`Tests/RequestLimitChecks.swift` for offline admission/retry regressions.
+The November 6 PC pass reused the earlier browser evidence and measured full
+responses with the app's Referer. Lua and Violet each completed 165 reads in about
+60 seconds; Asura did so in 58 seconds (cache hits). Scythe took 126 seconds and
+Yaksha 92 seconds for the same count; these are latency-limited lower bounds.
+EzScans and QiScans hit the explicit 60/30-second throttle and stopped on their
+first 429. Image-host probes completed 73–160 actual downloads before their
+64 MiB/time/request bounds, with no throttles. No challenge was bypassed and no
+retry was made inside Retry-After. Results and limits are in
+[`provider-limits-20261106.json`](Tests/Fixtures/provider-limits-20261106.json).
+Cache-hit samples and a bounded run cannot establish an exact unknown quota;
+the common gate still honours headers, errors, aliases and persisted cooldowns.
 
 `MetadataQueue` runs up to six pieces of work for the screen at once. Background
 work runs two at a time, with chapter/list preparation before catalog pages.
@@ -526,8 +538,11 @@ the simulator guard after the product update is installed. The runner records
 50,000-page work counts and process CPU time, then checks actual reader geometry,
 zoom and continuous scrolling; it removes its diagnostic app on completion.
 
-Storage maintenance uses the same retention policy on normal startup. A targeted
-`-repair-page-cache` launch additionally runs that cleanup without restoring or
-changing reader navigation, starting downloads or refreshing the network. Its
-`cache-repair.json` report records actual deleted bytes/files. This is in-place
-maintenance: never uninstall the product or erase its container.
+Storage cleanup runs automatically through the normal Home/reader plan, including
+after app relaunch. No uninstall, container reset or external deletion is needed.
+
+Provider xcconfigs set `READER_PRODUCT_NAME` and `READER_BUNDLE_IDENTIFIER`;
+only the app target resolves them to Xcode's product settings. Global product-name
+overrides also renamed NativeKit's generated Swift file lists/outputs per provider,
+making compiler input/output names differ between providers. Package targets now
+keep their own product names. App names, bundle IDs and storage roots stay the same.

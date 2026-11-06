@@ -1,0 +1,388 @@
+{
+  "asura-images": {
+    "url": null,
+    "kind": "images",
+    "requests": 160,
+    "elapsedSeconds": 38.535,
+    "bytes": 24289660,
+    "statuses": {
+      "200": 160
+    },
+    "stop": null,
+    "rateHeaders": {},
+    "notes": "Bounded probe; successful throughput is a tested lower bound, not an undocumented hard quota."
+  },
+  "asura": {
+    "url": "https://api.asurascans.com/api/series?sort=latest&order=desc&limit=50&offset=0",
+    "kind": "metadata",
+    "requests": 165,
+    "elapsedSeconds": 58.286,
+    "bytes": 25323870,
+    "statuses": {
+      "200": 165
+    },
+    "stop": null,
+    "rateHeaders": {},
+    "notes": "Bounded probe; successful throughput is a tested lower bound, not an undocumented hard quota."
+  },
+  "ez-images": {
+    "url": null,
+    "kind": "images",
+    "requests": 73,
+    "elapsedSeconds": 24.062,
+    "bytes": 67466135,
+    "statuses": {
+      "200": 73
+    },
+    "stop": {
+      "bound": "byte/time ceiling"
+    },
+    "rateHeaders": {},
+    "notes": "Bounded probe; successful throughput is a tested lower bound, not an undocumented hard quota."
+  },
+  "ezmanga": {
+    "url": "https://vapi.ezmanga.org/api/v1/home/latest?page=1&perPage=50",
+    "kind": "metadata",
+    "requests": 107,
+    "elapsedSeconds": 58.124,
+    "bytes": 5243130,
+    "statuses": {
+      "200": 106,
+      "429": 1
+    },
+    "stop": {
+      "at": 57.928,
+      "duration": 0.196,
+      "status": 429,
+      "bytes": 158,
+      "headers": {
+        "retry-after": "30",
+        "cf-cache-status": "DYNAMIC"
+      },
+      "rate": 4
+    },
+    "rateHeaders": {
+      "x-ratelimit-limit": [
+        "60"
+      ],
+      "x-ratelimit-remaining": [
+        "0",
+        "1",
+        "10",
+        "11",
+        "12",
+        "13",
+        "14",
+        "15",
+        "16",
+        "17",
+        "18",
+        "19",
+        "2",
+        "20",
+        "21",
+        "22",
+        "23",
+        "24",
+        "25",
+        "26",
+        "27",
+        "28",
+        "29",
+        "3",
+        "30",
+        "31",
+        "32",
+        "33",
+        "34",
+        "35",
+        "36",
+        "37",
+        "38",
+        "39",
+        "4",
+        "40",
+        "41",
+        "42",
+        "43",
+        "44",
+        "45",
+        "46",
+        "47",
+        "48",
+        "49",
+        "5",
+        "50",
+        "51",
+        "52",
+        "53",
+        "54",
+        "55",
+        "56",
+        "57",
+        "58",
+        "59",
+        "6",
+        "7",
+        "8",
+        "9"
+      ],
+      "x-ratelimit-reset": [
+        "1",
+        "10",
+        "11",
+        "12",
+        "13",
+        "14",
+        "15",
+        "16",
+        "17",
+        "18",
+        "19",
+        "2",
+        "20",
+        "21",
+        "22",
+        "23",
+        "24",
+        "25",
+        "26",
+        "27",
+        "28",
+        "29",
+        "3",
+        "30",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9"
+      ],
+      "retry-after": [
+        "30"
+      ]
+    },
+    "notes": "Bounded probe; successful throughput is a tested lower bound, not an undocumented hard quota."
+  },
+  "lua-images": {
+    "url": null,
+    "kind": "images",
+    "requests": 142,
+    "elapsedSeconds": 35.549,
+    "bytes": 67286238,
+    "statuses": {
+      "200": 142
+    },
+    "stop": {
+      "bound": "byte/time ceiling"
+    },
+    "rateHeaders": {},
+    "notes": "Bounded probe; successful throughput is a tested lower bound, not an undocumented hard quota."
+  },
+  "lua": {
+    "url": "https://api.luacomic.org/series/i-am-living-an-unmarried-life-with-a-terminally-ill-lover",
+    "kind": "metadata",
+    "requests": 165,
+    "elapsedSeconds": 58.363,
+    "bytes": 158895,
+    "statuses": {
+      "200": 165
+    },
+    "stop": null,
+    "rateHeaders": {},
+    "notes": "Bounded probe; successful throughput is a tested lower bound, not an undocumented hard quota."
+  },
+  "qi-images": {
+    "url": null,
+    "kind": "images",
+    "requests": 159,
+    "elapsedSeconds": 38.38,
+    "bytes": 67291980,
+    "statuses": {
+      "200": 159
+    },
+    "stop": {
+      "bound": "byte/time ceiling"
+    },
+    "rateHeaders": {},
+    "notes": "Bounded probe; successful throughput is a tested lower bound, not an undocumented hard quota."
+  },
+  "qiscans": {
+    "url": "https://api.qimanga.com/api/v1/home/latest?page=1&perPage=50",
+    "kind": "metadata",
+    "requests": 106,
+    "elapsedSeconds": 56.779,
+    "bytes": 5147882,
+    "statuses": {
+      "200": 105,
+      "429": 1
+    },
+    "stop": {
+      "at": 56.584,
+      "duration": 0.196,
+      "status": 429,
+      "bytes": 158,
+      "headers": {
+        "retry-after": "30",
+        "cf-cache-status": "DYNAMIC"
+      },
+      "rate": 4
+    },
+    "rateHeaders": {
+      "x-ratelimit-limit": [
+        "60"
+      ],
+      "x-ratelimit-remaining": [
+        "0",
+        "1",
+        "10",
+        "11",
+        "12",
+        "13",
+        "14",
+        "15",
+        "16",
+        "17",
+        "18",
+        "19",
+        "2",
+        "20",
+        "21",
+        "22",
+        "23",
+        "24",
+        "25",
+        "26",
+        "27",
+        "28",
+        "29",
+        "3",
+        "30",
+        "31",
+        "32",
+        "33",
+        "34",
+        "35",
+        "36",
+        "37",
+        "38",
+        "39",
+        "4",
+        "40",
+        "41",
+        "42",
+        "43",
+        "44",
+        "45",
+        "46",
+        "47",
+        "48",
+        "49",
+        "5",
+        "50",
+        "51",
+        "52",
+        "53",
+        "54",
+        "55",
+        "56",
+        "57",
+        "58",
+        "59",
+        "6",
+        "7",
+        "8",
+        "9"
+      ],
+      "x-ratelimit-reset": [
+        "1",
+        "10",
+        "11",
+        "12",
+        "13",
+        "14",
+        "15",
+        "16",
+        "17",
+        "18",
+        "19",
+        "2",
+        "20",
+        "21",
+        "22",
+        "23",
+        "24",
+        "25",
+        "26",
+        "27",
+        "28",
+        "29",
+        "3",
+        "30",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9"
+      ],
+      "retry-after": [
+        "30"
+      ]
+    },
+    "notes": "Bounded probe; successful throughput is a tested lower bound, not an undocumented hard quota."
+  },
+  "scythe-images": {
+    "url": null,
+    "kind": "images",
+    "requests": 160,
+    "elapsedSeconds": 38.637,
+    "bytes": 60795805,
+    "statuses": {
+      "200": 160
+    },
+    "stop": null,
+    "rateHeaders": {},
+    "notes": "Bounded probe; successful throughput is a tested lower bound, not an undocumented hard quota."
+  },
+  "scythe": {
+    "url": "https://scythescans.com/",
+    "kind": "metadata",
+    "requests": 165,
+    "elapsedSeconds": 125.705,
+    "bytes": 42034905,
+    "statuses": {
+      "200": 165
+    },
+    "stop": null,
+    "rateHeaders": {},
+    "notes": "Bounded probe; successful throughput is a tested lower bound, not an undocumented hard quota."
+  },
+  "violet": {
+    "url": "https://violetmanga.com/wp-admin/admin-ajax.php",
+    "kind": "metadata",
+    "requests": 165,
+    "elapsedSeconds": 59.87,
+    "bytes": 5242875,
+    "statuses": {
+      "200": 165
+    },
+    "stop": null,
+    "rateHeaders": {},
+    "notes": "Bounded probe; successful throughput is a tested lower bound, not an undocumented hard quota."
+  },
+  "yaksha": {
+    "url": "https://yakshacomics.com/",
+    "kind": "metadata",
+    "requests": 165,
+    "elapsedSeconds": 92.232,
+    "bytes": 29238825,
+    "statuses": {
+      "200": 165
+    },
+    "stop": null,
+    "rateHeaders": {},
+    "notes": "Bounded probe; successful throughput is a tested lower bound, not an undocumented hard quota."
+  }
+}

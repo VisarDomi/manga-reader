@@ -1,10 +1,8 @@
 import BackgroundTasks
 import UIKit
-import KitCore
 
 @main
 final class AppDelegate: UIResponder, UIApplicationDelegate {
-    static var repairingCache: Bool { ProcessInfo.processInfo.arguments.contains("-repair-page-cache") }
     static var refreshID: String { (Bundle.main.bundleIdentifier ?? "MangaReader") + ".refresh" }
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
@@ -55,27 +53,6 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         let window = UIWindow(windowScene: scene)
         window.overrideUserInterfaceStyle = .dark
         window.backgroundColor = .black
-        if AppDelegate.repairingCache {
-            let controller = UIViewController()
-            let label = UILabel()
-            label.text = "Cleaning downloaded pages…"
-            label.textColor = .white
-            label.textAlignment = .center
-            label.numberOfLines = 0
-            controller.view = label
-            window.rootViewController = controller
-            window.makeKeyAndVisible()
-            self.window = window
-            Task {
-                let app = AppController.shared
-                let report = await app.library.repairPageCache()
-                do {
-                    try DurableFile.writeJSON(report, to: app.root.appendingPathComponent("cache-repair.json"))
-                    label.text = "Downloaded-page cleanup complete."
-                } catch { label.text = error.localizedDescription }
-            }
-            return
-        }
         #if targetEnvironment(simulator)
         if ProcessInfo.processInfo.arguments.contains("-reader-check") {
             window.rootViewController = ReaderChecks()

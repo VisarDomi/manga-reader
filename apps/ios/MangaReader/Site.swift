@@ -115,38 +115,51 @@ enum SiteResponse {
 
 actor RequestLimiter {
     struct Budget: Sendable {
-        var perMinute: Int
+        var limit: Int
         var background: Int
         var spacing: TimeInterval = 0
         var concurrent: Int = 4
         var backgroundConcurrent: Int = 2
         var window: TimeInterval = 60
-        static let strict = Budget(perMinute: 45, background: 25, spacing: 1, concurrent: 2, backgroundConcurrent: 1)
-        static let standard = Budget(perMinute: 90, background: 50, spacing: 0.5, concurrent: 3, backgroundConcurrent: 2)
-        static let media = Budget(perMinute: 120, background: 90, spacing: 0.3, concurrent: 3, backgroundConcurrent: 2)
+        static let standard = Budget(limit: 90, background: 50, spacing: 0.5, concurrent: 3, backgroundConcurrent: 2)
+        static let media = Budget(limit: 120, background: 90, spacing: 0.3, concurrent: 3, backgroundConcurrent: 2)
 
-        // Unknown origin limits get conservative starting ceilings, not invented site quotas.
-        // Response headers can lower these; repeated throttles lower them further.
+        static func media(_ host: String) -> Budget {
+            switch host {
+            case "media.luacomic.org", "cdn.asurascans.com", "media.qimanga.com", "i1.wp.com":
+                return Budget(limit: 210, background: 189, spacing: 0.25, concurrent: 3, backgroundConcurrent: 2)
+            case "media.ezmanga.org":
+                return Budget(limit: 160, background: 144, spacing: 0.35, concurrent: 3, backgroundConcurrent: 2)
+            default: return .media
+            }
+        }
+
+        // Ez/Qi: measured 60 per 30 seconds; allow 57 with a reader reserve.
+        // Other ceilings stay below bounded live throughput, not invented quotas.
+        // Headers and throttles can lower them; healthy traffic recovers gradually.
         static func provider(_ key: String) -> Budget {
             switch key {
-            case "qimanga", "ezmanga": return .strict
-            case "luacomic": return Budget(perMinute: 60, background: 30, spacing: 0.8, concurrent: 2, backgroundConcurrent: 1)
-            case "violetscans": return Budget(perMinute: 60, background: 35, spacing: 0.8, concurrent: 2, backgroundConcurrent: 1)
-            case "scythescans": return Budget(perMinute: 40, background: 20, spacing: 1, concurrent: 2, backgroundConcurrent: 1)
-            case "yakshacomics": return Budget(perMinute: 60, background: 30, spacing: 0.8, concurrent: 2, backgroundConcurrent: 1)
+            case "qimanga", "ezmanga": return Budget(limit: 57, background: 51, spacing: 0.5, concurrent: 2, backgroundConcurrent: 1, window: 30)
+            case "luacomic": return Budget(limit: 150, background: 135, spacing: 0.4, concurrent: 2, backgroundConcurrent: 1)
+            case "violetscans": return Budget(limit: 150, background: 135, spacing: 0.4, concurrent: 2, backgroundConcurrent: 1)
+            case "scythescans": return Budget(limit: 72, background: 64, spacing: 0.8, concurrent: 2, backgroundConcurrent: 1)
+            case "yakshacomics": return Budget(limit: 96, background: 86, spacing: 0.6, concurrent: 2, backgroundConcurrent: 1)
+            case "asurascans": return Budget(limit: 150, background: 135, spacing: 0.4, concurrent: 3, backgroundConcurrent: 2)
             default: return .standard
             }
         }
     }
 
     struct Ticket: Sendable, Codable { let id: UUID; let host: String; var scheduled: Date? = nil }
-    private struct Host: Codable {
+    private struct Host: Codable, Equatable {
         var sent: [Date] = []
         var nextStart: Date = .distantPast
         var blocked: Date = .distantPast
         var ceiling: Int?
         var strikes = 0
         var lastThrottle: Date = .distantPast
+        var advertisedCeiling: Int?
+        var lastRecovery: Date?
     }
     private struct Waiter {
         let ticket: Ticket
@@ -162,6 +175,7 @@ actor RequestLimiter {
     private var backgroundRunning = Set<UUID>()
     private var waiting: [Waiter] = []
     private var wake: Task<Void, Never>?
+    private var journalWrites = 0
 
     init(_ budget: Budget, provider: String? = nil, file: URL? = nil) {
         self.budget = budget
@@ -187,7 +201,7 @@ actor RequestLimiter {
     }
 
     private func policy(_ host: String) -> Budget {
-        provider == nil || host.hasPrefix("site:") ? budget : .media
+        provider == nil || host.hasPrefix("site:") ? budget : .media(host)
     }
 
     func acquire(host: String, urgency: Urgency?, scheduled: Bool = false) async throws -> Ticket {
@@ -212,7 +226,7 @@ actor RequestLimiter {
 
     // Persist admission before issuing the request, including requests handed to iOS.
     private func save() throws {
-        if let file { try DurableFile.writeJSON(hosts, to: file) }
+        if let file { try DurableFile.writeJSON(hosts, to: file); journalWrites += 1 }
     }
 
     private func pump() {
@@ -228,8 +242,8 @@ actor RequestLimiter {
             let policy = policy(host)
             var state = hosts[host] ?? Host()
             state.sent.removeAll { now.timeIntervalSince($0) >= policy.window }
-            let ceiling = max(1, min(policy.perMinute, state.ceiling ?? policy.perMinute))
-            let allowed = urgent ? ceiling : max(1, min(policy.background, ceiling * policy.background / max(1, policy.perMinute)))
+            let ceiling = max(1, min(policy.limit, state.ceiling ?? policy.limit))
+            let allowed = urgent ? ceiling : max(1, min(policy.background, ceiling * policy.background / max(1, policy.limit)))
             let active = running.values.filter { $0 == host }.count
             let background = running.filter { $0.value == host && backgroundRunning.contains($0.key) }.count
             guard active < policy.concurrent, urgent || background < policy.backgroundConcurrent else { continue }
@@ -266,27 +280,33 @@ actor RequestLimiter {
         }
     }
 
-    func finish(_ ticket: Ticket, response: HTTPURLResponse? = nil, cancelled: Bool = false) {
+    func finish(_ ticket: Ticket, response: HTTPURLResponse? = nil, cancelled: Bool = false, now: Date = Date()) {
+        var changed = false
         if let scheduled = ticket.scheduled, var state = hosts[ticket.host] {
             if let index = state.sent.firstIndex(of: scheduled) { state.sent.remove(at: index) }
-            if !cancelled || scheduled <= Date() { state.sent.append(Date()); state.sent.sort() }
-            let spacing = max(policy(ticket.host).spacing, policy(ticket.host).window / Double(max(1, state.ceiling ?? policy(ticket.host).perMinute)))
+            if !cancelled || scheduled <= now { state.sent.append(now); state.sent.sort() }
+            let spacing = max(policy(ticket.host).spacing, policy(ticket.host).window / Double(max(1, state.ceiling ?? policy(ticket.host).limit)))
             state.nextStart = (state.sent.last ?? .distantPast).addingTimeInterval(spacing)
             hosts[ticket.host] = state
+            changed = true
         }
         running[ticket.id] = nil
         backgroundRunning.remove(ticket.id)
-        if let response { record(host: ticket.host, response: response) }
-        try? save()
+        if let response { changed = record(host: ticket.host, response: response, now: now) || changed }
+        if changed { try? save() }
         pump()
     }
 
-    private func record(host: String, response: HTTPURLResponse) {
-        let now = Date()
-        var state = hosts[host] ?? Host()
+    private func record(host: String, response: HTTPURLResponse, now: Date) -> Bool {
+        let before = hosts[host] ?? Host()
+        var state = before
         let policy = policy(host)
         if let limit = SiteResponse.seconds(response.value(forHTTPHeaderField: "X-RateLimit-Limit") ?? response.value(forHTTPHeaderField: "RateLimit-Limit")), limit >= 1 {
-            state.ceiling = min(state.ceiling ?? policy.perMinute, max(1, Int(min(limit * 0.8, Double(policy.perMinute)))))
+            let advertised = max(1, Int(min(limit * 0.95, Double(policy.limit))))
+            state.advertisedCeiling = min(state.advertisedCeiling ?? advertised, advertised)
+            // Old app ceilings must not permanently pin a newly measured profile.
+            if state.strikes == 0 { state.ceiling = state.advertisedCeiling }
+            else { state.ceiling = min(state.ceiling ?? policy.limit, advertised) }
         }
         let remaining = SiteResponse.seconds(response.value(forHTTPHeaderField: "X-RateLimit-Remaining") ?? response.value(forHTTPHeaderField: "RateLimit-Remaining"))
         if remaining == 0 { state.blocked = max(state.blocked, SiteResponse.reset(response, now: now) ?? now.addingTimeInterval(60)) }
@@ -298,18 +318,34 @@ actor RequestLimiter {
             state.lastThrottle = now
             let fallback = min(900, 60 * pow(2, Double(state.strikes - 1)))
             state.blocked = max(state.blocked, now.addingTimeInterval(max(retry ?? fallback, 1)))
-            if status == 429 { state.ceiling = max(1, (state.ceiling ?? policy.perMinute) * 3 / 4) }
+            if status == 429 { state.ceiling = max(1, (state.ceiling ?? policy.limit) * 3 / 4) }
         } else if (500...599).contains(status) {
             state.blocked = max(state.blocked, now.addingTimeInterval(max(retry ?? 5, 1)))
         }
+        let cap = min(policy.limit, state.advertisedCeiling ?? policy.limit)
+        if (200..<300).contains(status), let reduced = state.ceiling, reduced < cap,
+           now.timeIntervalSince(state.lastThrottle) >= 300,
+           now.timeIntervalSince(state.lastRecovery ?? .distantPast) >= policy.window {
+            state.ceiling = min(cap, reduced + max(1, cap / 10))
+            state.lastRecovery = now
+        }
+        var changed = state != before
         hosts[host] = state
         if let finalHost = response.url?.host, key(finalHost) != host {
             // A redirected origin's headers apply there too, without erasing the original gate.
             var target = hosts[key(finalHost)] ?? Host()
+            let previous = target.blocked
             target.blocked = max(target.blocked, state.blocked)
+            changed = changed || target.blocked != previous
             hosts[key(finalHost)] = target
         }
+        return changed
     }
 
-    var state: [String: Int] { ["running": running.count, "waiting": waiting.count, "hosts": hosts.count] }
+    func ceiling(host: String) -> Int {
+        let host = key(host)
+        return min(policy(host).limit, hosts[host]?.ceiling ?? policy(host).limit)
+    }
+
+    var state: [String: Int] { ["running": running.count, "waiting": waiting.count, "hosts": hosts.count, "journalWrites": journalWrites] }
 }
