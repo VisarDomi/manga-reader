@@ -18,6 +18,7 @@ def sim(*args, check=True):
     if args[0]!='install':
         return subprocess.run(command, check=check, capture_output=True, text=True, timeout=40)
     proc=subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    started=time.monotonic()
     try:
         try:
             stdout,stderr=proc.communicate(timeout=20)
@@ -39,7 +40,7 @@ def sim(*args, check=True):
                     sampled=subprocess.run(['/usr/bin/sample',str(pid),'3','-file',str(out/('sample-'+str(pid)+'.txt'))],capture_output=True,text=True,timeout=10)
                     (out/('sample-'+str(pid)+'-status.txt')).write_text(sampled.stdout+sampled.stderr)
                 except subprocess.TimeoutExpired: pass
-            stdout,stderr=proc.communicate(timeout=90)
+            stdout,stderr=proc.communicate(timeout=max(1,240-(time.monotonic()-started)))
         result=subprocess.CompletedProcess(command,proc.returncode,stdout,stderr)
         if check: result.check_returncode()
         return result
@@ -65,10 +66,11 @@ def expect(value, detail):
     if not value: raise AssertionError(detail)
 try:
     sim('install', a.device, a.app)
-    sim('launch', a.device, bundle, '-cover-check')
+    sim('launch', a.device, bundle, '-cover-check', '-restore-cover-check')
     initial=wait_for(lambda s: s.get('ready') and s.get('covers',{}).get('warm',0)>=100, seconds=40)
     time.sleep(.3)
     initial=state();report['initial']=initial
+    expect(initial['restoredNow'] >= 1, 'The synchronous-to-asynchronous ownership transition was not exercised')
     expect(initial['order'][0]==25, 'Visible thumbnail was not prepared first')
     expect(initial['order']==sorted(set(initial['order'])), 'Ahead thumbnails did not prepare in catalog order')
     expect(initial['files']==160, 'All original covers must remain on disk')

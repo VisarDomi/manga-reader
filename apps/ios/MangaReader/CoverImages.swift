@@ -162,12 +162,15 @@ final class CoverImages {
             let request = ImagePipeline.Request(key: key, source: .file(files.url(item)), fit: Self.fit) { [weak self] in
                 self?.visible.contains(url) == true ? 0 : Double(index + 1)
             }
-            ticket = pipeline.load(request) { [weak self] result in
+            let loading = pipeline.load(request) { [weak self] result in
                 guard let self, warming.finish(operation) else { return }
                 ticket = nil
                 if case .success(let image) = result { decoded += 1; remember(url, key: key, image: image) }
                 pump()
             }
+            // A cached/restored image may complete synchronously and start the
+            // next decode. Do not overwrite that new owner's cancellation ticket.
+            if warming.phase == .running(operation) { ticket = loading }
             return
         }
     }

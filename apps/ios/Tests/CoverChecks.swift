@@ -38,7 +38,7 @@ final class CoverChecks: UIViewController {
         guard let app else { return ["ready": false, "error": error] }
         return ["ready": urls.count == 160, "error": error, "covers": app.covers.state,
                 "order": app.covers.preparedOrder.compactMap { urls.firstIndex(of: $0) },
-                "cached145": app.covers.cached(urls[145]) != nil,
+                "cached145": app.covers.cached(urls[145]) != nil, "restoredNow": app.pipeline.restoredNow,
                 "files": (try? FileManager.default.contentsOfDirectory(atPath: app.root.appendingPathComponent("covers").path))?.filter { $0.hasSuffix(".mime") }.count ?? 0]
     }
 
@@ -73,6 +73,11 @@ final class CoverChecks: UIViewController {
             self.app = app
             app.covers.setCatalog(urls)
             select(25)
+            if ProcessInfo.processInfo.arguments.contains("-restore-cover-check") {
+                // Exactly one synchronous restore, followed by asynchronous
+                // decoding: the old ticket must not cancel its replacement.
+                app.pipeline.beginRestore(budget: .leastNonzeroMagnitude, frames: 10_000, timeout: 30)
+            }
             app.covers.setActive(true)
         } catch { self.error = String(describing: error) }
     }
