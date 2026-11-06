@@ -22,7 +22,7 @@ with tarfile.open(fileobj=io.BytesIO(archive)) as source:
     source.extractall(output, filter='data')
 app = output / 'apps/ios'
 tests = Path(__file__).resolve().parents[1] / 'Tests'
-for name in ['CPUChecks.swift', 'WorkloadScenario.swift', 'CoverChecks.swift']:
+for name in ['CPUChecks.swift', 'WorkloadScenario.swift', 'CoverChecks.swift', 'NavigationChecks.swift']:
     shutil.copy2(tests / name, app / 'MangaReader' / name)
 (app / 'MangaReader/AppDelegate.swift').write_text('''#if targetEnvironment(simulator)
 import UIKit
@@ -44,7 +44,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         let window = UIWindow(windowScene: scene)
         window.overrideUserInterfaceStyle = .dark
         let args = ProcessInfo.processInfo.arguments
-        window.rootViewController = args.contains("-cover-check") ? CoverChecks() : args.contains("-cpu-check") ? CPUChecks() : ReaderChecks()
+        window.rootViewController = args.contains("-navigation-machine-check") ? NavigationChecks() : args.contains("-cover-check") ? CoverChecks() : args.contains("-cpu-check") ? CPUChecks() : ReaderChecks()
         window.makeKeyAndVisible()
         self.window = window
     }

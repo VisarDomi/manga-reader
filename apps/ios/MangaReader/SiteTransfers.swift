@@ -116,7 +116,7 @@ final class SiteTransfers: NSObject, URLSessionDownloadDelegate, @unchecked Send
             let tasks = await load.value
             if case .connected = connection { return }
             connection = .connected
-            for task in tasks {
+            for task in tasks where task.state == .running || task.state == .suspended {
                 if case .idle = request, let pending = SiteTransfers.decode(task.taskDescription), pending.ticket != nil {
                     request = .transferring(pending)
                 } else { task.cancel() }
