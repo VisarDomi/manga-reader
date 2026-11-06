@@ -13,10 +13,12 @@ tool = pathlib.Path.home() / 'Developer/ios-tools/native/scripts/apple-tool'
 subprocess.run([str(tool.with_name('mac-workload')), 'assert-simulator', '--device', a.device], check=True)
 bundle = 'com.visar.AsuraReader'
 report = {}
+launched = False
 def sim(*args, check=True):
     command=[str(tool), 'simctl', *args]
     if args[0]!='install':
         return subprocess.run(command, check=check, capture_output=True, text=True, timeout=40)
+    started=time.monotonic()
     proc=subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     try:
         try:
@@ -36,7 +38,7 @@ def sim(*args, check=True):
                     sampled=subprocess.run(['/usr/bin/sample',str(pid),'3','-file',str(out/('sample-'+str(pid)+'.txt'))],capture_output=True,text=True,timeout=10)
                     (out/('sample-'+str(pid)+'-status.txt')).write_text(sampled.stdout+sampled.stderr)
                 except subprocess.TimeoutExpired: pass
-            stdout,stderr=proc.communicate(timeout=90)
+            stdout,stderr=proc.communicate(timeout=max(1,240-(time.monotonic()-started)))
         result=subprocess.CompletedProcess(command,proc.returncode,stdout,stderr)
         if check: result.check_returncode()
         return result
@@ -63,6 +65,7 @@ def expect(value, detail):
 try:
     sim('install', a.device, a.app)
     sim('launch', a.device, bundle, '-cpu-check', '-series-count', '1000')
+    launched = True
     deadline=time.monotonic()+120
     cpu=None
     while time.monotonic()<deadline:
@@ -111,6 +114,6 @@ try:
     print('PASS: touched-series preparation and untouched cleanup, exact decoder geometry, zoom stability and all eight cached chapters before scrolling and continuous free scrolling')
 finally:
     (out/'report.json').write_text(json.dumps(report,indent=2))
-    for action in ('terminate','uninstall'):
+    for action in (('terminate', 'uninstall') if launched else ('uninstall',)):
         try: sim(action, a.device, bundle, check=False)
         except (OSError, subprocess.TimeoutExpired) as error: print('Cleanup '+action+': '+str(error), flush=True)
