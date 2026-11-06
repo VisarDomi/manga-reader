@@ -13,8 +13,9 @@ tool = pathlib.Path.home() / 'Developer/ios-tools/native/scripts/apple-tool'
 subprocess.run([str(tool.with_name('mac-workload')), 'assert-simulator', '--device', a.device], check=True)
 bundle = 'com.visar.AsuraReader'
 report = {}
+launched = False
 def sim(*args, check=True):
-    return subprocess.run([str(tool), 'simctl', *args], check=check, capture_output=True, text=True, timeout=120 if args[0]=='install' else 40)
+    return subprocess.run([str(tool), 'simctl', *args], check=check, capture_output=True, text=True, timeout=240 if args[0]=='install' else 40)
 def hook(path):
     with urllib.request.urlopen('http://127.0.0.1:8765' + path, timeout=6) as response:
         return json.load(response)
@@ -35,6 +36,7 @@ def expect(value, detail):
 try:
     sim('install', a.device, a.app)
     sim('launch', a.device, bundle, '-reader-check')
+    launched = True
     initial=wait_for(lambda s: s.get('ready') and s.get('reader',{}).get('strip',{}).get('pages',0)==32)
     report['initial']=initial
     expect(initial['homePrepared'], 'Home did not clean untouched-series pages while preserving touched-series cache')
@@ -69,6 +71,6 @@ try:
     print('PASS: touched-series preparation and untouched cleanup, exact decoder geometry, zoom stability and all eight cached chapters before scrolling and continuous free scrolling')
 finally:
     (out/'report.json').write_text(json.dumps(report,indent=2))
-    for action in ('terminate','uninstall'):
+    for action in (('terminate', 'uninstall') if launched else ('uninstall',)):
         try: sim(action, a.device, bundle, check=False)
         except (OSError, subprocess.TimeoutExpired) as error: print('Cleanup '+action+': '+str(error), flush=True)
