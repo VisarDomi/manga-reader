@@ -1,4 +1,5 @@
 import UIKit
+import KitCore
 import KitImages
 
 // Persistent bytes belong to ImageFiles. This only prepares a bounded set of
