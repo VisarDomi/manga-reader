@@ -13,6 +13,11 @@ vendored in `Kit/`; see the [NativeKit guide](../../../../ios-tools/native/READM
 
 The owner's checklist, with test series and sites, is [test.txt](../../test.txt).
 
+Cover decoding prioritizes visible cards, then cached covers ahead in catalog
+order within a 64 MiB budget. The asynchronous disk scan revisits the current
+visible frontier when it finishes, even if activation already scanned past it.
+Repeated visibility/catalog updates do not restart completed warming.
+
 Home
 - One card per series: the site's whole catalog, latest updates first. The phone's
   copy shows at once; the site is asked again in the background (at launch, on

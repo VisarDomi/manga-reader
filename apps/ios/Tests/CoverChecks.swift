@@ -72,6 +72,8 @@ final class CoverChecks: UIViewController {
             }
             self.app = app
             app.covers.setCatalog(urls)
+            // Activate before the asynchronous completed-file scan returns:
+            // its result must revisit covers the first pump could not see yet.
             select(25)
             if ProcessInfo.processInfo.arguments.contains("-restore-cover-check") {
                 // Exactly one synchronous restore, followed by asynchronous

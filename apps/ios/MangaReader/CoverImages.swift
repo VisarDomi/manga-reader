@@ -66,6 +66,9 @@ final class CoverImages {
             let complete = Set(await files.completed(items.map(\.name)))
             guard let self, generation == revision else { return }
             ready.formUnion(items.filter { complete.contains($0.name) }.map(\.url))
+            // Visibility/activation can scan to the end while this disk query
+            // is pending. Revisit the current frontier once its files are known.
+            cursor = min(cursor, visible.compactMap { positions[$0] }.min() ?? 0)
             pump()
         }
     }
