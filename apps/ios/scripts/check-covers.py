@@ -70,7 +70,7 @@ try:
     initial=wait_for(lambda s: s.get('ready') and s.get('covers',{}).get('warm',0)>=100, seconds=40)
     time.sleep(.3)
     initial=state();report['initial']=initial
-    expect(initial['restoredNow'] >= 1, 'The synchronous-to-asynchronous ownership transition was not exercised')
+    expect(initial['restoredNow'] == 1, 'The visible cover must restore synchronously before asynchronous ahead warming')
     expect(initial['order'][0]==25, 'Visible thumbnail was not prepared first')
     expect(initial['order']==sorted(set(initial['order'])), 'Ahead thumbnails did not prepare in catalog order')
     expect(initial['files']==160, 'All original covers must remain on disk')

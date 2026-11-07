@@ -72,14 +72,14 @@ final class CoverChecks: UIViewController {
             }
             self.app = app
             app.covers.setCatalog(urls)
+            if ProcessInfo.processInfo.arguments.contains("-restore-cover-check") {
+                // Restore the visible cover synchronously; ahead warming then
+                // uses the normal asynchronous decoder and bounded memory.
+                app.pipeline.beginRestore(budget: .leastNonzeroMagnitude, frames: 10_000, timeout: 30)
+            }
             // Activate before the asynchronous completed-file scan returns:
             // its result must revisit covers the first pump could not see yet.
             select(25)
-            if ProcessInfo.processInfo.arguments.contains("-restore-cover-check") {
-                // Exactly one synchronous restore, followed by asynchronous
-                // decoding: the old ticket must not cancel its replacement.
-                app.pipeline.beginRestore(budget: .leastNonzeroMagnitude, frames: 10_000, timeout: 30)
-            }
             app.covers.setActive(true)
         } catch { self.error = String(describing: error) }
     }
