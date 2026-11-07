@@ -86,6 +86,9 @@ final class Library {
         var chapter: String
         var index: Int
         var fraction: Double
+        var zoom: ZoomState? = nil
+        var aspect: Double? = nil
+        var point: Double? = nil
     }
 
     init(provider: any MangaProvider, root: URL, bundleID: String, limiter: RequestLimiter? = nil) {
@@ -361,6 +364,11 @@ final class Library {
     }
 
     func flushPositions() { positionsWriter.flush() }
+    func flushViewDependencies() {
+        catalogWriter.flush()
+        routesWriter.flush()
+        positionsWriter.flush()
+    }
 
     // MARK: the download plan
 

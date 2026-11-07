@@ -80,10 +80,15 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
     }
 
     func savedState() -> Data? {
-        guard initialGeometryApplied, let position = strip.currentPosition, let (part, index) = locate(position.index) else {
+        guard initialGeometryApplied, let position = strip.savedPosition, let (part, index) = locate(position.index) else {
             return restoring.flatMap { try? JSONEncoder().encode($0) }
         }
-        return try? JSONEncoder().encode(State(chapter: part.data.chapterId, position: StripPosition(index: index, fraction: position.fraction)))
+        return try? JSONEncoder().encode(State(chapter: part.data.chapterId, position: StripPosition(index: index, fraction: position.fraction, zoom: position.zoom, aspect: position.aspect, point: position.point)))
+    }
+
+    func captureState() {
+        guard isViewLoaded, !strip.isRestoringPosition, let position = strip.currentPosition else { return }
+        savePosition(position)
     }
 
     override func viewDidLoad() {
@@ -145,6 +150,8 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         strip.frame = view.bounds
+        strip.layoutIfNeeded()
+        settleInitialPosition()
         message.frame = view.bounds.insetBy(dx: 24, dy: 0)
     }
 
@@ -248,11 +255,6 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
         // The whole list (for the chapters that follow) once the chapter is on screen.
         continueReading()
         fetchList()
-        // Settle once laid out (a reader that is never scrolled still counts and continues).
-        DispatchQueue.main.async { [weak self] in
-            guard let self, initialGeometryApplied, let position = strip.currentPosition else { return }
-            strip(strip, settledAt: position)
-        }
     }
 
     private var requestedIndex: Int {
@@ -280,7 +282,7 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
         let index = min(requestedIndex, max(0, first.data.images.count - 1))
         guard strip.pages.indices.contains(index) else { show("Preparing page dimensions…"); return }
         if let restoring, restoring.chapter == first.data.chapterId {
-            strip.scroll(to: StripPosition(index: index, fraction: restoring.position.fraction))
+            strip.scroll(to: StripPosition(index: index, fraction: restoring.position.fraction, zoom: restoring.position.zoom, aspect: restoring.position.aspect, point: restoring.position.point))
         } else {
             switch start {
             case .image, .last: strip.scroll(toTopOf: index)
@@ -291,10 +293,12 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
         restoring = nil
         strip.isHidden = false
         show(nil)
-        DispatchQueue.main.async { [weak self] in
-            guard let self, let position = self.strip.currentPosition else { return }
-            self.settle(at: position)
-        }
+        settleInitialPosition()
+    }
+
+    private func settleInitialPosition() {
+        guard initialGeometryApplied, settled == nil, let position = strip.currentPosition else { return }
+        settle(at: position)
     }
 
     private func locate(_ index: Int) -> (Part, Int)? {
@@ -408,16 +412,22 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
     }
 
     private func settle(at position: StripPosition) {
+        savePosition(position)
+        stateChanged()
+    }
+
+    private func savePosition(_ position: StripPosition) {
         guard initialGeometryApplied else { return }
         guard let (part, index) = locate(position.index) else { return }
         let chapterId = part.data.chapterId
+        // The visible reader is authoritative even if another retained screen
+        // or a restored backup changed the series' global progress meanwhile.
+        app.library.state.save(series: series, chapterId: chapterId, imageIndex: index, totalImages: part.data.images.count)
         if settled?.chapter != chapterId || settled?.index != index {
             settled = (chapterId, index)
-            app.library.state.save(series: series, chapterId: chapterId, imageIndex: index, totalImages: part.data.images.count)
             report(chapter: chapterId, page: index)
         }
-        app.library.savePosition(Library.Position(chapter: chapterId, index: index, fraction: position.fraction), series: series)
-        stateChanged()
+        app.library.savePosition(Library.Position(chapter: chapterId, index: index, fraction: position.fraction, zoom: position.zoom, aspect: position.aspect, point: position.point), series: series)
     }
 
     func strip(_ strip: StripReaderView, visibleAt position: StripPosition) {
@@ -434,6 +444,16 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
     }
 
     #if targetEnvironment(simulator)
+    func checkViewport(y: Double?, scale: Double?, x: Double?, end: Bool) -> [String: Any] {
+        strip.scrollViewWillBeginDragging(strip.scrollView)
+        if let scale { strip.scrollView.setZoomScale(CGFloat(scale), animated: false) }
+        if let x { strip.scrollView.contentOffset.x = CGFloat(x) }
+        if let y { strip.scrollView.contentOffset.y = CGFloat(y) }
+        strip.scrollViewDidScroll(strip.scrollView)
+        if end { strip.scrollViewDidEndDragging(strip.scrollView, willDecelerate: false) }
+        return checkState
+    }
+
     var checkState: [String: Any] {
         ["chapters": parts.map(\.data.chapterId), "settledChapter": settled?.chapter ?? "", "strip": strip.state,
          "height": strip.scrollView.contentSize.height, "offset": strip.scrollView.contentOffset.y,

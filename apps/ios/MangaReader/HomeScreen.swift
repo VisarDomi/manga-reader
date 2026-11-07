@@ -20,6 +20,7 @@ final class HomeScreen: UIViewController, LiveScreen, UITableViewDataSource, UIT
     private var series: [HomeSeries] = []
     private var pendingAnchor: ScrollAnchor?
     private var restored = false
+    private var capturedAnchor: ScrollAnchor?
     private var observers: [NotificationObservation] = []
     private var countdown: Timer?
 
@@ -35,7 +36,11 @@ final class HomeScreen: UIViewController, LiveScreen, UITableViewDataSource, UIT
     override var prefersHomeIndicatorAutoHidden: Bool { true }
 
     var route: Data { (try? JSONEncoder().encode(Route.home)) ?? Data() }
-    func savedState() -> Data? { try? JSONEncoder().encode(State(anchor: currentAnchor ?? pendingAnchor)) }
+    func savedState() -> Data? { try? JSONEncoder().encode(State(anchor: pendingAnchor ?? currentAnchor ?? capturedAnchor)) }
+    func captureState() {
+        guard isViewLoaded, restored, let anchor = currentAnchor else { return }
+        capturedAnchor = anchor
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -209,13 +214,21 @@ final class HomeScreen: UIViewController, LiveScreen, UITableViewDataSource, UIT
         guard !restored, table.bounds.height > 0, !series.isEmpty else { return }
         // Straight to the anchor, before the table lays out any rows (no covers decoded for rows
         // at the top that are never shown).
-        if let anchor = pendingAnchor, series.contains(where: { app.library.identity($0) == anchor.key }) { restore(anchor) }
+        if let anchor = pendingAnchor {
+            guard series.contains(where: { app.library.identity($0) == anchor.key }) else {
+                if app.library.catalog.complete { pendingAnchor = nil; restored = true }
+                return
+            }
+            restore(anchor)
+            capturedAnchor = anchor
+        }
         pendingAnchor = nil
         restored = true
     }
 
     private func saveNow() {
         guard restored else { return }
+        captureState()
         stateChanged()
     }
 
@@ -225,7 +238,11 @@ final class HomeScreen: UIViewController, LiveScreen, UITableViewDataSource, UIT
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) { app.pipeline.prioritiesChanged(); updateVisibleCovers() }
-    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { monitor(true) }
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        // A new user gesture supersedes an unresolved launch restoration.
+        pendingAnchor = nil; restored = true
+        monitor(true)
+    }
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
         if !decelerate { monitor(false); saveNow() }
     }

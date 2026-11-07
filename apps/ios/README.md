@@ -9,6 +9,13 @@ stack, image pipeline, strip reader, HTTP client and cookie jar, durable files,
 background downloads, libxml2 HTML, FrameMonitor, test hooks) come from NativeKit,
 vendored in `Kit/`; see the [NativeKit guide](../../../../ios-tools/native/README.md).
 
+Restoration captures the current reader and Home viewport before navigation and
+background suspension, including movement that has not settled. Per-series resume and
+navigation use the same captured chapter/page point, zoom and horizontal pan. Page aspect
+and zoomed document margins survive relaunch; pending placement waits for a valid inner
+viewport. Catalog/routes/positions are drained with the navigation snapshot. Save timing
+uses existing events, with no higher-frequency timer.
+
 ## What the apps do
 
 The owner's checklist, with test series and sites, is [test.txt](../../test.txt).

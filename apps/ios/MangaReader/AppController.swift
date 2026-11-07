@@ -68,7 +68,7 @@ final class AppController {
             guard let self else { return }
             navigation.flush()
             library.state.flush()
-            library.flushPositions()
+            library.flushViewDependencies()
             DebugState.shared.write(to: root)
         }
         AppLifecycle.shared.onResignActiveAsync { [weak self] in
@@ -128,7 +128,7 @@ final class AppController {
     func openReader(series: String, slug: String, chapter: String?, start: ReaderStart) {
         var state: Data?
         if case .image(let index) = start, let chapter, let saved = library.position(series), saved.chapter == chapter, saved.index == index {
-            state = try? JSONEncoder().encode(ReaderScreen.State(chapter: chapter, position: StripPosition(index: index, fraction: saved.fraction)))
+            state = try? JSONEncoder().encode(ReaderScreen.State(chapter: chapter, position: StripPosition(index: index, fraction: saved.fraction, zoom: saved.zoom, aspect: saved.aspect, point: saved.point)))
         }
         navigation.open(ReaderScreen(app: self, series: series, slug: slug, chapter: chapter, start: start, state: state))
     }
