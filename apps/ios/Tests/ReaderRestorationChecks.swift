@@ -65,7 +65,7 @@ final class ReaderRestorationChecks: UIViewController {
                 "progress": progress.map { ["chapter": $0.chapterId, "index": $0.imageIndex] } ?? [:],
                 "saved": position.map { ["chapter": $0.chapter,"index": $0.index,"fraction": $0.fraction,
                                           "zoom": $0.zoom?.scale ?? 1] } ?? [:],
-                "forward": nav.canGoForward,
+                "forward": nav.canGoForward, "catalogComplete": app.library.catalog.complete,
                 "homeSaved": (nav.topViewController as? HomeScreen)?.savedState().flatMap { try? JSONSerialization.jsonObject(with: $0) } ?? [:]]
     }
     private func find<T: UIView>(_ type: T.Type, in view: UIView) -> T? {
