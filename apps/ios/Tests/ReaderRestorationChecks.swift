@@ -43,7 +43,7 @@ final class ReaderRestorationChecks: UIViewController {
                 }
             case "release":
                 Task { await gate.open(); app.library.refreshCatalog(full: true) }
-            case "flush": nav.flush(); app.library.state.flush(); app.library.flushViewDependencies()
+            case "flush": nav.flush()
             default: break
             }
             return state

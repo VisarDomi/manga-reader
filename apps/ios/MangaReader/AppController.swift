@@ -63,12 +63,9 @@ final class AppController {
         let file = root.appendingPathComponent("navigation.json")
         migrateViews(to: file)
         navigation = LiveNavigationController(file: file, factory: { [unowned self] route, state in screen(route, state: state) },
-                                              root: HomeScreen(app: self, state: nil))
+                                              root: HomeScreen(app: self, state: nil), stateStore: library)
         AppLifecycle.shared.onResignActive { [weak self] in
             guard let self else { return }
-            navigation.flush()
-            library.state.flush()
-            library.flushViewDependencies()
             DebugState.shared.write(to: root)
         }
         AppLifecycle.shared.onResignActiveAsync { [weak self] in
@@ -128,7 +125,7 @@ final class AppController {
     func openReader(series: String, slug: String, chapter: String?, start: ReaderStart) {
         var state: Data?
         if case .image(let index) = start, let chapter, let saved = library.position(series), saved.chapter == chapter, saved.index == index {
-            state = try? JSONEncoder().encode(ReaderScreen.State(chapter: chapter, position: StripPosition(index: index, fraction: saved.fraction, zoom: saved.zoom, aspect: saved.aspect, point: saved.point)))
+            state = ReadingSession.savedState(saved)
         }
         navigation.open(ReaderScreen(app: self, series: series, slug: slug, chapter: chapter, start: start, state: state))
     }

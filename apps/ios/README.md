@@ -1,5 +1,12 @@
 # Manga Reader apps
 
+ReadingSession owns the reader document: chapter loading/retries, exact page publication,
+reader priority, chapter/document index translation and progress. ReaderScreen renders
+that session through StripReaderView and forwards viewport events. Library.recordPosition
+updates logical progress and the exact resume position together. Navigation captures the
+screen and checkpoints Library as one operation; app lifecycle code does not order writers.
+
+
 Seven native iPhone apps, one per site: Asura, Scythe, Yaksha, QiScans, Lua,
 EzScans and Violet. UIKit and Swift 6, iOS 26, no WebKit. One Xcode target and one
 codebase build all seven; the site is chosen at build time (`ReaderProvider` and
@@ -87,7 +94,8 @@ artwork (iOS supplies its standard fallback icon).
 | `MangaReader/Library.swift` | The catalog walk, the download plan, pruning, page sizes recorded from images, positions, the hand-off to iOS's background session and background refresh. |
 | `MangaReader/Store.swift` | Reading progress (`database.json`), saved chapters and lists (`chapters/`), `withNewerChapters`, the catalog as last seen. |
 | `MangaReader/HomeScreen.swift` | Home: cards, chapter colours and taps, status line, Load/Save. |
-| `MangaReader/ReaderScreen.swift` | The reader: opening, appending newer chapters, settling, list refreshes. |
+| `MangaReader/ReaderScreen.swift` | UIKit viewport and session binding. |
+| `MangaReader/ReadingSession.swift` | Reader document, preparation/retries, priority and progress/resume mapping. |
 | `MangaReader/PCSave.swift` | The PC Load/Save client. |
 | `Kit/` | Vendored NativeKit. Do not edit here (see Rules). |
 | `Resources/Info.plist` | The shared Info.plist; the builder sets `READER_PROVIDER`, `READER_DISPLAY_NAME` and `READER_ORIGIN` from `providers.json`. Background fetch, the refresh task ID, local network access for the PC. |

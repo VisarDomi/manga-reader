@@ -16,7 +16,7 @@ extension Notification.Name {
 // shows it. The chapter being read comes first, then the most recently read series, then
 // the catalog's covers. Downloaded pages leaving current/next expire after 24 hours.
 @MainActor
-final class Library {
+final class Library: CheckpointStore {
     let provider: any MangaProvider
     let state: ReadingState
     let chapters: ChapterSource
@@ -356,15 +356,16 @@ final class Library {
 
     func position(_ series: String) -> Position? { positions[series] }
 
-    func savePosition(_ position: Position, series: String) {
+    func recordPosition(_ position: Position, series: String, totalImages: Int) {
+        state.save(series: series, chapterId: position.chapter, imageIndex: position.index, totalImages: totalImages)
         guard positions[series] != position else { return }
         positions[series] = position
         let positions = positions
         positionsWriter.save(json: positions)
     }
 
-    func flushPositions() { positionsWriter.flush() }
-    func flushViewDependencies() {
+    func flush() {
+        state.flush()
         catalogWriter.flush()
         routesWriter.flush()
         positionsWriter.flush()
