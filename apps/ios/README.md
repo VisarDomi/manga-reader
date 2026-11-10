@@ -461,18 +461,20 @@ a command-line/xcconfig setting would also rename the NativeKit package modules.
 Tests:
 
 ```sh
-ssh mac 'sudo -n launchctl asuser 501 sudo -n -H -u visar /usr/bin/python3 /Users/visar/Developer/ios-tools/native/scripts/mac-workload build --timeout 600 -- /bin/bash /Users/visar/Developer/manga-reader-validation/apps/ios/scripts/test.sh'  # after syncing the validation mirror
+bash apps/ios/scripts/test.sh   # this PC: Swift 6.2.4 for Linux, ~19 s (the Mac took ~36 s)
 npm run test:ios:signing   # the builder's signing lock (this PC)
 npm run test:server        # the PC server (this PC)
 ```
 
 `scripts/test.sh` checks all seven providers against saved responses
-(`Tests/Fixtures`, fetched through URLSession on the Mac), the reading state's
+(`Tests/Fixtures`), the reading state's
 format, migrations and rules, and the request budget. It uses Swift 6, matching
 the product target, and copies sources into an isolated temporary snapshot before
 compilation so later edits/syncs cannot change inputs halfway through a check.
-NativeKit's own tests run
-from ios-tools (`native/scripts/kit-test.sh`).
+It runs on this PC (ios-tools native/README.md, "Logic tests on the PC"). On Linux one
+check is skipped: the image decoder's canvas and EXIF orientation use Apple's ImageIO, so
+after changing `ImageDimensions` also run it on the Mac (under `mac-workload build`).
+NativeKit's own tests run from ios-tools (`native/scripts/kit-test.sh`).
 
 Simulator, on the Mac mirror:
 

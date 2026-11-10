@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(ImageIO)
 import ImageIO
+#endif
 import KitCore
 import KitLifecycle
 import KitNet

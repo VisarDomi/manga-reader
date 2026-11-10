@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(ImageIO)
 import ImageIO
+#endif
 import KitCore
 import KitNet
 
@@ -233,6 +235,9 @@ enum ImageDimensions {
     }
 
     static func measure(_ file: URL) -> CGSize? {
+#if !canImport(ImageIO)
+        return nil  // Linux (logic tests on the PC): no image decoder; the Mac run covers this.
+#else
         autoreleasepool {
             let options = [kCGImageSourceShouldCache: false] as CFDictionary
             guard let source = CGImageSourceCreateWithURL(file as CFURL, options),
@@ -247,6 +252,7 @@ enum ImageDimensions {
             try? DurableFile.writeJSON([Double(size.width), Double(size.height)], to: file.appendingPathExtension("dimensions"))
             return size
         }
+#endif
     }
 }
 

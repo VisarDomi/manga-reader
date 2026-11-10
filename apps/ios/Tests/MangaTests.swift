@@ -1,6 +1,8 @@
 import Foundation
 import CoreGraphics
+#if canImport(ImageIO)
 import ImageIO
+#endif
 import KitCore
 import KitNet
 
@@ -24,7 +26,11 @@ struct MangaTests {
         retryScheduling()
         try retentionPolicy()
         try await retainedCache()
-        try await measuredDimensions()
+#if canImport(ImageIO)
+        try await measuredDimensions()  // Apple's decoder and EXIF orientation: Mac only
+#else
+        print("SKIP: decoder canvas and orientation (ImageIO; run scripts/test.sh on the Mac to cover it)")
+#endif
         try await metadataPriority()
         try await missingFileIndex()
         try await boundedLibraryWork()
@@ -216,6 +222,7 @@ struct MangaTests {
         print("PASS: 100,000 repeated cache checks cause zero additional filesystem probes")
     }
 
+#if canImport(ImageIO)
     static func measuredDimensions() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -267,6 +274,7 @@ struct MangaTests {
         expect(!invalidated, "A failed cached decode can download fresh bytes on automatic retry")
         print("PASS: decoder dimensions, persisted correction and reader preparation barrier")
     }
+#endif
 
     static func metadataPriority() async throws {
         let queue = MetadataQueue(), occupied = TestGate(), preparation = TestGate(), urgent = TestGate()

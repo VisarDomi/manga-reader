@@ -1,6 +1,8 @@
 import Foundation
 import CoreGraphics
+#if canImport(ImageIO)
 import ImageIO
+#endif
 import KitCore
 
 struct MangaWorkReport: Codable, Sendable {
@@ -45,6 +47,7 @@ enum MangaWorkload {
         try await Task.sleep(for: .milliseconds(100))
         let preparationSeconds = Double(clock() - preparationCPU) / Double(CLOCKS_PER_SEC)
         let initial = library.debugState["fullPlans"] as? Int ?? 0
+#if canImport(ImageIO)
         let jpeg = NSMutableData()
         let pixels = CGDataProvider(data: Data(repeating: 255, count: 4) as CFData)!
         let image = CGImage(width: 1, height: 1, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: 4,
@@ -54,6 +57,10 @@ enum MangaWorkload {
         CGImageDestinationAddImage(destination, image, nil)
         guard CGImageDestinationFinalize(destination) else { throw URLError(.cannotDecodeContentData) }
         let bytes = jpeg as Data
+#else
+        // Linux (no ImageIO, and ImageDimensions.measure is a no-op): fixed placeholder JPEG bytes.
+        let bytes = Data([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01, 0xFF, 0xD9])
+#endif
         phase("50 image completions")
         let completionCPU = clock()
         for chapter in ["1", "2"] {

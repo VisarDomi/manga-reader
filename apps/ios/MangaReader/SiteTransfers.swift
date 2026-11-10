@@ -16,9 +16,13 @@ final class SiteTransfers: NSObject, URLSessionDownloadDelegate, @unchecked Send
     private let lock = NSLock()
     private var successful = Set<Int>()
     private lazy var session: URLSession = {
+#if canImport(Darwin)
         let config = URLSessionConfiguration.background(withIdentifier: identifier)
         config.isDiscretionary = false
         config.sessionSendsLaunchEvents = true
+#else
+        let config = URLSessionConfiguration.default  // Linux logic tests: no background sessions
+#endif
         config.httpMaximumConnectionsPerHost = 1
         config.urlCache = nil
         config.httpCookieStorage = nil
