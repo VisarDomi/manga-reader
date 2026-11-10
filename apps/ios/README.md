@@ -450,6 +450,14 @@ bundled `Native` file's hash (the PC's address, key and CA) and the bundle ID. A
 signing lock (`~/Library/Caches/ios-app-refresh/signing.lock`, shared with renewal)
 refuses overlapping builds.
 
+All seven providers compile the same sources under one Swift module name
+(`PRODUCT_MODULE_NAME = MangaReader` on the app target) into one shared
+`build/DerivedData/shared` and `build/shared` product directory; each finished bundle
+is cloned to its provider's own `build/<provider><suffix>/` path. After a shared change
+only the first provider of a batch compiles: on the Intel Mac a following provider took
+16–18 s instead of 47 s (unsigned, same edit). Set the module name only on the app target;
+a command-line/xcconfig setting would also rename the NativeKit package modules.
+
 Tests:
 
 ```sh

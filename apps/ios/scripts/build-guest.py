@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 """Build one provider (providers.json) with the common target; unsigned unless a team is supplied
-(SIMULATOR=1: an unsigned simulator build)."""
-import argparse, contextlib, fcntl, json, os, pathlib, plistlib, re, subprocess, sys
+(SIMULATOR=1: an unsigned simulator build).
+
+Every provider compiles the same sources under one module name (PRODUCT_MODULE_NAME in the
+project) into one shared DerivedData and product directory, so after a shared change only the
+first provider compiles; the others reuse its compiled module and only link, sign and verify.
+The finished bundle is cloned to the provider's own build/<provider><suffix>/ path."""
+import argparse, contextlib, fcntl, json, os, pathlib, plistlib, re, shutil, subprocess, sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -22,6 +27,15 @@ def signing_lock(path):
             except BlockingIOError: raise SystemExit('Another app is building/signing; retry after it finishes')
             yield
 
+def publish(built, app):
+    """Clone a finished shared-directory bundle (APFS copy-on-write) to the provider's own path."""
+    app.parent.mkdir(parents=True, exist_ok=True)
+    staging = app.with_name(app.name + '.publishing')
+    if staging.exists(): shutil.rmtree(staging)
+    subprocess.run(['/bin/cp', '-cR', str(built), str(staging)], check=True)
+    if app.exists(): shutil.rmtree(app)
+    staging.rename(app)
+
 def main():
     if not os.environ.get('IOS_WORKLOAD_ACTIVE'):
         guard = pathlib.Path.home() / 'Developer/ios-tools/native/scripts/mac-workload'
@@ -40,6 +54,7 @@ def main():
     bundle_id = provider['bundleIdentifier'] + suffix
     output = ROOT / 'build' / (args.provider + suffix)
     output.mkdir(parents=True, exist_ok=True)
+    shared = ROOT / 'build' / 'shared'
     settings = {
         'READER_PRODUCT_NAME': provider['productName'],
         'READER_BUNDLE_IDENTIFIER': bundle_id,
@@ -50,11 +65,12 @@ def main():
     config = output / 'Provider.xcconfig'
     config.write_text(''.join(f'{key} = {value}\n' for key, value in settings.items()))
     common = ['xcodebuild', '-jobs', '2', '-project', str(ROOT / 'MangaReader.xcodeproj'), '-scheme', 'MangaReader', '-configuration', 'Release',
-              '-xcconfig', str(config), '-derivedDataPath', str(ROOT / 'build' / 'DerivedData' / args.provider), 'SYMROOT=' + str(output)]
+              '-xcconfig', str(config), '-derivedDataPath', str(ROOT / 'build' / 'DerivedData' / 'shared'), 'SYMROOT=' + str(shared)]
     if simulator:
         # Unsigned, for the simulator (no signing lock): build/<provider>/Release-iphonesimulator.
         subprocess.run(common + ['-sdk', 'iphonesimulator', '-destination', 'generic/platform=iOS Simulator', 'CODE_SIGNING_ALLOWED=NO', 'build'], check=True, cwd=ROOT)
         app = output / 'Release-iphonesimulator' / (provider['productName'] + '.app')
+        publish(shared / 'Release-iphonesimulator' / app.name, app)
     else:
         cache = pathlib.Path.home() / 'Library/Caches/ios-app-refresh'
         cache.mkdir(parents=True, exist_ok=True)
@@ -64,7 +80,8 @@ def main():
             team = os.environ.get('DEVELOPMENT_TEAM', '')
             signing = ['-allowProvisioningUpdates', '-allowProvisioningDeviceRegistration', 'DEVELOPMENT_TEAM=' + team] if team else ['CODE_SIGNING_ALLOWED=NO']
             subprocess.run(common + ['-sdk', 'iphoneos', '-destination', 'generic/platform=iOS', *signing, 'build'], check=True, cwd=ROOT)
-        app = output / 'Release-iphoneos' / (provider['productName'] + '.app')
+            app = output / 'Release-iphoneos' / (provider['productName'] + '.app')
+            publish(shared / 'Release-iphoneos' / app.name, app)
     info = plistlib.loads((app / 'Info.plist').read_bytes())
     for key, value in [('CFBundleIdentifier', bundle_id), ('CFBundleName', provider['productName']),
                        ('CFBundleDisplayName', provider['displayName']), ('ReaderProvider', provider['key'])]:
