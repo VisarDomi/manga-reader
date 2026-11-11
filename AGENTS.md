@@ -1,68 +1,36 @@
-The coding agent owns this repository: any file may be changed, including this one, README.md and test.txt.
+# Manga Reader
 
-Start here:
-- [README.md](README.md): what the apps are for, and a map of the docs.
-- [apps/ios/README.md](apps/ios/README.md): the apps as they are, the rules not to break, and how to build, deploy, test and inspect them.
-- [NativeKit guide](../../ios-tools/native/README.md): the shared Swift package vendored as `apps/ios/Kit` (modules, vendoring, main-thread and relaunch rules, FrameMonitor, simulator limits).
-- [Mac and phone access](../../../environment/mac-access.md): `ssh mac`, UDIDs, signing.
-- [Renewal](../../ios-tools/renewal/README.md): the monthly renewal of the paid-signed apps.
+Agent owns all repo files. Read README.md and apps/ios/README.md; shared iOS rules:
+../../ios-tools/native/README.md; access: ../../../environment/mac-access.md;
+renewal: ../../ios-tools/renewal/README.md. Update current docs with code; history in Git.
 
-Docs describe the apps as they are now; history stays in Git. Update them with the change that makes them stale.
-
-The viewer follows the user directly: free continuous scrolling, content loading in place,
-and pinch zoom of the same content. Never add snapping, automatic centering, page landing,
-runways or repositioning when scrolling stops. Loading, refreshes and player reuse preserve
-the visible position. Cached next chapters must append during continuous scrolling; do not
-require a scroll-end or settled-page check. Explicit navigation and restoration are separate.
-
-The manga page cache downloads only current and immediate next chapters for
-series the owner has touched. Untouched series get covers only. Previously
-downloaded pages outside current/next expire 24 hours after leaving that pair;
-the deadline survives relaunch/reboot and is never extended by replanning.
-Open readers do not pin all their previous chapters indefinitely. Covers,
-progress, positions and chapter metadata are preserved. On migration, remove
-erroneous untouched-series page downloads immediately; existing touched-series
-history gets the same one-time 24-hour grace. Do not download retired chapters.
-
-The owner's preparation flow is explicit:
-
-- On Home, refresh chapter state for all touched series and prepare metadata and
-  image bytes for their saved current chapter and immediate next. A completed
-  current chapter remains the resume target at its last page, with next ready.
-- On opening a reader, raise that reader's work ahead of other entries: the
-  current image is highest priority, then all remaining current-chapter images,
-  then the immediate next chapter (metadata and images).
-- Only after this reader's current/next work is ready should preparation of the
-  other entries use the background slots. Existing cached work is reused.
-- Read the exact image dimensions from available metadata/image headers before
-  publishing its page box. Reserve the exact geometry first, then fill that box
-  with decoded pixels. Image arrival must not stretch the page or resize already
-  published reading content. Unknown dimensions are not an estimated page size.
-
-No content work may wait for scrolling to stop, a finger to lift, or a settled-page
-callback. Home updates, image loading, preparation and chapter appends run while
-scrolling. Scroll-end callbacks only persist progress and record performance.
-
-Delivery order: push the app updates first, then run virtual-iPhone UI checks.
-If those checks require a fix, push the correction before the next simulation.
-Native compilation/signing and model checks still apply; simulator trouble must
-not hold back a deliverable update for the owner to try. Use the existing durable
-queue and guards. Never substitute physical-phone UI automation.
-
-Efficiency is a product requirement. File completions update their dependants and
-advance existing queues; they never rebuild the whole catalog plan. Movement
-within a chapter updates only that reader's priority. Cache known missing files,
-advance the download queue with a cursor, and retain useful manifest entries
-within a bounded memory budget instead of flushing the entire cache. Verify
-work counts and CPU time with a large-library fixture, alongside responsiveness.
-
-All manga cover bytes download proactively and remain on disk permanently,
-independent of current/next chapter pruning. Visible covers decode first, then
-covers ahead in catalog order as the bounded decoded cache permits. Do not
-decode and immediately evict unseen covers in an unbounded warming loop.
-
-Build speed depends on the module split (apps/ios/README.md, "Modules"). Code that does not
-need UIKit lives in the `apps/ios/Core` package modules (`MangaSources`, `MangaLibrary`); the
-app target holds only the screens. Do not move code back into the app target, merge modules or
-add imports in the other direction. What crosses modules is `public`, with explicit
-`public init`s. Split a module that grows past about 3,000 lines.
+- Free continuous scroll/pinch; loading, refresh/reuse and cached chapter appends
+  preserve position while scrolling. No snapping, centering, runways or scroll-end
+  gates. Explicit navigation/restoration are separate. Scroll-end only saves progress
+  and performance; no content work waits for finger lift/settling.
+- Pages: touched series' current + immediate next only; untouched series get covers.
+  Outside that pair, expire pages24h after departure; persist deadlines across reboot,
+  never extend on replans or pin past chapters through open readers. Preserve covers,
+  progress, positions and metadata. Migration removes erroneous untouched pages
+  immediately; touched history gets one24h grace. Never download retired chapters.
+- Home refreshes all touched chapter states and prepares saved current/next metadata
+  and bytes. Completed current resumes at its last page. Opening a reader prioritizes
+  current image → remaining current images → next chapter → other entries; reuse cache.
+- Publish exact dimensions from metadata/headers before page boxes; then fill pixels.
+  Unknown dimensions are not estimates. Keep geometry and bounded auto-retries on
+  load/decode failure; never move/remove a page to hide errors.
+- All cover bytes download proactively and persist permanently. Decode visible,
+  then ahead in catalog order within a bounded cache; no decode/evict warming loops.
+- Completions advance dependants/queues, not whole-catalog replans. Intra-chapter
+  movement changes only reader priority. Cache missing-file knowledge, use queue
+  cursors and bounded useful manifests. Check large-library work counts/CPU and UI.
+- Compile/model-check, push through the durable guarded queue, then virtual-iPhone
+  QA; push fixes before the next simulation. Simulator trouble cannot block a
+  deliverable update or authorize physical-phone UI automation.
+- Investigate source/history/installed behavior first. Children inherit these cache,
+  geometry, position, device and delivery constraints. Resolve cross-reader ambiguity;
+  preserve provider data and conditional revisit limits.
+- Build speed: keep the module split (apps/ios/README.md "Modules"). Non-UI code goes in the
+  apps/ios/Core modules (MangaSources, MangaLibrary), never back into the app target; no
+  merging modules or reverse imports. Cross-module API is public with explicit inits; split a
+  module past ~3,000 lines.
