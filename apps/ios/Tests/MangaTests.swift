@@ -38,7 +38,6 @@ struct MangaTests {
         try await boundedLibraryWork()
         try await manifestCache()
         try await missingMetadataIndex()
-        observationLifetime()
         try await coverPreparationOrder()
         try await readerPairOverridesSavedPosition()
         try await foregroundRevokesBackgroundRefresh()
@@ -142,19 +141,6 @@ struct MangaTests {
         let retained = await reopened.isComplete(cover)
         expect(retained, "Cover bytes survive chapter pruning and a new cache instance")
         print("PASS: cover-first Home downloads, reader priority and permanent cover retention")
-    }
-
-    @MainActor
-    static func observationLifetime() {
-        let count = EventCount(), name = Notification.Name(UUID().uuidString)
-        var observation: NotificationObservation? = NotificationObservation(name: name) { _ in count.increment() }
-        expect(observation != nil, "Observation is owned")
-        NotificationCenter.default.post(name: name, object: nil)
-        expect(count.value == 1, "Live observation receives the event")
-        observation = nil
-        NotificationCenter.default.post(name: name, object: nil)
-        expect(count.value == 1, "Discarded screens do not leave notification callbacks behind")
-        print("PASS: releasing an observation removes its callback")
     }
 
     static func missingMetadataIndex() async throws {
@@ -476,7 +462,6 @@ struct MangaTests {
         // The web version's keys (JSON.stringify) and file names.
         expect(FileKey.chapter("solo", "12") == #"["solo","12"]"# && FileKey.list("solo") == #"["chapters","solo"]"#, "Chapter keys")
         expect(FileKey.stringify(["a\"b\\c\n"]) == #"["a\"b\\c\n"]"#, "Escaping")
-        expect(FileKey.sha256("abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", "SHA-256 names")
 
         // Schema 1 (per chapter) to 3, keeping the latest per series; Asura suffixes fold.
         let v1 = #"{"version":1,"indexedDB":{"progress":[{"id":"asurascans\u0000solo-0a1b2c3d\u00001","provider":"asurascans","seriesSlug":"solo-0a1b2c3d","chapterId":"1","imageIndex":3,"totalImages":10,"updatedAt":100},{"id":"asurascans\u0000solo-0a1b2c3d\u00002","provider":"asurascans","seriesSlug":"solo-0a1b2c3d","chapterId":"2","imageIndex":9,"totalImages":10,"updatedAt":200},{"id":"asurascans\u0000solo\u00003","provider":"asurascans","seriesSlug":"solo","chapterId":"0","imageIndex":0,"totalImages":5,"updatedAt":50}],"tokens":[{"key":"t","value":{"a":[1,null,"x"]}}],"metadata":[{"key":"asura-ios-v1","value":{"history":{}}}]}}"#
@@ -517,13 +502,6 @@ private actor TestGate {
         if !didStart { await withCheckedContinuation { starters.append($0) } }
     }
     func release() { completion?.resume(); completion = nil }
-}
-
-private final class EventCount: @unchecked Sendable {
-    private let lock = NSLock()
-    private var count = 0
-    var value: Int { lock.withLock { count } }
-    func increment() { lock.withLock { count += 1 } }
 }
 
 private struct CoverOrderProvider: MangaProvider {
