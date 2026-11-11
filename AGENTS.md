@@ -65,4 +65,4 @@ Build speed depends on the module split (apps/ios/README.md, "Modules"). Code th
 need UIKit lives in the `apps/ios/Core` package modules (`MangaSources`, `MangaLibrary`); the
 app target holds only the screens. Do not move code back into the app target, merge modules or
 add imports in the other direction. What crosses modules is `public`, with explicit
-`public init`s. Split a module that grows past about 2,000 lines.
+`public init`s. Split a module that grows past about 3,000 lines.

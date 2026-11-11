@@ -115,7 +115,7 @@ Rules that keep it fast:
 - Changing a function body rebuilds one module. Adding or changing a declaration rebuilds
   that module and the modules importing it. Keep the imports one-way:
   `MangaSources` ← `MangaLibrary` ← app.
-- Split a module that grows past about 2,000 lines along its dependencies.
+- Split a module that grows past about 3,000 lines along its dependencies.
 - `scripts/test.sh` builds the two modules separately with `-enable-testing`; `Tests/` use
   `@testable import`. QA overlays (`build-reader-qa.py`) build them testable too.
 
