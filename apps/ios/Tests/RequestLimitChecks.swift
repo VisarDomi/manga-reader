@@ -1,6 +1,8 @@
 import Foundation
 import KitCore
 import KitNet
+@testable import MangaLibrary
+@testable import MangaSources
 
 private final class LimitProtocol: URLProtocol, @unchecked Sendable {
     static let lock = NSLock()

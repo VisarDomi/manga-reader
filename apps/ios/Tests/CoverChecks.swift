@@ -4,6 +4,8 @@ import KitCore
 import KitLists
 import KitImages
 import KitTestHooks
+@testable import MangaLibrary
+@testable import MangaSources
 
 @MainActor
 final class CoverChecks: UIViewController {

@@ -1,6 +1,8 @@
 #if targetEnvironment(simulator)
 import UIKit
 import KitTestHooks
+@testable import MangaLibrary
+@testable import MangaSources
 
 @MainActor
 final class CPUChecks: UIViewController {

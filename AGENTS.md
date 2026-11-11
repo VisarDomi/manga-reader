@@ -60,3 +60,9 @@ All manga cover bytes download proactively and remain on disk permanently,
 independent of current/next chapter pruning. Visible covers decode first, then
 covers ahead in catalog order as the bounded decoded cache permits. Do not
 decode and immediately evict unseen covers in an unbounded warming loop.
+
+Build speed depends on the module split (apps/ios/README.md, "Modules"). Code that does not
+need UIKit lives in the `apps/ios/Core` package modules (`MangaSources`, `MangaLibrary`); the
+app target holds only the screens. Do not move code back into the app target, merge modules or
+add imports in the other direction. What crosses modules is `public`, with explicit
+`public init`s. Split a module that grows past about 2,000 lines.

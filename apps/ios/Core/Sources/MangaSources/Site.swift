@@ -3,14 +3,14 @@ import KitCore
 import KitNet
 
 // Shared by queued metadata and image work; promotion never restarts a transfer.
-final class Urgency: @unchecked Sendable {
+public final class Urgency: @unchecked Sendable {
     private let lock = NSLock()
     private var rank: Int
     private var listeners: [UUID: @Sendable () -> Void] = [:]
-    init(_ urgent: Bool, priority: Int = 1) { rank = urgent ? priority : 0 }
+    public init(_ urgent: Bool, priority: Int = 1) { rank = urgent ? priority : 0 }
     var priority: Int { lock.withLock { rank } }
-    var value: Bool { priority > 0 }
-    func raise(to priority: Int = 1) {
+    public var value: Bool { priority > 0 }
+    public func raise(to priority: Int = 1) {
         let callbacks = lock.withLock { () -> [@Sendable () -> Void] in
             guard priority > rank else { return [] }
             rank = priority
@@ -26,13 +26,18 @@ final class Urgency: @unchecked Sendable {
 
 // One gate for API/HTML, images, cover validation and background URLSession work.
 // Retries re-enter the gate; URLSession never retries outside the provider's budget.
-struct SiteClient: Sendable {
-    @TaskLocal static var urgency: Urgency?
+public struct SiteClient: Sendable {
+    @TaskLocal public static var urgency: Urgency?
     let http: HTTPClient
     let limiter: RequestLimiter
+
+    public init(http: HTTPClient, limiter: RequestLimiter) {
+        self.http = http
+        self.limiter = limiter
+    }
     private static let observedStatuses: Set<Int> = [403, 408, 429, 500, 502, 503, 504]
 
-    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+    public func send(_ request: HTTPRequest) async throws -> HTTPResponse {
         let policy = request.retry ?? (["GET", "HEAD"].contains(request.method) ? .reads : .never)
         var once = request
         once.retry = .never
@@ -54,7 +59,7 @@ struct SiteClient: Sendable {
 
     private struct RejectedDownload: Error { let response: HTTPURLResponse }
 
-    func download(_ request: HTTPRequest, to file: URL,
+    public func download(_ request: HTTPRequest, to file: URL,
                   validate: @escaping @Sendable (HTTPURLResponse) throws -> Void) async throws -> HTTPURLResponse {
         let policy = request.retry ?? .reads
         var once = request
@@ -113,8 +118,8 @@ enum SiteResponse {
     }
 }
 
-actor RequestLimiter {
-    struct Budget: Sendable {
+public actor RequestLimiter {
+    public struct Budget: Sendable {
         var limit: Int
         var background: Int
         var spacing: TimeInterval = 0
@@ -122,7 +127,7 @@ actor RequestLimiter {
         var backgroundConcurrent: Int = 2
         var window: TimeInterval = 60
         static let standard = Budget(limit: 90, background: 50, spacing: 0.5, concurrent: 3, backgroundConcurrent: 2)
-        static let media = Budget(limit: 120, background: 90, spacing: 0.3, concurrent: 3, backgroundConcurrent: 2)
+        public static let media = Budget(limit: 120, background: 90, spacing: 0.3, concurrent: 3, backgroundConcurrent: 2)
 
         static func media(_ host: String) -> Budget {
             switch host {
@@ -137,7 +142,7 @@ actor RequestLimiter {
         // Ez/Qi: measured 60 per 30 seconds; allow 57 with a reader reserve.
         // Other ceilings stay below bounded live throughput, not invented quotas.
         // Headers and throttles can lower them; healthy traffic recovers gradually.
-        static func provider(_ key: String) -> Budget {
+        public static func provider(_ key: String) -> Budget {
             switch key {
             case "qimanga", "ezmanga": return Budget(limit: 57, background: 51, spacing: 0.5, concurrent: 2, backgroundConcurrent: 1, window: 30)
             case "luacomic": return Budget(limit: 150, background: 135, spacing: 0.4, concurrent: 2, backgroundConcurrent: 1)
@@ -177,7 +182,7 @@ actor RequestLimiter {
     private var wake: Task<Void, Never>?
     private var journalWrites = 0
 
-    init(_ budget: Budget, provider: String? = nil, file: URL? = nil) {
+    public init(_ budget: Budget, provider: String? = nil, file: URL? = nil) {
         self.budget = budget
         self.provider = provider
         self.file = file

@@ -1,4 +1,5 @@
 import Foundation
+import MangaSources
 #if canImport(ImageIO)
 import ImageIO
 #endif
@@ -7,9 +8,9 @@ import KitLifecycle
 import KitNet
 
 extension Notification.Name {
-    static let catalogChanged = Notification.Name("MangaCatalogChanged")
-    static let coverChanged = Notification.Name("MangaCoverChanged")
-    static let pageDimensionsKnown = Notification.Name("MangaPageDimensionsKnown")
+    public static let catalogChanged = Notification.Name("MangaCatalogChanged")
+    public static let coverChanged = Notification.Name("MangaCoverChanged")
+    public static let pageDimensionsKnown = Notification.Name("MangaPageDimensionsKnown")
 }
 
 // The app's model: the catalog (kept on the phone, refreshed in the background), reading
@@ -18,15 +19,15 @@ extension Notification.Name {
 // shows it. The chapter being read comes first, then the most recently read series, then
 // the catalog's covers. Downloaded pages leaving current/next expire after 24 hours.
 @MainActor
-final class Library: CheckpointStore {
-    let provider: any MangaProvider
-    let state: ReadingState
-    let chapters: ChapterSource
-    let images: ImageFiles
+public final class Library: CheckpointStore {
+    public let provider: any MangaProvider
+    public let state: ReadingState
+    public let chapters: ChapterSource
+    public let images: ImageFiles
     let root: URL
-    private(set) var catalog: Catalog
-    private(set) var catalogError: String?
-    private(set) var refreshing = false
+    public private(set) var catalog: Catalog
+    public private(set) var catalogError: String?
+    public private(set) var refreshing = false
     private(set) var routes: [String: String]
     private let catalogWriter: BackgroundWriter
     private let routesWriter: BackgroundWriter
@@ -59,12 +60,16 @@ final class Library: CheckpointStore {
     private var unsized: [String: Set<PagePlace>] = [:]
 
     // What a reader screen shows: its series, the chapters it holds and where it is.
-    struct Reading: Equatable, Sendable {
-        var series: String
-        var slug: String
-        var chapters: [String]
-        var chapter: String
-        var page: Int
+    public struct Reading: Equatable, Sendable {
+        public var series: String
+        public var slug: String
+        public var chapters: [String]
+        public var chapter: String
+        public var page: Int
+
+        public init(series: String, slug: String, chapters: [String], chapter: String, page: Int) {
+            self.series = series; self.slug = slug; self.chapters = chapters; self.chapter = chapter; self.page = page
+        }
     }
 
     // A reader screen while it exists (on screen, or kept for going forward): its chapters stay;
@@ -84,16 +89,20 @@ final class Library: CheckpointStore {
 
     // Where a series was left to the point (the reading state keeps only the page): reopening
     // it at its saved page returns exactly there, as going forward does (positions.json).
-    struct Position: Codable, Equatable {
-        var chapter: String
-        var index: Int
-        var fraction: Double
-        var zoom: ZoomState? = nil
-        var aspect: Double? = nil
-        var point: Double? = nil
+    public struct Position: Codable, Equatable, Sendable {
+        public var chapter: String
+        public var index: Int
+        public var fraction: Double
+        public var zoom: ZoomState? = nil
+        public var aspect: Double? = nil
+        public var point: Double? = nil
+
+        public init(chapter: String, index: Int, fraction: Double, zoom: ZoomState? = nil, aspect: Double? = nil, point: Double? = nil) {
+            self.chapter = chapter; self.index = index; self.fraction = fraction; self.zoom = zoom; self.aspect = aspect; self.point = point
+        }
     }
 
-    init(provider: any MangaProvider, root: URL, bundleID: String, limiter: RequestLimiter? = nil) {
+    public init(provider: any MangaProvider, root: URL, bundleID: String, limiter: RequestLimiter? = nil) {
         self.provider = provider
         self.root = root
         state = ReadingState(directory: root, provider: provider.key)
@@ -134,16 +143,16 @@ final class Library: CheckpointStore {
         })
     }
 
-    func identity(_ series: HomeSeries) -> String { Self.identity(series, provider) }
+    public func identity(_ series: HomeSeries) -> String { Self.identity(series, provider) }
     nonisolated static func identity(_ series: HomeSeries, _ provider: any MangaProvider) -> String { series.historyId ?? provider.identity(series.slug) }
 
     // Bumped whenever the catalog's series change (screens compare this, not the series).
-    private(set) var catalogVersion = 0
+    public private(set) var catalogVersion = 0
 
     // The series' current URL slug (Asura's rotates).
-    func slug(_ series: String) -> String { routes[series] ?? series }
+    public func slug(_ series: String) -> String { routes[series] ?? series }
 
-    func handleEvents(_ completion: @escaping () -> Void, background: Bool) {
+    public func handleEvents(_ completion: @escaping () -> Void, background: Bool) {
         let ticket = background ? transferOwnership.handOff() : nil
         Task {
             if background { await images.setActive(false) }
@@ -175,7 +184,7 @@ final class Library: CheckpointStore {
     // MARK: catalog
 
     // Pages from the newest; a partial refresh stops at the first page that changes nothing.
-    func refreshCatalog(full requested: Bool = false) {
+    public func refreshCatalog(full requested: Bool = false) {
         guard !refreshing else { return }
         let full = requested || !catalog.complete || catalog.series.isEmpty || (catalog.fetchedAt.map { Date().timeIntervalSince($0) > 86_400 } ?? true)
         refreshing = true
@@ -195,7 +204,7 @@ final class Library: CheckpointStore {
 
     // iOS's occasional background refresh: the newest catalog pages, then the chapters they
     // reveal, handed to the background session (which carries on outside the app).
-    func backgroundRefresh() async {
+    public func backgroundRefresh() async {
         let ticket = transferOwnership.handOff()
         await images.setActive(false)
         guard transferOwnership.ownsHandoff(ticket) else { return }
@@ -213,7 +222,7 @@ final class Library: CheckpointStore {
     }
 
     // Back on screen after a while, or when the catalog was never complete.
-    func refreshIfStale() {
+    public func refreshIfStale() {
         if lastRefresh.map({ Date().timeIntervalSince($0) > 300 }) ?? true { refreshCatalog() }
     }
 
@@ -307,7 +316,7 @@ final class Library: CheckpointStore {
 
     // MARK: readers
 
-    func reading(_ screen: AnyObject, _ reading: Reading, visible: Bool) {
+    public func reading(_ screen: AnyObject, _ reading: Reading, visible: Bool) {
         let id = ObjectIdentifier(screen)
         if let known = readers[id], known.screen === screen {
             if known.reading == reading && known.visible == visible { return }
@@ -340,9 +349,9 @@ final class Library: CheckpointStore {
     private var coverVersions: [String: Int] = [:]
     private var coverAsked: [String: Date] = [:]
 
-    func coverVersion(_ url: String) -> Int { coverVersions[url] ?? 0 }
+    public func coverVersion(_ url: String) -> Int { coverVersions[url] ?? 0 }
 
-    func coverShown(_ url: String) {
+    public func coverShown(_ url: String) {
         guard !url.isEmpty, coverAsked[url].map({ Date().timeIntervalSince($0) > ImageFiles.recheckAfter }) ?? true else { return }
         coverAsked[url] = Date()
         let images = images, item = ImageItem(url: url, cover: true)
@@ -356,9 +365,9 @@ final class Library: CheckpointStore {
 
     // MARK: positions
 
-    func position(_ series: String) -> Position? { positions[series] }
+    public func position(_ series: String) -> Position? { positions[series] }
 
-    func recordPosition(_ position: Position, series: String, totalImages: Int) {
+    public func recordPosition(_ position: Position, series: String, totalImages: Int) {
         state.save(series: series, chapterId: position.chapter, imageIndex: position.index, totalImages: totalImages)
         guard positions[series] != position else { return }
         positions[series] = position
@@ -366,7 +375,7 @@ final class Library: CheckpointStore {
         positionsWriter.save(json: positions)
     }
 
-    func flush() {
+    public func flush() {
         state.flush()
         catalogWriter.flush()
         routesWriter.flush()
@@ -375,7 +384,7 @@ final class Library: CheckpointStore {
 
     // MARK: the download plan
 
-    func planSoon() {
+    public func planSoon() {
         if planning.request() { schedulePlan() }
     }
 
@@ -613,7 +622,7 @@ final class Library: CheckpointStore {
     // A chapter with every page size that can be known before its images show: the saved
     // sizes, else those of pages already on the phone (measured by the decoder, and saved),
     // so the strip is laid out once and nothing moves while it loads.
-    func sized(_ data: ChapterData, series: String) async -> ChapterData {
+    public func sized(_ data: ChapterData, series: String) async -> ChapterData {
         let missing = data.images.indices.filter { !data.images[$0].hasMeasuredDimensions }
         guard !missing.isEmpty else { return data }
         let names = missing.map { ImageItem(url: data.images[$0].url, cover: false).name }
@@ -639,7 +648,7 @@ final class Library: CheckpointStore {
 
     // The same at once, from the pages already on the phone (without decoding display bitmaps), for a chapter
     // laid out before the first frame; the sizes found are saved afterwards.
-    func sizedNow(_ data: ChapterData, series: String) -> ChapterData {
+    public func sizedNow(_ data: ChapterData, series: String) -> ChapterData {
         var data = data, found: [Int: CGSize] = [:]
         for index in data.images.indices where !data.images[index].hasMeasuredDimensions {
             guard let file = images.localFile(ImageItem(url: data.images[index].url, cover: false)), let size = Library.pixelSize(file) else { continue }
@@ -691,7 +700,7 @@ final class Library: CheckpointStore {
     // MARK: away from the screen
 
     // Leaving the screen: unfinished planned files go to iOS's background session.
-    func handOff() async { await handOffNow() }
+    public func handOff() async { await handOffNow() }
 
     private func handOffNow(_ requested: UInt64? = nil) async {
         let ticket = requested ?? transferOwnership.handOff()
@@ -708,7 +717,7 @@ final class Library: CheckpointStore {
         transferOwnership.handedOff(ticket)
     }
 
-    func paused() {
+    public func paused() {
         let owner = transferOwnership.phase
         Task {
             guard transferOwnership.phase == owner, owner != .foreground else { return }
@@ -716,7 +725,7 @@ final class Library: CheckpointStore {
         }
     }
 
-    func resumed() {
+    public func resumed() {
         let ticket = transferOwnership.reclaim()
         Task {
             await clearLegacyTransfers()
@@ -728,7 +737,7 @@ final class Library: CheckpointStore {
         planSoon()
     }
 
-    var debugState: [String: Any] {
+    public var debugState: [String: Any] {
         ["catalog": catalog.series.count, "complete": catalog.complete, "refreshing": refreshing, "error": catalogError ?? "",
          "started": state.started.count, "readers": readers.count, "fullPlans": fullPlans, "priorityPlans": priorityPlans]
     }

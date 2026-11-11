@@ -1,6 +1,7 @@
 import UIKit
 import KitCore
 import KitImages
+import MangaLibrary
 
 // Persistent bytes belong to ImageFiles. This only prepares a bounded set of
 // display-sized images: visible work first, then the catalog's order, one ahead.

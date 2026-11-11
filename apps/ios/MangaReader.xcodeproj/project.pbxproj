@@ -17,6 +17,8 @@
 		B10000000000000000000016 /* KitLifecycle in Frameworks */ = {isa = PBXBuildFile; productRef = B50000000000000000000016 /* KitLifecycle */; };
 		B10000000000000000000017 /* KitTestHooks in Frameworks */ = {isa = PBXBuildFile; productRef = B50000000000000000000017 /* KitTestHooks */; };
 		B10000000000000000000018 /* KitHTML in Frameworks */ = {isa = PBXBuildFile; productRef = B50000000000000000000018 /* KitHTML */; };
+		B10000000000000000000020 /* MangaSources in Frameworks */ = {isa = PBXBuildFile; productRef = B50000000000000000000020 /* MangaSources */; };
+		B10000000000000000000021 /* MangaLibrary in Frameworks */ = {isa = PBXBuildFile; productRef = B50000000000000000000021 /* MangaLibrary */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -43,6 +45,8 @@
 				B10000000000000000000016 /* KitLifecycle in Frameworks */,
 				B10000000000000000000017 /* KitTestHooks in Frameworks */,
 				B10000000000000000000018 /* KitHTML in Frameworks */,
+				B10000000000000000000020 /* MangaSources in Frameworks */,
+				B10000000000000000000021 /* MangaLibrary in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -96,6 +100,8 @@
 				B50000000000000000000016 /* KitLifecycle */,
 				B50000000000000000000017 /* KitTestHooks */,
 				B50000000000000000000018 /* KitHTML */,
+				B50000000000000000000020 /* MangaSources */,
+				B50000000000000000000021 /* MangaLibrary */,
 			);
 			productName = MangaReader;
 			productReference = B20000000000000000000009 /* MangaReader.app */;
@@ -122,6 +128,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				B50000000000000000000001 /* XCLocalSwiftPackageReference "Kit" */,
+				B50000000000000000000002 /* XCLocalSwiftPackageReference "Core" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = B60000000000000000000002 /* Products */;
@@ -250,6 +257,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Kit;
 		};
+		B50000000000000000000002 /* XCLocalSwiftPackageReference "Core" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Core;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -288,6 +299,14 @@
 		B50000000000000000000018 /* KitHTML */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = KitHTML;
+		};
+		B50000000000000000000020 /* MangaSources */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = MangaSources;
+		};
+		B50000000000000000000021 /* MangaLibrary */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = MangaLibrary;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

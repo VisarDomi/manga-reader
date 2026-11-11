@@ -2,6 +2,8 @@ import UIKit
 import KitCore
 import KitImages
 import KitReader
+import MangaLibrary
+import MangaSources
 
 enum ReaderStart: Codable, Hashable, Sendable {
     case top, last, first, image(Int)

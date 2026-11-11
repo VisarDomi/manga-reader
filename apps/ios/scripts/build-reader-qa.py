@@ -20,5 +20,7 @@ from compilation_cache import build_environment
 environment = build_environment(dict(os.environ, SIMULATOR='1'), source.parents[1] / 'metadata', source,
                                 Path.home() / 'Library/Caches/ios-tools/CompilationCache.noindex')
 config = Path(environment['XCODE_XCCONFIG_FILE'])
-with config.open('a') as stream: stream.write('ARCHS = x86_64\nONLY_ACTIVE_ARCH = YES\n')
+# The overlay's checks (Tests/) reach into the logic modules with @testable imports; QA builds
+# only, never a phone build.
+with config.open('a') as stream: stream.write('ARCHS = x86_64\nONLY_ACTIVE_ARCH = YES\nENABLE_TESTABILITY = YES\n')
 subprocess.run([sys.executable, 'scripts/build-guest.py', 'asura'], cwd=source, env=environment, check=True)

@@ -4,62 +4,79 @@ import KitNet
 
 // MARK: - What the sites give (the saved chapter files keep the web version's format)
 
-struct ChapterImage: Codable, Sendable, Equatable {
-    var url: String
-    var width: Double?
-    var height: Double?
-    var dimensionsMeasured: Bool? = nil
+public struct ChapterImage: Codable, Sendable, Equatable {
+    public var url: String
+    public var width: Double?
+    public var height: Double?
+    public var dimensionsMeasured: Bool? = nil
 
-    var hasMeasuredDimensions: Bool {
+    public init(url: String, width: Double? = nil, height: Double? = nil, dimensionsMeasured: Bool? = nil) {
+        self.url = url; self.width = width; self.height = height; self.dimensionsMeasured = dimensionsMeasured
+    }
+
+    public var hasMeasuredDimensions: Bool {
         dimensionsMeasured == true && width.map { $0.isFinite && $0 > 0 } == true
             && height.map { $0.isFinite && $0 > 0 } == true
     }
 }
 
-struct ChapterData: Codable, Sendable, Equatable {
-    var chapterId: String
+public struct ChapterData: Codable, Sendable, Equatable {
+    public var chapterId: String
     // The slug the chapter was requested with (Asura's carries its rotating suffix).
-    var seriesSlug: String
-    var historyId: String?
-    var seriesTitle: String
-    var images: [ChapterImage]
+    public var seriesSlug: String
+    public var historyId: String?
+    public var seriesTitle: String
+    public var images: [ChapterImage]
+
+    public init(chapterId: String, seriesSlug: String, historyId: String? = nil, seriesTitle: String, images: [ChapterImage]) {
+        self.chapterId = chapterId; self.seriesSlug = seriesSlug; self.historyId = historyId
+        self.seriesTitle = seriesTitle; self.images = images
+    }
 }
 
-struct HomeChapter: Codable, Sendable, Equatable {
-    var chapterId: String
-    var label: String
+public struct HomeChapter: Codable, Sendable, Equatable {
+    public var chapterId: String
+    public var label: String
     // An ISO date or the site's own words ("2 days ago", "October 5, 2026").
-    var uploadedAt: String?
-    var locked: Bool
-    var unlockAt: String?
+    public var uploadedAt: String?
+    public var locked: Bool
+    public var unlockAt: String?
 }
 
-struct HomeSeries: Codable, Sendable, Equatable {
-    var slug: String
-    var historyId: String?
-    var title: String
-    var coverUrl: String
-    var chapters: [HomeChapter]
+public struct HomeSeries: Codable, Sendable, Equatable {
+    public var slug: String
+    public var historyId: String?
+    public var title: String
+    public var coverUrl: String
+    public var chapters: [HomeChapter]
+
+    public init(slug: String, historyId: String? = nil, title: String, coverUrl: String, chapters: [HomeChapter]) {
+        self.slug = slug; self.historyId = historyId; self.title = title; self.coverUrl = coverUrl; self.chapters = chapters
+    }
 }
 
-struct HomePage: Sendable {
-    var series: [HomeSeries]
+public struct HomePage: Sendable {
+    public var series: [HomeSeries]
     // The next catalog page, opaque to the app (nil: the catalog is complete).
-    var nextCursor: String?
+    public var nextCursor: String?
     // Later pages that may be fetched ahead, in order.
-    var prefetchCursors: [String] = []
-    var total: Int?
+    public var prefetchCursors: [String] = []
+    public var total: Int?
+
+    public init(series: [HomeSeries], nextCursor: String? = nil, prefetchCursors: [String] = [], total: Int? = nil) {
+        self.series = series; self.nextCursor = nextCursor; self.prefetchCursors = prefetchCursors; self.total = total
+    }
 }
 
-enum ProviderError: LocalizedError {
+public enum ProviderError: LocalizedError {
     case invalid(String)
-    var errorDescription: String? { if case .invalid(let text) = self { return text }; return nil }
+    public var errorDescription: String? { if case .invalid(let text) = self { return text }; return nil }
 }
 
 // One site. Identities: `key` names the site in reading progress and PC saves; a series is
 // known by `identity(slug)` (Asura drops the suffix its URLs rotate); chapter IDs are the
 // site's own (a number, or a slug).
-protocol MangaProvider: Sendable {
+public protocol MangaProvider: Sendable {
     var key: String { get }
     var origin: URL { get }
     func identity(_ slug: String) -> String
@@ -73,13 +90,13 @@ protocol MangaProvider: Sendable {
 }
 
 extension MangaProvider {
-    func identity(_ slug: String) -> String { slug }
-    func oldestChapter(_ slug: String) async throws -> String? { try await chaptersNewestFirst(slug).last }
+    public func identity(_ slug: String) -> String { slug }
+    public func oldestChapter(_ slug: String) async throws -> String? { try await chaptersNewestFirst(slug).last }
 }
 
-enum Providers {
+public enum Providers {
     // By site key (Info.plist's ReaderProvider; providers.json).
-    static func make(_ key: String, http client: HTTPClient, limiter: RequestLimiter) -> any MangaProvider {
+    public static func make(_ key: String, http client: HTTPClient, limiter: RequestLimiter) -> any MangaProvider {
         let http = SiteClient(http: client, limiter: limiter)
         return switch key {
         case "asurascans": Asura(http: http)
@@ -187,8 +204,8 @@ extension Array {
 // Dates as the sites write them (ISO with any fraction, "October 5, 2026"); nil otherwise.
 // Home shows these for every chapter of every card as it scrolls: each text is read once
 // (formatters are costly to make), and the answers are kept.
-enum SiteDate {
-    static func parse(_ text: String?) -> Date? {
+public enum SiteDate {
+    public static func parse(_ text: String?) -> Date? {
         guard let text = text?.trimmingCharacters(in: .whitespaces), !text.isEmpty else { return nil }
         return cache.withLock { cache in
             if let known = cache.dates[text] { return known }
@@ -233,20 +250,20 @@ enum SiteDate {
 
 // MARK: - Asura (JSON API)
 
-struct Asura: MangaProvider {
-    let key = "asurascans"
-    let origin = URL(string: "https://asurascans.com")!
+public struct Asura: MangaProvider {
+    public let key = "asurascans"
+    public let origin = URL(string: "https://asurascans.com")!
     static let api = "https://api.asurascans.com/api"
     let http: SiteClient
 
     // The site rotates a hex suffix on its URL slugs; the API slug (the identity) lacks it.
-    static func historyId(_ slug: String) -> String {
+    public static func historyId(_ slug: String) -> String {
         slug.replacingOccurrences(of: "-[0-9a-f]{8}$", with: "", options: [.regularExpression, .caseInsensitive])
     }
 
-    func identity(_ slug: String) -> String { Self.historyId(slug) }
+    public func identity(_ slug: String) -> String { Self.historyId(slug) }
 
-    func home(_ cursor: String?) async throws -> HomePage {
+    public func home(_ cursor: String?) async throws -> HomePage {
         let page = cursor.map { Int($0) ?? 0 } ?? 1
         guard page >= 1 else { throw ProviderError.invalid("Invalid Asura home cursor: \(cursor ?? "")") }
         let query = Web.query([("sort", "latest"), ("order", "desc"), ("limit", "50"), ("offset", String((page - 1) * 50))])
@@ -290,7 +307,7 @@ struct Asura: MangaProvider {
         return components.url?.absoluteString ?? raw
     }
 
-    func chapter(_ slug: String, _ chapterId: String) async throws -> ChapterData? {
+    public func chapter(_ slug: String, _ chapterId: String) async throws -> ChapterData? {
         guard let response = try await Web.chapterPage(http, URL(string: "\(Self.api)/series/\(slug)/chapters/\(chapterId)")!) else { return nil }
         return try Self.parseChapter(response.data, slug: slug, chapterId: chapterId)
     }
@@ -313,7 +330,7 @@ struct Asura: MangaProvider {
 
     // The list is edge-cached for an hour while the catalog refreshes every 5 minutes; a
     // unique query misses that cache, so a new chapter is never missing.
-    func chaptersNewestFirst(_ slug: String) async throws -> [String] {
+    public func chaptersNewestFirst(_ slug: String) async throws -> [String] {
         let millis = Int(Date().timeIntervalSince1970 * 1000)
         return try Self.parseList(try await Web.json(http, URL(string: "\(Self.api)/series/\(slug)/chapters?nocache=\(millis)")!))
     }

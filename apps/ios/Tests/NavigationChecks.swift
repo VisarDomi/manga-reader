@@ -3,6 +3,8 @@ import UIKit
 import KitCore
 import KitNavigation
 import KitTestHooks
+@testable import MangaLibrary
+@testable import MangaSources
 
 // Actual UIKit transitions and the durable stack; no provider, media or product data.
 @MainActor

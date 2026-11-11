@@ -1,5 +1,6 @@
 import Foundation
 import KitNet
+import MangaLibrary
 
 // The PC's copy of the reading state (server/backups.mjs, /api/reader-backups/manual/
 // manga-reader/<site>): Save replaces the PC's copy with this phone's; Load replaces this

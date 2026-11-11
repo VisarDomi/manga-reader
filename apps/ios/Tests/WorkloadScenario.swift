@@ -4,6 +4,8 @@ import CoreGraphics
 import ImageIO
 #endif
 import KitCore
+@testable import MangaLibrary
+@testable import MangaSources
 
 struct MangaWorkReport: Codable, Sendable {
     let pages: Int

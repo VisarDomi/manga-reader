@@ -2,6 +2,8 @@
 import UIKit
 import KitCore
 import KitTestHooks
+import MangaLibrary
+import MangaSources
 
 // Real reader + real on-disk cache, with an offline provider. No product data or network.
 @MainActor

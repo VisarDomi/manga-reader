@@ -1,4 +1,5 @@
 import Foundation
+import MangaSources
 #if canImport(ImageIO)
 import ImageIO
 #endif
@@ -83,9 +84,9 @@ actor MetadataQueue {
 
 // MARK: - Chapters and chapter lists: the phone's copy first, the site when needed
 
-actor ChapterSource {
+public actor ChapterSource {
     let provider: any MangaProvider
-    let files: ChapterFiles
+    public nonisolated let files: ChapterFiles
     private let queue = MetadataQueue()
     private var chapterTasks: [String: Task<ChapterData?, Error>] = [:]
     private var listTasks: [String: Task<[String], Error>] = [:]
@@ -97,19 +98,19 @@ actor ChapterSource {
     private var listeners: [@Sendable (String) -> Void] = []
     private var chapterListeners: [@Sendable (String, String) -> Void] = []
 
-    init(provider: any MangaProvider, files: ChapterFiles) {
+    public init(provider: any MangaProvider, files: ChapterFiles) {
         self.provider = provider
         self.files = files
     }
 
     func onListChange(_ listener: @escaping @Sendable (String) -> Void) { listeners.append(listener) }
-    func onChapterChange(_ listener: @escaping @Sendable (String, String) -> Void) { chapterListeners.append(listener) }
+    public func onChapterChange(_ listener: @escaping @Sendable (String, String) -> Void) { chapterListeners.append(listener) }
     func setReaderBusy(_ value: Bool, revision: Int? = nil) async { await queue.setReaderBusy(value, revision: revision) }
     func prioritize(_ keys: [String]) async { for key in keys { await queue.prioritize(key) } }
 
     // A chapter's pages (nil: unavailable). The saved file answers at once; otherwise one
     // request per chapter, ahead of background work when `urgent`.
-    func chapter(series: String, slug: String, chapterId: String, urgent: Bool) async throws -> ChapterData? {
+    public func chapter(series: String, slug: String, chapterId: String, urgent: Bool) async throws -> ChapterData? {
         if let saved = await files.chapter(series, chapterId) { return saved }
         let key = FileKey.chapter(series, chapterId)
         if urgent { await queue.prioritize(key) }
@@ -126,11 +127,11 @@ actor ChapterSource {
         return result
     }
 
-    func savedChapter(series: String, chapterId: String) async -> ChapterData? { await files.chapter(series, chapterId) }
+    public func savedChapter(series: String, chapterId: String) async -> ChapterData? { await files.chapter(series, chapterId) }
 
     // A series' first chapter for opening it: the kept list's, else the site's (urgent; most
     // sites answer without the whole list).
-    func oldest(series: String, slug: String) async throws -> String? {
+    public func oldest(series: String, slug: String) async throws -> String? {
         if let list = await knownList(series: series) { return list.last }
         let key = "oldest:" + series
         if let task = oldestTasks[series] { return try await task.value }
@@ -148,7 +149,7 @@ actor ChapterSource {
     var queueState: [String: Int] { get async { await queue.state } }
 
     // The list as known now (kept, then extended by the Home row); nil before the first fetch.
-    func knownList(series: String) async -> [String]? {
+    public func knownList(series: String) async -> [String]? {
         var list = lists[series]
         if list == nil, let saved = await files.list(series) { list = saved }
         guard let list else { return nil }
@@ -161,7 +162,7 @@ actor ChapterSource {
     }
 
     // The site's list (one request per series at a time), extended by the Home row and kept.
-    func fetchList(series: String, slug: String, urgent: Bool) async throws -> [String] {
+    public func fetchList(series: String, slug: String, urgent: Bool) async throws -> [String] {
         let key = "list:" + series
         if urgent { await queue.prioritize(key) }
         if let task = listTasks[series] { return try await task.value }
@@ -214,11 +215,11 @@ actor ChapterSource {
 
 // MARK: - Image files (images/ and covers/, <sha256(url)> plus a .mime marker of completion)
 
-struct ImageItem: Hashable, Sendable {
-    let url: String
-    let cover: Bool
-    let name: String
-    init(url: String, cover: Bool) {
+public struct ImageItem: Hashable, Sendable {
+    public let url: String
+    public let cover: Bool
+    public let name: String
+    public init(url: String, cover: Bool) {
         self.url = url; self.cover = cover
         name = (cover ? "covers/" : "images/") + FileKey.sha256(url)
     }
@@ -259,7 +260,7 @@ enum ImageDimensions {
 // The only owner of image bytes. Pages on screen load first (shared per image, dropped when
 // nobody waits); then the reader's current/next pair, covers and touched series' pairs.
 // Retired downloaded pages expire after 24 hours; covers are kept permanently.
-actor ImageFiles {
+public actor ImageFiles {
     private struct Transfer {
         var ownership = SharedWorkState()
         var id: UUID { ownership.id }
@@ -314,18 +315,18 @@ actor ImageFiles {
     private var readerObservers: [@Sendable (Bool, Int) -> Void] = []
     private var lastAsked: [String: Date] = [:]
 
-    init(root: URL, http: HTTPClient, referer: String, limiter: RequestLimiter? = nil) {
+    public init(root: URL, http: HTTPClient, referer: String, limiter: RequestLimiter? = nil) {
         self.root = root
         self.http = SiteClient(http: http, limiter: limiter ?? RequestLimiter(.media))
         self.referer = referer
         retention = (try? DurableFile.readJSON(PageRetention.self, from: root.appendingPathComponent("page-retention.json"))) ?? PageRetention()
     }
 
-    nonisolated func url(_ item: ImageItem) -> URL { root.appendingPathComponent(item.name) }
+    public nonisolated func url(_ item: ImageItem) -> URL { root.appendingPathComponent(item.name) }
 
     // The file when it is already complete on the phone (read without waiting for the actor:
     // a relaunch decodes it for the first frame).
-    nonisolated func localFile(_ item: ImageItem) -> URL? {
+    public nonisolated func localFile(_ item: ImageItem) -> URL? {
         let file = url(item)
         guard FileManager.default.fileExists(atPath: file.appendingPathExtension("mime").path), (DurableFile.size(file) ?? 0) > 0 else { return nil }
         return file
@@ -348,18 +349,18 @@ actor ImageFiles {
     func isComplete(_ item: ImageItem) -> Bool { complete(item) }
 
     // Which of these files are complete.
-    func completed(_ names: [String]) -> [String] {
+    public func completed(_ names: [String]) -> [String] {
         names.filter { complete($0) }
     }
 
-    func onFinished(_ observer: @escaping @Sendable (ImageItem) -> Void) { observers.append(observer) }
+    public func onFinished(_ observer: @escaping @Sendable (ImageItem) -> Void) { observers.append(observer) }
     func onReaderWorkChanged(_ observer: @escaping @Sendable (Bool, Int) -> Void) {
         readerObservers.append(observer)
         observer(readerWorkPending(), readerRevision)
     }
 
     // An image someone is looking at.
-    func file(_ item: ImageItem) async throws -> URL {
+    public func file(_ item: ImageItem) async throws -> URL {
         if complete(item) { return url(item) }
         try Task.checkCancellation()
         // Promote the existing work by awaiting it; never throw away bytes already arriving.
@@ -618,7 +619,7 @@ actor ImageFiles {
     }
 
     // Paused while the app is away (the background session carries on).
-    func setActive(_ value: Bool) {
+    public func setActive(_ value: Bool) {
         active = value
         if value { planCursor = 0 }
         if !value {
@@ -653,7 +654,7 @@ actor ImageFiles {
         pump()
     }
 
-    func invalidate(_ item: ImageItem) { invalidate(item.name) }
+    public func invalidate(_ item: ImageItem) { invalidate(item.name) }
     func invalidate(_ name: String) { remove(name); planCursor = 0; pump() }
 
     func readerWorkPending() -> Bool {
@@ -737,7 +738,7 @@ actor ImageFiles {
         pump()
     }
 
-    var state: [String: Int] {
+    public var state: [String: Int] {
         ["foreground": foreground.count, "background": background.count, "planned": plan.count, "done": done.count, "failed": failed.count, "active": active ? 1 : 0, "fileChecks": fileChecks, "planCursor": planCursor]
     }
 }

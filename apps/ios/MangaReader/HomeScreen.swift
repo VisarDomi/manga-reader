@@ -3,6 +3,8 @@ import KitCore
 import KitImages
 import KitLists
 import KitNavigation
+import MangaLibrary
+import MangaSources
 
 // The site's whole catalog, latest updates first, one card per series: the cover (resume)
 // and the newest chapters, coloured by where reading stands (read, partly read, locked with
@@ -351,7 +353,7 @@ final class HomeCell: UITableViewCell {
 
     private func open(_ target: Target) { delegate?.card(self, opened: target) }
 
-    func configure(_ series: HomeSeries, progress: Progress?, app: AppController, delegate: HomeCellDelegate) {
+    func configure(_ series: HomeSeries, progress: MangaLibrary.Progress?, app: AppController, delegate: HomeCellDelegate) {
         self.series = series
         self.delegate = delegate
         let ids = series.chapters.map(\.chapterId)

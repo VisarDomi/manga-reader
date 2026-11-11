@@ -81,22 +81,61 @@ back after a relaunch.
 There is no server history, tracking, provider login, search, settings or icon
 artwork (iOS supplies its standard fallback icon).
 
+## Modules
+
+The code is three Swift modules. A release build optimizes each module as a whole, so one big
+module re-optimized everything on every edit, on one core. Now an edit to a function body
+recompiles only its own module, and independent modules optimize in parallel.
+
+| Module | Folder | What | Imports |
+| --- | --- | --- | --- |
+| `MangaSources` | `Core/Sources/MangaSources` | The sites: admission and pacing, background transfers, the seven providers. | Kit |
+| `MangaLibrary` | `Core/Sources/MangaLibrary` | Reading state, saved chapters and lists, downloads, the catalog walk. | `MangaSources`, Kit |
+| `MangaReader` (app target) | `MangaReader/` | The UIKit screens and the app object only. | both, Kit |
+
+`Core/` is a local Swift package in `MangaReader.xcodeproj`, like `Kit/`. Measured November 11
+(Asura, unsigned release device build on the Mac). The ios-push case is a fresh build folder
+with a warm compile cache.
+
+| Edit (a function body) | Before (one module) | After |
+| --- | --- | --- |
+| A screen (`HomeScreen.swift`) | 35 s, ios-push 52 s | 15 s, ios-push 28 s |
+| A site (`Providers.swift`) | 39 s, ios-push 52 s | 24 s, ios-push 33 s |
+| The library (`Library.swift`) | 40 s, ios-push 51 s | 24 s, ios-push 36 s |
+| A new declaration in `MangaLibrary` | ios-push 52 s | ios-push 43 s (it and the app target) |
+| Nothing cached (cold) | 85 s | 93 s |
+
+Rules that keep it fast:
+
+- New code that does not need UIKit goes into a `Core` module, not `MangaReader/`. Do not move
+  code back into the app target or merge modules.
+- What another module uses is `public`, with an explicit `public init` where it is built
+  elsewhere (Swift's memberwise initializer is never public). Mark an actor's `let` that
+  others read `nonisolated`.
+- Changing a function body rebuilds one module. Adding or changing a declaration rebuilds
+  that module and the modules importing it. Keep the imports one-way:
+  `MangaSources` ← `MangaLibrary` ← app.
+- Split a module that grows past about 2,000 lines along its dependencies.
+- `scripts/test.sh` builds the two modules separately with `-enable-testing`; `Tests/` use
+  `@testable import`. QA overlays (`build-reader-qa.py`) build them testable too.
+
 ## Code map
 
 | Path | What it owns |
 | --- | --- |
 | `MangaReader/AppDelegate.swift` | Launch, the background app refresh task (`<bundle id>.refresh`, earliest 20 minutes after leaving), background URLSession events, the dark window. |
 | `MangaReader/AppController.swift` | The app object: data folder, site HTTP client (the site's origin as Referer, cookies), provider, image pipeline (192 MB, 6 decodes), screen stack (`navigation.json`), lifecycle hooks, simulator test-hook actions, the one-time `views.json` migration. |
-| `MangaReader/Providers.swift` | The seven sites: catalog pages, chapters, chapter lists, first chapter. |
-| `MangaReader/Site.swift` | Shared provider admission, pacing, concurrency, quota headers and durable cooldowns. |
-| `MangaReader/SiteTransfers.swift` | Durable, sequential background image handoff through the same provider gate. |
-| `MangaReader/Downloads.swift` | `MetadataQueue` (screen work before background work), `ChapterSource` (saved chapters and lists first, the site when needed), `ImageFiles` (the only owner of image bytes; cover rechecks). |
-| `MangaReader/Library.swift` | The catalog walk, the download plan, pruning, page sizes recorded from images, positions, the hand-off to iOS's background session and background refresh. |
-| `MangaReader/Store.swift` | Reading progress (`database.json`), saved chapters and lists (`chapters/`), `withNewerChapters`, the catalog as last seen. |
+| `Core/Sources/MangaSources/Providers.swift` | The seven sites: catalog pages, chapters, chapter lists, first chapter. |
+| `Core/Sources/MangaSources/Site.swift` | Shared provider admission, pacing, concurrency, quota headers and durable cooldowns. |
+| `Core/Sources/MangaSources/SiteTransfers.swift` | Durable, sequential background image handoff through the same provider gate. |
+| `Core/Sources/MangaLibrary/Downloads.swift` | `MetadataQueue` (screen work before background work), `ChapterSource` (saved chapters and lists first, the site when needed), `ImageFiles` (the only owner of image bytes; cover rechecks). |
+| `Core/Sources/MangaLibrary/Library.swift` | The catalog walk, the download plan, pruning, page sizes recorded from images, positions, the hand-off to iOS's background session and background refresh. |
+| `Core/Sources/MangaLibrary/Store.swift` | Reading progress (`database.json`), saved chapters and lists (`chapters/`), `withNewerChapters`, the catalog as last seen. |
 | `MangaReader/HomeScreen.swift` | Home: cards, chapter colours and taps, status line, Load/Save. |
 | `MangaReader/ReaderScreen.swift` | UIKit viewport and session binding. |
 | `MangaReader/ReadingSession.swift` | Reader document, preparation/retries, priority and progress/resume mapping. |
 | `MangaReader/PCSave.swift` | The PC Load/Save client. |
+| `Core/Package.swift` | The `MangaSources` and `MangaLibrary` modules (see Modules). |
 | `Kit/` | Vendored NativeKit. Do not edit here (see Rules). |
 | `Resources/Info.plist` | The shared Info.plist; the builder sets `READER_PROVIDER`, `READER_DISPLAY_NAME` and `READER_ORIGIN` from `providers.json`. Background fetch, the refresh task ID, local network access for the PC. |
 | `Resources/Native/` | Private, ignored `BackupConfig.json` and `LocalCA.cer`, bundled as `Native/`. |

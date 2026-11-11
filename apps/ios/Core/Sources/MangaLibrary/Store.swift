@@ -1,6 +1,7 @@
 import CoreGraphics
 import CryptoKit
 import Foundation
+import MangaSources
 import KitCore
 
 // MARK: - Reading progress (database.json, the web version's format; the PC keeps the same)
@@ -33,19 +34,19 @@ enum JSONValue: Codable, Sendable, Equatable {
 }
 
 // Where a series was left: one per series (`seriesSlug` is the series identity).
-struct Progress: Codable, Sendable, Equatable {
+public struct Progress: Codable, Sendable, Equatable {
     var id: String
     var provider: String
     var seriesSlug: String
-    var chapterId: String
-    var imageIndex: Int
+    public var chapterId: String
+    public var imageIndex: Int
     var totalImages: Int
     // Milliseconds since 1970.
     var updatedAt: Double
 
     static func id(_ provider: String, _ series: String) -> String { provider + "\u{0}" + series }
 
-    var complete: Bool { imageIndex >= totalImages - 1 }
+    public var complete: Bool { imageIndex >= totalImages - 1 }
 
     init(provider: String, series: String, chapterId: String, imageIndex: Int, totalImages: Int, updatedAt: Double) throws {
         guard imageIndex >= 0 else { throw StoreError.invalid("Cannot save an invalid page index") }
@@ -60,9 +61,9 @@ struct Progress: Codable, Sendable, Equatable {
     }
 }
 
-enum StoreError: LocalizedError {
+public enum StoreError: LocalizedError {
     case invalid(String)
-    var errorDescription: String? { if case .invalid(let text) = self { return text }; return nil }
+    public var errorDescription: String? { if case .invalid(let text) = self { return text }; return nil }
 }
 
 struct Database: Codable, Sendable, Equatable {
@@ -159,19 +160,19 @@ struct Database: Codable, Sendable, Equatable {
 }
 
 extension Notification.Name {
-    static let progressChanged = Notification.Name("MangaProgressChanged")
+    public static let progressChanged = Notification.Name("MangaProgressChanged")
 }
 
 // The phone's reading state: where each series was left. Every change is written at once
 // (off the main thread, atomically and synced), so a kill keeps the last page read.
 @MainActor
-final class ReadingState {
-    let provider: String
+public final class ReadingState {
+    public let provider: String
     private(set) var database: Database
     private(set) var bySeries: [String: Progress] = [:]
     private let writer: BackgroundWriter
 
-    init(directory: URL, provider: String) {
+    public init(directory: URL, provider: String) {
         self.provider = provider
         writer = BackgroundWriter(url: directory.appendingPathComponent("database.json"), label: "manga-database")
         var database = Database.empty
@@ -201,13 +202,13 @@ final class ReadingState {
         bySeries = Dictionary(database.indexedDB.progress.filter { $0.provider == provider }.map { ($0.seriesSlug, $0) }, uniquingKeysWith: { $1 })
     }
 
-    func progress(_ series: String) -> Progress? { bySeries[series] }
+    public func progress(_ series: String) -> Progress? { bySeries[series] }
 
     // Started series, the most recently read first.
-    var started: [Progress] { bySeries.values.sorted { $0.updatedAt > $1.updatedAt } }
+    public var started: [Progress] { bySeries.values.sorted { $0.updatedAt > $1.updatedAt } }
 
     // A settled page; nothing is written when it did not change.
-    func save(series: String, chapterId: String, imageIndex: Int, totalImages: Int) {
+    public func save(series: String, chapterId: String, imageIndex: Int, totalImages: Int) {
         if let current = bySeries[series], current.chapterId == chapterId, current.imageIndex == imageIndex, current.totalImages == totalImages { return }
         guard let entry = try? Progress(provider: provider, series: series, chapterId: chapterId, imageIndex: imageIndex,
                                         totalImages: totalImages, updatedAt: (Date().timeIntervalSince1970 * 1000).rounded()) else { return }
@@ -227,14 +228,14 @@ final class ReadingState {
     func flush() { writer.flush() }
 
     // The PC save: this site's positions with the rest of the database.
-    func backup() throws -> Data {
+    public func backup() throws -> Data {
         var database = database
         database.indexedDB.progress = database.indexedDB.progress.filter { $0.provider == provider }
         return try Self.encode(database)
     }
 
     // A PC save replaces this site's positions (other sites' and the tokens stay).
-    func restore(_ data: Data) throws {
+    public func restore(_ data: Data) throws {
         var incoming = try Database.validate(data)
         guard incoming.indexedDB.progress.allSatisfy({ $0.provider == provider }) else { throw StoreError.invalid("Wrong provider in PC state") }
         incoming.indexedDB.progress += database.indexedDB.progress.filter { $0.provider != provider }
@@ -298,7 +299,7 @@ enum FileKey {
 
 // A chapter's pages and a series' chapter list, as last fetched: reopening never waits for
 // the network, and prepared chapters read offline.
-actor ChapterFiles {
+public actor ChapterFiles {
     private let directory: URL
     private final class CachedChapter {
         let data: ChapterData
@@ -308,7 +309,7 @@ actor ChapterFiles {
     private var absent = Set<String>()
     private(set) var diskReads = 0
 
-    init(directory: URL) {
+    public init(directory: URL) {
         self.directory = directory.appendingPathComponent("chapters")
         memory.totalCostLimit = 32 << 20
     }
@@ -332,7 +333,7 @@ actor ChapterFiles {
     }
 
     // A saved chapter read on the calling thread (a relaunch lays it out before the first frame).
-    nonisolated func chapterNow(_ series: String, _ chapterId: String) -> ChapterData? {
+    public nonisolated func chapterNow(_ series: String, _ chapterId: String) -> ChapterData? {
         guard let data = try? DurableFile.readJSON(ChapterData.self, from: file(FileKey.chapter(series, chapterId))), !data.images.isEmpty else { return nil }
         return data
     }
@@ -347,7 +348,7 @@ actor ChapterFiles {
         return data
     }
 
-    func save(_ data: ChapterData, series: String) {
+    public func save(_ data: ChapterData, series: String) {
         let key = FileKey.chapter(series, data.chapterId)
         absent.remove(key)
         remember(key, data)
@@ -392,7 +393,7 @@ actor ChapterFiles {
         return items.map(\.chapterId)
     }
 
-    func saveList(_ chapters: [String], series: String) {
+    public func saveList(_ chapters: [String], series: String) {
         absent.remove(FileKey.list(series))
         do { try DurableFile.writeJSON(chapters.map(Item.init), to: file(FileKey.list(series))) }
         catch { Log.store.error("Chapter list not saved: \(error.localizedDescription, privacy: .public)") }
@@ -412,7 +413,7 @@ actor ChapterFiles {
 // in front only when the rest of `newer` continues `list` exactly for at least two chapters:
 // true of a run of the newest chapters, never of a selection that skips some, so a chapter is
 // never skipped. Otherwise `list` unchanged.
-func withNewerChapters(_ list: [String], _ newer: [String]) -> [String] {
+public func withNewerChapters(_ list: [String], _ newer: [String]) -> [String] {
     guard let first = list.first, let head = newer.firstIndex(of: first), head > 0 else { return list }
     let overlap = min(newer.count - head, list.count)
     guard overlap >= 2 else { return list }
@@ -422,12 +423,16 @@ func withNewerChapters(_ list: [String], _ newer: [String]) -> [String] {
 
 // MARK: - The catalog as last seen (catalog.json): Home opens with it at once
 
-struct Catalog: Codable, Sendable, Equatable {
-    var series: [HomeSeries] = []
-    var total: Int?
+public struct Catalog: Codable, Sendable, Equatable {
+    public var series: [HomeSeries] = []
+    public var total: Int?
     // Every page was read at least once.
-    var complete = false
-    var fetchedAt: Date?
+    public var complete = false
+    public var fetchedAt: Date?
+
+    public init(series: [HomeSeries] = [], total: Int? = nil, complete: Bool = false, fetchedAt: Date? = nil) {
+        self.series = series; self.total = total; self.complete = complete; self.fetchedAt = fetchedAt
+    }
 
     // A fresh run of pages (newest first) in front, the rest as they were.
     static func merged(_ cached: [HomeSeries], fresh: [HomeSeries], identity: (HomeSeries) -> String) -> [HomeSeries] {

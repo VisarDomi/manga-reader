@@ -4,6 +4,8 @@ import KitCore
 import KitLists
 import KitNavigation
 import KitTestHooks
+@testable import MangaLibrary
+@testable import MangaSources
 
 // Uses the production navigation, Home cover action, reader and on-disk state.
 // Reset once explicitly; ordinary relaunches must restore the same fixture data.

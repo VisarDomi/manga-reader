@@ -7,6 +7,8 @@ import KitNavigation
 import KitNet
 import KitReader
 import KitTestHooks
+import MangaLibrary
+import MangaSources
 
 // Where a screen is.
 enum Route: Codable, Hashable, Sendable {

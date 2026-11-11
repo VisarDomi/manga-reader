@@ -15,7 +15,7 @@ for key, provider in json.loads((root / 'providers.json').read_text()).items():
     apps.append(dict(name=key, root=str(root),
                      app='build/' + key + '.paid/Release-iphoneos/' + provider['productName'] + '.app',
                      bundleIds=[provider['bundleIdentifier'] + '.paid'],
-                     inputs=['MangaReader', 'MangaReader.xcodeproj', 'Kit', 'Resources/Info.plist', 'Resources/Native',
+                     inputs=['MangaReader', 'Core', 'MangaReader.xcodeproj', 'Kit', 'Resources/Info.plist', 'Resources/Native',
                              'providers.json', 'scripts/build-guest.py'],
                      build=['/usr/bin/python3', 'scripts/build-guest.py', key],
                      environment={'DEVELOPMENT_TEAM': args.team, 'DEVELOPMENT_DEVICE': args.device,

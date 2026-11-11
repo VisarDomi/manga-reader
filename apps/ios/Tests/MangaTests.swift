@@ -5,6 +5,8 @@ import ImageIO
 #endif
 import KitCore
 import KitNet
+@testable import MangaLibrary
+@testable import MangaSources
 
 func expect(_ condition: @autoclosure () throws -> Bool, _ message: String) {
     do { if try !condition() { print("FAIL: " + message); exit(1) } }

@@ -6,8 +6,8 @@ import KitLifecycle
 // The existing background-session identity is retained. Only one admitted request is
 // handed to iOS at a time: earliestBeginDate alone cannot pace a batch after suspension.
 // The remaining plan and the limiter's reservations survive termination and reboot.
-final class SiteTransfers: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
-    typealias Item = BackgroundTransfers.Item
+public final class SiteTransfers: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
+    public typealias Item = BackgroundTransfers.Item
     struct Pending: Codable, Sendable { let item: Item; let ticket: RequestLimiter.Ticket? }
     private let root: URL
     private let accept: @Sendable (HTTPURLResponse) -> Bool
@@ -32,7 +32,7 @@ final class SiteTransfers: NSObject, URLSessionDownloadDelegate, @unchecked Send
     }()
     private let identifier: String
 
-    init(identifier: String, root: URL, limiter: RequestLimiter,
+    public init(identifier: String, root: URL, limiter: RequestLimiter,
          accept: @escaping @Sendable (HTTPURLResponse) -> Bool,
          committed: @escaping @Sendable (Item, HTTPURLResponse) -> Void) {
         self.identifier = identifier; self.root = root
@@ -42,12 +42,12 @@ final class SiteTransfers: NSObject, URLSessionDownloadDelegate, @unchecked Send
         _ = session
     }
 
-    func handleEvents(_ callback: Completion, continueDownloads: Bool = true) async {
+    public func handleEvents(_ callback: Completion, continueDownloads: Bool = true) async {
         let session = session
         await queue.handleEvents(session, callback, continueDownloads: continueDownloads)
     }
-    func handOff(_ items: [Item]) async { await queue.handOff(items, session: session) }
-    func reclaim() async { await queue.reclaim(session) }
+    public func handOff(_ items: [Item]) async { await queue.handOff(items, session: session) }
+    public func reclaim() async { await queue.reclaim(session) }
 
     private static func decode(_ description: String?) -> Pending? {
         guard let description else { return nil }
@@ -57,7 +57,7 @@ final class SiteTransfers: NSObject, URLSessionDownloadDelegate, @unchecked Send
         return (try? JSONDecoder().decode(Item.self, from: data)).map { Pending(item: $0, ticket: nil) }
     }
 
-    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
+    public func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
         guard let pending = Self.decode(downloadTask.taskDescription),
               Self.safe(pending.item.file), let response = downloadTask.response as? HTTPURLResponse, accept(response) else { return }
         do {
@@ -67,20 +67,23 @@ final class SiteTransfers: NSObject, URLSessionDownloadDelegate, @unchecked Send
         } catch { Log.network.error("Background image: \(error.localizedDescription, privacy: .public)") }
     }
 
-    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+    public func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         let success = lock.withLock { successful.remove(task.taskIdentifier) != nil }
         let pending = Self.decode(task.taskDescription)
         let cancelled = (error as? URLError)?.code == .cancelled
         let response = task.response as? HTTPURLResponse
         Task { await queue.finished(pending, response: response, success: success, cancelled: cancelled, session: session) }
     }
-    func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
+    public func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
         Task { await queue.eventsFinished(session) }
     }
     private static func safe(_ file: String) -> Bool {
         !file.hasPrefix("/") && !file.isEmpty && !file.split(separator: "/").contains("..")
     }
-    struct Completion: @unchecked Sendable { let call: () -> Void }
+    public struct Completion: @unchecked Sendable {
+        let call: () -> Void
+        public init(call: @escaping () -> Void) { self.call = call }
+    }
 
     private actor TransferQueue {
         enum Mode { case foreground, background }
