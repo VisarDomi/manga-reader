@@ -23,5 +23,5 @@ for module in MangaSources MangaLibrary; do
   linking+=("-l$module")
 done
 "${SWIFTC[@]}" ${SHIM_FLAGS[@]+"${SHIM_FLAGS[@]}"} "${linking[@]}" \
-  Tests/WorkloadScenario.swift Tests/RequestLimitChecks.swift Tests/MangaTests.swift -o "$test_dir/manga-tests"
+  Tests/WorkloadScenario.swift Tests/RequestLimitChecks.swift Tests/PCRouteChecks.swift Tests/MangaTests.swift -o "$test_dir/manga-tests"
 "$test_dir/manga-tests" Tests/Fixtures

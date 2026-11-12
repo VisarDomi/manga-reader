@@ -439,13 +439,20 @@ replaces the phone's positions for this site with the PC's, even if older. Other
 sites' positions and the `tokens` rows stay. Load rejects a save holding another
 site's positions or a repeated series; an empty save is a valid Load. Nothing is
 automatic: no merging, polling or background backup. The controls show only while
-the PC answers; requests give up after 5 s. The server is in
-[server/README.md](../../server/README.md).
+the PC answers. The server is in [server/README.md](../../server/README.md).
 
-The app reads the PC's address and key from the ignored
-`Resources/Native/BackupConfig.json` (`url`, `key`) and trusts the PC's mkcert CA
-from `Resources/Native/LocalCA.cer`; without them there are no PC controls. Built
-apps contain the key: never publish or share them.
+The PC is asked at home first and then through its public route, the way Guidance
+does (`PCRoutes` in MangaLibrary): `https://192.168.1.197:7711` for 2 s, and on a
+transport failure `https://pc-apps.veron3.space/manga` (Hetzner, see environment
+`services/hetzner-pc`, "pc-apps") with the system's certificate trust. Home is then
+skipped for 45 s. An HTTP status from either address is final, and a Save is sent
+once, to the address that just answered the status request. The same key goes to both.
+
+The app reads the addresses and key from the ignored
+`Resources/Native/BackupConfig.json` (`url`, `publicURL`, `key`) and trusts the PC's
+mkcert CA from `Resources/Native/LocalCA.cer` for the home address only; without the
+file there are no PC controls, without `publicURL` none away from home. Built apps
+contain the key: never publish or share them.
 
 ## Build, test, deploy
 
