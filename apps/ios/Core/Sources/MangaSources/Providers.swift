@@ -154,6 +154,24 @@ enum Web {
         return pairs.map { encode($0.0) + "=" + encode($0.1) }.joined(separator: "&")
     }
 
+    // A WordPress MangaReader-theme chapter page's `ts_reader.run({...})` data, in either form the
+    // sites have served: an inline script (Violet; Scythe since November 2026), or the same script
+    // moved into a base64 `data:` URI (Scythe until then). Either may appear, so both are read.
+    static func readerData(_ html: String) throws -> [String: Any] {
+        var json = first(#"ts_reader\.run\((\{[\s\S]*?\})\);?\s*</script>"#, in: html)?[1]
+        if json == nil {
+            for match in matches(#"<script defer src="data:text/javascript;base64,([A-Za-z0-9+/=]+)"></script>"#, in: html) {
+                guard let encoded = match[1], let data = Data(base64Encoded: encoded) else { continue }
+                let decoded = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+                if let found = first(#"^ts_reader\.run\((\{[\s\S]*\})\);?$"#, in: decoded)?[1] { json = found; break }
+            }
+        }
+        guard let json, let object = try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any] else {
+            throw ProviderError.invalid("Chapter response did not contain reader data")
+        }
+        return object
+    }
+
     static func resolve(_ href: String, _ base: URL) -> URL? { URL(string: href.trimmingCharacters(in: .whitespacesAndNewlines), relativeTo: base)?.absoluteURL }
 
     // JavaScript's String(number).
@@ -632,18 +650,8 @@ struct Scythe: MangaProvider {
         return series
     }
 
-    // The page's base64 `ts_reader.run({...})` data.
-    static func readerData(_ html: String) throws -> [String: Any] {
-        for match in Web.matches(#"<script defer src="data:text/javascript;base64,([A-Za-z0-9+/=]+)"></script>"#, in: html) {
-            guard let encoded = match[1], let data = Data(base64Encoded: encoded) else { continue }
-            let decoded = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard decoded.contains("ts_reader.run(") else { continue }
-            guard let json = Web.first(#"^ts_reader\.run\((\{[\s\S]*\})\);?$"#, in: decoded)?[1],
-                  let object = try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any] else { break }
-            return object
-        }
-        throw ProviderError.invalid("Chapter response did not contain reader data")
-    }
+    // The page's `ts_reader.run({...})` data (see Web.readerData).
+    static func readerData(_ html: String) throws -> [String: Any] { try Web.readerData(html) }
 
     static func images(_ data: [String: Any]) throws -> [String] {
         guard let source = data["defaultSource"] as? String, !source.trimmingCharacters(in: .whitespaces).isEmpty else {
@@ -829,11 +837,7 @@ struct Violet: MangaProvider {
     // A coin-locked chapter answers with its page and `lock-status` instead of the reader: nil.
     static func parseChapter(_ html: String, slug: String, chapterId: String) throws -> ChapterData? {
         if html.contains("class=\"lock-status\"") { return nil }
-        guard let json = Web.first(#"ts_reader\.run\((\{[\s\S]*?\})\);?\s*</script>"#, in: html)?[1],
-              let data = try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any] else {
-            throw ProviderError.invalid("Chapter response did not contain reader data")
-        }
-        let sources = try Scythe.images(data)
+        let sources = try Scythe.images(try Web.readerData(html))
         let history = Web.first(#"HISTORY\.push\(\d+,\s*(\{[\s\S]*?\})\);?"#, in: html)?[1]
             .flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
         let listed = Web.first(#"<div class="allc">All chapters are in <a[^>]*>([^<]+)</a></div>"#, in: html)?[1]

@@ -201,8 +201,13 @@ applies EXIF orientation before a page box is published.
   cached list is, and the next refresh retries. Later home pages' edge copies can
   be weeks old.
   Chapter IDs are `<series>-chapter-<n>[.m][-k]` (`-chapter-194-2` is 194).
-  Coin-locked chapters carry `center-lock`. Pages come from the base64
-  `ts_reader.run` data's default source.
+  Coin-locked chapters carry `center-lock`. Pages come from the `ts_reader.run`
+  data's default source. Until November 2026 that script was a base64 `data:` URI;
+  since then it is inline (as on Violet), and its images are on the website itself
+  (`/wp-content/uploads/`, the website's budget) instead of `i*.wp.com`. Both forms
+  are read (`Web.readerData`). On November 19, 2026 home, series and chapter pages
+  answered `cf-cache-status: DYNAMIC` in 0.5 to 1.2 s; the no-cache-busting rule
+  stays until slow origin renders are shown to be gone for good.
 - **Yaksha** (WordPress, Madara theme). A missing chapter answers 200 with the
   series page: it counts as unavailable. The list is each chapter row's own link
   (reading the number after "Chapter" lost titled chapters such as "Chapter 3 -

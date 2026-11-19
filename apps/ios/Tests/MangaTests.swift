@@ -400,7 +400,14 @@ struct MangaTests {
         let scytheCatalog = try Scythe.parseCatalog(try fixture("scythe-catalog.html"), page: 1)
         expect(scytheCatalog.nextCursor == "catalog:2" && scytheCatalog.series[1].chapters.first?.chapterId == "magic-emperor-chapter-920", "Scythe catalog")
         let scytheChapter = try Scythe.parseChapter(try text("scythe-chapter.html"), slug: "magic-emperor", chapterId: "magic-emperor-chapter-920")
-        expect(scytheChapter.images.count == 7 && scytheChapter.seriesTitle == "Magic Emperor", "Scythe chapter from reader data")
+        expect(scytheChapter.images.count == 7 && scytheChapter.seriesTitle == "Magic Emperor", "Scythe chapter from base64 reader data")
+        // Since November 2026 the site serves the reader data as a plain inline script.
+        let villains = "my-disciples-are-all-big-villains"
+        let inlineChapter = try Scythe.parseChapter(try text("scythe-chapter-inline.html"), slug: villains, chapterId: "\(villains)-chapter-582")
+        expect(inlineChapter.images.count == 5 && inlineChapter.seriesTitle == "My Disciples Are All Big Villains"
+               && inlineChapter.images[0].url == "https://scythescans.com/wp-content/uploads/2026/11/01-15.webp", "Scythe chapter from inline reader data")
+        expect(try Scythe.readerData(text("scythe-chapter-inline.html"))["prevUrl"] as? String == "https://scythescans.com/\(villains)-chapter-581/",
+               "Scythe previous chapter (list join) from inline reader data")
         let listed = try Scythe.parseListed(try fixture("scythe-series.html"), slug: "magic-emperor")
         expect(listed.count == 920 && listed[0] == "magic-emperor-chapter-920", "Scythe chapter list")
         expect(Scythe.route("/worlds-strongest-troll-chapter-194-2/")! == ("worlds-strongest-troll", "worlds-strongest-troll-chapter-194-2", "194"), "Scythe collision suffix")
