@@ -7,38 +7,16 @@ import fs from 'node:fs';
 import https from 'node:https';
 import os from 'node:os';
 import path from 'node:path';
-import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
+import { durableWrite, privateDirectory } from './durable.mjs';
+import { SEARCH_ROOT, Search, SearchInputError, searchModelsFromEnvironment } from './search.mjs';
 
 export const PORT = 7711;
 export const ROOT = path.join(os.homedir(), '.local/share/manga-reader/backups');
-const PROVIDERS = ['asurascans', 'ezmanga', 'qimanga', 'yakshacomics', 'scythescans', 'luacomic', 'violetscans'];
+export const PROVIDERS = ['asurascans', 'ezmanga', 'qimanga', 'yakshacomics', 'scythescans', 'luacomic', 'violetscans'];
 const LIMIT = 5 * 1024 * 1024;
-
-function privateDirectory(directory) {
-    if (fs.existsSync(directory)) return;
-    const parent = path.dirname(directory);
-    privateDirectory(parent);
-    fs.mkdirSync(directory, { mode: 0o700 });
-    syncDirectory(parent);
-}
-
-function syncDirectory(directory) {
-    const descriptor = fs.openSync(directory, 'r');
-    try { fs.fsyncSync(descriptor); } finally { fs.closeSync(descriptor); }
-}
-
-/** Write, fsync, rename, and fsync the parent directory. */
-function durableWrite(file, text) {
-    const temporary = `${file}.${process.pid}.${randomUUID()}.tmp`;
-    const descriptor = fs.openSync(temporary, 'wx', 0o600);
-    try {
-        fs.writeFileSync(descriptor, text);
-        fs.fsyncSync(descriptor);
-    } finally { fs.closeSync(descriptor); }
-    try { fs.renameSync(temporary, file); } catch (error) { fs.rmSync(temporary, { force: true }); throw error; }
-    syncDirectory(path.dirname(file));
-}
+const SEARCH_LIMIT = 1024 * 1024;
 
 export function validateMangaState(data, provider) {
     const db = data?.indexedDB;
@@ -84,18 +62,35 @@ function send(res, status, value) {
     else res.writeHead(status, { 'Content-Type': 'application/json' }).end(JSON.stringify(value));
 }
 
-function readBody(req) {
+function readBody(req, limit = LIMIT) {
     return new Promise((resolve, reject) => {
         const chunks = [];
         let size = 0;
-        req.on('data', chunk => { size += chunk.length; if (size <= LIMIT) chunks.push(chunk); });
-        req.on('end', () => size > LIMIT ? reject(Object.assign(new Error('Reading state too large'), { status: 413 })) : resolve(Buffer.concat(chunks).toString('utf8')));
+        req.on('data', chunk => { size += chunk.length; if (size <= limit) chunks.push(chunk); });
+        req.on('end', () => size > limit ? reject(Object.assign(new Error('Request too large'), { status: 413 })) : resolve(Buffer.concat(chunks).toString('utf8')));
         req.on('error', reject);
     });
 }
 
-/** Request handler for /api/reader-backups/manual/manga-reader/<provider>[/status]. */
-export function handler(root) {
+/** /api/manga-reader/search/<provider>[/status] (search.mjs): whether search is offered, and a search. */
+async function searchRoute(search, req, res, provider, action, depth) {
+    if (!PROVIDERS.includes(provider)) return send(res, 400, { error: 'Unknown provider' });
+    if (req.method === 'GET' && action === 'status' && depth === 5) return send(res, 200, await search.status());
+    if (req.method === 'POST' && depth === 4) {
+        let body;
+        try { body = JSON.parse(await readBody(req, SEARCH_LIMIT)); }
+        catch (error) { return send(res, error.status ?? 400, { error: 'Invalid search' }); }
+        try { return send(res, 200, await search.search(provider, body?.query, body?.titles)); }
+        catch (error) {
+            if (error instanceof SearchInputError) return send(res, 400, { error: error.message });
+            return send(res, 503, { error: 'Search unavailable' });
+        }
+    }
+    return send(res, 404, { error: 'Not found' });
+}
+
+/** Request handler for /api/reader-backups/manual/manga-reader/<provider>[/status] and the search (searchRoute). */
+export function handler(root, { search } = {}) {
     const state = new MangaState(root);
     const keyFile = path.join(root, 'access-key');
     if (!fs.existsSync(keyFile)) durableWrite(keyFile, randomBytes(32).toString('hex'));
@@ -106,6 +101,7 @@ export function handler(root) {
         if (key.length !== supplied.length || !timingSafeEqual(key, supplied)) return send(res, 401, { error: 'Backup access key required' });
         try {
             const parts = new URL(req.url, 'https://localhost').pathname.split('/').filter(Boolean).map(decodeURIComponent);
+            if (search && parts.slice(0, 3).join('/') === 'api/manga-reader/search') return await searchRoute(search, req, res, parts[3], parts[4], parts.length);
             if (parts.slice(0, 4).join('/') !== 'api/reader-backups/manual/manga-reader') return send(res, 404, { error: 'Not found' });
             const [provider, action] = parts.slice(4);
             if (req.method === 'GET' && action === 'status' && parts.length === 6) {
@@ -147,7 +143,7 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
     else {
         const tls = { key: fs.readFileSync(path.join(os.homedir(), '.local/share/mkcert/pwa/key.pem')),
                       cert: fs.readFileSync(path.join(os.homedir(), '.local/share/mkcert/pwa/cert.pem')) };
-        const handle = handler(ROOT);
+        const handle = handler(ROOT, { search: new Search({ root: SEARCH_ROOT, models: searchModelsFromEnvironment() }) });
         https.createServer(tls, (req, res) => {
             res.on('finish', () => console.log(req.method, new URL(req.url, 'https://localhost').pathname, res.statusCode));
             handle(req, res);

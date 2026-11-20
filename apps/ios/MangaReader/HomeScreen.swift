@@ -10,9 +10,16 @@ import MangaSources
 // and the newest chapters, coloured by where reading stands (read, partly read, locked with
 // its countdown), then "First chapter". The phone's copy shows at once; the site is asked
 // again in the background (and with a pull) and the cards on screen stay where they are.
+// Above the cards, while the PC and its model answer, a search box (HomeSearch): Enter moves
+// the series the PC's model thinks were meant to the top.
 @MainActor
 final class HomeScreen: UIViewController, LiveScreen, UITableViewDataSource, UITableViewDelegate, UITableViewDataSourcePrefetching, HomeCellDelegate {
-    struct State: Codable { var anchor: ScrollAnchor? }
+    struct State: Codable {
+        var anchor: ScrollAnchor?
+        // A search's result on screen, and where Home was before it.
+        var search: SearchResult? = nil
+        var beforeSearch: ScrollAnchor? = nil
+    }
 
     private let app: AppController
     private let table = UITableView(frame: .zero, style: .plain)
@@ -25,11 +32,22 @@ final class HomeScreen: UIViewController, LiveScreen, UITableViewDataSource, UIT
     private var capturedAnchor: ScrollAnchor?
     private var observers: [NotificationObservation] = []
     private var countdown: Timer?
+    private let searchBar = HomeSearchBar()
+    private var search = HomeSearch()
+    private var beforeSearch: ScrollAnchor?
+    private var searchTask: Task<Void, Never>?
+    private var availabilityTask: Task<Void, Never>?
+    private var availabilityCheck = 0
 
     init(app: AppController, state: Data?) {
         self.app = app
         super.init(nibName: nil, bundle: nil)
-        pendingAnchor = state.flatMap { try? JSONDecoder().decode(State.self, from: $0) }?.anchor
+        let saved = state.flatMap { try? JSONDecoder().decode(State.self, from: $0) }
+        pendingAnchor = saved?.anchor
+        if app.search != nil, let result = saved?.search {
+            search = HomeSearch(restoring: result)
+            beforeSearch = saved?.beforeSearch
+        }
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is unused") }
@@ -38,7 +56,10 @@ final class HomeScreen: UIViewController, LiveScreen, UITableViewDataSource, UIT
     override var prefersHomeIndicatorAutoHidden: Bool { true }
 
     var route: Data { (try? JSONEncoder().encode(Route.home)) ?? Data() }
-    func savedState() -> Data? { try? JSONEncoder().encode(State(anchor: pendingAnchor ?? currentAnchor ?? capturedAnchor)) }
+    func savedState() -> Data? {
+        let shown = search.shown
+        return try? JSONEncoder().encode(State(anchor: pendingAnchor ?? currentAnchor ?? capturedAnchor, search: shown, beforeSearch: shown == nil ? nil : beforeSearch))
+    }
     func captureState() {
         guard isViewLoaded, restored, let anchor = currentAnchor else { return }
         capturedAnchor = anchor
@@ -57,6 +78,10 @@ final class HomeScreen: UIViewController, LiveScreen, UITableViewDataSource, UIT
         table.delegate = self
         table.prefetchDataSource = self
         table.register(HomeCell.self, forCellReuseIdentifier: "card")
+        table.keyboardDismissMode = .onDrag
+        searchBar.text = search.shown?.query ?? ""
+        searchBar.onSubmit = { [weak self] text in self?.perform { $0.submit(text) } }
+        searchBar.onEmptied = { [weak self] in self?.perform { $0.emptied() } }
         refresh.tintColor = UIColor(white: 0.6, alpha: 1)
         refresh.addAction(UIAction { [weak self] _ in self?.app.library.refreshCatalog() }, for: .valueChanged)
         table.refreshControl = refresh
@@ -79,10 +104,16 @@ final class HomeScreen: UIViewController, LiveScreen, UITableViewDataSource, UIT
         observers.append(NotificationObservation(name: .coverChanged) { [weak self] _ in
             MainActor.assumeIsolated { if self?.viewIfLoaded?.window != nil { self?.reloadVisible() } }
         })
+        observers.append(NotificationObservation(name: UIApplication.didBecomeActiveNotification) { [weak self] _ in
+            MainActor.assumeIsolated { if self?.viewIfLoaded?.window != nil { self?.checkSearch() } }
+        })
         DebugState.shared.register("home") { [weak self] in
             guard let self else { return [:] }
-            return ["cards": series.count, "offset": table.contentOffset.y, "anchor": currentAnchor.map { ["key": $0.key, "fraction": $0.fraction] } ?? [:]]
+            let phase = switch search.phase { case .hidden: "hidden"; case .ready: "ready"; case .searching: "searching"; case .showing: "showing" }
+            return ["cards": series.count, "offset": table.contentOffset.y, "anchor": currentAnchor.map { ["key": $0.key, "fraction": $0.fraction] } ?? [:],
+                    "search": ["phase": phase, "query": search.shown?.query ?? "", "matches": search.shown?.matches.count ?? 0]]
         }
+        showSearchBar()
         catalogChanged()
     }
 
@@ -94,6 +125,7 @@ final class HomeScreen: UIViewController, LiveScreen, UITableViewDataSource, UIT
             MainActor.assumeIsolated { self?.reloadVisible() }
         }
         footer.probe()
+        checkSearch()
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -116,6 +148,10 @@ final class HomeScreen: UIViewController, LiveScreen, UITableViewDataSource, UIT
             if !restored { table.contentOffset.y = -top }
         }
         message.frame = view.bounds.insetBy(dx: 24, dy: 24)
+        if table.tableHeaderView === searchBar, searchBar.frame.width != view.bounds.width {
+            searchBar.frame = CGRect(x: 0, y: 0, width: view.bounds.width, height: HomeSearchBar.height)
+            table.tableHeaderView = searchBar
+        }
         layoutFooter()
         if widthChanged, let anchor { restore(anchor) }
         restoreIfReady()
@@ -141,8 +177,9 @@ final class HomeScreen: UIViewController, LiveScreen, UITableViewDataSource, UIT
         if library.catalogVersion != shownVersion || series.isEmpty != library.catalog.series.isEmpty {
             shownVersion = library.catalogVersion
             let anchor = restored ? currentAnchor : nil
-            let sameRows = series.map(library.identity) == library.catalog.series.map(library.identity)
-            series = library.catalog.series
+            let ordered = displayed(library.catalog.series)
+            let sameRows = series.map(library.identity) == ordered.map(library.identity)
+            series = ordered
             app.covers.setCatalog(series.map(\.coverUrl))
             if sameRows { reloadVisible() }
             else {
@@ -180,6 +217,111 @@ final class HomeScreen: UIViewController, LiveScreen, UITableViewDataSource, UIT
         if let error, !loading { return "Loaded \(count) series · could not refresh: \(error)" }
         return loading ? "Loaded \(count) series · loading more…" : "Loaded \(count) series"
     }
+
+    // MARK: search
+
+    // The catalog in the order Home shows it: a search's matches first, else the usual order.
+    private func displayed(_ catalog: [HomeSeries]) -> [HomeSeries] {
+        SearchOrder.apply(catalog, search.shown, id: app.library.identity)
+    }
+
+    // Whether to offer search; an answer for an older check is ignored.
+    private func checkSearch() {
+        guard let client = app.search else { return }
+        availabilityCheck += 1
+        let check = availabilityCheck
+        availabilityTask?.cancel()
+        availabilityTask = Task { [weak self] in
+            let offered = await client.available()
+            guard let self, check == availabilityCheck, !Task.isCancelled else { return }
+            perform { $0.availability(offered) }
+        }
+    }
+
+    // Feeds the state machine an event and carries out its effects, in order.
+    private func perform(_ event: (inout HomeSearch) -> [HomeSearch.Effect]) {
+        let effects = event(&search)
+        for effect in effects {
+            switch effect {
+            case .startSearch(let query, let request):
+                startSearch(query, request: request)
+            case .cancelSearch:
+                searchTask?.cancel(); searchTask = nil
+            case .rememberPosition:
+                beforeSearch = currentAnchor ?? capturedAnchor
+            case .order:
+                let library = app.library
+                series = displayed(library.catalog.series)
+                app.covers.setCatalog(series.map(\.coverUrl))
+                table.reloadData()
+                table.layoutIfNeeded()
+            case .scrollToTop:
+                table.setContentOffset(CGPoint(x: 0, y: -table.adjustedContentInset.top), animated: false)
+                updateVisibleCovers()
+            case .returnToPosition:
+                if let anchor = beforeSearch { table.layoutIfNeeded(); restore(anchor) }
+                beforeSearch = nil
+                updateVisibleCovers()
+            case .checkAvailability:
+                checkSearch()
+            }
+        }
+        showSearchBar()
+        if !effects.isEmpty { stateChanged() }
+    }
+
+    private func startSearch(_ query: String, request: Int) {
+        guard let client = app.search else { return }
+        let library = app.library
+        let titles = library.catalog.series.map { (id: library.identity($0), title: $0.title) }
+        searchTask?.cancel()
+        searchTask = Task { [weak self] in
+            do {
+                let matches = try await client.search(query, titles: titles)
+                guard !Task.isCancelled else { return }
+                self?.perform { $0.finished(request: request, matches: matches) }
+            } catch {
+                guard !Task.isCancelled else { return }
+                self?.perform { $0.failed(request: request) }
+            }
+        }
+    }
+
+    // The box shows while search is offered. Adding or removing it keeps the cards on screen
+    // where they are (the anchor at the screen's middle stays put).
+    private func showSearchBar() {
+        searchBar.busy = search.busy
+        let visible = search.offered
+        guard visible != (table.tableHeaderView === searchBar), isViewLoaded else { return }
+        let anchor = restored ? currentAnchor : nil
+        if visible {
+            searchBar.frame = CGRect(x: 0, y: 0, width: view.bounds.width, height: HomeSearchBar.height)
+            table.tableHeaderView = searchBar
+        } else {
+            searchBar.endEditing(true)
+            table.tableHeaderView = nil
+        }
+        table.layoutIfNeeded()
+        if let anchor { restore(anchor) }
+        updateVisibleCovers()
+    }
+
+    #if targetEnvironment(simulator)
+    // Simulator test hooks (AppController): type into the box and press Enter, and where things are.
+    func testSearch(_ text: String) {
+        searchBar.text = text
+        perform { $0.submit(text) }
+    }
+
+    var testSearchState: [String: Any] {
+        let phase = switch search.phase { case .hidden: "hidden"; case .ready: "ready"; case .searching: "searching"; case .showing: "showing" }
+        let rows = (table.indexPathsForVisibleRows ?? []).filter { series.indices.contains($0.row) }
+        let cards = rows.map { ["key": app.library.identity(series[$0.row]), "screenY": Double(table.rectForRow(at: $0).minY - table.contentOffset.y)] as [String: Any] }
+        return ["phase": phase, "box": table.tableHeaderView === searchBar, "busy": search.busy, "query": search.shown?.query ?? "",
+                "matches": search.shown?.matches.map(\.id) ?? [], "order": series.prefix(5).map { app.library.identity($0) },
+                "cards": cards, "offset": Double(table.contentOffset.y), "catalog": series.count]
+    }
+    #endif
 
     // MARK: table
 
@@ -585,5 +727,76 @@ final class HomeFooter: UIView {
             save.isEnabled = true
             setNeedsLayout()
         }
+    }
+}
+
+// MARK: - The search box
+
+// "Search for…": no button. Enter searches; emptying the box (or Enter with nothing typed)
+// restores the usual order. A spinner shows while the PC is asked.
+@MainActor
+final class HomeSearchBar: UIView, UITextFieldDelegate {
+    static let height: CGFloat = 60
+
+    var onSubmit: (String) -> Void = { _ in }
+    var onEmptied: () -> Void = {}
+    var text: String {
+        get { field.text ?? "" }
+        set { field.text = newValue }
+    }
+    var busy = false {
+        didSet {
+            guard busy != oldValue else { return }
+            if busy { spinner.startAnimating() } else { spinner.stopAnimating() }
+        }
+    }
+
+    private let field = UITextField()
+    private let spinner = UIActivityIndicatorView(style: .medium)
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .black
+        field.backgroundColor = UIColor(white: 0.12, alpha: 1)
+        field.layer.cornerRadius = 10
+        field.textColor = .white
+        field.tintColor = UIColor(white: 0.85, alpha: 1)
+        field.font = .systemFont(ofSize: 16)
+        field.attributedPlaceholder = NSAttributedString(string: "Search for…", attributes: [.foregroundColor: UIColor(white: 1, alpha: 0.4)])
+        field.returnKeyType = .search
+        field.enablesReturnKeyAutomatically = false
+        field.autocorrectionType = .no
+        field.autocapitalizationType = .none
+        field.spellCheckingType = .no
+        field.smartQuotesType = .no
+        field.keyboardAppearance = .dark
+        field.clearButtonMode = .never
+        field.leftView = UIView(frame: CGRect(x: 0, y: 0, width: 12, height: 40))
+        field.leftViewMode = .always
+        spinner.color = UIColor(white: 0.7, alpha: 1)
+        spinner.hidesWhenStopped = true
+        let holder = UIView(frame: CGRect(x: 0, y: 0, width: 36, height: 40))
+        spinner.center = CGPoint(x: 16, y: 20)
+        holder.addSubview(spinner)
+        field.rightView = holder
+        field.rightViewMode = .always
+        field.delegate = self
+        field.addAction(UIAction { [weak self] _ in
+            if self?.field.text?.isEmpty ?? true { self?.onEmptied() }
+        }, for: .editingChanged)
+        addSubview(field)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is unused") }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        field.frame = CGRect(x: 12, y: 10, width: bounds.width - 24, height: 40)
+    }
+
+    func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+        textField.resignFirstResponder()
+        onSubmit(textField.text ?? "")
+        return false
     }
 }

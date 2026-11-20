@@ -1,0 +1,24 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "opencode-go/claude-haiku-5-5",
+  "small_model": "opencode-go/glm-5.3-flash",
+  "default_agent": "answer",
+  "enabled_providers": ["opencode-go"],
+  "autoupdate": false,
+  "share": "disabled",
+  "snapshot": false,
+  "plugin": [],
+  "mcp": {},
+  "lsp": false,
+  "formatter": false,
+  "instructions": [],
+  "permission": { "*": "deny" },
+  "agent": {
+    "answer": {
+      "description": "Answers one prompt with text only.",
+      "mode": "primary",
+      "prompt": "Answer the user's message directly with text only. You have no tools.",
+      "permission": { "*": "deny" }
+    }
+  }
+}

@@ -31,8 +31,14 @@ public final class PCRoutes {
         let isHome: Bool
     }
 
+    // Seconds a long request (a Home search, which the PC hands to a language model) may take.
+    static let slowWait: TimeInterval = 150
+
     let home: Route
     let away: Route?
+    // The same addresses for long requests: sessions whose whole-exchange limit is `slowWait`.
+    let homeSlow: Route
+    let awaySlow: Route?
     private let key: String
     private let now: @MainActor () -> Date
     private var homeFailed = Date.distantPast
@@ -51,6 +57,10 @@ public final class PCRoutes {
         let trust = LocalTrust(host: home.host ?? "", certificate: certificate)
         self.home = Route(base: home, http: HTTPClient(.init(trust: trust, connectionsPerHost: 2, requestTimeout: away == nil ? Self.homeAlone : Self.homeWait,
                                                              resourceTimeout: Self.homeAlone, configure: configure)), isHome: true)
+        homeSlow = Route(base: home, http: HTTPClient(.init(trust: trust, connectionsPerHost: 2, requestTimeout: Self.slowWait,
+                                                            resourceTimeout: Self.slowWait, configure: configure)), isHome: true)
+        awaySlow = away.map { Route(base: $0.base, http: HTTPClient(.init(connectionsPerHost: 2, requestTimeout: Self.slowWait,
+                                                                          resourceTimeout: Self.slowWait, configure: configure)), isHome: false) }
     }
 
     // A read: the first address that answers.
@@ -66,6 +76,16 @@ public final class PCRoutes {
         return try await ask(reached.route, resource, method: "PUT", body: body, timeout: reached.route.isHome ? Self.homeAlone : nil)
     }
 
+    // A request that can take long (a Home search): `probe` (a quick read) finds the address that
+    // answers, then the request goes there once, allowed `timeout` seconds. Its failure is the
+    // failure: the address just answered, so a slow answer does not start the 45 s skip.
+    public func slow(_ resource: String, method: String = "GET", body: Data? = nil, probe: String, timeout: TimeInterval) async throws -> HTTPResponse {
+        let reached = try await reach(probe)
+        guard (200..<300).contains(reached.response.status) else { return reached.response }
+        let route = reached.route.isHome ? homeSlow : (awaySlow ?? homeSlow)
+        return try await ask(route, resource, method: method, body: body, timeout: min(timeout, Self.slowWait), marksHome: false)
+    }
+
     private func reach(_ resource: String) async throws -> (response: HTTPResponse, route: Route) {
         guard let away else { return (try await ask(home, resource), home) }
         // A clock set back must not skip home for longer than 45 s.
@@ -76,13 +96,14 @@ public final class PCRoutes {
         return (try await ask(away, resource), away)
     }
 
-    private func ask(_ route: Route, _ resource: String, method: String = "GET", body: Data? = nil, timeout: TimeInterval? = nil) async throws -> HTTPResponse {
+    private func ask(_ route: Route, _ resource: String, method: String = "GET", body: Data? = nil, timeout: TimeInterval? = nil,
+                     marksHome: Bool = true) async throws -> HTTPResponse {
         do {
             return try await route.http.send(HTTPRequest(route.base.appendingPathComponent(resource), method: method,
                                                          headers: ["Content-Type": "application/json", "X-Reader-Backup-Key": key],
                                                          body: body, retry: .never, timeout: timeout, accept: Set(300...599)))
         } catch {
-            if route.isHome, Self.unreachable(error) { homeFailed = now() }
+            if marksHome, route.isHome, Self.unreachable(error) { homeFailed = now() }
             throw error
         }
     }

@@ -18,9 +18,11 @@ private final class PCProtocol: URLProtocol, @unchecked Sendable {
     }
     static let lock = NSLock()
     nonisolated(unsafe) static var answers: [String: Answer] = [:]
+    // Answer bodies by URL; others answer {"from":"<host>"}.
+    nonisolated(unsafe) static var bodies: [String: String] = [:]
     nonisolated(unsafe) static var seen: [Seen] = []
 
-    static func script(_ answers: [String: Answer]) { lock.withLock { self.answers = answers; seen = [] } }
+    static func script(_ answers: [String: Answer], bodies: [String: String] = [:]) { lock.withLock { self.answers = answers; self.bodies = bodies; seen = [] } }
     static func requests() -> [Seen] { lock.withLock { seen } }
 
     override class func canInit(with request: URLRequest) -> Bool { true }
@@ -38,15 +40,15 @@ private final class PCProtocol: URLProtocol, @unchecked Sendable {
             }
             return data
         }
-        let answer = Self.lock.withLock { () -> Answer? in
+        let (answer, reply) = Self.lock.withLock { () -> (Answer?, String?) in
             Self.seen.append(Seen(method: method, url: url.absoluteString, key: request.value(forHTTPHeaderField: "X-Reader-Backup-Key"),
                                   timeout: request.timeoutInterval, body: body))
-            return Self.answers[url.host! + " " + method] ?? Self.answers[url.host!]
+            return (Self.answers[url.host! + " " + method] ?? Self.answers[url.host!], Self.bodies[url.absoluteString])
         }
         switch answer {
         case .status(let status):
             client?.urlProtocol(self, didReceive: HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1", headerFields: [:])!, cacheStoragePolicy: .notAllowed)
-            client?.urlProtocol(self, didLoad: Data("{\"from\":\"\(url.host!)\"}".utf8))
+            client?.urlProtocol(self, didLoad: Data((reply ?? "{\"from\":\"\(url.host!)\"}").utf8))
             client?.urlProtocolDidFinishLoading(self)
         case .failure(let code): client?.urlProtocol(self, didFailWithError: URLError(code))
         case .silence, nil: break
@@ -80,6 +82,10 @@ enum PCRouteChecks {
         do { _ = try await work(); return nil } catch { return error }
     }
 
+    static func thrown(_ work: () async throws -> Void) async -> Error? {
+        do { try await work(); return nil } catch { return error }
+    }
+
     static func run() async throws {
         try await homeFirst()
         try await statusIsFinal()
@@ -88,6 +94,56 @@ enum PCRouteChecks {
         try await cancellationIsNotAFailure()
         try await writesAreSentOnce()
         try await withoutAPublicRoute()
+        try await searchRequests()
+    }
+
+    // Home search (PCSearch): long requests sent once to the address that answered Load/Save's status.
+    static func searchRequests() async throws {
+        let searchStatus = "api/manga-reader/search/asurascans/status", search = "api/manga-reader/search/asurascans"
+        var pc = routes(Clock())
+        var client = PCSearch(routes: pc, provider: "asurascans")
+        expect(pc.homeSlow.http.configuration.resourceTimeout == 150 && pc.awaySlow?.http.configuration.resourceTimeout == 150
+               && pc.homeSlow.http.configuration.trust?.host == home && pc.awaySlow?.http.configuration.trust == nil,
+               "Long requests have their own sessions with 150 s, the bundled CA for home only")
+        PCProtocol.script([home: .status(200), away: .status(200)], bodies: [homeBase + searchStatus: "{\"ready\":true}"])
+        var ready = await client.available()
+        var seen = PCProtocol.requests()
+        expect(ready && seen.map(\.url) == [homeBase + status, homeBase + searchStatus], "At home: Load/Save's status, then search's status at home")
+        expect(seen[1].timeout == 100 && seen[1].key == "fixture-key", "The search status may take 100 s and carries the key")
+
+        PCProtocol.script([home: .status(200), away: .status(200)], bodies: [homeBase + searchStatus: "{\"ready\":false}"])
+        ready = await client.available()
+        expect(!ready, "A PC whose model is not answering does not offer search")
+        PCProtocol.script([home: .status(200), home + " GET": .status(200), away: .status(200)], bodies: [homeBase + searchStatus: "not json"])
+        ready = await client.available()
+        expect(!ready, "An unreadable status does not offer search")
+        PCProtocol.script([home: .failure(.timedOut), away: .failure(.timedOut)])
+        ready = await client.available()
+        expect(!ready, "An unreachable PC does not offer search")
+
+        pc = routes(Clock()); client = PCSearch(routes: pc, provider: "asurascans")
+        PCProtocol.script([home: .failure(.cannotConnectToHost), away: .status(200)],
+                          bodies: [awayBase + search: "{\"matches\":[{\"id\":\"lord\",\"confidence\":95}]}"])
+        let matches = try await client.search("lord levels up", titles: [(id: "lord", title: "The Lord Who Levels Up by Devouring")])
+        seen = PCProtocol.requests()
+        expect(matches == [SearchMatch(id: "lord", confidence: 95)], "Away from home the search answers through the public route")
+        expect(asked() == ["GET home", "GET away", "POST away"] && seen[2].url == awayBase + search && seen[2].timeout == 140, "once, allowed 140 s")
+        let sent = try JSONSerialization.jsonObject(with: seen[2].body ?? Data()) as? [String: Any]
+        expect(sent?["query"] as? String == "lord levels up" && (sent?["titles"] as? [[String: String]])?.first == ["id": "lord", "title": "The Lord Who Levels Up by Devouring"],
+               "It sends the query and the catalog's titles")
+
+        pc = routes(Clock()); client = PCSearch(routes: pc, provider: "asurascans")
+        PCProtocol.script([home: .status(200), home + " POST": .failure(.timedOut), away: .status(200)])
+        let error = await thrown { _ = try await client.search("x", titles: [(id: "a", title: "A")]) }
+        expect((error as? URLError)?.code == .timedOut && asked() == ["GET home", "POST home"], "A search that times out at home is not repeated on the public route")
+        PCProtocol.script([home: .status(200), away: .status(200)])
+        _ = try await pc.get(status)
+        expect(asked() == ["GET home"], "and a slow answer does not start the 45 s skip")
+
+        PCProtocol.script([home: .status(200), home + " POST": .status(503), away: .status(200)])
+        let refused = await thrown { _ = try await client.search("x", titles: [(id: "a", title: "A")]) }
+        expect(refused != nil && asked() == ["GET home", "POST home"], "A refused search (503) is a failure, not an empty result")
+        print("PASS: Home search asks the PC like Load/Save, with long requests sent once")
     }
 
     static func homeFirst() async throws {

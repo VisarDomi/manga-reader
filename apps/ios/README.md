@@ -48,6 +48,16 @@ Home
   at its last page, a newer (unread) one at its top. Locked chapters do not open.
 - The end of the list shows "Loaded N of M series" and, while the PC answers,
   **Load** and **Save**.
+- Above the first card, while the PC answers and its language model says hi, a search box
+  ("Search for…"; no button). Enter sends the text and the catalog's titles to the PC
+  (server/README.md, "Home search"); the series its model thinks were meant move to the top,
+  best first, the rest following in their usual order, and Home shows the top. A spinner shows
+  meanwhile; a new Enter replaces a running search. Emptying the box (or Enter with nothing
+  typed) restores the usual order and the place Home was at before searching. A failed search
+  changes nothing. The box appears and disappears without moving the cards on screen; the
+  keyboard closes on Enter and when the list is dragged. The shown result and the place before
+  it come back after a relaunch. `HomeSearch` (MangaLibrary) is the state machine: hidden,
+  ready, searching, showing; an answer for anything but the current request is ignored.
 
 Reader
 - The series as one vertical strip: the chapter opened, then each newer chapter
@@ -130,11 +140,12 @@ Rules that keep it fast:
 | `Core/Sources/MangaSources/SiteTransfers.swift` | Durable, sequential background image handoff through the same provider gate. |
 | `Core/Sources/MangaLibrary/Downloads.swift` | `MetadataQueue` (screen work before background work), `ChapterSource` (saved chapters and lists first, the site when needed), `ImageFiles` (the only owner of image bytes; cover rechecks). |
 | `Core/Sources/MangaLibrary/Library.swift` | The catalog walk, the download plan, pruning, page sizes recorded from images, positions, the hand-off to iOS's background session and background refresh. |
+| `Core/Sources/MangaLibrary/HomeSearch.swift` | Home search: the `HomeSearch` state machine, `SearchOrder`, `PCSearch` (the PC's search, long requests through `PCRoutes.slow`). |
 | `Core/Sources/MangaLibrary/Store.swift` | Reading progress (`database.json`), saved chapters and lists (`chapters/`), `withNewerChapters`, the catalog as last seen. |
-| `MangaReader/HomeScreen.swift` | Home: cards, chapter colours and taps, status line, Load/Save. |
+| `MangaReader/HomeScreen.swift` | Home: the search box, cards, chapter colours and taps, status line, Load/Save. |
 | `MangaReader/ReaderScreen.swift` | UIKit viewport and session binding. |
 | `MangaReader/ReadingSession.swift` | Reader document, preparation/retries, priority and progress/resume mapping. |
-| `MangaReader/PCSave.swift` | The PC Load/Save client. |
+| `MangaReader/PCSave.swift` | The PC Load/Save client and the PC's address/key (shared with search). |
 | `Core/Package.swift` | The `MangaSources` and `MangaLibrary` modules (see Modules). |
 | `Kit/` | Vendored NativeKit. Do not edit here (see Rules). |
 | `Resources/Info.plist` | The shared Info.plist; the builder sets `READER_PROVIDER`, `READER_DISPLAY_NAME` and `READER_ORIGIN` from `providers.json`. Background fetch, the refresh task ID, local network access for the PC. |
@@ -310,7 +321,8 @@ atomically when it happens.
   shape. Its `tokens` rows are legacy and kept untouched. A file that cannot be read
   is set aside as `database.unreadable-<time>.json`, never overwritten.
 - `positions.json`: the exact point per series (chapter, page, fraction).
-- `navigation.json`: the screen stack. `views.json`, the web version's, is read
+- `navigation.json`: the screen stack (Home's entry keeps its anchor and, while a search is
+  shown, the result and the anchor before it). `views.json`, the web version's, is read
   once when `navigation.json` does not exist yet.
 - `request-limits.json` (rolling request history, provider cooldowns and learned ceilings),
   `background-images.json` (the bounded pending background image plan).
@@ -437,7 +449,7 @@ how to measure them.
   and Yaksha's three were 17000-pixel pages appearing, since drawn in slices
   prepared off the main thread.
 
-## PC Load and Save
+## PC Load, Save and search
 
 Save replaces the PC's copy of this site's reading state with the phone's; Load
 replaces the phone's positions for this site with the PC's, even if older. Other
@@ -445,6 +457,11 @@ sites' positions and the `tokens` rows stay. Load rejects a save holding another
 site's positions or a repeated series; an empty save is a valid Load. Nothing is
 automatic: no merging, polling or background backup. The controls show only while
 the PC answers. The server is in [server/README.md](../../server/README.md).
+
+Search (Home's box) uses the same addresses and key. Its two calls can take long (the PC asks
+a language model): `PCRoutes.slow` first asks Load/Save's quick status to find the address that
+answers, then sends the call there once, on its own session (100 s for the status, 140 s for a
+search). A slow answer at home does not start the 45 s skip below.
 
 The PC is asked at home first and then through its public route, the way Guidance
 does (`PCRoutes` in MangaLibrary): `https://192.168.1.197:7711` for 2 s, and on a

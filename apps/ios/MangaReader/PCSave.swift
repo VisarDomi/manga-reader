@@ -17,16 +17,20 @@ final class PCSave {
     }
     private var operation = Operation.idle
 
+    init(routes: PCRoutes, state: ReadingState) {
+        self.routes = routes
+        self.state = state
+    }
+
     // Native/BackupConfig.json ({url, publicURL, key}: the home address, the public route, the
     // key for both) and the PC's CA (Native/LocalCA.cer) are private build inputs; without the
-    // file there are no PC controls, without `publicURL` none away from home.
-    init?(state: ReadingState) {
+    // file there are no PC controls (Load/Save, search), without `publicURL` none away from home.
+    static func routes() -> PCRoutes? {
         guard let file = Bundle.main.url(forResource: "BackupConfig", withExtension: "json", subdirectory: "Native"),
               let config = (try? JSONSerialization.jsonObject(with: Data(contentsOf: file))) as? [String: Any],
               let url = (config["url"] as? String).flatMap(URL.init(string:)), let key = config["key"] as? String, !key.isEmpty else { return nil }
-        self.state = state
-        routes = PCRoutes(home: url, publicRoute: (config["publicURL"] as? String).flatMap(URL.init(string:)), key: key,
-                          certificate: Bundle.main.url(forResource: "LocalCA", withExtension: "cer", subdirectory: "Native"))
+        return PCRoutes(home: url, publicRoute: (config["publicURL"] as? String).flatMap(URL.init(string:)), key: key,
+                        certificate: Bundle.main.url(forResource: "LocalCA", withExtension: "cer", subdirectory: "Native"))
     }
 
     private var path: String { "api/reader-backups/manual/manga-reader/" + state.provider }

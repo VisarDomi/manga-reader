@@ -42,6 +42,7 @@ struct MangaTests {
         try await readerPairOverridesSavedPosition()
         try await foregroundRevokesBackgroundRefresh()
         try await PCRouteChecks.run()
+        SearchChecks.run()
     }
 
     @MainActor

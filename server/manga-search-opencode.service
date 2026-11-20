@@ -1,0 +1,20 @@
+[Unit]
+Description=Manga Reader Home search: stripped OpenCode server (127.0.0.1:7712)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+# Its own configuration (server/search/opencode.json), state and cache: none of the owner's OpenCode
+# configuration, plugins, MCP servers or instructions. The data folder is the owner's
+# (~/.local/share/opencode): its OpenCode Go login, shared with the owner's own OpenCode and T3 Code.
+# Each search is a short session there, deleted when answered. The script creates its folders and
+# password on first start.
+ExecStart=/bin/sh /home/visar/Documents/work/manga/manga-reader/server/search/opencode-serve.sh
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+UMask=0077
+
+[Install]
+WantedBy=default.target

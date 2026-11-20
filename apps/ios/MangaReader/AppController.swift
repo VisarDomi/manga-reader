@@ -19,7 +19,7 @@ enum Route: Codable, Hashable, Sendable {
 }
 
 // The app: one site (chosen at build time), its catalog, reading progress and downloads
-// (Library), the screens, and the PC's Load and Save.
+// (Library), the screens, and the PC's Load, Save and search.
 @MainActor
 final class AppController {
     static let shared = AppController()
@@ -28,6 +28,8 @@ final class AppController {
     let pipeline = ImagePipeline(memoryLimit: 192 << 20, concurrency: 6)
     lazy var covers = CoverImages(files: library.images, pipeline: pipeline) { [weak library = library] in library?.coverVersion($0) ?? 0 }
     let pc: PCSave?
+    // Home's search box (HomeSearch): offered while the PC answers and its model says hi.
+    let search: PCSearch?
     let root: URL
     private(set) var navigation: LiveNavigationController!
 
@@ -48,7 +50,9 @@ final class AppController {
         let limiter = RequestLimiter(.provider(key), provider: key, file: root.appendingPathComponent("request-limits.json"))
         let provider = Providers.make(key, http: http, limiter: limiter)
         library = Library(provider: provider, root: root, bundleID: Bundle.main.bundleIdentifier ?? "MangaReader", limiter: limiter)
-        pc = PCSave(state: library.state)
+        let routes = PCSave.routes(), state = library.state
+        pc = routes.map { PCSave(routes: $0, state: state) }
+        search = routes.map { PCSearch(routes: $0, provider: state.provider) }
     }
 
     #if targetEnvironment(simulator)
@@ -56,6 +60,7 @@ final class AppController {
         root = checkRoot
         library = Library(provider: provider, root: root, bundleID: "com.visar.MangaReader.fixture")
         pc = nil
+        search = nil
     }
     #endif
 
@@ -99,6 +104,13 @@ final class AppController {
             let start: ReaderStart = query["image"].flatMap(Int.init).map { .image($0) } ?? (query["chapter"] == nil ? .first : .top)
             openReader(series: series, slug: library.slug(series), chapter: query["chapter"], start: start)
             return ["ok": true]
+        }
+        TestHooks.shared.register("search") { [weak self] query in
+            guard let home = self?.navigation.viewControllers.first as? HomeScreen else { return ["error": "home"] }
+            home.testSearch(query["text"] ?? ""); return home.testSearchState
+        }
+        TestHooks.shared.register("search-state") { [weak self] _ in
+            (self?.navigation.viewControllers.first as? HomeScreen)?.testSearchState ?? ["error": "home"]
         }
         TestHooks.shared.register("images") { [weak self] _ in
             guard let self else { return [:] }
