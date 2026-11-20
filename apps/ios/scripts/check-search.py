@@ -10,6 +10,7 @@ screenshots the owner checks the visuals with, and asserts what can be measured:
   4. A relaunch shows the same result.
   5. Emptying the box: the usual order and the place before searching return.
   6. Scrolled to the top: the empty box, "Search for…", above the first card.
+  7. Enter there: the spinner in the box (only while the PC has not cached that query), then results.
 The app is uninstalled afterwards (its data with it).
 """
 import argparse, json, os, pathlib, subprocess, time, urllib.parse, urllib.request
@@ -21,6 +22,8 @@ p.add_argument('--output', required=True)
 p.add_argument('--bundle', default='com.visar.ScytheReader')
 p.add_argument('--query', default='the dragon who wants no more kids')
 p.add_argument('--expect', default='shut-up-malevolent-dragon-i-dont-want-to-have-any-more-children-with-you')
+# Searched from the top for the spinner's picture; a query the PC has cached answers too fast to see it.
+p.add_argument('--spinner-query', default='the archmage who opens a restaurant')
 a = p.parse_args()
 if not os.environ.get('IOS_WORKLOAD_ACTIVE'):
     raise SystemExit('Run inside the shared simulator workload guard')
@@ -134,6 +137,13 @@ try:
     # 6. The empty box at the top ("Search for…"), above the first card: the top is where a result scrolled to.
     report['top'] = hook('/scroll?y=%s' % shown['offset'])
     shot('6-empty-box-at-top')
+
+    # 7. Enter from the top, as typed: the spinner in the box while the PC is asked.
+    spinning = hook('/action?name=search&text=' + urllib.parse.quote(a.spinner_query))
+    shot('7-spinner-in-box')
+    report['spinner'] = {'busyAtScreenshot': state()['busy'] or spinning['busy']}
+    wait_for(lambda s: s['phase'] == 'showing', 150, every=0.25)
+    shot('8-spinner-query-results')
     report['pass'] = True
     print('PASS: box arrives without moving cards, spinner, matches at the top, kept across relaunch, cleared back in place')
 finally:

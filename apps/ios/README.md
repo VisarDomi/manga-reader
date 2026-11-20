@@ -596,7 +596,8 @@ Home search's visual check is `scripts/check-search.py --device UUID --app APP -
 the same way on an unsuffixed `SIMULATOR=1` Scythe build. It uses the real site and the real PC
 search (a few searches, a fraction of a cent) and saves a screenshot per step: the box arriving
 mid-list without moving the cards (measured), the spinner, the matches at the top, the result after
-a relaunch, the usual order and place back after emptying the box, and the empty box at the top.
+a relaunch, the usual order and place back after emptying the box, the empty box at the top, and
+the spinner in the box for a search typed there (only visible for a query the PC has not cached).
 It uninstalls the app afterwards.
 
 The offline reader check is `scripts/check-reader.py --device UUID --app APP --output DIR`,
