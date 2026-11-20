@@ -209,7 +209,8 @@ final class HomeScreen: UIViewController, LiveScreen, UITableViewDataSource, UIT
     private func configure(_ cell: HomeCell, row: Int) {
         let entry = series[row]
         let id = app.library.identity(entry)
-        cell.configure(entry, progress: app.library.state.progress(id), app: app, delegate: self)
+        cell.configure(entry, progress: app.library.state.progress(id), confidence: search.shown?.matches.first { $0.id == id }?.confidence,
+                       app: app, delegate: self)
     }
 
     private func statusText(loaded: Int, total: Int?, loading: Bool, error: String?) -> String {
@@ -453,6 +454,8 @@ final class HomeCell: UITableViewCell {
     private var rows: [ChapterRow] = []
     private let first = ChapterRow()
     private let empty = UILabel()
+    // A search's confidence that this is the series meant, top right ("95%"); hidden otherwise.
+    private let confidence = UILabel()
     private var ticket: ImageTicket?
     private var coverKey: String?
     private var coverURL: String?
@@ -483,6 +486,14 @@ final class HomeCell: UITableViewCell {
         empty.font = .systemFont(ofSize: 12)
         empty.textColor = UIColor(white: 1, alpha: 0.38)
         contentView.addSubview(empty)
+        confidence.font = .monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
+        confidence.textColor = UIColor(white: 1, alpha: 0.85)
+        confidence.backgroundColor = UIColor(white: 0.17, alpha: 1)
+        confidence.textAlignment = .center
+        confidence.layer.cornerRadius = 9
+        confidence.clipsToBounds = true
+        confidence.isHidden = true
+        contentView.addSubview(confidence)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is unused") }
@@ -495,9 +506,11 @@ final class HomeCell: UITableViewCell {
 
     private func open(_ target: Target) { delegate?.card(self, opened: target) }
 
-    func configure(_ series: HomeSeries, progress: MangaLibrary.Progress?, app: AppController, delegate: HomeCellDelegate) {
+    func configure(_ series: HomeSeries, progress: MangaLibrary.Progress?, confidence: Int?, app: AppController, delegate: HomeCellDelegate) {
         self.series = series
         self.delegate = delegate
+        self.confidence.text = confidence.map { "\($0)%" }
+        self.confidence.isHidden = confidence == nil
         let ids = series.chapters.map(\.chapterId)
         let saved = progress.flatMap { ids.firstIndex(of: $0.chapterId) }
         for (index, row) in rows.enumerated() {
@@ -562,6 +575,11 @@ final class HomeCell: UITableViewCell {
             y += 27
         }
         first.frame = CGRect(x: x, y: y, width: width, height: 21)
+        if !confidence.isHidden {
+            // Above the chapter lines, which start at least 22 points down.
+            let badge = ceil(confidence.intrinsicContentSize.width) + 14
+            confidence.frame = CGRect(x: bounds.width - 16 - badge, y: 0, width: badge, height: 18)
+        }
     }
 }
 

@@ -51,7 +51,8 @@ Home
 - Above the first card, while the PC answers and its language model says hi, a search box
   ("Search for…"; no button). Enter sends the text and the catalog's titles to the PC
   (server/README.md, "Home search"); the series its model thinks were meant move to the top,
-  best first, the rest following in their usual order, and Home shows the top. A spinner shows
+  best first, each with its confidence as a percentage at the card's top right ("95%"), the
+  rest following in their usual order without one, and Home shows the top. A spinner shows
   meanwhile; a new Enter replaces a running search. Emptying the box (or Enter with nothing
   typed) restores the usual order and the place Home was at before searching. A failed search
   changes nothing. The box appears and disappears without moving the cards on screen; the
