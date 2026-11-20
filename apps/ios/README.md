@@ -56,8 +56,8 @@ Home
   meanwhile; a new Enter replaces a running search. Emptying the box (or Enter with nothing
   typed) restores the usual order and the place Home was at before searching. A failed search
   changes nothing. The box appears and disappears without moving the cards on screen; the
-  keyboard closes on Enter and when the list is dragged. The shown result and the place before
-  it come back after a relaunch. `HomeSearch` (MangaLibrary) is the state machine: hidden,
+  keyboard closes on Enter, when the list is dragged and when the box is emptied. The shown
+  result and the place before it come back after a relaunch. `HomeSearch` (MangaLibrary) is the state machine: hidden,
   ready, searching, showing; an answer for anything but the current request is ignored.
 
 Reader

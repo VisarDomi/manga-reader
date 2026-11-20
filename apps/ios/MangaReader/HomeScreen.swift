@@ -799,8 +799,11 @@ final class HomeSearchBar: UIView, UITextFieldDelegate {
         field.rightView = holder
         field.rightViewMode = .always
         field.delegate = self
+        // Emptied by typing (backspace, cut): the search is over, so the keyboard goes too.
         field.addAction(UIAction { [weak self] _ in
-            if self?.field.text?.isEmpty ?? true { self?.onEmptied() }
+            guard let self, self.field.text?.isEmpty ?? true else { return }
+            self.field.resignFirstResponder()
+            self.onEmptied()
         }, for: .editingChanged)
         addSubview(field)
     }
