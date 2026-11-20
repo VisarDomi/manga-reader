@@ -592,6 +592,13 @@ requires a correction, push that correction before simulating again. Keep model
 checks and native compilation/signing, but do not make simulator availability a
 prerequisite for delivering an update.
 
+Home search's visual check is `scripts/check-search.py --device UUID --app APP --output DIR`, run
+the same way on an unsuffixed `SIMULATOR=1` Scythe build. It uses the real site and the real PC
+search (a few searches, a fraction of a cent) and saves a screenshot per step: the box arriving
+mid-list without moving the cards (measured), the spinner, the matches at the top, the result after
+a relaunch, the usual order and place back after emptying the box, and the empty box at the top.
+It uninstalls the app afterwards.
+
 The offline reader check is `scripts/check-reader.py --device UUID --app APP --output DIR`,
 run on the Mac inside the shared `mac-workload simulator` guard after building with
 all guests shut down. It reuses the shared iPhone, installs only the unsuffixed
