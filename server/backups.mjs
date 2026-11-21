@@ -58,6 +58,7 @@ export class MangaState {
 }
 
 function send(res, status, value) {
+    if (value?.error) res.reason = value.error;  // in the log line: the reason, not just the status
     if (value === undefined) res.writeHead(status).end();
     else res.writeHead(status, { 'Content-Type': 'application/json' }).end(JSON.stringify(value));
 }
@@ -145,7 +146,7 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
                       cert: fs.readFileSync(path.join(os.homedir(), '.local/share/mkcert/pwa/cert.pem')) };
         const handle = handler(ROOT, { search: new Search({ root: SEARCH_ROOT, models: searchModelsFromEnvironment() }) });
         https.createServer(tls, (req, res) => {
-            res.on('finish', () => console.log(req.method, new URL(req.url, 'https://localhost').pathname, res.statusCode));
+            res.on('finish', () => console.log(req.method, new URL(req.url, 'https://localhost').pathname, res.statusCode, ...(res.reason ? [res.reason] : [])));
             handle(req, res);
         }).listen(PORT, '0.0.0.0', () => console.log('Manga Reader Load/Save on port ' + PORT));
     }

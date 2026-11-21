@@ -84,15 +84,22 @@ export function parseReply(text, ordered) {
     return result;
 }
 
-function validate(query, titles) {
+// The phone sends the site's catalog as it is, and a site can list an entry no search can use
+// (EzScans lists a series with an empty slug). Such entries (no id, a blank title, too long, a
+// repeated id) are left out rather than failing the whole search; only a request with nothing
+// usable in it is invalid.
+function usableTitles(query, titles) {
     if (typeof query !== 'string' || !query.trim() || query.length > MAX_QUERY) throw new SearchInputError('Invalid query');
-    if (!Array.isArray(titles) || titles.length === 0 || titles.length > MAX_TITLES) throw new SearchInputError('Invalid titles');
-    const ids = new Set();
+    if (!Array.isArray(titles) || titles.length > MAX_TITLES) throw new SearchInputError('Invalid titles');
+    const ids = new Set(), usable = [];
     for (const entry of titles) {
         if (typeof entry?.id !== 'string' || !entry.id || entry.id.length > MAX_ID || ids.has(entry.id)
-            || typeof entry.title !== 'string' || !entry.title.trim() || entry.title.length > MAX_TITLE) throw new SearchInputError('Invalid titles');
+            || typeof entry.title !== 'string' || !entry.title.trim() || entry.title.length > MAX_TITLE) continue;
         ids.add(entry.id);
+        usable.push({ id: entry.id, title: entry.title.trim() });
     }
+    if (usable.length === 0) throw new SearchInputError('No usable titles');
+    return usable;
 }
 
 export class Search {
@@ -152,8 +159,7 @@ export class Search {
 
     /** { matches: [{ id, confidence }] }, best first. */
     async search(provider, query, titles) {
-        validate(query, titles);
-        const ordered = orderTitles(titles.map(({ id, title }) => ({ id, title: title.trim() })));
+        const ordered = orderTitles(usableTitles(query, titles));
         const normalized = normalizeQuery(query);
         const key = createHash('sha256').update(JSON.stringify([provider, normalized, ordered.map(entry => [entry.id, entry.title])])).digest('hex');
         const cached = this.cache.get(key);

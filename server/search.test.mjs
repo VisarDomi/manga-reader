@@ -60,7 +60,7 @@ test('search: validated, cached durably by query and title set, shared while run
     let release;
     const main = { name: 'haiku', asked: 0, async ask() { this.asked++; await new Promise(resolve => { release = resolve; }); return '{"matches":[{"i":1,"c":95}]}'; } };
     const search = new Search({ root, models: [main, model('deepseek')] });
-    for (const [query, list] of [['', titles], ['x'.repeat(201), titles], ['ok', []], ['ok', [{ id: 'a', title: '' }]], ['ok', [titles[0], titles[0]]], [3, titles]]) {
+    for (const [query, list] of [['', titles], ['x'.repeat(201), titles], ['ok', []], ['ok', [{ id: 'a', title: '' }]], ['ok', [{ id: '', title: 'x' }]], [3, titles]]) {
         await assert.rejects(search.search('qimanga', query, list), SearchInputError);
     }
     const running = [search.search('qimanga', 'Mount  HUA', titles), search.search('qimanga', 'mount hua', [...titles].reverse())];
@@ -143,4 +143,13 @@ test('OpenCode: one session per question with the tool-less agent and no permiss
     reply = 'hang';
     await assert.rejects(opencode.ask('x', { timeout: 300 }), ModelUnavailable);
     assert.deepEqual(calls.slice(-2).map(c => `${c.method} ${c.url}`), ['POST /api/session/ses_1/interrupt', 'DELETE /api/session/ses_1']);
+});
+
+test('search: entries no search can use are left out, not a failed search (EzScans lists a series with an empty slug)', async () => {
+    let prompt;
+    const main = { name: 'haiku', async ask(text) { prompt = text; return '{"matches":[{"i":1,"c":90}]}'; } };
+    const search = new Search({ root: temporary(), models: [main] });
+    const listed = [...titles, { id: '', title: '숨은 신록 끝에서' }, { id: 'd', title: '  ' }, titles[1], { id: 'e', title: 'x'.repeat(401) }];
+    assert.deepEqual(await search.search('ezmanga', 'mount hua', listed), await new Search({ root: temporary(), models: [main] }).search('ezmanga', 'mount hua', titles));
+    assert.ok(!prompt.includes('숨은') && !prompt.includes('x'.repeat(401)));
 });

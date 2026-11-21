@@ -54,6 +54,12 @@ same process and key as Load/Save:
   `{"matches": [{"id", "confidence"}]}`, best first, at most 20, only ids that were sent. 400 for
   a malformed request, 503 when neither model answers usefully. A reply that is not the asked-for
   JSON fails that search but does not take the model offline.
+- **Pitfall: the titles are the site's catalog as it is, and sites list junk.** EzScans lists a
+  series with an empty slug; when one bad entry made the whole request a 400, EzScans' search
+  failed every time while the other six worked (November 21). Entries no search can use (empty
+  id, blank title, too long, a repeated id) are now left out; only a request with nothing usable
+  is a 400. Validate per entry, never per request, for anything taken from a site. The log line
+  of a refused request carries its reason (`journalctl --user -u manga-reader-backups.service`).
 - The same query (trimmed, lower case) on the same set of titles is answered from
   `~/.local/share/manga-reader/search/cache.json` (500 entries, written durably) without asking a
   model. Titles are sorted before the prompt, so catalog order does not matter.
@@ -86,6 +92,7 @@ The models are reached through a stripped OpenCode server, `manga-search-opencod
   (environment `services/hetzner-pc/pc_apps.py`).
 
 ```sh
+journalctl --user -u manga-reader-backups.service -n 50 --no-pager   # each request, and why a refused one was
 systemctl --user status manga-search-opencode.service --no-pager
 journalctl --user -u manga-search-opencode.service -n 50 --no-pager
 npm run test:server        # Load/Save and search, with stand-in models and a stand-in OpenCode
